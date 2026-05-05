@@ -54,6 +54,12 @@ const aiActions = [
   { title: 'Revisar conversación negativa: Miguel Torres', cta: 'Ver', event: 'invoice_overdue' as const, icon: <AlertTriangle className="h-3.5 w-3.5" /> },
 ]
 
+const workspaceSignals = [
+  { label: 'SLA respuesta IA', value: '1m 48s', detail: 'mejor que ayer', tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+  { label: 'Pipeline caliente', value: '27 leads', detail: 'score superior a 80', tone: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
+  { label: 'Cobros en riesgo', value: '3 facturas', detail: 'recordatorio listo', tone: 'text-amber-600 bg-amber-50 border-amber-100' },
+]
+
 export default function DashboardPage() {
   const router = useRouter()
   const [activity, setActivity] = useState(recentActivity)
@@ -87,17 +93,31 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Buenos días, NowCRM</h2>
+          <h2 className="text-2xl font-bold text-gray-950">Buenos días, NowCRM</h2>
           <p className="text-sm text-gray-500">Martes, 5 de mayo de 2026 · Todo marcha bien</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>
           <Plus className="h-3.5 w-3.5" />
           Nuevo cliente
         </Button>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        {workspaceSignals.map((signal) => (
+          <div key={signal.label} className={cn('rounded-xl border px-4 py-3', signal.tone)}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium opacity-80">{signal.label}</p>
+                <p className="mt-0.5 text-lg font-bold">{signal.value}</p>
+              </div>
+              <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold text-gray-600 shadow-sm">{signal.detail}</span>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Metrics */}
@@ -108,7 +128,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Insights + Activity */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
         <SectionCard title="Insights de IA" description="Recomendaciones generadas automáticamente" action={<Badge variant="indigo" dot>{aiInsights.length} alertas</Badge>}>
           <ul className="space-y-3">
             {aiInsights.map((insight) => {
@@ -138,7 +158,7 @@ export default function DashboardPage() {
           </ul>
         </SectionCard>
 
-        <SectionCard title="Actividad reciente" description="Últimas acciones del sistema" action={<button className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver todo</button>}>
+        <SectionCard title="Actividad reciente" description="Últimas acciones del sistema" action={<button onClick={() => toast.info('Historial completo próximamente')} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver todo</button>}>
           <ul className="space-y-1">
             {activity.map((item) => (
               <li key={item.id} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-gray-50 transition-colors">
@@ -156,9 +176,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Chart + Channels + AI Actions */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SectionCard className="lg:col-span-2" title="Leads por canal" description="Esta semana" action={<Button variant="ghost" size="sm" onClick={() => toast.info('Exportando datos...')}><Activity className="h-3.5 w-3.5" />Exportar</Button>}>
-          <ResponsiveContainer width="100%" height={220}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <SectionCard title="Leads por canal" description="Esta semana" action={<Button variant="ghost" size="sm" onClick={() => toast.info('Exportando datos...')}><Activity className="h-3.5 w-3.5" />Exportar</Button>}>
+          <ResponsiveContainer width="100%" height={245}>
             <BarChart data={weeklyLeads} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />

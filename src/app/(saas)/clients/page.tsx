@@ -66,6 +66,14 @@ export default function ClientsPage() {
     lead: clientList.filter((c) => c.status === 'lead').length,
     inactive: clientList.filter((c) => c.status === 'inactive').length,
   }
+  const hasFilters = search || channelFilter !== 'Todos' || statusFilter !== 'Todos'
+
+  const clearFilters = () => {
+    setSearch('')
+    setChannelFilter('Todos')
+    setStatusFilter('Todos')
+    toast.success('Filtros restablecidos')
+  }
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.email.trim()) {
@@ -98,7 +106,7 @@ export default function ClientsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Clientes"
-        description={`${clientList.length} clientes en total`}
+        description={`${filtered.length} visibles de ${clientList.length} clientes`}
         action={
           <Button size="sm" onClick={() => setModalOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
@@ -108,14 +116,14 @@ export default function ClientsPage() {
       />
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
           { label: 'Total clientes', value: stats.total, color: 'text-gray-900' },
           { label: 'Activos', value: stats.active, color: 'text-emerald-600' },
           { label: 'Leads', value: stats.lead, color: 'text-indigo-600' },
           { label: 'Inactivos', value: stats.inactive, color: 'text-gray-400' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl bg-white border border-gray-100 shadow-sm p-4">
+          <div key={label} className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100">
             <p className="text-xs text-gray-500">{label}</p>
             <p className={cn('text-2xl font-bold mt-1', color)}>{value}</p>
           </div>
@@ -124,17 +132,26 @@ export default function ClientsPage() {
 
       <SectionCard
         title="Todos los clientes"
+        description="Pipeline comercial, canales y estado de cada cuenta"
         noPadding
         action={
-          <Button variant="ghost" size="sm" onClick={() => toast.info('Filtros avanzados próximamente')}>
-            <Filter className="h-3.5 w-3.5" />
-            Filtros
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5" />
+                Limpiar
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => toast.info('Filtros avanzados próximamente')}>
+              <Filter className="h-3.5 w-3.5" />
+              Filtros
+            </Button>
+          </div>
         }
       >
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-5 py-3">
-          <div className="relative flex-1 min-w-48">
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-gray-50/50 px-5 py-3">
+          <div className="relative min-w-56 flex-1">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
               type="text"
@@ -144,7 +161,7 @@ export default function ClientsPage() {
               className="h-8 w-full rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {channels.map((ch) => (
               <button
                 key={ch}
@@ -158,7 +175,7 @@ export default function ClientsPage() {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {statuses.map((s) => (
               <button
                 key={s}
@@ -179,12 +196,12 @@ export default function ClientsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">Cliente</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">Canal</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">Estado</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">Lead Score</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">Última actividad</th>
-                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400">Acciones</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Cliente</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Canal</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Estado</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Lead Score</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Última actividad</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase text-gray-400">Acciones</th>
               </tr>
             </thead>
             <tbody>

@@ -26,13 +26,13 @@ const emailStatusConfig: Record<AutomationEmailStatus, { label: string; variant:
 }
 
 const emailFlowSteps = [
-  { type: 'trigger', label: 'Trigger', description: 'Nuevo lead', color: 'bg-indigo-600 text-white' },
-  { type: 'email', label: 'Email 1', description: 'Bienvenida', color: 'bg-blue-50 border border-blue-200 text-blue-700' },
-  { type: 'wait', label: 'Espera', description: '2 días', color: 'bg-gray-100 text-gray-600' },
-  { type: 'email', label: 'Email 2', description: 'Recursos', color: 'bg-blue-50 border border-blue-200 text-blue-700' },
-  { type: 'wait', label: 'Espera', description: '3 días', color: 'bg-gray-100 text-gray-600' },
-  { type: 'email', label: 'Email 3', description: 'Oferta', color: 'bg-blue-50 border border-blue-200 text-blue-700' },
-  { type: 'end', label: 'Fin', description: 'Convertido', color: 'bg-emerald-500 text-white' },
+  { type: 'trigger', label: 'Trigger', description: 'Nuevo lead', icon: <Zap className="h-4 w-4" />, color: 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20' },
+  { type: 'email', label: 'Email 1', description: 'Bienvenida', icon: <Mail className="h-4 w-4" />, color: 'bg-blue-50 border border-blue-200 text-blue-700' },
+  { type: 'wait', label: 'Espera', description: '2 días', icon: <Clock className="h-4 w-4" />, color: 'bg-gray-100 border border-gray-200 text-gray-600' },
+  { type: 'email', label: 'Email 2', description: 'Recursos', icon: <Mail className="h-4 w-4" />, color: 'bg-blue-50 border border-blue-200 text-blue-700' },
+  { type: 'wait', label: 'Espera', description: '3 días', icon: <Clock className="h-4 w-4" />, color: 'bg-gray-100 border border-gray-200 text-gray-600' },
+  { type: 'email', label: 'Email 3', description: 'Oferta', icon: <Mail className="h-4 w-4" />, color: 'bg-blue-50 border border-blue-200 text-blue-700' },
+  { type: 'end', label: 'Fin', description: 'Convertido', icon: <CheckCircle className="h-4 w-4" />, color: 'bg-emerald-500 text-white shadow-sm shadow-emerald-600/20' },
 ]
 
 const n8nWebhooks = [
@@ -87,13 +87,13 @@ export default function AutomationsPage() {
       />
 
       {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {[
           { label: 'Emails enviados este mes', value: '2.614', icon: <Mail className="h-4 w-4" />, color: 'text-indigo-600 bg-indigo-50' },
           { label: 'Tasa apertura media', value: '63,5%', icon: <BarChart2 className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' },
           { label: 'Conversiones totales', value: '596', icon: <CheckCircle className="h-4 w-4" />, color: 'text-violet-600 bg-violet-50' },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="flex items-center gap-4 rounded-xl bg-white border border-gray-100 shadow-sm p-5">
+          <div key={label} className="flex items-center gap-4 rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03]">
             <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', color)}>{icon}</div>
             <div>
               <p className="text-xs text-gray-500">{label}</p>
@@ -177,8 +177,8 @@ export default function AutomationsPage() {
         <div className="flex items-center gap-0 overflow-x-auto pb-2">
           {emailFlowSteps.map((step, i) => (
             <div key={i} className="flex items-center shrink-0">
-              <div className={cn('flex flex-col items-center justify-center rounded-xl px-4 py-3 min-w-[90px] text-center', step.color)}>
-                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{step.type === 'wait' ? '⏱' : step.type === 'email' ? '✉' : step.type === 'trigger' ? '⚡' : '✓'}</span>
+              <div className={cn('flex min-w-[98px] flex-col items-center justify-center rounded-xl px-4 py-3 text-center', step.color)}>
+                <span className="opacity-80">{step.icon}</span>
                 <span className="text-xs font-bold mt-1">{step.label}</span>
                 <span className="text-[10px] mt-0.5 opacity-80">{step.description}</span>
               </div>
@@ -206,11 +206,18 @@ export default function AutomationsPage() {
           </a>
         }
       >
-        <div className="mb-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 flex items-start gap-3">
-          <Zap className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-xs font-semibold text-amber-900">Configuración pendiente</p>
-            <p className="text-[11px] text-amber-700 mt-0.5">Añade la URL base de tu instancia n8n en <span className="font-mono">NEXT_PUBLIC_N8N_BASE_URL</span> para activar los webhooks reales.</p>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_220px]">
+          <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <Zap className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-amber-900">Configuración pendiente</p>
+              <p className="text-[11px] text-amber-700 mt-0.5">Añade la URL base de tu instancia n8n en <span className="font-mono">NEXT_PUBLIC_N8N_BASE_URL</span> para activar los webhooks reales.</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+            <p className="text-xs font-semibold text-indigo-900">Modo actual</p>
+            <p className="mt-1 text-lg font-bold text-indigo-700">Simulado</p>
+            <p className="text-[11px] text-indigo-700">Los disparos muestran feedback sin llamar a n8n real.</p>
           </div>
         </div>
 
@@ -225,9 +232,10 @@ export default function AutomationsPage() {
               <Badge variant={wh.active ? 'success' : 'default'}>{wh.active ? 'Activo' : 'Inactivo'}</Badge>
               <button
                 onClick={() => copyUrl(wh.url)}
+                title={copiedUrl === wh.url ? 'Copiado' : 'Copiar URL'}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-gray-600 transition-colors"
               >
-                <Copy className="h-3 w-3" />
+                {copiedUrl === wh.url ? <CheckCircle className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
               </button>
             </div>
           ))}
@@ -241,7 +249,7 @@ export default function AutomationsPage() {
             <thead>
               <tr className="border-b border-gray-100">
                 {['Destinatario', 'Asunto', 'Automatización', 'Enviado', 'Estado'].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">{h}</th>
+                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>

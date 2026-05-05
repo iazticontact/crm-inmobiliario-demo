@@ -43,7 +43,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-100 bg-white">
+    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-200/70 bg-white">
       {/* Brand */}
       <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-gray-100 px-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-sm">
@@ -67,7 +67,7 @@ export function Sidebar() {
                   href={item.href}
                   className={cn(
                     'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
-                    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    isActive ? 'bg-indigo-50 text-indigo-700 shadow-sm shadow-indigo-950/[0.03]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   )}
                 >
                   <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-indigo-600' : 'text-gray-400')} />

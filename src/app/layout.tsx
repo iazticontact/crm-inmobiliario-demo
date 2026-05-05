@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="h-full font-sans antialiased">
         {children}
-        <Toaster position="top-right" richColors closeButton />
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   )

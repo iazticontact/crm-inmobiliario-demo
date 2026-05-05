@@ -12,14 +12,14 @@ type SectionCardProps = {
 
 export function SectionCard({ title, description, action, children, className, bodyClassName, noPadding }: SectionCardProps) {
   return (
-    <div className={cn('bg-white rounded-xl border border-gray-100 shadow-sm', className)}>
+    <div className={cn('rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.03]', className)}>
       {(title || action) && (
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
-          <div>
+        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-3.5">
+          <div className="min-w-0">
             {title && <h2 className="text-sm font-semibold text-gray-900">{title}</h2>}
             {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
           </div>
-          {action && <div className="flex items-center gap-2">{action}</div>}
+          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
         </div>
       )}
       <div className={cn(!noPadding && 'p-5', bodyClassName)}>{children}</div>

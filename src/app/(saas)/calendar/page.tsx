@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Clock, User, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Clock, User, X, Phone } from 'lucide-react'
 import { toast } from 'sonner'
+import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { calendarEvents as initialEvents } from '@/lib/mock-data'
@@ -79,8 +80,37 @@ export default function CalendarPage() {
     })
   }
 
+  const openCallModal = () => {
+    setForm({ ...emptyEventForm, date: selectedDate, type: 'call', title: 'Llamada de seguimiento' })
+    setModalOpen(true)
+  }
+
   return (
-    <div className="flex gap-5 h-full" style={{ height: 'calc(100vh - 7rem)' }}>
+    <div className="space-y-4">
+      <PageHeader
+        title="Calendario"
+        description="Semana comercial, llamadas y demos programadas"
+        action={
+          <div className="flex items-center gap-3">
+            <div className="hidden items-center gap-1 xl:flex">
+              {(Object.keys(eventTypeConfig) as EventType[]).map((type) => {
+                const cfg = eventTypeConfig[type]
+                return (
+                  <Badge key={type} variant={eventVariant[type]} className="text-[10px]">
+                    {cfg.label}
+                  </Badge>
+                )
+              })}
+            </div>
+            <Button size="sm" onClick={openCallModal}>
+              <Phone className="h-3.5 w-3.5" />
+              Agendar llamada
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="flex gap-5" style={{ height: 'calc(100vh - 11rem)' }}>
       {/* Left panel */}
       <aside className="flex w-64 shrink-0 flex-col gap-4">
         {/* Mini calendar */}
@@ -259,18 +289,6 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Event type legend */}
-      <div className="flex flex-col gap-1 justify-start pt-0.5">
-        {(Object.keys(eventTypeConfig) as EventType[]).map((type) => {
-          const cfg = eventTypeConfig[type]
-          return (
-            <Badge key={type} variant={eventVariant[type]} className="text-[10px]">
-              {cfg.label}
-            </Badge>
-          )
-        })}
-      </div>
-
       {/* New event modal */}
       {modalOpen && (
         <div
@@ -380,6 +398,7 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

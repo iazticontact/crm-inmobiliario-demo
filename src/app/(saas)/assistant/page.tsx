@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Send, Phone, Mail, Bot, MessageSquare, Target, ArrowRight, Search, CheckCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
@@ -24,6 +24,12 @@ const leadScores: Record<string, number> = { '1': 92, '2': 74, '3': 88, '4': 96,
 
 const leadScoreColor = (score: number) =>
   score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-red-500'
+
+const assistantStats = [
+  { label: 'Conversaciones activas', value: '5', detail: '3 sin leer', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
+  { label: 'Resueltas por IA', value: '89%', detail: 'hoy', icon: <Bot className="h-4 w-4" />, tone: 'text-violet-600 bg-violet-50' },
+  { label: 'Lead score medio', value: '82', detail: 'alta intención', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
+]
 
 function generateAIResponse(msg: string): string {
   const l = msg.toLowerCase()
@@ -54,7 +60,7 @@ export default function AssistantPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const selected = conversations.find((c) => c.id === selectedId)!
-  const msgs = localMessages[selectedId] ?? []
+  const msgs = useMemo(() => localMessages[selectedId] ?? [], [localMessages, selectedId])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -119,9 +125,25 @@ export default function AssistantPage() {
   const score = leadScores[selectedId] ?? 70
 
   return (
-    <div className="flex gap-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-white" style={{ height: 'calc(100vh - 7rem)' }}>
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-3">
+        {assistantStats.map(({ label, value, detail, icon, tone }) => (
+          <div key={label} className="flex items-center gap-3 rounded-xl border border-gray-200/70 bg-white px-4 py-3 shadow-sm shadow-gray-950/[0.03]">
+            <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl', tone)}>{icon}</div>
+            <div>
+              <p className="text-xs text-gray-500">{label}</p>
+              <div className="flex items-baseline gap-2">
+                <p className="text-lg font-bold text-gray-950">{value}</p>
+                <span className="text-[11px] text-gray-400">{detail}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-0 overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.03]" style={{ height: 'calc(100vh - 11.5rem)' }}>
       {/* Conversation list */}
-      <aside className="flex w-72 shrink-0 flex-col border-r border-gray-100">
+      <aside className="flex w-80 shrink-0 flex-col border-r border-gray-100">
         <div className="border-b border-gray-100 p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -228,7 +250,7 @@ export default function AssistantPage() {
       </div>
 
       {/* AI Analysis panel */}
-      <aside className="w-64 shrink-0 border-l border-gray-100 overflow-y-auto">
+      <aside className="w-72 shrink-0 border-l border-gray-100 overflow-y-auto">
         <div className="border-b border-gray-100 px-4 py-3.5">
           <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-600" /><h3 className="text-sm font-semibold text-gray-900">Análisis IA</h3></div>
         </div>
@@ -250,19 +272,19 @@ export default function AssistantPage() {
           </div>
 
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Sentimiento</p>
+            <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Sentimiento</p>
             <Badge variant={sentimentConfig[selected.sentiment].variant} dot className="text-xs">{sentimentConfig[selected.sentiment].label}</Badge>
           </div>
 
           {selected.intent && (
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Intención detectada</p>
+              <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Intención detectada</p>
               <div className="rounded-lg bg-blue-50 px-3 py-2"><span className="text-xs font-medium text-blue-700">{selected.intent}</span></div>
             </div>
           )}
 
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Recomendación IA</p>
+            <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Recomendación IA</p>
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
               <p className="text-xs text-indigo-800 leading-relaxed">
                 {selected.sentiment === 'positive' ? 'Cliente con alta probabilidad de conversión. Propón una demo del plan Enterprise esta semana.' : selected.sentiment === 'negative' ? 'Urgente: cliente con fricción. Escala a soporte senior y ofrece compensación.' : 'Envía el dossier de precios y programa seguimiento en 48h para aumentar el engagement.'}
@@ -274,7 +296,7 @@ export default function AssistantPage() {
           </div>
 
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Acciones rápidas</p>
+            <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Acciones rápidas</p>
             <div className="space-y-1.5">
               {[
                 { label: 'Activar secuencia email', icon: <Mail className="h-3.5 w-3.5" /> },
@@ -296,6 +318,7 @@ export default function AssistantPage() {
           </div>
         </div>
       </aside>
+      </div>
     </div>
   )
 }

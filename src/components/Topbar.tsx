@@ -55,7 +55,7 @@ export function Topbar() {
   const markAllRead = () => setReadNotifs(new Set(mockNotifications.map((n) => n.id)))
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-6">
+    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/95 px-6 backdrop-blur">
       <div>
         <h1 className="text-base font-semibold text-gray-900">{page.title}</h1>
         {page.description && <p className="text-xs text-gray-400">{page.description}</p>}
@@ -78,7 +78,7 @@ export function Topbar() {
               {suggestions.length > 0 ? (
                 <>
                   <div className="px-3 py-2 border-b border-gray-50">
-                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Clientes</span>
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase">Clientes</span>
                   </div>
                   {suggestions.map((s) => (
                     <Link
@@ -106,6 +106,7 @@ export function Topbar() {
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setNotifOpen((v) => !v)}
+            aria-label="Abrir notificaciones"
             className="relative flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
           >
             <Bell className="h-4 w-4" />
@@ -126,7 +127,7 @@ export function Topbar() {
                       Marcar todas leídas
                     </button>
                   )}
-                  <button onClick={() => setNotifOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <button onClick={() => setNotifOpen(false)} aria-label="Cerrar notificaciones" className="text-gray-400 hover:text-gray-600">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -161,6 +162,7 @@ export function Topbar() {
 
         <button
           onClick={() => toast.info('NowCRM Demo v2.0', { description: 'Prototipo funcional con IA y datos de ejemplo.' })}
+          aria-label="Ayuda"
           className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <HelpCircle className="h-4 w-4" />
@@ -168,12 +170,19 @@ export function Topbar() {
 
         <Link
           href="/settings"
+          aria-label="Configuración"
           className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <Settings className="h-4 w-4" />
         </Link>
 
-        <div className="ml-1 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white cursor-pointer">N</div>
+        <Link
+          href="/settings"
+          aria-label="Abrir ajustes de usuario"
+          className="ml-1 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
+        >
+          N
+        </Link>
       </div>
     </header>
   )

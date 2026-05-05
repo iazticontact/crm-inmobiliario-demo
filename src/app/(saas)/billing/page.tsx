@@ -31,6 +31,7 @@ export default function BillingPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | 'all'>('all')
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -79,6 +80,8 @@ export default function BillingPage() {
     { label: 'Automatizado por IA', value: '€32.450', icon: <Bot className="h-5 w-5" />, color: 'bg-violet-50 text-violet-600' },
   ]
 
+  const filteredInvoices = invoiceList.filter((inv) => statusFilter === 'all' || (invoiceStatuses[inv.id] ?? inv.status) === statusFilter)
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -105,7 +108,7 @@ export default function BillingPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">{label}</p>
-                <p className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900">{value}</p>
+                <p className="mt-1.5 text-2xl font-bold text-gray-900">{value}</p>
               </div>
               <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', color)}>
                 {icon}
@@ -120,15 +123,21 @@ export default function BillingPage() {
         <SectionCard
           className="lg:col-span-2"
           title="Facturas"
-          description={`${invoiceList.length} facturas en total`}
+          description={`${filteredInvoices.length} visibles de ${invoiceList.length} facturas`}
           noPadding
           action={
             <div className="flex items-center gap-1">
+              <button
+                className={cn('rounded px-2 py-0.5 text-[10px] font-medium transition-colors', statusFilter === 'all' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100')}
+                onClick={() => setStatusFilter('all')}
+              >
+                Todas
+              </button>
               {(['paid', 'pending', 'overdue'] as InvoiceStatus[]).map((s) => (
                 <button
                   key={s}
-                  className="rounded px-2 py-0.5 text-[10px] font-medium text-gray-500 hover:bg-gray-100 transition-colors"
-                  onClick={() => toast.info(`Filtrando por: ${statusConfig[s].label}`)}
+                  className={cn('rounded px-2 py-0.5 text-[10px] font-medium transition-colors', statusFilter === s ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100')}
+                  onClick={() => setStatusFilter(s)}
                 >
                   {statusConfig[s].label}
                 </button>
@@ -136,21 +145,22 @@ export default function BillingPage() {
             </div>
           }
         >
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
                 {['Factura', 'Cliente', 'Plan', 'Importe', 'Vencimiento', 'Estado', ''].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {invoiceList.map((inv, i) => {
+              {filteredInvoices.map((inv, i) => {
                 const currentStatus = invoiceStatuses[inv.id] ?? inv.status
                 const cfg = statusConfig[currentStatus]
                 const isMarkingThis = markingPaid === inv.id
                 return (
-                  <tr key={inv.id} className={cn('border-b border-gray-50 hover:bg-gray-50 transition-colors', i === invoiceList.length - 1 && 'border-b-0')}>
+                  <tr key={inv.id} className={cn('border-b border-gray-50 hover:bg-gray-50 transition-colors', i === filteredInvoices.length - 1 && 'border-b-0')}>
                     <td className="px-4 py-3">
                       <span className="text-xs font-mono font-semibold text-gray-700">{inv.id}</span>
                     </td>
@@ -194,6 +204,7 @@ export default function BillingPage() {
               })}
             </tbody>
           </table>
+          </div>
         </SectionCard>
 
         {/* Right panel */}
