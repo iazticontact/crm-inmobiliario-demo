@@ -13,7 +13,7 @@ type MetricCardProps = {
 export function MetricCard({ label, value, change, changeLabel, icon, className }: MetricCardProps) {
   const isPositive = change >= 0
   return (
-    <div className={cn('rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]', className)}>
+    <div className={cn('rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.055]', className)}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-gray-500">{label}</p>

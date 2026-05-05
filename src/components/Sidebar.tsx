@@ -43,7 +43,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-200/70 bg-white">
+    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-200/70 bg-white/95 shadow-sm shadow-gray-950/[0.02]">
       {/* Brand */}
       <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-gray-100 px-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-sm">

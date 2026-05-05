@@ -50,10 +50,10 @@ const integrations: Integration[] = [
 ]
 
 const architectureCards = [
-  { title: 'Supabase', label: 'Datos y Auth', detail: 'Pendiente real', icon: <Database className="h-5 w-5" />, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-  { title: 'n8n', label: 'Webhooks y flujos', detail: 'Simulado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
-  { title: 'WhatsApp Business', label: 'Canal conversacional', detail: 'Demo activa', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { title: 'Integraciones', label: 'Servicios externos', detail: 'Mock controlado', icon: <Globe className="h-5 w-5" />, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+  { title: 'Supabase', label: 'Datos y Auth', detail: 'Pendiente real', icon: <Database className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'n8n', label: 'Webhooks y flujos', detail: 'Simulado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
+  { title: 'WhatsApp Business', label: 'Canal conversacional', detail: 'Demo activa', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
+  { title: 'Integraciones', label: 'Servicios externos', detail: 'Mock controlado', icon: <Globe className="h-5 w-5" />, tone: 'border-sky-100 bg-gradient-to-br from-sky-50 to-white text-sky-700' },
 ]
 
 const notifDefaults = [
@@ -158,9 +158,9 @@ export default function SettingsPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {architectureCards.map((card) => (
-          <div key={card.title} className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.03]', card.tone)}>
+          <div key={card.title} className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.04]', card.tone)}>
             <div className="mb-3 flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/75 shadow-sm">{card.icon}</div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/85 shadow-sm ring-1 ring-black/[0.04]">{card.icon}</div>
               <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold text-gray-600">{card.detail}</span>
             </div>
             <p className="text-sm font-bold">{card.title}</p>
@@ -437,7 +437,7 @@ export default function SettingsPage() {
           </SectionCard>
         </div>
 
-        <aside className="space-y-5">
+        <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
           <SectionCard title="Modo demo" description="Entorno funcional con datos mock">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-start gap-3">
