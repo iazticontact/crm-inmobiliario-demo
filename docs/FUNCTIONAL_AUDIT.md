@@ -69,7 +69,7 @@ El CRM operativo sigue siendo mayoritariamente mock/local state. Las tablas real
 - Los helpers de n8n hacen `console.log` y delay; no ejecutan POST real.
 - Assistant no guarda mensajes ni actividad.
 - Acciones como "Marcar pagada", "Nuevo cliente", "Agendar llamada" o "Activar secuencia" no persisten al recargar.
-- Hay texto con caracteres mojibake en algunas cadenas heredadas (`ConfiguraciÃ³n`, `FacturaciÃ³n`, etc.). No rompe build, pero conviene normalizar antes de demo publica.
+- Habia texto con mojibake en cadenas heredadas; se normalizo en `src` durante la primera fase Supabase.
 
 ## Prioridad antes de n8n
 

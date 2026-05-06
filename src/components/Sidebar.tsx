@@ -5,12 +5,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
-  Sparkles, LogOut, ChevronUp, User, HelpCircle,
+  Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
-import { useCurrentUser } from '@/lib/current-user'
+import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -27,7 +27,11 @@ export function Sidebar() {
   const router = useRouter()
   const { currentUser } = useCurrentUser()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutComplete, setLogoutComplete] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -40,17 +44,27 @@ export function Sidebar() {
   }, [])
 
   const handleLogout = async () => {
+    if (loggingOut) return
     setUserMenuOpen(false)
+    setLoggingOut(true)
+    setLogoutComplete(false)
+    toast.info('Cerrando sesión', { description: 'Guardando estado local y limpiando sesión.' })
+    window.localStorage.removeItem(DEMO_MODE_KEY)
     const supabase = getSupabaseBrowserClient()
-    if (supabase) {
+    if (supabase && !currentUser.isDemo) {
       const { error } = await supabase.auth.signOut()
-      if (error) console.error(error)
+      if (error) toast.warning('Sesión local cerrada', { description: 'Supabase no confirmó el cierre remoto, pero la demo queda limpia.' })
     }
-    toast.success('Sesión cerrada', { description: 'Hasta la próxima. ¡Hasta pronto!' })
+    await wait(520)
+    setLogoutComplete(true)
+    toast.success('Sesión cerrada')
+    await wait(520)
     router.replace('/login')
+    router.refresh()
   }
 
   return (
+    <>
     <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-white/10 bg-[radial-gradient(circle_at_28%_0%,rgba(124,58,237,0.22),transparent_32%),linear-gradient(180deg,#180b38_0%,#110928_46%,#070814_100%)] text-white shadow-2xl shadow-slate-950/20">
       {/* Brand */}
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 px-5">
@@ -98,7 +112,7 @@ export function Sidebar() {
             <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Demo activa' : 'Trial activo'}</p>
           </div>
           <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
-            {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} esta probando NowCRM con Auth real.`}
+            {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} está probando NowCRM con Auth real.`}
           </p>
         </div>
 
@@ -115,7 +129,7 @@ export function Sidebar() {
       </nav>
 
       {/* User menu */}
-      <div className="relative shrink-0 border-t border-white/10 px-3 pb-7 pt-3" ref={menuRef}>
+      <div className="relative shrink-0 border-t border-white/10 px-3 pb-8 pt-3" ref={menuRef}>
         {userMenuOpen && (
           <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white text-gray-900 shadow-xl">
             <div className="border-b border-gray-100 px-4 py-3">
@@ -163,5 +177,19 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+    {loggingOut && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-md">
+        <div className="w-full max-w-xs overflow-hidden rounded-2xl border border-white/10 bg-[#090d1b] px-5 py-5 text-center text-white shadow-2xl shadow-slate-950/35">
+          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.08] text-indigo-100 ring-1 ring-white/10">
+            {logoutComplete ? <CheckCircle className="h-5 w-5 text-emerald-200" /> : <Loader2 className="h-5 w-5 animate-spin" />}
+          </div>
+          <p className="text-sm font-semibold">{logoutComplete ? 'Sesión cerrada' : 'Cerrando sesión'}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            {logoutComplete ? 'Volviendo al acceso de NowCRM.' : 'Guardando estado local y limpiando sesión...'}
+          </p>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

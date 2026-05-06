@@ -73,11 +73,11 @@ const demoWorkspaceItems = [
 ]
 
 const supabaseReadiness = [
-  { label: 'Auth', value: 'Supabase Auth', status: 'Login, registro y reset preparados' },
-  { label: 'Clientes', value: 'clients', status: 'Listo para migrar desde mock-data.ts' },
-  { label: 'Facturas', value: 'invoices', status: 'Listo para persistencia real' },
-  { label: 'Eventos', value: 'calendar_events', status: 'Listo para calendario real' },
-  { label: 'Conversaciones', value: 'conversations/messages', status: 'Listo para historial real' },
+  { label: 'Auth', value: 'Activo', status: 'Login, registro, callback y reset con Supabase' },
+  { label: 'Clientes', value: 'Datos reales', status: 'CRUD conectado a la tabla clients' },
+  { label: 'Facturas', value: 'Pendiente', status: 'Sigue usando mock hasta la siguiente fase' },
+  { label: 'Eventos', value: 'Pendiente', status: 'Calendario sigue en local state' },
+  { label: 'Assistant', value: 'Pendiente', status: 'Conversaciones y mensajes siguen en mock' },
 ]
 
 const statusBadge = (status: IntegrationStatus) => {
@@ -123,7 +123,7 @@ export default function SettingsPage() {
     { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: currentUser.trialLabel, icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'EspaÃ±ol', icon: <User className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
   ]
 
   const toggleNotif = (key: string) => {
@@ -291,8 +291,8 @@ export default function SettingsPage() {
               </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                 <p className="text-xs font-semibold text-gray-700">Estado técnico</p>
-                <p className="mt-1 text-lg font-bold text-gray-950">{supabaseStatus.configured ? 'Auth preparado' : 'Preparado visualmente'}</p>
-                <p className="text-[11px] text-gray-500">Los datos CRM siguen en mock hasta migrar tablas.</p>
+                <p className="mt-1 text-lg font-bold text-gray-950">{supabaseStatus.configured ? 'Conectado' : 'Preparado visualmente'}</p>
+                <p className="text-[11px] text-gray-500">Auth y Clientes ya usan Supabase; el resto sigue pendiente.</p>
               </div>
             </div>
 

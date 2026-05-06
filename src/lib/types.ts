@@ -20,6 +20,7 @@ export type Client = {
   lastInteraction: string
   company: string
   avatar: string
+  notes?: string
 }
 
 export type Conversation = {

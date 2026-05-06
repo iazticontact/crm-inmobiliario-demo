@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, ShieldCheck } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
@@ -27,7 +28,6 @@ export default function AuthCallbackPage() {
       const getParam = (key: string) => searchParams.get(key) || hashParams.get(key)
       const errorDescription = getParam('error_description') || getParam('error')
       if (errorDescription) {
-        console.error(errorDescription)
         redirectToLoginError('No se ha podido confirmar el enlace.')
         return
       }
@@ -36,7 +36,6 @@ export default function AuthCallbackPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
-          console.error(error)
           redirectToLoginError('No se ha podido crear la sesion de Supabase.')
           return
         }
@@ -44,12 +43,12 @@ export default function AuthCallbackPage() {
 
       const { data, error } = await supabase.auth.getSession()
       if (error) {
-        console.error(error)
         redirectToLoginError('No se ha podido recuperar la sesion.')
         return
       }
 
       if (data.session) {
+        window.localStorage.removeItem(DEMO_MODE_KEY)
         setMessage('Sesion confirmada. Entrando en NowCRM...')
         setTimeout(() => router.replace('/dashboard'), 900)
         return

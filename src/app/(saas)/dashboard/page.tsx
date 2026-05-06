@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Users, DollarSign, Bot, Mail, Lightbulb, AlertTriangle, Info, Plus, ArrowRight, MessageSquare, Phone, FileText, Star, Activity, CheckCircle, Wifi, Zap, Globe } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -14,7 +14,8 @@ import { dashboardMetrics, aiInsights, recentActivity, weeklyLeads } from '@/lib
 import { triggerN8nWebhook } from '@/lib/integrations'
 import type { AIInsightType, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useCurrentUser } from '@/lib/current-user'
+import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
+import { getClients, getWorkspaceContext } from '@/lib/supabase-queries'
 
 const metricIcons = {
   Users: <Users className="h-5 w-5" />,
@@ -67,6 +68,39 @@ export default function DashboardPage() {
   const { currentUser } = useCurrentUser()
   const [activity, setActivity] = useState(recentActivity)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
+  const [realClientStats, setRealClientStats] = useState<{ total: number; leads: number; averageScore: number } | null>(null)
+
+  useEffect(() => {
+    const loadRealClientStats = async () => {
+      if (window.localStorage.getItem(DEMO_MODE_KEY) === 'true') return
+      try {
+        const context = await getWorkspaceContext()
+        const workspaceId = context?.workspace?.id || context?.profile?.workspace_id
+        if (!workspaceId) return
+        const clients = await getClients(workspaceId)
+        const averageScore = clients.length ? Math.round(clients.reduce((sum, client) => sum + client.leadScore, 0) / clients.length) : 0
+        setRealClientStats({
+          total: clients.length,
+          leads: clients.filter((client) => client.status === 'lead').length,
+          averageScore,
+        })
+      } catch {
+        setRealClientStats(null)
+      }
+    }
+
+    void loadRealClientStats()
+  }, [])
+
+  const visibleMetrics = useMemo(() => {
+    if (!realClientStats) return dashboardMetrics
+    return dashboardMetrics.map((metric) => {
+      if (metric.label === 'Clientes activos') return { ...metric, value: String(realClientStats.total), changeLabel: 'desde Supabase' }
+      if (metric.label === 'Leads nuevos') return { ...metric, value: String(realClientStats.leads), changeLabel: 'leads reales' }
+      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realClientStats.averageScore}`, label: 'Lead score medio', changeLabel: 'clientes reales' }
+      return metric
+    })
+  }, [realClientStats])
 
   const handleInsightAction = async (action: string, insightId: string) => {
     if (insightId === '1') {
@@ -110,10 +144,10 @@ export default function DashboardPage() {
         </div>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-bold text-gray-950">Buenos dias, {currentUser.name || currentUser.workspaceName}</h2>
-            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{currentUser.trialLabel}</Badge>
+            <h2 className="text-2xl font-bold text-gray-950">Buenos días, {currentUser.name || currentUser.workspaceName}</h2>
+            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{realClientStats ? 'Clientes reales conectados' : currentUser.trialLabel}</Badge>
           </div>
-          <p className="text-sm text-gray-500">Tu workspace {currentUser.workspaceName} esta listo para probar NowCRM.</p>
+          <p className="text-sm text-gray-500">Tu workspace {currentUser.workspaceName} está listo para probar NowCRM.</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>
           <Plus className="h-3.5 w-3.5" />
@@ -137,7 +171,7 @@ export default function DashboardPage() {
 
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {dashboardMetrics.map((m) => (
+        {visibleMetrics.map((m) => (
           <MetricCard key={m.label} label={m.label} value={m.value} change={m.change} changeLabel={m.changeLabel} icon={metricIcons[m.icon as keyof typeof metricIcons]} />
         ))}
       </div>

@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { getWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
 
 export type CurrentUser = {
   name: string
   email: string
+  workspaceId?: string
   workspaceName: string
   initials: string
   isDemo: boolean
   trialLabel: string
 }
+
+export const DEMO_MODE_KEY = 'nowcrm-demo-mode'
 
 const demoUser: CurrentUser = {
   name: 'NowCRM Demo',
@@ -30,8 +34,26 @@ function getInitials(value: string) {
   return cleanValue.slice(0, 2).toUpperCase()
 }
 
-function getEmailPrefix(email?: string) {
-  return email?.split('@')[0] || 'Usuario'
+function cleanDisplayName(value?: string | null) {
+  if (!value?.trim()) return ''
+  const withoutDomain = value.includes('@') ? value.split('@')[0] : value
+  const readable = withoutDomain
+    .replace(/[._-]+/g, ' ')
+    .replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, '$1 $2')
+    .replace(/\d+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!readable) return ''
+  return readable
+    .split(' ')
+    .map((part) => part.charAt(0).toLocaleUpperCase('es-ES') + part.slice(1))
+    .join(' ')
+}
+
+function getMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key]
+  return typeof value === 'string' ? value : ''
 }
 
 export function useCurrentUser() {
@@ -46,6 +68,12 @@ export function useCurrentUser() {
     }
 
     const loadUser = async () => {
+      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+      if (isDemoMode) {
+        setCurrentUser(demoUser)
+        return
+      }
+
       const { data, error } = await supabase.auth.getUser()
       if (!mounted) return
 
@@ -54,18 +82,42 @@ export function useCurrentUser() {
         return
       }
 
-      const metadata = data.user.user_metadata ?? {}
+      let profile: ProfileRecord | null = null
+      let workspace: WorkspaceRecord | null = null
+      try {
+        const context = await getWorkspaceContext()
+        profile = context?.profile ?? null
+        workspace = context?.workspace ?? null
+      } catch {
+        profile = null
+        workspace = null
+      }
+
+      const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>
       const email = data.user.email ?? ''
-      const name = String(metadata.full_name || metadata.name || getEmailPrefix(email))
-      const workspaceName = String(metadata.workspace_name || metadata.company_name || 'Workspace')
+      const name = cleanDisplayName(
+        profile?.full_name ||
+        getMetadataString(metadata, 'full_name') ||
+        getMetadataString(metadata, 'name') ||
+        getMetadataString(metadata, 'display_name') ||
+        email
+      ) || 'Usuario'
+      const workspaceName = String(
+        workspace?.name ||
+        getMetadataString(metadata, 'workspace_name') ||
+        getMetadataString(metadata, 'company_name') ||
+        'Workspace'
+      )
+      const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
 
       setCurrentUser({
         name,
         email,
+        workspaceId: workspace?.id || profile?.workspace_id || undefined,
         workspaceName,
         initials: getInitials(name || workspaceName || email),
         isDemo: false,
-        trialLabel: String(metadata.trial_status) === 'active' ? 'Trial activo' : 'Cuenta real',
+        trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
       })
     }
 

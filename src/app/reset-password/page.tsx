@@ -31,7 +31,6 @@ export default function ResetPasswordPage() {
     const prepareSession = async () => {
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
-        console.error('Faltan variables de Supabase')
         setChecking(false)
         return
       }
@@ -41,7 +40,6 @@ export default function ResetPasswordPage() {
       const getParam = (key: string) => searchParams.get(key) || hashParams.get(key)
       const errorDescription = getParam('error_description') || getParam('error')
       if (errorDescription) {
-        console.error(errorDescription)
         setSessionReady(false)
         setChecking(false)
         return
@@ -51,7 +49,6 @@ export default function ResetPasswordPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
-          console.error(error)
           setSessionReady(false)
           setChecking(false)
           return
@@ -60,7 +57,6 @@ export default function ResetPasswordPage() {
 
       const { data, error } = await supabase.auth.getSession()
       if (error) {
-        console.error(error)
         setSessionReady(false)
         setChecking(false)
         return
@@ -94,7 +90,6 @@ export default function ResetPasswordPage() {
     setLoading(false)
 
     if (error) {
-      console.error(error)
       toast.error('No se pudo actualizar', { description: error.message })
       return
     }

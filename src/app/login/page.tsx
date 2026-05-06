@@ -12,6 +12,7 @@ import {
   DollarSign,
   Building2,
   KeyRound,
+  Loader2,
   Lock,
   Mail,
   Shield,
@@ -24,6 +25,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
 
 type AuthMode = 'signin' | 'signup' | 'forgot'
 type AuthFieldErrors = Partial<Record<'name' | 'companyName' | 'email' | 'password', string>>
@@ -54,6 +56,16 @@ const authBenefits = [
   'Modo demo sin tarjeta ni registro',
   'Workspace listo para migrar datos mock',
 ]
+
+const loginTransitionSteps = [
+  'Validando sesión segura...',
+  'Cargando clientes y datos del workspace...',
+  'Activando panel comercial...',
+]
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
 
 function getPasswordStrength(password: string) {
   let score = 0
@@ -112,6 +124,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [authTransition, setAuthTransition] = useState(false)
+  const [transitionStep, setTransitionStep] = useState(0)
   const [formSubmitted, setFormSubmitted] = useState(false)
 
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password])
@@ -119,11 +133,21 @@ export default function LoginPage() {
   const formCanSubmit = Object.keys(formErrors).length === 0
   const showErrors = formSubmitted || mode === 'signup'
   const supabaseReady = isSupabaseConfigured()
+  const activeTransitionText = loginTransitionSteps[transitionStep] ?? loginTransitionSteps[0]
+  const transitionProgress = ((transitionStep + 1) / loginTransitionSteps.length) * 100
 
   const resetFormState = (nextMode: AuthMode) => {
     setMode(nextMode)
     setPassword('')
     setFormSubmitted(false)
+  }
+
+  const runLoginTransition = async () => {
+    setAuthTransition(true)
+    for (let index = 0; index < loginTransitionSteps.length; index += 1) {
+      setTransitionStep(index)
+      await wait(index === 0 ? 420 : 520)
+    }
   }
 
   useEffect(() => {
@@ -166,7 +190,9 @@ export default function LoginPage() {
       if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
         if (error) throw error
-        toast.success('Sesion iniciada', { description: 'Entrando en tu workspace NowCRM.' })
+        window.localStorage.removeItem(DEMO_MODE_KEY)
+        toast.success('Sesión iniciada', { description: 'Preparando tu workspace NowCRM.' })
+        await runLoginTransition()
         router.replace('/dashboard')
         router.refresh()
         return
@@ -202,7 +228,6 @@ export default function LoginPage() {
       toast.success('Email enviado', { description: 'Te hemos enviado el enlace para restablecer tu password.' })
       setMode('signin')
     } catch (error) {
-      console.error(error)
       const message = getAuthErrorMessage(error)
       toast.error('Auth no completado', { description: message })
     } finally {
@@ -214,8 +239,9 @@ export default function LoginPage() {
     const supabase = getSupabaseBrowserClient()
     if (supabase) {
       const { error } = await supabase.auth.signOut()
-      if (error) console.error(error)
+      if (error) toast.warning('No se pudo cerrar la sesión remota', { description: 'El modo demo se abrirá igualmente.' })
     }
+    window.localStorage.setItem(DEMO_MODE_KEY, 'true')
     toast.success('Modo demo activado', { description: 'Entrando con datos mock y perfil preconfigurado.' })
     router.replace('/dashboard')
   }
@@ -238,6 +264,52 @@ export default function LoginPage() {
       />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-200/45 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#050713] to-transparent" />
+
+      {authTransition && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[#050713]/90 px-5 text-white backdrop-blur-2xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(99,102,241,0.28),transparent_34%),radial-gradient(circle_at_62%_62%,rgba(14,165,233,0.12),transparent_32%)]" />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="relative w-full max-w-md overflow-hidden rounded-[1.75rem] border border-white/12 bg-white/[0.09] p-6 text-center shadow-2xl shadow-black/45 ring-1 ring-white/[0.04]"
+          >
+            <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-indigo-200/70 to-transparent" />
+            <motion.div
+              animate={{ rotate: [0, 2, -2, 0], scale: [1, 1.04, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 0.4 }}
+              className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-indigo-700 shadow-2xl shadow-indigo-950/30"
+            >
+              <Sparkles className="h-6 w-6" />
+            </motion.div>
+            <h2 className="text-xl font-bold">Preparando tu workspace</h2>
+            <p className="mt-2 min-h-6 text-sm leading-6 text-slate-300">{activeTransitionText}</p>
+
+            <div className="mt-5 overflow-hidden rounded-full bg-white/10 p-1">
+              <motion.div
+                className="h-2 rounded-full bg-gradient-to-r from-indigo-300 via-violet-300 to-sky-200 shadow-[0_0_18px_rgba(129,140,248,0.55)]"
+                animate={{ width: `${transitionProgress}%` }}
+                transition={{ duration: 0.32, ease: 'easeOut' }}
+              />
+            </div>
+
+            <div className="mt-5 space-y-2 text-left">
+              {loginTransitionSteps.map((step, index) => {
+                const isDone = index < transitionStep
+                const isActive = index === transitionStep
+                return (
+                  <div key={step} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/[0.08] text-indigo-100">
+                      {isDone ? <CheckCircle className="h-3.5 w-3.5 text-emerald-200" /> : isActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />}
+                    </span>
+                    <span className={cn('text-xs font-medium', isActive || isDone ? 'text-white' : 'text-slate-500')}>{step}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <main className="relative grid min-h-screen gap-0 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_468px]">
         <section className="hidden min-h-screen flex-col px-8 py-7 lg:flex xl:px-10">
