@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Users, DollarSign, Bot, Mail, Lightbulb, AlertTriangle, Info, Plus, ArrowRight, MessageSquare, Phone, FileText, Star, Activity, CheckCircle, Wifi, Zap, Globe } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { toast } from 'sonner'
@@ -93,7 +94,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -108,7 +114,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-3 lg:grid-cols-3">
         {workspaceSignals.map((signal) => (
-          <div key={signal.label} className={cn('rounded-xl border px-4 py-3', signal.tone)}>
+          <div key={signal.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md', signal.tone)}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium opacity-80">{signal.label}</p>
@@ -134,7 +140,7 @@ export default function DashboardPage() {
             {aiInsights.map((insight) => {
               const cfg = insightConfig[insight.type]
               return (
-                <li key={insight.id} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <li key={insight.id} className="rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white p-4 shadow-sm shadow-gray-950/[0.02] transition-all hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.035]">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm border border-gray-100">{cfg.icon}</div>
                     <div className="flex-1 min-w-0">
@@ -161,7 +167,7 @@ export default function DashboardPage() {
         <SectionCard title="Actividad reciente" description="Últimas acciones del sistema" action={<button onClick={() => toast.info('Historial completo próximamente')} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver todo</button>}>
           <ul className="space-y-1">
             {activity.map((item) => (
-              <li key={item.id} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-gray-50 transition-colors">
+                <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-indigo-50/45">
                 <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${activityBg[item.type]}`}>
                   {activityIcons[item.type]}
                 </div>
@@ -198,7 +204,7 @@ export default function DashboardPage() {
           <SectionCard title="Canales conectados" description="Estado en tiempo real">
             <ul className="space-y-2">
               {channels.map((ch) => (
-                <li key={ch.name} className="flex items-center gap-2.5">
+                <li key={ch.name} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50">
                   <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ch.color)}>{ch.icon}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-900">{ch.name}</p>
@@ -217,7 +223,7 @@ export default function DashboardPage() {
           <SectionCard title="Próximas acciones IA" description="Sugeridas para hoy">
             <ul className="space-y-2">
               {aiActions.map((action) => (
-                <li key={action.event} className="flex items-start gap-2.5 rounded-lg border border-gray-100 p-3">
+                <li key={action.event} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gradient-to-br from-white to-gray-50/70 p-3 transition-all hover:border-indigo-100 hover:shadow-sm">
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 mt-0.5">{action.icon}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-gray-700 leading-relaxed">{action.title}</p>
@@ -236,6 +242,6 @@ export default function DashboardPage() {
           </SectionCard>
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }

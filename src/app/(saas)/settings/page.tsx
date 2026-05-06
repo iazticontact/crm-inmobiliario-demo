@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import {
   AlertCircle,
   Bell,
@@ -50,7 +51,7 @@ const integrations: Integration[] = [
 ]
 
 const architectureCards = [
-  { title: 'Supabase', label: 'Datos y Auth', detail: 'Pendiente real', icon: <Database className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Supabase', label: 'Datos y Auth', detail: 'Preparado', icon: <Database className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
   { title: 'n8n', label: 'Webhooks y flujos', detail: 'Simulado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
   { title: 'WhatsApp Business', label: 'Canal conversacional', detail: 'Demo activa', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
   { title: 'Integraciones', label: 'Servicios externos', detail: 'Mock controlado', icon: <Globe className="h-5 w-5" />, tone: 'border-sky-100 bg-gradient-to-br from-sky-50 to-white text-sky-700' },
@@ -71,10 +72,11 @@ const workspaceItems = [
 ]
 
 const supabaseReadiness = [
-  { label: 'Auth demo', value: 'mock', status: 'Pendiente Supabase Auth' },
-  { label: 'Clientes', value: 'mock-data.ts', status: 'Lista para tabla clients' },
-  { label: 'Facturas', value: 'mock-data.ts', status: 'Lista para tabla invoices' },
-  { label: 'Eventos', value: 'mock-data.ts', status: 'Lista para tabla calendar_events' },
+  { label: 'Auth', value: 'Supabase Auth', status: 'Login, registro y reset preparados' },
+  { label: 'Clientes', value: 'clients', status: 'Listo para migrar desde mock-data.ts' },
+  { label: 'Facturas', value: 'invoices', status: 'Listo para persistencia real' },
+  { label: 'Eventos', value: 'calendar_events', status: 'Listo para calendario real' },
+  { label: 'Conversaciones', value: 'conversations/messages', status: 'Listo para historial real' },
 ]
 
 const statusBadge = (status: IntegrationStatus) => {
@@ -82,6 +84,21 @@ const statusBadge = (status: IntegrationStatus) => {
   if (status === 'pending') return <Badge variant="warning" dot>Pendiente</Badge>
   return <Badge variant="default" dot>Desconectado</Badge>
 }
+
+const flowStatusConfig = {
+  active: { label: 'Activo', variant: 'success' as const },
+  demo: { label: 'Demo', variant: 'indigo' as const },
+  pending: { label: 'Pendiente', variant: 'warning' as const },
+  inactive: { label: 'Inactivo', variant: 'default' as const },
+}
+
+type FlowStatus = keyof typeof flowStatusConfig
+
+const envChecks = [
+  { key: 'NEXT_PUBLIC_SUPABASE_URL', label: 'Project URL', ready: supabaseStatus.hasUrl },
+  { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', label: 'Publishable key', ready: supabaseStatus.hasPublishableKey },
+  { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', label: 'Anon key pública', ready: supabaseStatus.hasAnonKey },
+]
 
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState<Record<string, boolean>>(
@@ -94,6 +111,12 @@ export default function SettingsPage() {
   const [n8nUrl, setN8nUrl] = useState('https://n8n.tudominio.com')
   const [testingN8n, setTestingN8n] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [flowStatuses, setFlowStatuses] = useState<Record<string, FlowStatus>>(
+    Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.status]))
+  )
+  const [flowPaths, setFlowPaths] = useState<Record<string, string>>(
+    Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.url.replace('https://n8n.tudominio.com', '')]))
+  )
 
   const toggleNotif = (key: string) => {
     const next = !notifications[key]
@@ -120,6 +143,21 @@ export default function SettingsPage() {
     toast.success('Webhook de prueba enviado', { description: `POST → ${n8nUrl}/webhook/test · modo simulado` })
   }
 
+  const toggleFlow = (event: string) => {
+    setFlowStatuses((prev) => {
+      const current = prev[event]
+      const next = current === 'active' || current === 'demo' ? 'inactive' : 'demo'
+      toast.success(next === 'inactive' ? 'Flujo desactivado en demo' : 'Flujo activado en demo', {
+        description: n8nWebhookConfigs.find((wh) => wh.event === event)?.label,
+      })
+      return { ...prev, [event]: next }
+    })
+  }
+
+  const updateFlowPath = (event: string, path: string) => {
+    setFlowPaths((prev) => ({ ...prev, [event]: path }))
+  }
+
   const copyToClipboard = (value: string, key: string) => {
     navigator.clipboard.writeText(value).catch(() => {})
     setCopiedKey(key)
@@ -128,8 +166,10 @@ export default function SettingsPage() {
   }
 
   const handleVerifySupabase = () => {
-    toast.info('Supabase sigue en modo demo', {
-      description: 'La UI está preparada, pero todavía no se usan variables ni persistencia real.',
+    toast.info(supabaseStatus.configured ? 'Supabase preparado' : 'Supabase pendiente', {
+      description: supabaseStatus.configured
+        ? 'Variables públicas detectadas. Auth está preparado; las tablas CRM quedan para la siguiente fase.'
+        : 'La UI está preparada, pero faltan variables públicas o no están disponibles en este entorno.',
     })
   }
 
@@ -149,7 +189,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <PageHeader
         title="Configuración"
         description="Arquitectura demo, workspace e integraciones listas para la siguiente fase"
@@ -214,7 +259,7 @@ export default function SettingsPage() {
 
           <SectionCard
             title="Supabase"
-            description="Base de datos, autenticación y persistencia de la fase real"
+            description="Base de datos, autenticación y persistencia de la siguiente fase"
             action={
               <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
                 Supabase Console
@@ -223,42 +268,35 @@ export default function SettingsPage() {
             }
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
-              <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+              <div className={cn('rounded-xl border px-4 py-3', supabaseStatus.configured ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50')}>
                 <div className="flex items-start gap-3">
-                  <Database className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <Database className={cn('mt-0.5 h-4 w-4 shrink-0', supabaseStatus.configured ? 'text-emerald-600' : 'text-amber-500')} />
                   <div>
-                    <p className="text-xs font-semibold text-amber-900">Pendiente de conectar</p>
-                    <p className="mt-0.5 text-[11px] leading-5 text-amber-700">
-                      La demo usa mock data. La siguiente fase puede activar Supabase Auth, tablas reales y persistencia sin cambiar la experiencia visual.
+                    <p className={cn('text-xs font-semibold', supabaseStatus.configured ? 'text-emerald-900' : 'text-amber-900')}>
+                      {supabaseStatus.configured ? 'Variables detectadas' : 'Variables pendientes en este entorno'}
+                    </p>
+                    <p className={cn('mt-0.5 text-[11px] leading-5', supabaseStatus.configured ? 'text-emerald-700' : 'text-amber-700')}>
+                      {supabaseStatus.note} No se muestran URLs ni claves en pantalla.
                     </p>
                   </div>
                 </div>
               </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                 <p className="text-xs font-semibold text-gray-700">Estado técnico</p>
-                <p className="mt-1 text-lg font-bold text-gray-950">UI preparada</p>
-                <p className="text-[11px] text-gray-500">Sin llamadas reales al backend.</p>
+                <p className="mt-1 text-lg font-bold text-gray-950">{supabaseStatus.configured ? 'Auth preparado' : 'Preparado visualmente'}</p>
+                <p className="text-[11px] text-gray-500">Los datos CRM siguen en mock hasta migrar tablas.</p>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {[
-                { key: 'NEXT_PUBLIC_SUPABASE_URL', value: supabaseStatus.projectUrl, label: 'Project URL' },
-                { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', label: 'Anon Key' },
-              ].map(({ key, value, label }) => (
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {envChecks.map(({ key, label, ready }) => (
                 <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <span className="text-[10px] font-semibold text-gray-500">{label}</span>
-                    <button
-                      onClick={() => copyToClipboard(`${key}=${value}`, key)}
-                      className="flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-700"
-                    >
-                      <Copy className="h-3 w-3" />
-                      {copiedKey === key ? 'Copiado' : 'Copiar'}
-                    </button>
+                    <Badge variant={ready ? 'success' : 'warning'} dot className="text-[10px]">{ready ? 'Detectada' : 'Pendiente'}</Badge>
                   </div>
                   <p className="truncate font-mono text-[11px] text-gray-700">{key}</p>
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-gray-400">{value}</p>
+                  <p className="mt-0.5 text-[10px] text-gray-400">Valor oculto por seguridad</p>
                 </div>
               ))}
             </div>
@@ -284,8 +322,8 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="n8n Webhooks"
-            description="Automatizaciones externas. En esta demo todo se ejecuta en modo simulado."
+            title="n8n / Flujos operativos"
+            description="Centro de control demo para automatizaciones, endpoints y requisitos"
             action={
               <a href="https://n8n.io" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
                 Abrir n8n
@@ -312,32 +350,60 @@ export default function SettingsPage() {
               <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
                 <p className="text-xs font-semibold text-indigo-900">Modo n8n</p>
                 <p className="mt-1 text-lg font-bold text-indigo-700">Simulado</p>
-                <p className="text-[11px] text-indigo-700">Feedback visual sin HTTP real.</p>
+                <p className="text-[11px] text-indigo-700">Toggles y pruebas no llaman a n8n real.</p>
               </div>
             </div>
 
-            <div className="grid gap-2 md:grid-cols-2">
-              {n8nWebhookConfigs.map((wh, index) => {
-                const path = wh.url.replace('https://n8n.tudominio.com', '')
-                const isActive = index !== 2
-                const fullUrl = `${n8nUrl}${path}`
+            <div className="grid gap-3">
+              {n8nWebhookConfigs.map((wh) => {
+                const currentStatus = flowStatuses[wh.event] ?? wh.status
+                const cfg = flowStatusConfig[currentStatus]
+                const fullUrl = `${n8nUrl}${flowPaths[wh.event] ?? ''}`
                 return (
-                  <div key={wh.event} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className={cn('h-2 w-2 rounded-full', isActive ? 'bg-emerald-400' : 'bg-gray-300')} />
-                        <p className="text-xs font-semibold text-gray-900">{wh.label}</p>
+                  <div key={wh.event} className="rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white p-3 shadow-sm shadow-gray-950/[0.02]">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_190px]">
+                      <div className="min-w-0">
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-gray-900">{wh.label}</p>
+                          <Badge variant={cfg.variant} dot className="text-[10px]">{cfg.label}</Badge>
+                        </div>
+                        <p className="text-[11px] leading-5 text-gray-500">{wh.description}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">Trigger: {wh.trigger}</span>
+                          {wh.requires.map((req) => (
+                            <span key={req} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-100">{req}</span>
+                          ))}
+                        </div>
                       </div>
-                      <Badge variant={isActive ? 'success' : 'default'}>{isActive ? 'Activo' : 'Inactivo'}</Badge>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => toggleFlow(wh.event)}
+                          className={cn(
+                            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                            currentStatus === 'active' || currentStatus === 'demo' ? 'bg-indigo-600' : 'bg-gray-200'
+                          )}
+                        >
+                          <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', currentStatus === 'active' || currentStatus === 'demo' ? 'translate-x-4' : 'translate-x-0')} />
+                        </button>
+                        <Button variant="ghost" size="sm" onClick={() => toast.info(`Configurar flujo: ${wh.label}`, { description: 'En la fase real se editarán credenciales, payload y condiciones.' })}>
+                          Configurar
+                        </Button>
+                      </div>
                     </div>
-                    <p className="text-[11px] leading-5 text-gray-500">{wh.description}</p>
-                    <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
-                      <p className="min-w-0 flex-1 truncate font-mono text-[10px] text-gray-500">{fullUrl}</p>
+                    <div className="mt-3 grid gap-2 lg:grid-cols-[220px_minmax(0,1fr)_70px]">
+                      <input
+                        value={flowPaths[wh.event] ?? ''}
+                        onChange={(e) => updateFlowPath(wh.event, e.target.value)}
+                        className="h-8 rounded-lg border border-gray-200 bg-white px-2.5 font-mono text-[11px] text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 ring-1 ring-gray-100">
+                        <p className="truncate font-mono text-[10px] text-gray-400">{fullUrl}</p>
+                      </div>
                       <button
                         onClick={() => copyToClipboard(fullUrl, wh.event)}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                        className="flex h-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
                       >
-                        {copiedKey === wh.event ? <CheckCircle className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                        {copiedKey === wh.event ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -447,7 +513,7 @@ export default function SettingsPage() {
                 <div>
                   <p className="text-sm font-semibold text-blue-900">Prototipo funcional activo</p>
                   <p className="mt-1 text-xs leading-5 text-blue-700">
-                    Todas las acciones son visuales o simuladas. No se persisten cambios entre sesiones y no hay llamadas reales a Supabase, n8n o Meta.
+                    Las acciones CRM son visuales o simuladas. Auth puede usar Supabase si las variables públicas están disponibles; n8n y Meta siguen en demo.
                   </p>
                 </div>
               </div>
@@ -499,7 +565,7 @@ export default function SettingsPage() {
           <SectionCard title="Siguiente fase técnica" description="Orden recomendado de conexión">
             <div className="space-y-2">
               {[
-                { title: '1. Supabase Auth', desc: 'Login real y sesión persistente.' },
+                { title: '1. Supabase Auth', desc: 'Login, registro, email y reset de password.' },
                 { title: '2. Tablas CRM', desc: 'clients, invoices, events, conversations.' },
                 { title: '3. Webhooks n8n', desc: 'Reemplazar simulaciones por POST reales.' },
                 { title: '4. Meta WhatsApp', desc: 'Canal real con permisos y número verificado.' },
@@ -513,6 +579,6 @@ export default function SettingsPage() {
           </SectionCard>
         </aside>
       </div>
-    </div>
+    </motion.div>
   )
 }

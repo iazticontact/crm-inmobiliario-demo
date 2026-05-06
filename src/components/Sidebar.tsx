@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
-  ChevronRight, Sparkles, LogOut, ChevronUp, User, HelpCircle,
+  Sparkles, LogOut, ChevronUp, User, HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -43,20 +43,23 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-200/70 bg-white/95 shadow-sm shadow-gray-950/[0.02]">
+    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-white/10 bg-[radial-gradient(circle_at_28%_0%,rgba(124,58,237,0.22),transparent_32%),linear-gradient(180deg,#180b38_0%,#110928_46%,#070814_100%)] text-white shadow-2xl shadow-slate-950/20">
       {/* Brand */}
-      <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-gray-100 px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-sm">
-          <Sparkles className="h-4 w-4 text-white" />
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 px-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-white to-indigo-100 text-indigo-700 shadow-lg shadow-indigo-950/30 ring-1 ring-white/60">
+          <Sparkles className="h-4 w-4" />
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-sm font-bold text-gray-900">NowCRM</span>
-          <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">Pro</span>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-bold text-white">NowCRM</span>
+            <span className="rounded-full border border-indigo-300/20 bg-indigo-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-100">Pro</span>
+          </div>
+          <p className="text-[10px] text-slate-500">AI Revenue Workspace</p>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-5">
         <ul className="space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon
@@ -66,36 +69,46 @@ export function Sidebar() {
                 <Link
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
-                    isActive ? 'bg-indigo-50 text-indigo-700 shadow-sm shadow-indigo-950/[0.03]' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                    isActive
+                      ? 'bg-gradient-to-r from-white to-indigo-50 text-slate-950 shadow-lg shadow-black/20'
+                      : 'text-slate-300 hover:bg-white/[0.08] hover:text-white'
                   )}
                 >
-                  <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-indigo-600' : 'text-gray-400')} />
+                  {isActive && <span className="absolute -left-1 h-6 w-1 rounded-full bg-violet-400" />}
+                  <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-100')} />
                   <span className="flex-1">{item.label}</span>
-                  {isActive && <ChevronRight className="h-3.5 w-3.5 text-indigo-400" />}
                 </Link>
               </li>
             )
           })}
         </ul>
 
+        <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
+            <p className="text-xs font-semibold text-slate-100">Demo activa</p>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">Mock data, IA simulada y conectores preparados para Supabase.</p>
+        </div>
+
         {/* Divider + quick links */}
-        <div className="mt-4 pt-4 border-t border-gray-100 space-y-0.5">
+        <div className="mt-4 space-y-0.5 border-t border-white/10 pt-4">
           <button
             onClick={() => toast.info('NowCRM Demo v2.0', { description: 'Prototipo funcional con IA y datos de ejemplo.' })}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
-            <HelpCircle className="h-4 w-4 shrink-0 text-gray-400" />
+            <HelpCircle className="h-4 w-4 shrink-0 text-slate-500" />
             Ayuda
           </button>
         </div>
       </nav>
 
       {/* User menu */}
-      <div className="shrink-0 border-t border-gray-100 p-3 relative" ref={menuRef}>
+      <div className="relative shrink-0 border-t border-white/10 px-3 pb-7 pt-3" ref={menuRef}>
         {userMenuOpen && (
-          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-gray-100 bg-white shadow-lg overflow-hidden">
-            <div className="border-b border-gray-50 px-4 py-3">
+          <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white text-gray-900 shadow-xl">
+            <div className="border-b border-gray-100 px-4 py-3">
               <p className="text-xs font-semibold text-gray-900">NowCRM Demo</p>
               <p className="text-[10px] text-gray-400">iazti.contact@gmail.com</p>
             </div>
@@ -129,14 +142,14 @@ export function Sidebar() {
 
         <button
           onClick={() => setUserMenuOpen((v) => !v)}
-          className="flex w-full items-center gap-2.5 rounded-lg p-2.5 hover:bg-gray-50 transition-colors"
+          className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 text-left shadow-lg shadow-black/10 ring-1 ring-white/[0.02] transition-colors hover:border-violet-200/20 hover:bg-white/[0.11]"
         >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">N</div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">N</div>
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-xs font-semibold text-gray-900">NowCRM Demo</p>
-            <p className="truncate text-[10px] text-gray-400">iazti.contact@gmail.com</p>
+            <p className="truncate text-xs font-semibold text-white">NowCRM Demo</p>
+            <p className="truncate text-[10px] text-slate-500">iazti.contact@gmail.com</p>
           </div>
-          <ChevronUp className={cn('h-3.5 w-3.5 text-gray-400 transition-transform', userMenuOpen ? 'rotate-180' : '')} />
+          <ChevronUp className={cn('h-3.5 w-3.5 text-slate-500 transition-transform', userMenuOpen ? 'rotate-180' : '')} />
         </button>
       </div>
     </aside>

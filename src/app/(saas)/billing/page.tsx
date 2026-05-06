@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { DollarSign, Clock, CheckCircle, Bot, Download, Plus, X, Check } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { toast } from 'sonner'
@@ -83,7 +84,12 @@ export default function BillingPage() {
   const filteredInvoices = invoiceList.filter((inv) => statusFilter === 'all' || (invoiceStatuses[inv.id] ?? inv.status) === statusFilter)
 
   return (
-    <div className="space-y-5">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <PageHeader
         title="Facturación"
         description="Ingresos y estado de cobros"
@@ -104,7 +110,7 @@ export default function BillingPage() {
       {/* Metric cards */}
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {billingMetrics.map(({ label, value, icon, color }) => (
-          <div key={label} className="rounded-xl bg-white border border-gray-100 shadow-sm p-5">
+          <div key={label} className="rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">{label}</p>
@@ -160,7 +166,7 @@ export default function BillingPage() {
                 const cfg = statusConfig[currentStatus]
                 const isMarkingThis = markingPaid === inv.id
                 return (
-                  <tr key={inv.id} className={cn('border-b border-gray-50 hover:bg-gray-50 transition-colors', i === filteredInvoices.length - 1 && 'border-b-0')}>
+                  <tr key={inv.id} className={cn('border-b border-gray-50 transition-colors hover:bg-indigo-50/35', i === filteredInvoices.length - 1 && 'border-b-0')}>
                     <td className="px-4 py-3">
                       <span className="text-xs font-mono font-semibold text-gray-700">{inv.id}</span>
                     </td>
@@ -350,6 +356,6 @@ export default function BillingPage() {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { Search, Plus, MoreHorizontal, Mail, Phone, Eye, Filter, X, User } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -103,7 +104,12 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <PageHeader
         title="Clientes"
         description={`${filtered.length} visibles de ${clientList.length} clientes`}
@@ -123,7 +129,7 @@ export default function ClientsPage() {
           { label: 'Leads', value: stats.lead, color: 'text-indigo-600' },
           { label: 'Inactivos', value: stats.inactive, color: 'text-gray-400' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100">
+          <div key={label} className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
             <p className="text-xs text-gray-500">{label}</p>
             <p className={cn('text-2xl font-bold mt-1', color)}>{value}</p>
           </div>
@@ -209,10 +215,10 @@ export default function ClientsPage() {
                 const status = statusConfig[client.status]
                 const scoreColor = client.leadScore >= 80 ? 'bg-emerald-500' : client.leadScore >= 60 ? 'bg-amber-500' : 'bg-red-400'
                 return (
-                  <tr key={client.id} className={cn('border-b border-gray-50 hover:bg-gray-50 transition-colors', i === filtered.length - 1 && 'border-b-0')}>
+                  <tr key={client.id} className={cn('border-b border-gray-50 transition-colors hover:bg-indigo-50/35', i === filtered.length - 1 && 'border-b-0')}>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-sky-50 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">
                           {client.avatar}
                         </div>
                         <div>
@@ -383,6 +389,6 @@ export default function ClientsPage() {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }

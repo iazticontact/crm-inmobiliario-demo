@@ -55,7 +55,7 @@ export function Topbar() {
   const markAllRead = () => setReadNotifs(new Set(mockNotifications.map((n) => n.id)))
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/90 px-6 shadow-sm shadow-gray-950/[0.02] backdrop-blur-xl">
+    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/88 px-6 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl">
       <div>
         <h1 className="text-base font-semibold text-gray-950">{page.title}</h1>
         {page.description && <p className="text-xs text-gray-400">{page.description}</p>}
@@ -71,7 +71,7 @@ export function Topbar() {
             placeholder="Buscar clientes..."
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setSearchFocused(true)}
-            className="h-8 w-48 rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white focus:w-56 transition-all"
+            className="h-8 w-48 rounded-xl border border-gray-200 bg-white/80 pl-8 pr-3 text-sm text-gray-900 shadow-sm shadow-gray-950/[0.02] placeholder:text-gray-400 transition-all focus:w-56 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           {searchFocused && query.length >= 2 && (
             <div className="absolute top-full left-0 right-0 mt-1.5 rounded-xl border border-gray-100 bg-white shadow-lg overflow-hidden min-w-[220px] z-50">
@@ -107,7 +107,7 @@ export function Topbar() {
           <button
             onClick={() => setNotifOpen((v) => !v)}
             aria-label="Abrir notificaciones"
-            className="relative flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="relative flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
@@ -163,7 +163,7 @@ export function Topbar() {
         <button
           onClick={() => toast.info('NowCRM Demo v2.0', { description: 'Prototipo funcional con IA y datos de ejemplo.' })}
           aria-label="Ayuda"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
         >
           <HelpCircle className="h-4 w-4" />
         </button>
@@ -171,7 +171,7 @@ export function Topbar() {
         <Link
           href="/settings"
           aria-label="Configuración"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
         >
           <Settings className="h-4 w-4" />
         </Link>
@@ -179,7 +179,7 @@ export function Topbar() {
         <Link
           href="/settings"
           aria-label="Abrir ajustes de usuario"
-          className="ml-1 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
+          className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
         >
           N
         </Link>

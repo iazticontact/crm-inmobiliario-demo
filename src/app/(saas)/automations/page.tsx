@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Plus, Play, Pause, Zap, Mail, Clock, CheckCircle, XCircle, ArrowRight, BarChart2, ExternalLink, Copy, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -74,7 +75,12 @@ export default function AutomationsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <PageHeader
         title="Automatizaciones"
         description="Flujos activos gestionados por IA"
@@ -93,7 +99,7 @@ export default function AutomationsPage() {
           { label: 'Tasa apertura media', value: '63,5%', icon: <BarChart2 className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' },
           { label: 'Conversiones totales', value: '596', icon: <CheckCircle className="h-4 w-4" />, color: 'text-violet-600 bg-violet-50' },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="flex items-center gap-4 rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03]">
+          <div key={label} className="flex items-center gap-4 rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
             <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', color)}>{icon}</div>
             <div>
               <p className="text-xs text-gray-500">{label}</p>
@@ -113,7 +119,7 @@ export default function AutomationsPage() {
           return (
             <SectionCard
               key={automation.id}
-              className={cn(isActive && 'ring-1 ring-indigo-200')}
+              className={cn('transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.045]', isActive && 'ring-1 ring-indigo-200')}
               title={automation.name}
               action={<Badge variant={cfg.variant} dot>{cfg.label}</Badge>}
             >
@@ -176,7 +182,7 @@ export default function AutomationsPage() {
       <SectionCard title="Flujo de emails — Bienvenida a nuevos leads" description="Secuencia automática de 3 emails">
         <div className="flex items-center gap-0 overflow-x-auto pb-2">
           {emailFlowSteps.map((step, i) => (
-            <div key={i} className="flex items-center shrink-0">
+            <div key={i} className="flex shrink-0 items-center">
               <div className={cn('flex min-w-[98px] flex-col items-center justify-center rounded-xl px-4 py-3 text-center', step.color)}>
                 <span className="opacity-80">{step.icon}</span>
                 <span className="text-xs font-bold mt-1">{step.label}</span>
@@ -223,7 +229,7 @@ export default function AutomationsPage() {
 
         <div className="space-y-2">
           {n8nWebhooks.map((wh) => (
-            <div key={wh.event} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div key={wh.event} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white px-4 py-3 shadow-sm shadow-gray-950/[0.02]">
               <div className={cn('h-2 w-2 rounded-full shrink-0', wh.active ? 'bg-emerald-400' : 'bg-gray-300')} />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-gray-800">{wh.label}</p>
@@ -258,7 +264,7 @@ export default function AutomationsPage() {
                 const automation = automations.find((a) => a.id === email.automationId)
                 const cfg = emailStatusConfig[email.status]
                 return (
-                  <tr key={email.id} className={cn('border-b border-gray-50 hover:bg-gray-50 transition-colors', i === automationEmails.length - 1 && 'border-b-0')}>
+                  <tr key={email.id} className={cn('border-b border-gray-50 transition-colors hover:bg-indigo-50/35', i === automationEmails.length - 1 && 'border-b-0')}>
                     <td className="px-5 py-3">
                       <span className="text-sm font-medium text-gray-800">{email.recipient}</span>
                     </td>
@@ -284,6 +290,6 @@ export default function AutomationsPage() {
           </table>
         </div>
       </SectionCard>
-    </div>
+    </motion.div>
   )
 }

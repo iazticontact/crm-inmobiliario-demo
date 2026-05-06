@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import { Send, Phone, Mail, Bot, MessageSquare, Target, ArrowRight, Search, CheckCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
@@ -125,10 +126,15 @@ export default function AssistantPage() {
   const score = leadScores[selectedId] ?? 70
 
   return (
-    <div className="space-y-4">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <div className="grid gap-3 lg:grid-cols-3">
         {assistantStats.map(({ label, value, detail, icon, tone }) => (
-          <div key={label} className="flex items-center gap-3 rounded-xl border border-gray-200/70 bg-white px-4 py-3 shadow-sm shadow-gray-950/[0.03]">
+          <div key={label} className="flex items-center gap-3 rounded-xl border border-gray-200/70 bg-white px-4 py-3 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
             <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl', tone)}>{icon}</div>
             <div>
               <p className="text-xs text-gray-500">{label}</p>
@@ -141,10 +147,10 @@ export default function AssistantPage() {
         ))}
       </div>
 
-      <div className="flex gap-0 overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.03]" style={{ height: 'calc(100vh - 11.5rem)' }}>
+      <div className="flex gap-0 overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-lg shadow-gray-950/[0.045]" style={{ minHeight: 560, height: 'clamp(560px, calc(100vh - 12.75rem), 720px)' }}>
       {/* Conversation list */}
       <aside className="flex w-80 shrink-0 flex-col border-r border-gray-100">
-        <div className="border-b border-gray-100 p-3">
+        <div className="border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/70 p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input type="text" value={convSearch} onChange={(e) => setConvSearch(e.target.value)} placeholder="Buscar conversación..." className="h-8 w-full rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
@@ -155,7 +161,7 @@ export default function AssistantPage() {
             const isActive = conv.id === selectedId
             return (
               <li key={conv.id}>
-                <button onClick={() => setSelectedId(conv.id)} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50' : 'hover:bg-gray-50')}>
+                <button onClick={() => setSelectedId(conv.id)} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50/80' : 'hover:bg-gray-50')}>
                   <div className="relative shrink-0">
                     <div className={cn('flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white', isActive ? 'bg-indigo-600' : 'bg-gray-300 text-gray-600')}>
                       {conv.clientAvatar}
@@ -182,7 +188,7 @@ export default function AssistantPage() {
 
       {/* Chat */}
       <div className="flex flex-1 flex-col min-w-0">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/70 px-5 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">{selected.clientAvatar}</div>
             <div>
@@ -211,7 +217,7 @@ export default function AssistantPage() {
               <div key={msg.id} className={cn('flex', isClient ? 'justify-start' : 'justify-end')}>
                 <div className="max-w-xs lg:max-w-md">
                   {isAI && <div className="flex items-center gap-1 mb-1"><Bot className="h-3 w-3 text-indigo-500" /><span className="text-[10px] font-medium text-indigo-500">IA responde</span></div>}
-                  <div className={cn('rounded-2xl px-4 py-2.5 text-sm', isClient ? 'bg-gray-100 text-gray-800 rounded-tl-sm' : isAI ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-slate-700 text-white rounded-tr-sm')}>
+                  <div className={cn('rounded-2xl px-4 py-2.5 text-sm shadow-sm', isClient ? 'bg-gray-100 text-gray-800 rounded-tl-sm shadow-gray-950/[0.02]' : isAI ? 'bg-gradient-to-br from-indigo-500 to-violet-700 text-white rounded-tr-sm shadow-indigo-600/20' : 'bg-slate-800 text-white rounded-tr-sm shadow-slate-950/15')}>
                     {msg.content}
                   </div>
                   <p className={cn('mt-1 text-[10px] text-gray-400', isClient ? 'text-left' : 'text-right')}>{msg.timestamp}</p>
@@ -230,7 +236,7 @@ export default function AssistantPage() {
           <div ref={chatEndRef} />
         </div>
 
-        <div className="border-t border-gray-100 p-4">
+        <div className="border-t border-gray-100 bg-gray-50/50 p-4">
           <div className="flex items-end gap-2">
             <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe un mensaje o usa / para comandos IA..." rows={1} className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all"
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} />
@@ -250,17 +256,19 @@ export default function AssistantPage() {
       </div>
 
       {/* AI Analysis panel */}
-      <aside className="w-72 shrink-0 border-l border-gray-100 overflow-y-auto">
-        <div className="border-b border-gray-100 px-4 py-3.5">
-          <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-600" /><h3 className="text-sm font-semibold text-gray-900">Análisis IA</h3></div>
+      <aside className="w-72 shrink-0 overflow-y-auto border-l border-indigo-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_44%,#f5f3ff_100%)]">
+        <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-700 px-4 py-3.5 text-white shadow-sm shadow-indigo-950/10">
+          <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">Análisis IA</h3></div>
         </div>
         <div className="p-4 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">{selected.clientAvatar}</div>
-            <div><p className="text-sm font-semibold text-gray-900">{selected.clientName}</p><p className="text-[10px] text-gray-400">{selected.channel}</p></div>
+          <div className="rounded-2xl border border-white bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.04] ring-1 ring-indigo-100/60">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-sm font-bold text-white shadow-sm shadow-indigo-600/20">{selected.clientAvatar}</div>
+              <div><p className="text-sm font-semibold text-gray-950">{selected.clientName}</p><p className="text-[10px] text-gray-500">{selected.channel} · {selected.intent ?? 'Conversación activa'}</p></div>
+            </div>
           </div>
 
-          <div className="rounded-xl bg-gray-50 p-3.5">
+          <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-indigo-50 p-3.5 shadow-sm shadow-emerald-950/[0.035]">
             <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-600">Lead Score</span><Target className="h-3.5 w-3.5 text-gray-400" /></div>
             <div className="flex items-end gap-1">
               <span className={cn('text-2xl font-bold', leadScoreColor(score))}>{score}</span>
@@ -271,21 +279,21 @@ export default function AssistantPage() {
             </div>
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-gray-100 bg-white/85 p-3 shadow-sm shadow-gray-950/[0.025]">
             <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Sentimiento</p>
             <Badge variant={sentimentConfig[selected.sentiment].variant} dot className="text-xs">{sentimentConfig[selected.sentiment].label}</Badge>
           </div>
 
           {selected.intent && (
-            <div>
+            <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50 p-3 shadow-sm shadow-blue-950/[0.025]">
               <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Intención detectada</p>
-              <div className="rounded-lg bg-blue-50 px-3 py-2"><span className="text-xs font-medium text-blue-700">{selected.intent}</span></div>
+              <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-blue-100"><span className="text-xs font-medium text-blue-700">{selected.intent}</span></div>
             </div>
           )}
 
-          <div>
+          <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
             <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Recomendación IA</p>
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+            <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3">
               <p className="text-xs text-indigo-800 leading-relaxed">
                 {selected.sentiment === 'positive' ? 'Cliente con alta probabilidad de conversión. Propón una demo del plan Enterprise esta semana.' : selected.sentiment === 'negative' ? 'Urgente: cliente con fricción. Escala a soporte senior y ofrece compensación.' : 'Envía el dossier de precios y programa seguimiento en 48h para aumentar el engagement.'}
               </p>
@@ -295,7 +303,7 @@ export default function AssistantPage() {
             </div>
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-gray-100 bg-white/85 p-3 shadow-sm shadow-gray-950/[0.025]">
             <p className="text-[10px] font-semibold uppercase text-gray-400 mb-2">Acciones rápidas</p>
             <div className="space-y-1.5">
               {[
@@ -304,7 +312,7 @@ export default function AssistantPage() {
                 { label: 'Abrir en Clientes', icon: <MessageSquare className="h-3.5 w-3.5" /> },
               ].map(({ label, icon }) => (
                 <button key={label} onClick={() => { if (label === 'Activar secuencia email') handleQuickAction('Enviar pricing'); else if (label === 'Agendar llamada') handleQuickAction('Agendar llamada'); else toast.info(label); }}
-                  className="flex w-full items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:border-indigo-200 transition-colors">
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50/60 hover:text-indigo-700">
                   <span className="text-indigo-500">{icon}</span>{label}
                 </button>
               ))}
@@ -319,6 +327,6 @@ export default function AssistantPage() {
         </div>
       </aside>
       </div>
-    </div>
+    </motion.div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Plus, Clock, User, X, Phone } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -86,7 +87,12 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5 pb-2"
+    >
       <PageHeader
         title="Calendario"
         description="Semana comercial, llamadas y demos programadas"
@@ -110,11 +116,11 @@ export default function CalendarPage() {
         }
       />
 
-      <div className="flex gap-5" style={{ height: 'calc(100vh - 11rem)' }}>
+      <div className="flex gap-5" style={{ minHeight: 620, height: 'clamp(620px, calc(100vh - 12rem), 760px)' }}>
       {/* Left panel */}
       <aside className="flex w-64 shrink-0 flex-col gap-4">
         {/* Mini calendar */}
-        <div className="rounded-xl bg-white border border-gray-100 shadow-sm p-4">
+        <div className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035]">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Mayo 2026</h3>
             <div className="flex gap-0.5">
@@ -165,7 +171,7 @@ export default function CalendarPage() {
         </div>
 
         {/* Upcoming events */}
-        <div className="flex-1 rounded-xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
           <div className="border-b border-gray-100 px-4 py-3.5">
             <h3 className="text-sm font-semibold text-gray-900">Próximos eventos</h3>
           </div>
@@ -176,7 +182,7 @@ export default function CalendarPage() {
                 <li
                   key={ev.id}
                   onClick={() => setSelectedDate(ev.date)}
-                  className={cn('rounded-xl border p-3 cursor-pointer transition-colors hover:opacity-80', cfg.bg, cfg.border)}
+                  className={cn('cursor-pointer rounded-xl border p-3 shadow-sm shadow-gray-950/[0.02] transition-all hover:-translate-y-0.5 hover:shadow-md', cfg.bg, cfg.border)}
                 >
                   <p className={cn('text-xs font-semibold', cfg.color)}>{ev.title}</p>
                   <div className="flex items-center gap-1.5 mt-1">
@@ -204,7 +210,7 @@ export default function CalendarPage() {
       </aside>
 
       {/* Weekly view */}
-      <div className="flex flex-1 min-w-0 flex-col rounded-xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
         {/* Week header */}
         <div className="flex border-b border-gray-100 shrink-0">
           <div className="w-16 shrink-0 border-r border-gray-100 px-2 py-3">
@@ -265,7 +271,7 @@ export default function CalendarPage() {
                         onClick={() => toast.info(ev.title, { description: ev.clientName ? `Con ${ev.clientName}` : ev.description ?? '' })}
                         style={{ top: topOffset, height }}
                         className={cn(
-                          'absolute left-0.5 right-0.5 rounded-lg border px-1.5 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden',
+                          'absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded-lg border px-1.5 py-1 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md',
                           cfg.bg,
                           cfg.border
                         )}
@@ -399,6 +405,6 @@ export default function CalendarPage() {
         </div>
       )}
       </div>
-    </div>
+    </motion.div>
   )
 }
