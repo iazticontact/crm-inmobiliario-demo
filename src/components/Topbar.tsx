@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { clients } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/current-user'
 
 const pageLabels: Record<string, { title: string; description: string }> = {
   '/dashboard': { title: 'Dashboard', description: 'Vista general de tu negocio' },
@@ -28,6 +29,7 @@ const mockNotifications = [
 export function Topbar() {
   const pathname = usePathname()
   const page = pageLabels[pathname] ?? { title: 'NowCRM', description: '' }
+  const { currentUser } = useCurrentUser()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -180,8 +182,9 @@ export function Topbar() {
           href="/settings"
           aria-label="Abrir ajustes de usuario"
           className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
+          title={`${currentUser.name} · ${currentUser.trialLabel}`}
         >
-          N
+          {currentUser.initials}
         </Link>
       </div>
     </header>

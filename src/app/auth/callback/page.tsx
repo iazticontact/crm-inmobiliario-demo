@@ -10,42 +10,53 @@ export default function AuthCallbackPage() {
   const [message, setMessage] = useState('Confirmando sesion segura...')
 
   useEffect(() => {
+    const redirectToLoginError = (nextMessage: string) => {
+      setMessage(nextMessage)
+      setTimeout(() => router.replace('/login?error=callback'), 900)
+    }
+
     const completeAuth = async () => {
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
-        setMessage('Supabase no esta configurado en este entorno.')
-        setTimeout(() => router.replace('/login'), 1400)
+        redirectToLoginError('Faltan variables de Supabase.')
         return
       }
 
-      const params = new URLSearchParams(window.location.search)
-      const errorDescription = params.get('error_description') || params.get('error')
+      const searchParams = new URLSearchParams(window.location.search)
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const getParam = (key: string) => searchParams.get(key) || hashParams.get(key)
+      const errorDescription = getParam('error_description') || getParam('error')
       if (errorDescription) {
-        setMessage('No se ha podido confirmar el enlace.')
-        setTimeout(() => router.replace('/login'), 1600)
+        console.error(errorDescription)
+        redirectToLoginError('No se ha podido confirmar el enlace.')
         return
       }
 
-      const code = params.get('code')
+      const code = getParam('code')
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
-          setMessage('No se ha podido confirmar el enlace.')
-          setTimeout(() => router.replace('/login'), 1600)
+          console.error(error)
+          redirectToLoginError('No se ha podido crear la sesion de Supabase.')
           return
         }
       }
 
       const { data, error } = await supabase.auth.getSession()
       if (error) {
-        setMessage('No se ha podido recuperar la sesion.')
-        setTimeout(() => router.replace('/login'), 1600)
+        console.error(error)
+        redirectToLoginError('No se ha podido recuperar la sesion.')
         return
       }
 
       if (data.session) {
         setMessage('Sesion confirmada. Entrando en NowCRM...')
         setTimeout(() => router.replace('/dashboard'), 900)
+        return
+      }
+
+      if (!code) {
+        redirectToLoginError('El enlace no incluye codigo de confirmacion.')
         return
       }
 

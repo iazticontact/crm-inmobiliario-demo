@@ -14,6 +14,7 @@ import { dashboardMetrics, aiInsights, recentActivity, weeklyLeads } from '@/lib
 import { triggerN8nWebhook } from '@/lib/integrations'
 import type { AIInsightType, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/current-user'
 
 const metricIcons = {
   Users: <Users className="h-5 w-5" />,
@@ -63,6 +64,7 @@ const workspaceSignals = [
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { currentUser } = useCurrentUser()
   const [activity, setActivity] = useState(recentActivity)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
 
@@ -102,9 +104,16 @@ export default function DashboardPage() {
     >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="hidden">
           <h2 className="text-2xl font-bold text-gray-950">Buenos días, NowCRM</h2>
           <p className="text-sm text-gray-500">Martes, 5 de mayo de 2026 · Todo marcha bien</p>
+        </div>
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-2xl font-bold text-gray-950">Buenos dias, {currentUser.name || currentUser.workspaceName}</h2>
+            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{currentUser.trialLabel}</Badge>
+          </div>
+          <p className="text-sm text-gray-500">Tu workspace {currentUser.workspaceName} esta listo para probar NowCRM.</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>
           <Plus className="h-3.5 w-3.5" />

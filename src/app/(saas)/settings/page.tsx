@@ -28,6 +28,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/current-user'
 
 type IntegrationStatus = 'connected' | 'disconnected' | 'pending'
 
@@ -64,7 +65,7 @@ const notifDefaults = [
   { key: 'urgent', label: 'Conversaciones urgentes', description: 'Cuando la IA detecta sentimiento negativo', enabled: false },
 ]
 
-const workspaceItems = [
+const demoWorkspaceItems = [
   { label: 'Nombre del workspace', value: 'NowCRM Demo', icon: <Building2 className="h-4 w-4" /> },
   { label: 'Email de administrador', value: 'iazti.contact@gmail.com', icon: <Mail className="h-4 w-4" /> },
   { label: 'Zona horaria', value: 'Europe/Madrid (UTC+2)', icon: <Globe className="h-4 w-4" /> },
@@ -101,6 +102,7 @@ const envChecks = [
 ]
 
 export default function SettingsPage() {
+  const { currentUser } = useCurrentUser()
   const [notifications, setNotifications] = useState<Record<string, boolean>>(
     Object.fromEntries(notifDefaults.map((n) => [n.key, n.enabled]))
   )
@@ -117,6 +119,12 @@ export default function SettingsPage() {
   const [flowPaths, setFlowPaths] = useState<Record<string, string>>(
     Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.url.replace('https://n8n.tudominio.com', '')]))
   )
+  const visibleWorkspaceItems = currentUser.isDemo ? demoWorkspaceItems : [
+    { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
+    { label: 'Estado', value: currentUser.trialLabel, icon: <Shield className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'EspaÃ±ol', icon: <User className="h-4 w-4" /> },
+  ]
 
   const toggleNotif = (key: string) => {
     const next = !notifications[key]
@@ -198,7 +206,7 @@ export default function SettingsPage() {
       <PageHeader
         title="Configuración"
         description="Arquitectura demo, workspace e integraciones listas para la siguiente fase"
-        action={<Badge variant="indigo" dot>Modo demo</Badge>}
+        action={<Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{currentUser.trialLabel}</Badge>}
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -220,18 +228,18 @@ export default function SettingsPage() {
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
-                  N
+                  {currentUser.initials}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">NowCRM Demo</p>
-                  <p className="text-xs text-gray-500">iazti.contact@gmail.com</p>
+                  <p className="text-sm font-semibold text-gray-900">{currentUser.workspaceName}</p>
+                  <p className="text-xs text-gray-500">{currentUser.email}</p>
                 </div>
               </div>
-              <Badge variant="indigo">Plan Pro</Badge>
+              <Badge variant={currentUser.isDemo ? 'indigo' : 'success'}>{currentUser.trialLabel}</Badge>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              {workspaceItems.map(({ label, value, icon }) => (
+              {visibleWorkspaceItems.map(({ label, value, icon }) => (
                 <div key={label} className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-3">
                   <div className="flex items-center gap-2.5">
                     <span className="text-gray-400">{icon}</span>

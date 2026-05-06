@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -10,6 +10,7 @@ import {
   CheckCircle,
   CreditCard,
   DollarSign,
+  Building2,
   KeyRound,
   Lock,
   Mail,
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase'
 
 type AuthMode = 'signin' | 'signup' | 'forgot'
+type AuthFieldErrors = Partial<Record<'name' | 'companyName' | 'email' | 'password', string>>
 
 const loginMetrics = [
   { icon: Users, value: '+1.284', label: 'Clientes activos', detail: '+12,5% este mes', tone: 'from-indigo-400 to-sky-300' },
@@ -62,43 +64,100 @@ function getPasswordStrength(password: string) {
   return score
 }
 
+function hasRequiredPasswordShape(password: string) {
+  return password.length >= 8 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /[0-9]/.test(password)
+}
+
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+function validateAuthFields(mode: AuthMode, values: { name: string; companyName: string; email: string; password: string }) {
+  const errors: AuthFieldErrors = {}
+  const cleanEmail = values.email.trim()
+
+  if (mode === 'signup' && !values.name.trim()) errors.name = 'El nombre es obligatorio.'
+  if (mode === 'signup' && !values.companyName.trim()) errors.companyName = 'La empresa o workspace es obligatorio.'
+  if (!cleanEmail) errors.email = 'El email es obligatorio.'
+  else if (!isValidEmail(cleanEmail)) errors.email = 'Introduce un email valido.'
+
+  if (mode !== 'forgot') {
+    if (!values.password) errors.password = 'La contraseña es obligatoria.'
+    else if (values.password.length < 8) errors.password = 'Usa al menos 8 caracteres.'
+    else if (!hasRequiredPasswordShape(values.password)) errors.password = 'Debe incluir mayuscula, minuscula y numero.'
+  }
+
+  return errors
+}
+
+function getAuthErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) return 'No se ha podido completar la accion.'
+
+  const message = error.message.toLowerCase()
+  if (message.includes('invalid login credentials')) return 'Email o contraseña incorrectos'
+  if (message.includes('email not confirmed')) return 'Confirma tu email antes de entrar'
+  if (message.includes('user already registered') || message.includes('already registered')) return 'Esta cuenta ya existe. Inicia sesion o recupera tu contraseña.'
+  if (message.includes('invalid path specified')) return 'La URL de confirmacion no es valida. Revisa las URLs permitidas en Supabase.'
+  if (message.includes('signup is disabled')) return 'El registro con email esta desactivado en Supabase.'
+  if (message.includes('password')) return 'Revisa la contraseña y vuelve a intentarlo'
+
+  return error.message
 }
 
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState<AuthMode>('signin')
   const [name, setName] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [formSubmitted, setFormSubmitted] = useState(false)
 
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password])
+  const formErrors = useMemo(() => validateAuthFields(mode, { name, companyName, email, password }), [companyName, email, mode, name, password])
+  const formCanSubmit = Object.keys(formErrors).length === 0
+  const showErrors = formSubmitted || mode === 'signup'
   const supabaseReady = isSupabaseConfigured()
 
   const resetFormState = (nextMode: AuthMode) => {
     setMode(nextMode)
     setPassword('')
+    setFormSubmitted(false)
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const error = params.get('error')
+    const status = params.get('status')
+
+    if (error === 'callback') {
+      toast.error('Auth no completado', { description: 'No se ha podido confirmar el enlace. Solicita uno nuevo o inicia sesion.' })
+      window.history.replaceState(null, '', '/login')
+    }
+
+    if (status === 'password-updated') {
+      toast.success('Contraseña actualizada', { description: 'Ya puedes iniciar sesion con tu nueva contraseña.' })
+      window.history.replaceState(null, '', '/login')
+    }
+  }, [])
 
   const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const cleanEmail = email.trim()
+    const cleanName = name.trim()
+    const cleanCompanyName = companyName.trim()
 
-    if (!isValidEmail(cleanEmail)) {
-      toast.error('Email no valido', { description: 'Introduce un email profesional para continuar.' })
-      return
-    }
-
-    if (mode !== 'forgot' && password.length < 8) {
-      toast.error('Password demasiado corta', { description: 'Usa al menos 8 caracteres.' })
+    setFormSubmitted(true)
+    const validationErrors = validateAuthFields(mode, { name, companyName, email, password })
+    if (Object.keys(validationErrors).length > 0) {
+      toast.error('Revisa los campos', { description: 'Faltan datos obligatorios o hay algun formato incorrecto.' })
       return
     }
 
     const supabase = getSupabaseBrowserClient()
     if (!supabase) {
-      toast.error('Supabase no esta disponible', { description: 'Revisa las variables publicas del entorno antes de usar auth real.' })
+      toast.error('Faltan variables de Supabase', { description: 'Revisa las variables publicas del entorno antes de usar auth real.' })
       return
     }
 
@@ -108,7 +167,8 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
         if (error) throw error
         toast.success('Sesion iniciada', { description: 'Entrando en tu workspace NowCRM.' })
-        router.push('/dashboard')
+        router.replace('/dashboard')
+        router.refresh()
         return
       }
 
@@ -119,11 +179,17 @@ export default function LoginPage() {
           password,
           options: {
             emailRedirectTo: `${origin}/auth/callback`,
-            data: { full_name: name.trim() || 'NowCRM user' },
+            data: {
+              full_name: cleanName,
+              workspace_name: cleanCompanyName,
+              company_name: cleanCompanyName,
+              trial_status: 'active',
+              onboarding_completed: false,
+            },
           },
         })
         if (error) throw error
-        toast.success('Cuenta creada', { description: 'Revisa tu email para confirmar la cuenta en Supabase.' })
+        toast.success('Cuenta creada. Confirma tu email antes de entrar', { description: 'Revisa tu email para confirmar la cuenta.' })
         setMode('signin')
         return
       }
@@ -136,16 +202,22 @@ export default function LoginPage() {
       toast.success('Email enviado', { description: 'Te hemos enviado el enlace para restablecer tu password.' })
       setMode('signin')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se ha podido completar la accion.'
+      console.error(error)
+      const message = getAuthErrorMessage(error)
       toast.error('Auth no completado', { description: message })
     } finally {
       setLoading(false)
     }
   }
 
-  const enterDemo = () => {
+  const enterDemo = async () => {
+    const supabase = getSupabaseBrowserClient()
+    if (supabase) {
+      const { error } = await supabase.auth.signOut()
+      if (error) console.error(error)
+    }
     toast.success('Modo demo activado', { description: 'Entrando con datos mock y perfil preconfigurado.' })
-    router.push('/dashboard')
+    router.replace('/dashboard')
   }
 
   return (
@@ -431,10 +503,27 @@ export default function LoginPage() {
                         <input
                           value={name}
                           onChange={(event) => setName(event.target.value)}
-                          placeholder="Tu nombre o empresa"
-                          className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                          placeholder="Tu nombre"
+                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.name ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
                         />
                       </div>
+                      {showErrors && formErrors.name && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.name}</span>}
+                    </label>
+                  )}
+
+                  {mode === 'signup' && (
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-semibold text-gray-600">Empresa / workspace</span>
+                      <div className="relative">
+                        <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          value={companyName}
+                          onChange={(event) => setCompanyName(event.target.value)}
+                          placeholder="Nombre de tu empresa"
+                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.companyName ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
+                        />
+                      </div>
+                      {showErrors && formErrors.companyName && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.companyName}</span>}
                     </label>
                   )}
 
@@ -447,9 +536,10 @@ export default function LoginPage() {
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         placeholder="tu@email.com"
-                        className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                        className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.email ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
                       />
                     </div>
+                    {showErrors && formErrors.email && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.email}</span>}
                   </label>
 
                   {mode !== 'forgot' && (
@@ -462,9 +552,10 @@ export default function LoginPage() {
                           value={password}
                           onChange={(event) => setPassword(event.target.value)}
                           placeholder="Minimo 8 caracteres"
-                          className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.password ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
                         />
                       </div>
+                      {showErrors && formErrors.password && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.password}</span>}
                     </label>
                   )}
 
@@ -490,7 +581,11 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  <Button className="h-11 w-full gap-2 text-sm font-semibold shadow-lg shadow-indigo-600/20" loading={loading}>
+                  <Button
+                    className={cn('h-11 w-full gap-2 text-sm font-semibold shadow-lg shadow-indigo-600/20', !formCanSubmit && 'cursor-not-allowed opacity-60')}
+                    loading={loading}
+                    aria-disabled={!formCanSubmit}
+                  >
                     {mode === 'signin' && 'Iniciar sesion'}
                     {mode === 'signup' && 'Crear cuenta'}
                     {mode === 'forgot' && 'Enviar enlace'}

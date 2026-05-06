@@ -31,22 +31,27 @@ export default function ResetPasswordPage() {
     const prepareSession = async () => {
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
+        console.error('Faltan variables de Supabase')
         setChecking(false)
         return
       }
 
-      const params = new URLSearchParams(window.location.search)
-      const errorDescription = params.get('error_description') || params.get('error')
+      const searchParams = new URLSearchParams(window.location.search)
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const getParam = (key: string) => searchParams.get(key) || hashParams.get(key)
+      const errorDescription = getParam('error_description') || getParam('error')
       if (errorDescription) {
+        console.error(errorDescription)
         setSessionReady(false)
         setChecking(false)
         return
       }
 
-      const code = params.get('code')
+      const code = getParam('code')
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
+          console.error(error)
           setSessionReady(false)
           setChecking(false)
           return
@@ -55,6 +60,7 @@ export default function ResetPasswordPage() {
 
       const { data, error } = await supabase.auth.getSession()
       if (error) {
+        console.error(error)
         setSessionReady(false)
         setChecking(false)
         return
@@ -79,7 +85,7 @@ export default function ResetPasswordPage() {
 
     const supabase = getSupabaseBrowserClient()
     if (!supabase) {
-      toast.error('Supabase no esta configurado')
+      toast.error('Faltan variables de Supabase')
       return
     }
 
@@ -88,12 +94,13 @@ export default function ResetPasswordPage() {
     setLoading(false)
 
     if (error) {
+      console.error(error)
       toast.error('No se pudo actualizar', { description: error.message })
       return
     }
 
-    toast.success('Password actualizado', { description: 'Ya puedes entrar en NowCRM.' })
-    router.replace('/login')
+    toast.success('Contraseña actualizada', { description: 'Ya puedes entrar en NowCRM.' })
+    router.replace('/login?status=password-updated')
   }
 
   return (
@@ -127,7 +134,7 @@ export default function ResetPasswordPage() {
           ) : !sessionReady ? (
             <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
               <p className="text-sm font-semibold text-amber-900">Enlace no activo</p>
-              <p className="mt-1 text-xs leading-5 text-amber-700">Solicita un nuevo enlace desde la pantalla de login.</p>
+              <p className="mt-1 text-xs leading-5 text-amber-700">Solicita un nuevo enlace desde la pantalla de login. Si acabas de abrir el email, comprueba que la URL permitida en Supabase apunta a esta ruta.</p>
               <Button className="mt-4 w-full" size="sm" onClick={() => router.replace('/login')}>Volver al login</Button>
             </div>
           ) : (

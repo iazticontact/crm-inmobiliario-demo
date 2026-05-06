@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { useCurrentUser } from '@/lib/current-user'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,6 +25,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const { currentUser } = useCurrentUser()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -36,10 +39,15 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUserMenuOpen(false)
+    const supabase = getSupabaseBrowserClient()
+    if (supabase) {
+      const { error } = await supabase.auth.signOut()
+      if (error) console.error(error)
+    }
     toast.success('Sesión cerrada', { description: 'Hasta la próxima. ¡Hasta pronto!' })
-    setTimeout(() => router.push('/login'), 800)
+    router.replace('/login')
   }
 
   return (
@@ -87,9 +95,11 @@ export function Sidebar() {
         <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
-            <p className="text-xs font-semibold text-slate-100">Demo activa</p>
+            <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Demo activa' : 'Trial activo'}</p>
           </div>
-          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">Mock data, IA simulada y conectores preparados para Supabase.</p>
+          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+            {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} esta probando NowCRM con Auth real.`}
+          </p>
         </div>
 
         {/* Divider + quick links */}
@@ -109,8 +119,8 @@ export function Sidebar() {
         {userMenuOpen && (
           <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-xl border border-gray-100 bg-white text-gray-900 shadow-xl">
             <div className="border-b border-gray-100 px-4 py-3">
-              <p className="text-xs font-semibold text-gray-900">NowCRM Demo</p>
-              <p className="text-[10px] text-gray-400">iazti.contact@gmail.com</p>
+              <p className="text-xs font-semibold text-gray-900">{currentUser.workspaceName}</p>
+              <p className="text-[10px] text-gray-400">{currentUser.email}</p>
             </div>
             <div className="p-1">
               <Link
@@ -144,10 +154,10 @@ export function Sidebar() {
           onClick={() => setUserMenuOpen((v) => !v)}
           className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 text-left shadow-lg shadow-black/10 ring-1 ring-white/[0.02] transition-colors hover:border-violet-200/20 hover:bg-white/[0.11]"
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">N</div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">{currentUser.initials}</div>
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-xs font-semibold text-white">NowCRM Demo</p>
-            <p className="truncate text-[10px] text-slate-500">iazti.contact@gmail.com</p>
+            <p className="truncate text-xs font-semibold text-white">{currentUser.workspaceName}</p>
+            <p className="truncate text-[10px] text-slate-500">{currentUser.email}</p>
           </div>
           <ChevronUp className={cn('h-3.5 w-3.5 text-slate-500 transition-transform', userMenuOpen ? 'rotate-180' : '')} />
         </button>
