@@ -68,12 +68,6 @@ export function useCurrentUser() {
     }
 
     const loadUser = async () => {
-      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-      if (isDemoMode) {
-        setCurrentUser(demoUser)
-        return
-      }
-
       const { data, error } = await supabase.auth.getUser()
       if (!mounted) return
 
@@ -81,6 +75,8 @@ export function useCurrentUser() {
         setCurrentUser(demoUser)
         return
       }
+
+      window.localStorage.removeItem(DEMO_MODE_KEY)
 
       let profile: ProfileRecord | null = null
       let workspace: WorkspaceRecord | null = null

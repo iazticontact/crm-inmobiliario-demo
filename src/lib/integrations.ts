@@ -67,6 +67,26 @@ export type WebhookConfig = {
   requires: N8nRequirement[]
 }
 
+export type AssistantAgentFlowState = {
+  event: 'assistant_message'
+  label: string
+  status: N8nFlowStatus
+  webhookUrl: string
+  isActive: boolean
+  source: 'supabase' | 'default'
+}
+
+type AssistantAgentFlowCandidate = {
+  event?: string
+  event_type?: string
+  label?: string
+  name?: string
+  status?: N8nFlowStatus
+  webhookUrl?: string
+  webhook_url?: string
+  url?: string
+}
+
 const eventAliases: Record<string, N8nEventType> = {
   whatsapp_incoming: 'whatsapp_message',
   appointment_scheduled: 'appointment_booked',
@@ -98,6 +118,39 @@ export const n8nWebhookConfigs: WebhookConfig[] = [
   { event: 'urgent_conversation', label: 'Conversacion urgente', description: 'Escala conversaciones negativas o de alta intencion.', trigger: 'Sentimiento negativo o score alto', url: 'https://n8n.tudominio.com/webhook/urgent-conversation', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
   { event: 'test_flow', label: 'Test flow', description: 'Payload de prueba para validar conectividad sin tocar datos reales.', trigger: 'Test manual desde Settings', url: 'https://n8n.tudominio.com/webhook/test-flow', status: 'demo', requires: ['n8n'] },
 ]
+
+function isHttpsWebhook(value: unknown) {
+  return typeof value === 'string' && value.trim().startsWith('https://')
+}
+
+function readFlowUrl(flow?: AssistantAgentFlowCandidate) {
+  return flow?.webhookUrl || flow?.webhook_url || flow?.url || ''
+}
+
+export function getAssistantAgentFlow(flows: AssistantAgentFlowCandidate[] = [], isDemoMode = false): AssistantAgentFlowState {
+  const storedFlow = flows.find((flow) => (flow.event ?? flow.event_type) === 'assistant_message')
+  const storedUrl = readFlowUrl(storedFlow)
+
+  if (storedFlow?.status === 'active' && isHttpsWebhook(storedUrl)) {
+    return {
+      event: 'assistant_message',
+      label: storedFlow.label || storedFlow.name || 'NowCRM - Assistant Agent',
+      status: 'active',
+      webhookUrl: storedUrl,
+      isActive: !isDemoMode,
+      source: 'supabase',
+    }
+  }
+
+  return {
+    event: 'assistant_message',
+    label: 'NowCRM - Assistant Agent',
+    status: 'active',
+    webhookUrl: ASSISTANT_AGENT_WEBHOOK_URL,
+    isActive: !isDemoMode,
+    source: 'default',
+  }
+}
 
 export function buildN8nTriggerPayload(eventName: N8nEventType, payload: N8nTriggerPayload = {}): N8nTriggerPayload {
   return {

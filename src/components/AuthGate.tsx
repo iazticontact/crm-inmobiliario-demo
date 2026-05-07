@@ -15,14 +15,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     let mounted = true
 
     const checkAccess = async () => {
-      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-      if (isDemoMode) {
-        if (mounted) setAllowed(true)
-        return
-      }
-
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
+        const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+        if (isDemoMode && mounted) {
+          setAllowed(true)
+          return
+        }
         router.replace('/login')
         return
       }
@@ -30,12 +29,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.getSession()
       if (!mounted) return
 
-      if (error || !data.session) {
-        router.replace('/login')
+      if (data.session && !error) {
+        window.localStorage.removeItem(DEMO_MODE_KEY)
+        setAllowed(true)
         return
       }
 
-      setAllowed(true)
+      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+      if (isDemoMode) {
+        setAllowed(true)
+        return
+      }
+
+      router.replace('/login')
     }
 
     void checkAccess()
@@ -58,4 +64,3 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>
 }
-

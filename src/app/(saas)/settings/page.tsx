@@ -27,7 +27,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { ASSISTANT_AGENT_WEBHOOK_URL, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
+import { ASSISTANT_AGENT_WEBHOOK_URL, getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -185,8 +185,13 @@ export default function SettingsPage() {
     return `${n8nUrl.replace(/\/$/, '')}${rawPath.startsWith('/') ? rawPath : `/${rawPath}`}`
   }, [flowPaths, n8nUrl])
 
-  const assistantAgentUrl = composeFlowUrl('assistant_message')
-  const assistantAgentActive = flowStatuses.assistant_message === 'active' && Boolean(assistantAgentUrl) && !assistantAgentUrl.includes('tudominio.com')
+  const assistantAgentFlow = getAssistantAgentFlow([{
+    event: 'assistant_message',
+    status: flowStatuses.assistant_message,
+    webhookUrl: composeFlowUrl('assistant_message'),
+  }], currentUser.isDemo)
+  const assistantAgentUrl = assistantAgentFlow.webhookUrl
+  const assistantAgentActive = assistantAgentFlow.isActive
 
   const applyRemoteFlows = useCallback((flows: N8nFlow[]) => {
     if (!flows.length) return

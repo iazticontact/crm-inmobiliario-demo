@@ -9,7 +9,7 @@ import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
-import { n8nWebhookConfigs, triggerN8nWebhook } from '@/lib/integrations'
+import { getAssistantAgentFlow, triggerN8nWebhook } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { respondWithAssistant } from '@/lib/ai'
 import {
@@ -65,56 +65,46 @@ export default function AssistantPage() {
   const [isRealMode, setIsRealMode] = useState(false)
   const [assistantWebhookUrl, setAssistantWebhookUrl] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const defaultAssistantFlow = useMemo(() => n8nWebhookConfigs.find((flow) => flow.event === 'assistant_message'), [])
 
   const loadConversations = useCallback(async () => {
-    const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-    if (isDemoMode) {
-      setConversationList(mockConversations)
-      setSelectedId(mockConversations[0]?.id ?? '')
-      setWorkspaceId(null)
-      setIsRealMode(false)
-      setAssistantWebhookUrl('')
-      setLoadingConversations(false)
-      return
-    }
-
     setLoadingConversations(true)
     try {
       const context = await getWorkspaceContext()
       const resolvedWorkspaceId = context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
+        const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
         setConversationList(mockConversations)
         setSelectedId(mockConversations[0]?.id ?? '')
         setWorkspaceId(null)
         setIsRealMode(false)
         setAssistantWebhookUrl('')
+        if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se ha encontrado un workspace real.' })
         return
       }
 
+      window.localStorage.removeItem(DEMO_MODE_KEY)
       const [realConversations, flows] = await Promise.all([
         getConversations(resolvedWorkspaceId),
         getN8nFlows(resolvedWorkspaceId).catch(() => []),
       ])
-      const assistantFlow = flows.find((flow) => flow.event === 'assistant_message')
-      const fallbackUrl = defaultAssistantFlow?.status === 'active' ? defaultAssistantFlow.url : ''
-      const resolvedWebhookUrl = assistantFlow?.status === 'active' && assistantFlow.webhookUrl ? assistantFlow.webhookUrl : fallbackUrl
+      const assistantFlow = getAssistantAgentFlow(flows, false)
       setConversationList(realConversations)
       setSelectedId(realConversations[0]?.id ?? '')
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
-      setAssistantWebhookUrl(resolvedWebhookUrl)
+      setAssistantWebhookUrl(assistantFlow.isActive ? assistantFlow.webhookUrl : '')
     } catch {
+      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
       setConversationList(mockConversations)
       setSelectedId(mockConversations[0]?.id ?? '')
       setWorkspaceId(null)
       setIsRealMode(false)
       setAssistantWebhookUrl('')
-      toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
+      if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
     } finally {
       setLoadingConversations(false)
     }
-  }, [defaultAssistantFlow])
+  }, [])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -344,6 +334,11 @@ export default function AssistantPage() {
         mode: assistantN8nActive ? 'real' : 'demo',
       })
       if (result.status === 'ok') {
+        if (result.suggested_response) {
+          const n8nMsg: Message = { id: `n8n-${Date.now()}`, conversationId: selected.id, content: result.suggested_response, sender: 'ai', timestamp: nowTime() }
+          appendLocalMessage(selected.id, n8nMsg)
+          if (isRealMode) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai' })
+        }
         toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
       } else {
         toast.warning('n8n en fallback', { description: result.message })

@@ -75,7 +75,7 @@ export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N
       role: 'user',
     },
     metadata: {
-      source: 'assistant',
+      source: 'assistant_ui',
       requested_action: 'generate_response',
       previous_messages: context.messages?.length ?? 0,
     },
