@@ -86,6 +86,7 @@ export type Invoice = {
   date: string
   dueDate: string
   plan: string
+  notes?: string
 }
 
 export type AIInsight = {

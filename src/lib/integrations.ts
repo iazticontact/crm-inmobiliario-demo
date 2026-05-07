@@ -7,6 +7,7 @@ export type WebhookEvent =
   | 'reengagement_sequence'
   | 'daily_ai_summary'
   | 'urgent_conversation'
+
 export type WebhookPayload = Record<string, unknown>
 
 export type WebhookConfig = {
@@ -31,9 +32,26 @@ export const n8nWebhookConfigs: WebhookConfig[] = [
 ]
 
 export async function triggerN8nWebhook(eventName: WebhookEvent, payload: WebhookPayload): Promise<{ success: boolean; message: string }> {
-  console.log('[n8n] Webhook triggered:', eventName, payload)
-  await new Promise((r) => setTimeout(r, 900))
-  return { success: true, message: `Webhook "${eventName}" ejecutado en simulación.` }
+  const endpoint = typeof payload.url === 'string' ? payload.url : undefined
+  const mode = payload.mode === 'real' ? 'real' : 'demo'
+
+  try {
+    const response = await fetch('/api/n8n/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event_type: eventName,
+        endpoint,
+        mode,
+        payload,
+      }),
+    })
+    const data = await response.json() as { success?: boolean; message?: string }
+    return { success: Boolean(data.success), message: data.message || `Webhook "${eventName}" procesado.` }
+  } catch {
+    await new Promise((r) => setTimeout(r, 600))
+    return { success: true, message: `Webhook "${eventName}" ejecutado en simulación local.` }
+  }
 }
 
 export async function simulateWhatsAppIncomingLead(): Promise<{ success: boolean; lead: { name: string; phone: string; message: string } }> {
@@ -57,6 +75,6 @@ export const supabaseStatus = {
   hasAnonKey: hasSupabaseAnonKey,
   connected: false,
   note: hasSupabaseUrl && (hasSupabaseAnonKey || hasSupabasePublishableKey)
-    ? 'Variables públicas detectadas. Siguiente paso: migrar mock data a tablas reales.'
+    ? 'Variables públicas detectadas. Auth, clientes, facturas y calendario están preparados para datos reales.'
     : 'Pendiente: añade NEXT_PUBLIC_SUPABASE_URL y una clave pública de Supabase en .env.local.',
 }

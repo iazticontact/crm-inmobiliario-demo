@@ -1,14 +1,23 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Plus, Clock, User, X, Phone } from 'lucide-react'
+import { AlertCircle, ChevronLeft, ChevronRight, Clock, Phone, Plus, Trash2, User, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { calendarEvents as initialEvents } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import {
+  createActivity,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  getCalendarEvents,
+  getWorkspaceContext,
+  updateCalendarEvent,
+} from '@/lib/supabase-queries'
 import type { CalendarEvent, EventType } from '@/lib/types'
 
 const eventTypeConfig: Record<EventType, { label: string; color: string; bg: string; border: string }> = {
@@ -29,61 +38,185 @@ const WEEK_DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const WEEK_DATES = ['4 may', '5 may', '6 may', '7 may', '8 may', '9 may', '10 may']
 const WEEK_FULL = ['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07', '2026-05-08', '2026-05-09', '2026-05-10']
 const TODAY = '2026-05-05'
-
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8)
 
-const emptyEventForm = { title: '', date: TODAY, type: 'demo' as EventType, startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
+type EventForm = {
+  id?: string
+  title: string
+  date: string
+  type: EventType
+  startHour: number
+  startMinute: number
+  duration: number
+  clientName: string
+  description: string
+}
+
+const emptyEventForm: EventForm = { title: '', date: TODAY, type: 'demo', startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
+
+function toForm(event: CalendarEvent): EventForm {
+  return {
+    id: event.id,
+    title: event.title,
+    date: event.date,
+    type: event.type,
+    startHour: event.startHour,
+    startMinute: event.startMinute,
+    duration: event.duration,
+    clientName: event.clientName ?? '',
+    description: event.description ?? '',
+  }
+}
 
 export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState(TODAY)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState(emptyEventForm)
+  const [form, setForm] = useState<EventForm>(emptyEventForm)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [isRealMode, setIsRealMode] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
 
+  const loadEvents = useCallback(async () => {
+    const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+    if (isDemoMode) {
+      setEvents(initialEvents)
+      setWorkspaceId(null)
+      setIsRealMode(false)
+      setLoadError('')
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setLoadError('')
+    try {
+      const context = await getWorkspaceContext()
+      const resolvedWorkspaceId = context?.workspace?.id || context?.profile?.workspace_id
+      if (!resolvedWorkspaceId) {
+        setEvents(initialEvents)
+        setWorkspaceId(null)
+        setIsRealMode(false)
+        setLoadError('No se ha encontrado workspace real. Se muestran eventos demo.')
+        return
+      }
+
+      const realEvents = await getCalendarEvents(resolvedWorkspaceId)
+      setEvents(realEvents)
+      setWorkspaceId(resolvedWorkspaceId)
+      setIsRealMode(true)
+    } catch {
+      setEvents(initialEvents)
+      setWorkspaceId(null)
+      setIsRealMode(false)
+      setLoadError('No se pudieron cargar eventos reales. Revisa RLS o columnas de calendar_events.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setModalOpen(false) }
+    const timeout = window.setTimeout(() => {
+      void loadEvents()
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [loadEvents])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setModalOpen(false)
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  const upcomingEvents = events
+  const upcomingEvents = useMemo(() => events
     .filter((e) => e.date >= TODAY)
     .sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour)
-    .slice(0, 5)
+    .slice(0, 6), [events])
+
+  const openCreateModal = (preset?: Partial<EventForm>) => {
+    setForm({ ...emptyEventForm, date: selectedDate, ...preset })
+    setModalOpen(true)
+  }
+
+  const openEditModal = (event: CalendarEvent) => {
+    setForm(toForm(event))
+    setModalOpen(true)
+  }
 
   const handleSave = async () => {
     if (!form.title.trim()) {
       toast.error('El título es obligatorio')
       return
     }
-    setSaving(true)
-    await new Promise((r) => setTimeout(r, 500))
-    const newEvent: CalendarEvent = {
-      id: `ev-${Date.now()}`,
+
+    const payload = {
       title: form.title.trim(),
       date: form.date,
       startHour: Number(form.startHour),
       startMinute: Number(form.startMinute),
       duration: Number(form.duration),
       type: form.type,
-      clientName: form.clientName.trim() || undefined,
-      description: form.description.trim() || undefined,
+      clientName: form.clientName.trim(),
+      description: form.description.trim(),
     }
-    setEvents((prev) => [...prev, newEvent])
-    setSelectedDate(form.date)
-    setSaving(false)
-    setModalOpen(false)
-    setForm(emptyEventForm)
-    toast.success(`Evento creado: ${newEvent.title}`, {
-      description: `${newEvent.date.slice(5).replace('-', '/')} · ${newEvent.startHour}:${String(newEvent.startMinute).padStart(2, '0')}h`,
-    })
+
+    setSaving(true)
+    try {
+      if (isRealMode && workspaceId) {
+        if (form.id) {
+          await updateCalendarEvent(form.id, payload)
+          await createActivity(workspaceId, { type: 'call', description: `Evento actualizado: ${payload.title}`, clientName: payload.clientName })
+          toast.success(`Evento actualizado: ${payload.title}`)
+        } else {
+          await createCalendarEvent(workspaceId, payload)
+          await createActivity(workspaceId, { type: 'call', description: `Evento creado: ${payload.title}`, clientName: payload.clientName })
+          toast.success(`Evento creado en Supabase: ${payload.title}`)
+        }
+        await loadEvents()
+      } else {
+        const localEvent: CalendarEvent = {
+          id: form.id || `ev-${Date.now()}`,
+          ...payload,
+          clientName: payload.clientName || undefined,
+          description: payload.description || undefined,
+        }
+        setEvents((prev) => form.id ? prev.map((event) => event.id === form.id ? localEvent : event) : [...prev, localEvent])
+        toast.success(form.id ? `Evento actualizado: ${payload.title}` : `Evento creado en demo: ${payload.title}`)
+      }
+      setSelectedDate(form.date)
+      setModalOpen(false)
+      setForm(emptyEventForm)
+    } catch (error) {
+      toast.error('No se pudo guardar el evento', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const openCallModal = () => {
-    setForm({ ...emptyEventForm, date: selectedDate, type: 'call', title: 'Llamada de seguimiento' })
-    setModalOpen(true)
+  const handleDelete = async () => {
+    if (!form.id) return
+    setDeleting(true)
+    try {
+      if (isRealMode) {
+        await deleteCalendarEvent(form.id)
+        await loadEvents()
+      } else {
+        setEvents((prev) => prev.filter((event) => event.id !== form.id))
+      }
+      toast.success(`Evento eliminado: ${form.title}`)
+      setModalOpen(false)
+      setForm(emptyEventForm)
+    } catch (error) {
+      toast.error('No se pudo eliminar el evento', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -98,17 +231,11 @@ export default function CalendarPage() {
         description="Semana comercial, llamadas y demos programadas"
         action={
           <div className="flex items-center gap-3">
+            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Datos reales' : 'Modo demo'}</Badge>
             <div className="hidden items-center gap-1 xl:flex">
-              {(Object.keys(eventTypeConfig) as EventType[]).map((type) => {
-                const cfg = eventTypeConfig[type]
-                return (
-                  <Badge key={type} variant={eventVariant[type]} className="text-[10px]">
-                    {cfg.label}
-                  </Badge>
-                )
-              })}
+              {(Object.keys(eventTypeConfig) as EventType[]).map((type) => <Badge key={type} variant={eventVariant[type]} className="text-[10px]">{eventTypeConfig[type].label}</Badge>)}
             </div>
-            <Button size="sm" onClick={openCallModal}>
+            <Button size="sm" onClick={() => openCreateModal({ type: 'call', title: 'Llamada de seguimiento' })}>
               <Phone className="h-3.5 w-3.5" />
               Agendar llamada
             </Button>
@@ -116,294 +243,197 @@ export default function CalendarPage() {
         }
       />
 
-      <div className="flex gap-5" style={{ minHeight: 620, height: 'clamp(620px, calc(100vh - 12rem), 760px)' }}>
-      {/* Left panel */}
-      <aside className="flex w-64 shrink-0 flex-col gap-4">
-        {/* Mini calendar */}
-        <div className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035]">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Mayo 2026</h3>
-            <div className="flex gap-0.5">
-              <button className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-              <button className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-7 mb-1">
-            {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
-              <div key={d} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-y-0.5">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={`empty-${i}`} />
-            ))}
-            {Array.from({ length: 31 }, (_, i) => {
-              const day = i + 1
-              const dateStr = `2026-05-${String(day).padStart(2, '0')}`
-              const isToday = dateStr === TODAY
-              const isSelected = dateStr === selectedDate
-              const hasEvent = events.some((e) => e.date === dateStr)
-              return (
-                <button
-                  key={day}
-                  onClick={() => setSelectedDate(dateStr)}
-                  className={cn(
-                    'flex flex-col items-center justify-center h-7 w-7 mx-auto rounded-full text-xs font-medium transition-colors relative',
-                    isSelected && !isToday ? 'bg-indigo-600 text-white' : '',
-                    isToday ? 'bg-indigo-600 text-white font-bold' : '',
-                    !isSelected && !isToday ? 'text-gray-700 hover:bg-gray-100' : ''
-                  )}
-                >
-                  {day}
-                  {hasEvent && !isSelected && !isToday && (
-                    <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-indigo-400" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Upcoming events */}
-        <div className="flex-1 overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
-          <div className="border-b border-gray-100 px-4 py-3.5">
-            <h3 className="text-sm font-semibold text-gray-900">Próximos eventos</h3>
-          </div>
-          <ul className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: '280px' }}>
-            {upcomingEvents.map((ev) => {
-              const cfg = eventTypeConfig[ev.type]
-              return (
-                <li
-                  key={ev.id}
-                  onClick={() => setSelectedDate(ev.date)}
-                  className={cn('cursor-pointer rounded-xl border p-3 shadow-sm shadow-gray-950/[0.02] transition-all hover:-translate-y-0.5 hover:shadow-md', cfg.bg, cfg.border)}
-                >
-                  <p className={cn('text-xs font-semibold', cfg.color)}>{ev.title}</p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <Clock className="h-3 w-3 text-gray-400" />
-                    <span className="text-[10px] text-gray-500">
-                      {ev.date.slice(5).replace('-', '/')} · {ev.startHour}:{String(ev.startMinute).padStart(2, '0')}h
-                    </span>
-                  </div>
-                  {ev.clientName && (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <User className="h-3 w-3 text-gray-400" />
-                      <span className="text-[10px] text-gray-500">{ev.clientName}</span>
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-
-        <Button size="sm" className="w-full" onClick={() => { setForm({ ...emptyEventForm, date: selectedDate }); setModalOpen(true) }}>
-          <Plus className="h-3.5 w-3.5" />
-          Nuevo evento
-        </Button>
-      </aside>
-
-      {/* Weekly view */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
-        {/* Week header */}
-        <div className="flex border-b border-gray-100 shrink-0">
-          <div className="w-16 shrink-0 border-r border-gray-100 px-2 py-3">
-            <span className="text-[10px] text-gray-400">UTC+2</span>
-          </div>
-          {WEEK_DAYS.map((day, i) => {
-            const dateStr = WEEK_FULL[i]
-            const isToday = dateStr === TODAY
-            const isSelected = dateStr === selectedDate
-            return (
-              <div
-                key={day}
-                onClick={() => setSelectedDate(dateStr)}
-                className={cn(
-                  'flex-1 flex flex-col items-center py-3 border-r border-gray-100 last:border-r-0 cursor-pointer transition-colors',
-                  isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50'
-                )}
-              >
-                <span className={cn('text-[10px] font-medium', isSelected ? 'text-indigo-600' : 'text-gray-400')}>{day}</span>
-                <span className={cn(
-                  'mt-1 flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold',
-                  isToday ? 'bg-indigo-600 text-white' : isSelected ? 'text-indigo-700' : 'text-gray-700'
-                )}>
-                  {WEEK_DATES[i].split(' ')[0]}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Time grid */}
-        <div className="flex flex-1 overflow-y-auto">
-          <div className="w-16 shrink-0 border-r border-gray-100">
-            {HOURS.map((h) => (
-              <div key={h} className="flex h-14 items-start justify-end pr-2 pt-1">
-                <span className="text-[10px] text-gray-400">{h}:00</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-1 min-w-0">
-            {WEEK_FULL.map((dateStr) => {
-              const dayEvents = events.filter((e) => e.date === dateStr)
-              const isToday = dateStr === TODAY
-              return (
-                <div key={dateStr} className={cn('flex-1 relative border-r border-gray-100 last:border-r-0 min-w-0', isToday && 'bg-indigo-50/30')}>
-                  {HOURS.map((h) => (
-                    <div key={h} className="h-14 border-b border-gray-50" />
-                  ))}
-
-                  {dayEvents.map((ev) => {
-                    const cfg = eventTypeConfig[ev.type]
-                    const topOffset = (ev.startHour - 8) * 56 + (ev.startMinute / 60) * 56
-                    const height = Math.max((ev.duration / 60) * 56, 28)
-                    return (
-                      <div
-                        key={ev.id}
-                        onClick={() => toast.info(ev.title, { description: ev.clientName ? `Con ${ev.clientName}` : ev.description ?? '' })}
-                        style={{ top: topOffset, height }}
-                        className={cn(
-                          'absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded-lg border px-1.5 py-1 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md',
-                          cfg.bg,
-                          cfg.border
-                        )}
-                      >
-                        <p className={cn('text-[10px] font-bold leading-tight', cfg.color)}>{ev.title}</p>
-                        {height > 36 && ev.clientName && (
-                          <p className="text-[9px] text-gray-500 mt-0.5 truncate">{ev.clientName}</p>
-                        )}
-                        {height > 48 && (
-                          <p className="text-[9px] text-gray-400 mt-0.5">
-                            {ev.startHour}:{String(ev.startMinute).padStart(2, '0')} — {ev.startHour + Math.floor((ev.startMinute + ev.duration) / 60)}:{String((ev.startMinute + ev.duration) % 60).padStart(2, '0')}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* New event modal */}
-      {modalOpen && (
-        <div
-          ref={overlayRef}
-          onClick={(e) => { if (e.target === overlayRef.current) setModalOpen(false) }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-              <h2 className="text-sm font-semibold text-gray-900">Nuevo evento</h2>
-              <button onClick={() => setModalOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Título *</label>
-                <input
-                  type="text"
-                  placeholder="Demo con cliente"
-                  value={form.title}
-                  onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-                  className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Fecha</label>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))}
-                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Tipo</label>
-                  <select
-                    value={form.type}
-                    onChange={(e) => setForm((p) => ({ ...p, type: e.target.value as EventType }))}
-                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                  >
-                    <option value="demo">Demo</option>
-                    <option value="call">Llamada</option>
-                    <option value="meeting">Reunión</option>
-                    <option value="follow-up">Seguimiento</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Hora inicio</label>
-                  <select
-                    value={form.startHour}
-                    onChange={(e) => setForm((p) => ({ ...p, startHour: Number(e.target.value) }))}
-                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                  >
-                    {HOURS.map((h) => <option key={h} value={h}>{h}:00</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Minutos</label>
-                  <select
-                    value={form.startMinute}
-                    onChange={(e) => setForm((p) => ({ ...p, startMinute: Number(e.target.value) }))}
-                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                  >
-                    <option value={0}>:00</option>
-                    <option value={15}>:15</option>
-                    <option value={30}>:30</option>
-                    <option value={45}>:45</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Duración</label>
-                  <select
-                    value={form.duration}
-                    onChange={(e) => setForm((p) => ({ ...p, duration: Number(e.target.value) }))}
-                    className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                  >
-                    <option value={15}>15 min</option>
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>1 hora</option>
-                    <option value={90}>1,5 h</option>
-                    <option value={120}>2 horas</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Cliente (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ana Rodríguez"
-                  value={form.clientName}
-                  onChange={(e) => setForm((p) => ({ ...p, clientName: e.target.value }))}
-                  className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
-              <Button variant="secondary" size="sm" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button size="sm" loading={saving} onClick={handleSave}>Crear evento</Button>
-            </div>
-          </div>
+      {loadError && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {loadError}
         </div>
       )}
+
+      <div className="flex gap-5" style={{ minHeight: 620, height: 'clamp(620px, calc(100vh - 12rem), 760px)' }}>
+        <aside className="flex w-64 shrink-0 flex-col gap-4">
+          <div className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035]">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Mayo 2026</h3>
+              <div className="flex gap-0.5">
+                <button className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronLeft className="h-3.5 w-3.5" /></button>
+                <button className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronRight className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+
+            <div className="mb-1 grid grid-cols-7">
+              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => <div key={d} className="py-1 text-center text-[10px] font-semibold text-gray-400">{d}</div>)}
+            </div>
+
+            <div className="grid grid-cols-7 gap-y-0.5">
+              {Array.from({ length: 4 }).map((_, i) => <div key={`empty-${i}`} />)}
+              {Array.from({ length: 31 }, (_, i) => {
+                const day = i + 1
+                const dateStr = `2026-05-${String(day).padStart(2, '0')}`
+                const isToday = dateStr === TODAY
+                const isSelected = dateStr === selectedDate
+                const hasEvent = events.some((e) => e.date === dateStr)
+                return (
+                  <button
+                    key={day}
+                    onClick={() => setSelectedDate(dateStr)}
+                    className={cn('relative mx-auto flex h-7 w-7 flex-col items-center justify-center rounded-full text-xs font-medium transition-colors', isSelected || isToday ? 'bg-indigo-600 font-bold text-white' : 'text-gray-700 hover:bg-gray-100')}
+                  >
+                    {day}
+                    {hasEvent && !isSelected && !isToday && <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-indigo-400" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
+            <div className="border-b border-gray-100 px-4 py-3.5">
+              <h3 className="text-sm font-semibold text-gray-900">Próximos eventos</h3>
+            </div>
+            <ul className="space-y-2 overflow-y-auto p-3" style={{ maxHeight: '280px' }}>
+              {loading && [1, 2, 3].map((item) => <li key={item} className="h-20 animate-pulse rounded-xl bg-gray-100" />)}
+              {!loading && upcomingEvents.map((ev) => {
+                const cfg = eventTypeConfig[ev.type]
+                return (
+                  <li key={ev.id} onClick={() => setSelectedDate(ev.date)} className={cn('cursor-pointer rounded-xl border p-3 shadow-sm shadow-gray-950/[0.02] transition-all hover:-translate-y-0.5 hover:shadow-md', cfg.bg, cfg.border)}>
+                    <p className={cn('text-xs font-semibold', cfg.color)}>{ev.title}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <Clock className="h-3 w-3 text-gray-400" />
+                      <span className="text-[10px] text-gray-500">{ev.date.slice(5).replace('-', '/')} · {ev.startHour}:{String(ev.startMinute).padStart(2, '0')}h</span>
+                    </div>
+                    {ev.clientName && <div className="mt-0.5 flex items-center gap-1.5"><User className="h-3 w-3 text-gray-400" /><span className="text-[10px] text-gray-500">{ev.clientName}</span></div>}
+                  </li>
+                )
+              })}
+              {!loading && upcomingEvents.length === 0 && (
+                <li className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-4 text-center">
+                  <p className="text-xs font-semibold text-indigo-800">Sin próximos eventos</p>
+                  <p className="mt-1 text-[11px] text-indigo-600">Agenda una llamada para activar el calendario real.</p>
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <Button size="sm" className="w-full" onClick={() => openCreateModal()}>
+            <Plus className="h-3.5 w-3.5" />
+            Nuevo evento
+          </Button>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
+          <div className="flex shrink-0 border-b border-gray-100">
+            <div className="w-16 shrink-0 border-r border-gray-100 px-2 py-3"><span className="text-[10px] text-gray-400">UTC+2</span></div>
+            {WEEK_DAYS.map((day, i) => {
+              const dateStr = WEEK_FULL[i]
+              const isToday = dateStr === TODAY
+              const isSelected = dateStr === selectedDate
+              return (
+                <div key={day} onClick={() => setSelectedDate(dateStr)} className={cn('flex flex-1 cursor-pointer flex-col items-center border-r border-gray-100 py-3 transition-colors last:border-r-0', isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50')}>
+                  <span className={cn('text-[10px] font-medium', isSelected ? 'text-indigo-600' : 'text-gray-400')}>{day}</span>
+                  <span className={cn('mt-1 flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isToday ? 'bg-indigo-600 text-white' : isSelected ? 'text-indigo-700' : 'text-gray-700')}>{WEEK_DATES[i].split(' ')[0]}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-1 overflow-y-auto">
+            <div className="w-16 shrink-0 border-r border-gray-100">
+              {HOURS.map((h) => <div key={h} className="flex h-14 items-start justify-end pr-2 pt-1"><span className="text-[10px] text-gray-400">{h}:00</span></div>)}
+            </div>
+
+            <div className="flex min-w-0 flex-1">
+              {WEEK_FULL.map((dateStr) => {
+                const dayEvents = events.filter((e) => e.date === dateStr)
+                const isToday = dateStr === TODAY
+                return (
+                  <div key={dateStr} className={cn('relative min-w-0 flex-1 border-r border-gray-100 last:border-r-0', isToday && 'bg-indigo-50/30')}>
+                    {HOURS.map((h) => <div key={h} className="h-14 border-b border-gray-50" />)}
+                    {dayEvents.map((ev) => {
+                      const cfg = eventTypeConfig[ev.type]
+                      const topOffset = (ev.startHour - 8) * 56 + (ev.startMinute / 60) * 56
+                      const height = Math.max((ev.duration / 60) * 56, 28)
+                      return (
+                        <div key={ev.id} onClick={() => openEditModal(ev)} style={{ top: topOffset, height }} className={cn('absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded-lg border px-1.5 py-1 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md', cfg.bg, cfg.border)}>
+                          <p className={cn('text-[10px] font-bold leading-tight', cfg.color)}>{ev.title}</p>
+                          {height > 36 && ev.clientName && <p className="mt-0.5 truncate text-[9px] text-gray-500">{ev.clientName}</p>}
+                          {height > 48 && <p className="mt-0.5 text-[9px] text-gray-400">{ev.startHour}:{String(ev.startMinute).padStart(2, '0')} · {ev.duration} min</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {modalOpen && (
+          <div ref={overlayRef} onClick={(e) => { if (e.target === overlayRef.current) setModalOpen(false) }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+                <h2 className="text-sm font-semibold text-gray-900">{form.id ? 'Editar evento' : 'Nuevo evento'}</h2>
+                <button onClick={() => setModalOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><X className="h-4 w-4" /></button>
+              </div>
+
+              <div className="space-y-4 px-6 py-5">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-700">Título *</label>
+                  <input type="text" placeholder="Demo con cliente" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Fecha</label>
+                    <input type="date" value={form.date} onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Tipo</label>
+                    <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value as EventType }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="demo">Demo</option>
+                      <option value="call">Llamada</option>
+                      <option value="meeting">Reunión</option>
+                      <option value="follow-up">Seguimiento</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Hora</label>
+                    <select value={form.startHour} onChange={(e) => setForm((p) => ({ ...p, startHour: Number(e.target.value) }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">{HOURS.map((h) => <option key={h} value={h}>{h}:00</option>)}</select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Min</label>
+                    <select value={form.startMinute} onChange={(e) => setForm((p) => ({ ...p, startMinute: Number(e.target.value) }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      {[0, 15, 30, 45].map((min) => <option key={min} value={min}>:{String(min).padStart(2, '0')}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Duración</label>
+                    <select value={form.duration} onChange={(e) => setForm((p) => ({ ...p, duration: Number(e.target.value) }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      {[15, 30, 45, 60, 90, 120].map((duration) => <option key={duration} value={duration}>{duration} min</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-700">Cliente</label>
+                  <input type="text" placeholder="Ana Rodríguez" value={form.clientName} onChange={(e) => setForm((p) => ({ ...p, clientName: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-700">Notas</label>
+                  <textarea rows={3} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="Objetivo de la llamada o siguiente paso..." className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+                {form.id ? <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}><Trash2 className="h-3.5 w-3.5" />Eliminar</Button> : <span />}
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setModalOpen(false)}>Cancelar</Button>
+                  <Button size="sm" loading={saving} onClick={handleSave}>{form.id ? 'Guardar cambios' : 'Crear evento'}</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   )

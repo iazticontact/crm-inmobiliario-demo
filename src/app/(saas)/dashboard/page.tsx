@@ -12,10 +12,10 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { dashboardMetrics, aiInsights, recentActivity, weeklyLeads } from '@/lib/mock-data'
 import { triggerN8nWebhook } from '@/lib/integrations'
-import type { AIInsightType, ActivityType } from '@/lib/types'
+import type { Activity as CRMActivity, AIInsightType, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
-import { getClients, getWorkspaceContext } from '@/lib/supabase-queries'
+import { getActivities, getCalendarEvents, getClients, getConversations, getInvoices, getWorkspaceContext } from '@/lib/supabase-queries'
 
 const metricIcons = {
   Users: <Users className="h-5 w-5" />,
@@ -68,39 +68,51 @@ export default function DashboardPage() {
   const { currentUser } = useCurrentUser()
   const [activity, setActivity] = useState(recentActivity)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
-  const [realClientStats, setRealClientStats] = useState<{ total: number; leads: number; averageScore: number } | null>(null)
+  const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number } | null>(null)
 
   useEffect(() => {
-    const loadRealClientStats = async () => {
+    const loadRealStats = async () => {
       if (window.localStorage.getItem(DEMO_MODE_KEY) === 'true') return
       try {
         const context = await getWorkspaceContext()
         const workspaceId = context?.workspace?.id || context?.profile?.workspace_id
         if (!workspaceId) return
-        const clients = await getClients(workspaceId)
+        const [clients, invoices, events, conversations, activities] = await Promise.all([
+          getClients(workspaceId),
+          getInvoices(workspaceId).catch(() => []),
+          getCalendarEvents(workspaceId).catch(() => []),
+          getConversations(workspaceId).catch(() => []),
+          getActivities(workspaceId).catch(() => [] as CRMActivity[]),
+        ])
         const averageScore = clients.length ? Math.round(clients.reduce((sum, client) => sum + client.leadScore, 0) / clients.length) : 0
-        setRealClientStats({
+        setRealStats({
           total: clients.length,
           leads: clients.filter((client) => client.status === 'lead').length,
           averageScore,
+          revenue: invoices.reduce((sum, invoice) => sum + invoice.amount, 0),
+          pending: invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + invoice.amount, 0),
+          events: events.filter((event) => event.date >= '2026-05-05').length,
+          conversations: conversations.length,
         })
+        if (activities.length) setActivity(activities)
       } catch {
-        setRealClientStats(null)
+        setRealStats(null)
       }
     }
 
-    void loadRealClientStats()
+    void loadRealStats()
   }, [])
 
   const visibleMetrics = useMemo(() => {
-    if (!realClientStats) return dashboardMetrics
+    if (!realStats) return dashboardMetrics
     return dashboardMetrics.map((metric) => {
-      if (metric.label === 'Clientes activos') return { ...metric, value: String(realClientStats.total), changeLabel: 'desde Supabase' }
-      if (metric.label === 'Leads nuevos') return { ...metric, value: String(realClientStats.leads), changeLabel: 'leads reales' }
-      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realClientStats.averageScore}`, label: 'Lead score medio', changeLabel: 'clientes reales' }
+      if (metric.label === 'Clientes activos') return { ...metric, value: String(realStats.total), changeLabel: 'clientes reales' }
+      if (metric.label === 'Ingresos del mes') return { ...metric, value: `€${Math.round(realStats.revenue).toLocaleString('es-ES')}`, changeLabel: 'facturación real' }
+      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.conversations}`, label: 'Conversaciones', changeLabel: 'persistentes' }
+      if (metric.label === 'Emails enviados') return { ...metric, value: String(realStats.events), label: 'Eventos próximos', changeLabel: 'calendario real' }
       return metric
     })
-  }, [realClientStats])
+  }, [realStats])
 
   const handleInsightAction = async (action: string, insightId: string) => {
     if (insightId === '1') {
@@ -145,8 +157,15 @@ export default function DashboardPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-2xl font-bold text-gray-950">Buenos días, {currentUser.name || currentUser.workspaceName}</h2>
-            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{realClientStats ? 'Clientes reales conectados' : currentUser.trialLabel}</Badge>
+            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{realStats ? 'Datos reales conectados' : currentUser.trialLabel}</Badge>
           </div>
+          {realStats && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {['Clientes reales', 'Facturación real', 'Calendario real', 'IA mock persistente', 'n8n preparado'].map((label) => (
+                <span key={label} className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{label}</span>
+              ))}
+            </div>
+          )}
           <p className="text-sm text-gray-500">Tu workspace {currentUser.workspaceName} está listo para probar NowCRM.</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>

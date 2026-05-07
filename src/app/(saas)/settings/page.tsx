@@ -75,9 +75,18 @@ const demoWorkspaceItems = [
 const supabaseReadiness = [
   { label: 'Auth', value: 'Activo', status: 'Login, registro, callback y reset con Supabase' },
   { label: 'Clientes', value: 'Datos reales', status: 'CRUD conectado a la tabla clients' },
-  { label: 'Facturas', value: 'Pendiente', status: 'Sigue usando mock hasta la siguiente fase' },
-  { label: 'Eventos', value: 'Pendiente', status: 'Calendario sigue en local state' },
-  { label: 'Assistant', value: 'Pendiente', status: 'Conversaciones y mensajes siguen en mock' },
+  { label: 'Facturas', value: 'Datos reales', status: 'CRUD conectado a invoices con fallback demo' },
+  { label: 'Eventos', value: 'Datos reales', status: 'Calendario conectado a calendar_events' },
+  { label: 'Assistant', value: 'Persistencia real', status: 'Conversations/messages con IA mock preparada' },
+  { label: 'Activities', value: 'Preparado', status: 'Registro best-effort en Supabase' },
+  { label: 'n8n', value: 'API route lista', status: 'Trigger interno /api/n8n/trigger' },
+]
+
+const productStatusCards = [
+  { label: 'Core CRM', value: 'Real', detail: 'Auth, workspace, clients, billing y calendar', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+  { label: 'Assistant', value: 'Mixto', detail: 'Mensajes reales con respuesta IA mock', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'n8n', value: 'Preparado', detail: 'Payload y endpoint interno listos', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+  { label: 'Canales', value: 'Demo', detail: 'WhatsApp/Meta pendientes de proveedor real', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
 const statusBadge = (status: IntegrationStatus) => {
@@ -218,6 +227,16 @@ export default function SettingsPage() {
             </div>
             <p className="text-sm font-bold">{card.title}</p>
             <p className="mt-0.5 text-xs opacity-80">{card.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {productStatusCards.map((card) => (
+          <div key={card.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025]', card.tone)}>
+            <p className="text-xs font-medium opacity-80">{card.label}</p>
+            <p className="mt-1 text-lg font-bold">{card.value}</p>
+            <p className="mt-0.5 text-[11px] leading-5 opacity-80">{card.detail}</p>
           </div>
         ))}
       </div>
