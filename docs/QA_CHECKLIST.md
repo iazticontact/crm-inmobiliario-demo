@@ -48,10 +48,12 @@
 - Cargar `/assistant`.
 - Crear conversacion demo/real.
 - Enviar mensaje.
-- Ver respuesta IA mock.
+- Con flujo `assistant_message` activo, verificar respuesta n8n/OpenAI y mensaje assistant guardado.
+- Si n8n falla, verificar fallback IA demo.
 - Probar quick action `Probar agente`.
 - Probar quick action `Resumen cliente`.
 - Probar quick action `Proxima accion`.
+- Probar quick action `Probar n8n`.
 - Recargar y verificar mensajes persistentes con usuario real.
 - Marcar conversacion como resuelta.
 
@@ -68,6 +70,8 @@
 - Cargar `/settings`.
 - Revisar estado de modulos.
 - Inicializar flujos n8n con usuario real.
+- Activar `NowCRM - Assistant Agent`.
+- Probar `Probar Assistant Agent`.
 - Editar endpoint de flujo.
 - Guardar flujo.
 - Probar flujo.
@@ -79,7 +83,7 @@
 - Probar desde Settings con URL por defecto: debe simular.
 - Probar con endpoint localhost/HTTPS si existe n8n real.
 - Verificar respuesta `ok`, `simulated`, `skipped` o `error`.
-- Probar `assistant_message`.
+- Probar `assistant_message` contra `NowCRM - Assistant Agent`.
 - Probar `new_lead`.
 - Probar flujo inactivo: debe devolver `skipped`.
 - Copiar payload de ejemplo desde docs si hace falta.

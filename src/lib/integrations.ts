@@ -1,5 +1,7 @@
 import type { N8nFlowStatus, N8nRequirement } from '@/lib/types'
 
+export const ASSISTANT_AGENT_WEBHOOK_URL = 'https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent'
+
 export const N8N_EVENT_TYPES = [
   'new_lead',
   'client_updated',
@@ -84,7 +86,7 @@ export const n8nWebhookConfigs: WebhookConfig[] = [
   { event: 'client_updated', label: 'Cliente actualizado', description: 'Sincroniza cambios del perfil comercial y registra seguimiento.', trigger: 'Edicion de cliente', url: 'https://n8n.tudominio.com/webhook/client-updated', status: 'pending_config', requires: ['Supabase', 'n8n'] },
   { event: 'client_deleted', label: 'Cliente eliminado', description: 'Limpia tareas pendientes o avisa al equipo antes de borrar contexto.', trigger: 'Borrado de cliente', url: 'https://n8n.tudominio.com/webhook/client-deleted', status: 'inactive', requires: ['Supabase', 'n8n'] },
   { event: 'whatsapp_message', label: 'Mensaje WhatsApp', description: 'Registra conversacion, clasifica intencion y propone respuesta IA.', trigger: 'Mensaje WhatsApp Business', url: 'https://n8n.tudominio.com/webhook/whatsapp-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
-  { event: 'assistant_message', label: 'Assistant message', description: 'Permite usar n8n como backend IA y devolver suggested_response.', trigger: 'Mensaje enviado al assistant', url: 'https://n8n.tudominio.com/webhook/assistant-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'IA/API'] },
+  { event: 'assistant_message', label: 'Assistant Agent', description: 'Workflow real NowCRM - Assistant Agent: n8n recibe el mensaje, llama OpenAI y devuelve suggested_response.', trigger: 'Mensaje enviado al assistant', url: ASSISTANT_AGENT_WEBHOOK_URL, status: 'active', requires: ['Supabase', 'n8n', 'IA/API'] },
   { event: 'conversation_resolved', label: 'Conversacion resuelta', description: 'Registra cierre, resumen y siguiente accion si procede.', trigger: 'Conversacion marcada como resuelta', url: 'https://n8n.tudominio.com/webhook/conversation-resolved', status: 'demo', requires: ['Supabase', 'n8n'] },
   { event: 'appointment_booked', label: 'Reunion agendada', description: 'Guarda evento, envia confirmacion y prepara resumen previo.', trigger: 'Nueva cita en calendario', url: 'https://n8n.tudominio.com/webhook/appointment-booked', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
   { event: 'calendar_event_created', label: 'Evento de calendario', description: 'Dispara recordatorios o preparacion comercial para reuniones.', trigger: 'Nuevo evento en calendario', url: 'https://n8n.tudominio.com/webhook/calendar-event-created', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },

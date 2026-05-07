@@ -86,6 +86,29 @@ Respuesta:
 7. Body JSON con `tool`, `workspace_id`, `input`, `metadata`.
 8. Usar `result` para alimentar OpenAI o decidir siguiente accion.
 
+## Assistant Agent real conectado
+
+Primer workflow real:
+
+```txt
+NowCRM - Assistant Agent
+https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent
+```
+
+Flujo actual:
+
+```text
+/assistant
+  -> guarda mensaje user en Supabase
+  -> busca flujo assistant_message activo
+  -> POST /api/n8n/trigger
+  -> n8n llama OpenAI
+  -> n8n devuelve suggested_response
+  -> NowCRM guarda mensaje assistant
+```
+
+NowCRM no contiene la API key de OpenAI. La clave vive solo en n8n Credentials.
+
 ## OpenAI dentro de n8n
 
 Prompt recomendado:

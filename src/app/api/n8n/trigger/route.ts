@@ -99,6 +99,22 @@ async function readN8nResponse(response: Response) {
   return text ? { raw: text.slice(0, 1000) } : null
 }
 
+function extractSuggestedResponse(value: unknown): string | undefined {
+  if (!value) return undefined
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const suggestion = extractSuggestedResponse(item)
+      if (suggestion) return suggestion
+    }
+    return undefined
+  }
+  if (typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const direct = record.suggested_response ?? record.suggestedResponse ?? record.response ?? record.text ?? record.message
+  if (typeof direct === 'string' && direct.trim()) return direct.trim()
+  return extractSuggestedResponse(record.data ?? record.output ?? record.result)
+}
+
 export async function POST(request: Request) {
   let body: N8nTriggerBody
 
@@ -158,7 +174,7 @@ export async function POST(request: Request) {
     clearTimeout(timeout)
 
     const n8nResponse = await readN8nResponse(response)
-    const suggestedResponse = typeof n8nResponse?.suggested_response === 'string' ? n8nResponse.suggested_response : undefined
+    const suggestedResponse = extractSuggestedResponse(n8nResponse)
 
     return json(response.ok ? 'ok' : 'error', response.ok ? `Webhook "${eventType}" enviado a n8n.` : 'n8n respondio con error.', { status: response.ok ? 200 : 502 }, {
       event_type: eventType,

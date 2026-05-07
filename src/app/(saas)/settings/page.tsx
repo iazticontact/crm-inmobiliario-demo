@@ -27,7 +27,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
+import { ASSISTANT_AGENT_WEBHOOK_URL, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -185,6 +185,9 @@ export default function SettingsPage() {
     return `${n8nUrl.replace(/\/$/, '')}${rawPath.startsWith('/') ? rawPath : `/${rawPath}`}`
   }, [flowPaths, n8nUrl])
 
+  const assistantAgentUrl = composeFlowUrl('assistant_message')
+  const assistantAgentActive = flowStatuses.assistant_message === 'active' && Boolean(assistantAgentUrl) && !assistantAgentUrl.includes('tudominio.com')
+
   const applyRemoteFlows = useCallback((flows: N8nFlow[]) => {
     if (!flows.length) return
     const ids: Record<string, string> = {}
@@ -271,12 +274,13 @@ export default function SettingsPage() {
     }
   }
 
-  const persistFlow = async (event: string, options?: { status?: N8nFlowStatus; notify?: boolean }) => {
+  const persistFlow = async (event: string, options?: { status?: N8nFlowStatus; notify?: boolean; webhookUrl?: string }) => {
     const config = flowConfigByEvent.get(event)
     if (!config) return null
     const nextStatus = options?.status ?? flowStatuses[event] ?? config.status
-    const webhookUrl = composeFlowUrl(event)
+    const webhookUrl = options?.webhookUrl ?? composeFlowUrl(event)
     setFlowStatuses((prev) => ({ ...prev, [event]: nextStatus }))
+    if (options?.webhookUrl) setFlowPaths((prev) => ({ ...prev, [event]: options.webhookUrl ?? '' }))
 
     if (currentUser.isDemo || !workspaceId) {
       if (options?.notify) toast.success('Flujo actualizado en demo', { description: config.label })
@@ -342,7 +346,64 @@ export default function SettingsPage() {
     toast.success(result.status === 'ok' ? 'Webhook enviado a n8n' : 'Webhook simulado', { description: result.message })
   }
 
+  const handleActivateAssistantAgent = async () => {
+    setFlowStatuses((prev) => ({ ...prev, assistant_message: 'active' }))
+    setFlowPaths((prev) => ({ ...prev, assistant_message: ASSISTANT_AGENT_WEBHOOK_URL }))
+    const saved = await persistFlow('assistant_message', {
+      status: 'active',
+      webhookUrl: ASSISTANT_AGENT_WEBHOOK_URL,
+      notify: true,
+    })
+    if (workspaceId && saved) {
+      await createActivity(workspaceId, { type: 'note', description: 'Assistant Agent activado con webhook real n8n/OpenAI.' })
+    }
+  }
+
+  const handleTestAssistantAgent = async () => {
+    setTestingKey('assistant-agent')
+    const result = await triggerN8nWebhook('assistant_message', {
+      mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
+      workspace_id: workspaceId || undefined,
+      webhook_url: assistantAgentUrl || ASSISTANT_AGENT_WEBHOOK_URL,
+      flow_status: flowStatuses.assistant_message,
+      conversation: {
+        id: 'test',
+        client_name: 'Ana Rodriguez',
+        channel: 'WhatsApp',
+        sentiment: 'positive',
+        intent: 'pricing',
+      },
+      message: {
+        content: 'Hola, me interesa saber el precio del Plan Pro y que incluye exactamente.',
+      },
+      client: {
+        name: 'Ana Rodriguez',
+        status: 'lead',
+      },
+      metadata: {
+        source: 'settings_test',
+      },
+    })
+    if (workspaceId && result.status === 'ok') {
+      await createActivity(workspaceId, {
+        type: 'message',
+        description: 'Respuesta IA generada con n8n. El Assistant recibio una respuesta desde el workflow NowCRM - Assistant Agent.',
+        clientName: 'Ana Rodriguez',
+      })
+    }
+    setTestingKey(null)
+    if (result.status === 'ok') {
+      toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido desde Assistant Agent.' : result.message })
+    } else {
+      toast.error('No se pudo probar Assistant Agent', { description: result.message })
+    }
+  }
+
   const handleTestFlow = async (flow: WebhookConfig) => {
+    if (flow.event === 'assistant_message') {
+      await handleTestAssistantAgent()
+      return
+    }
     setTestingKey(flow.event)
     const result = await triggerN8nWebhook(flow.event, {
       mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
@@ -605,6 +666,33 @@ export default function SettingsPage() {
                 Sincronizando control center...
               </div>
             )}
+
+            <div className="mb-3 rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-indigo-50 p-4 shadow-sm shadow-emerald-950/[0.035]">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-950">NowCRM - Assistant Agent</p>
+                    <Badge variant={assistantAgentActive ? 'success' : 'warning'} dot>{assistantAgentActive ? 'n8n/OpenAI activo' : 'Pendiente de activar'}</Badge>
+                  </div>
+                  <p className="text-xs leading-5 text-gray-600">
+                    Primer workflow real conectado. Recibe `assistant_message`, llama OpenAI dentro de n8n y devuelve `suggested_response` para guardar la respuesta en el chat.
+                  </p>
+                  <p className="mt-2 truncate rounded-lg bg-white/80 px-2.5 py-1.5 font-mono text-[10px] text-emerald-700 ring-1 ring-emerald-100">
+                    {assistantAgentUrl || ASSISTANT_AGENT_WEBHOOK_URL}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => void handleActivateAssistantAgent()}>
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Activar Agent
+                  </Button>
+                  <Button size="sm" loading={testingKey === 'assistant-agent'} onClick={() => void handleTestAssistantAgent()}>
+                    <Play className="h-3.5 w-3.5" />
+                    Probar Assistant Agent
+                  </Button>
+                </div>
+              </div>
+            </div>
 
             <div className="grid gap-3">
               {n8nWebhookConfigs.map((wh) => {

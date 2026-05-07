@@ -9,8 +9,13 @@ NowCRM ya tiene una base preparada:
 - API route interna `/api/n8n/trigger`.
 - Settings muestra URL base, endpoints, estados y prueba de webhook.
 - Settings puede cargar/guardar `n8n_flows` e `integrations` si hay workspace real y RLS permite acceso.
+- Primer workflow real conectado para Assistant:
+  - Nombre: `NowCRM - Assistant Agent`.
+  - URL produccion: `https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent`.
+  - Evento: `assistant_message`.
+  - Respuesta esperada: `suggested_response`.
 
-Todavia no hay n8n real conectado ni persistencia de configuracion por workspace.
+OpenAI se ejecuta dentro de n8n. NowCRM no guarda ni necesita la API key de OpenAI.
 
 ## Eventos estandar
 
@@ -140,6 +145,45 @@ Para `assistant_message`:
 3. Llamar al proveedor IA dentro de n8n.
 4. Devolver `suggested_response`.
 5. NowCRM guardara la respuesta como mensaje assistant.
+
+## Workflow real conectado
+
+El Assistant ya puede usar este workflow cuando el flujo `assistant_message` esta `active` y tiene webhook URL:
+
+```txt
+NowCRM - Assistant Agent
+https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent
+```
+
+Payload de prueba desde Settings:
+
+```json
+{
+  "event_type": "assistant_message",
+  "workspace_id": "workspace-id",
+  "source": "nowcrm",
+  "mode": "real",
+  "conversation": {
+    "id": "test",
+    "client_name": "Ana Rodriguez",
+    "channel": "WhatsApp",
+    "sentiment": "positive",
+    "intent": "pricing"
+  },
+  "message": {
+    "content": "Hola, me interesa saber el precio del Plan Pro y que incluye exactamente."
+  },
+  "client": {
+    "name": "Ana Rodriguez",
+    "status": "lead"
+  },
+  "metadata": {
+    "source": "settings_test"
+  }
+}
+```
+
+Si n8n falla, NowCRM conserva la conversacion y usa la IA demo como fallback.
 
 ## AI Agent Tools
 

@@ -9,7 +9,7 @@ import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
-import { triggerN8nWebhook } from '@/lib/integrations'
+import { n8nWebhookConfigs, triggerN8nWebhook } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { respondWithAssistant } from '@/lib/ai'
 import {
@@ -18,6 +18,7 @@ import {
   createMessage,
   getConversationMessages,
   getConversations,
+  getN8nFlows,
   getWorkspaceContext,
   markConversationResolved,
   updateConversation,
@@ -62,7 +63,9 @@ export default function AssistantPage() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [isRealMode, setIsRealMode] = useState(false)
+  const [assistantWebhookUrl, setAssistantWebhookUrl] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const defaultAssistantFlow = useMemo(() => n8nWebhookConfigs.find((flow) => flow.event === 'assistant_message'), [])
 
   const loadConversations = useCallback(async () => {
     const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
@@ -71,6 +74,7 @@ export default function AssistantPage() {
       setSelectedId(mockConversations[0]?.id ?? '')
       setWorkspaceId(null)
       setIsRealMode(false)
+      setAssistantWebhookUrl('')
       setLoadingConversations(false)
       return
     }
@@ -84,24 +88,33 @@ export default function AssistantPage() {
         setSelectedId(mockConversations[0]?.id ?? '')
         setWorkspaceId(null)
         setIsRealMode(false)
+        setAssistantWebhookUrl('')
         return
       }
 
-      const realConversations = await getConversations(resolvedWorkspaceId)
+      const [realConversations, flows] = await Promise.all([
+        getConversations(resolvedWorkspaceId),
+        getN8nFlows(resolvedWorkspaceId).catch(() => []),
+      ])
+      const assistantFlow = flows.find((flow) => flow.event === 'assistant_message')
+      const fallbackUrl = defaultAssistantFlow?.status === 'active' ? defaultAssistantFlow.url : ''
+      const resolvedWebhookUrl = assistantFlow?.status === 'active' && assistantFlow.webhookUrl ? assistantFlow.webhookUrl : fallbackUrl
       setConversationList(realConversations)
       setSelectedId(realConversations[0]?.id ?? '')
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
+      setAssistantWebhookUrl(resolvedWebhookUrl)
     } catch {
       setConversationList(mockConversations)
       setSelectedId(mockConversations[0]?.id ?? '')
       setWorkspaceId(null)
       setIsRealMode(false)
+      setAssistantWebhookUrl('')
       toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
     } finally {
       setLoadingConversations(false)
     }
-  }, [])
+  }, [defaultAssistantFlow])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -143,10 +156,11 @@ export default function AssistantPage() {
   const filteredConvs = conversationList.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
   const averageLeadScore = Math.round((conversationList.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(conversationList.length, 1)))
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
+  const assistantN8nActive = isRealMode && Boolean(assistantWebhookUrl)
 
   const assistantStats = [
     { label: 'Conversaciones activas', value: String(conversationList.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
-    { label: 'IA en modo', value: 'Mock', detail: 'lista para API real', icon: <Bot className="h-4 w-4" />, tone: 'text-violet-600 bg-violet-50' },
+    { label: 'IA en modo', value: assistantN8nActive ? 'n8n/OpenAI' : 'Demo', detail: assistantN8nActive ? 'workflow activo' : 'fallback mock', icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
     { label: 'Lead score medio', value: String(averageLeadScore), detail: 'estimado', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
 
@@ -176,8 +190,9 @@ export default function AssistantPage() {
         workspaceId,
         workspaceName: currentUser.workspaceName,
         conversation: selected,
-        messages: msgs,
+        messages: [...msgs, userMsg],
         isDemo: !isRealMode,
+        webhookUrl: assistantN8nActive ? assistantWebhookUrl : undefined,
       })
 
       await new Promise((resolve) => setTimeout(resolve, 900))
@@ -188,7 +203,21 @@ export default function AssistantPage() {
       if (isRealMode) {
         await createMessage(conversationId, { content: assistantResult.response, sender: 'ai' })
         await updateConversation(conversationId, { lastMessage: assistantResult.response, unread: true })
-        if (workspaceId) await createActivity(workspaceId, { type: 'message', description: `Respuesta assistant generada (${assistantResult.source}): ${selected.clientName}`, clientName: selected.clientName })
+        if (workspaceId) {
+          await createActivity(workspaceId, {
+            type: 'message',
+            description: assistantResult.source === 'n8n'
+              ? 'Respuesta IA generada con n8n. El Assistant recibio una respuesta desde el workflow NowCRM - Assistant Agent.'
+              : `Respuesta assistant generada (mock): ${selected.clientName}`,
+            clientName: selected.clientName,
+          })
+        }
+      }
+
+      if (assistantResult.source === 'n8n') {
+        toast.success('n8n/OpenAI respondió', { description: 'Respuesta guardada en la conversación.' })
+      } else if (assistantN8nActive && assistantResult.trigger.status === 'error') {
+        toast.warning('n8n no disponible, usando IA demo', { description: 'El mensaje se ha guardado igualmente.' })
       }
 
       const lower = content.toLowerCase()
@@ -296,13 +325,30 @@ export default function AssistantPage() {
       'Generar propuesta': 'Propuesta comercial generada y lista para revisar. Incluye alcance, plan recomendado y siguiente paso.',
       'Agendar llamada': 'Llamada preparada. Puedes crear el evento desde Calendario y enviar confirmación al cliente.',
       'Enviar pricing': 'Pricing preparado para enviar por el canal preferido del cliente.',
-      'Probar n8n': 'Trigger assistant_message preparado. Cuando pegues el webhook real, n8n podra devolver suggested_response.',
+      'Probar n8n': assistantN8nActive
+        ? 'Voy a enviar un payload assistant_message al workflow real NowCRM - Assistant Agent.'
+        : 'Trigger assistant_message preparado. Activa el webhook real en Settings para recibir suggested_response.',
     }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId: selected.id, content: responses[action] ?? 'Acción ejecutada.', sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(selected.id, aiMsg)
     if (isRealMode) await createMessage(selected.id, { content: aiMsg.content, sender: 'ai' })
     if (action === 'Agendar llamada') await triggerN8nWebhook('appointment_booked', { metadata: { action }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
-    if (action === 'Probar n8n') await triggerN8nWebhook('assistant_message', { workspace_id: workspaceId || undefined, conversation: { id: selected.id, client_name: selected.clientName }, message: { content: 'test assistant n8n' }, mode: isRealMode ? 'real' : 'demo' })
+    if (action === 'Probar n8n') {
+      const result = await triggerN8nWebhook('assistant_message', {
+        workspace_id: workspaceId || undefined,
+        webhook_url: assistantN8nActive ? assistantWebhookUrl : undefined,
+        conversation: { id: selected.id, client_name: selected.clientName, channel: selected.channel, sentiment: selected.sentiment, intent: selected.intent },
+        message: { content: 'Hola, me interesa saber el precio del Plan Pro y que incluye exactamente.' },
+        client: { name: selected.clientName, status: 'lead' },
+        metadata: { source: 'assistant_quick_action' },
+        mode: assistantN8nActive ? 'real' : 'demo',
+      })
+      if (result.status === 'ok') {
+        toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
+      } else {
+        toast.warning('n8n en fallback', { description: result.message })
+      }
+    }
     toast.success(`IA: ${action}`, { description: 'Acción preparada correctamente.' })
   }
 
@@ -331,10 +377,11 @@ export default function AssistantPage() {
     >
       <PageHeader
         title="Asistente IA"
-        description={isRealMode ? 'Conversaciones persistentes con IA mock y n8n preparado como backend IA' : 'Conversaciones demo con IA simulada'}
+        description={assistantN8nActive ? 'Conversaciones persistentes con n8n/OpenAI real y fallback IA demo' : isRealMode ? 'Conversaciones persistentes con IA demo y n8n preparado como backend IA' : 'Conversaciones demo con IA simulada'}
         action={
           <div className="flex items-center gap-2">
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Mensajes reales' : 'Modo demo'}</Badge>
+            <Badge variant={assistantN8nActive ? 'success' : 'warning'} dot>{assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
               Crear conversación demo
@@ -527,8 +574,8 @@ export default function AssistantPage() {
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
                 <p className="mb-1 text-[10px] font-semibold text-emerald-700">Estado técnico</p>
-                <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{isRealMode ? 'Mensajes persistentes · IA mock' : 'Mock data · IA simulada'}</span></div>
-                <p className="mt-1 text-[10px] text-emerald-600">Siguiente paso: conectar OpenAI/n8n agent.</p>
+                <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'Mensajes persistentes · n8n/OpenAI activo' : isRealMode ? 'Mensajes persistentes · IA demo' : 'Mock data · IA simulada'}</span></div>
+                <p className="mt-1 text-[10px] text-emerald-600">{assistantN8nActive ? 'Fallback IA demo disponible si el webhook falla.' : 'Siguiente paso: activar Assistant Agent en Settings.'}</p>
               </div>
             </div>
           )}

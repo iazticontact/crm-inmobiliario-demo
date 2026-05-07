@@ -58,12 +58,17 @@ export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N
     workspace_id: context.workspaceId || undefined,
     mode: context.workspaceId && !context.isDemo ? 'real' : 'demo',
     webhook_url: context.webhookUrl,
+    flow_status: context.webhookUrl ? 'active' : 'pending_config',
     conversation: context.conversation ? {
       id: context.conversation.id,
       client_name: context.conversation.clientName,
       channel: context.conversation.channel,
       sentiment: context.conversation.sentiment,
       intent: context.conversation.intent,
+    } : {},
+    client: context.conversation ? {
+      name: context.conversation.clientName,
+      status: 'lead',
     } : {},
     message: {
       content: context.input,
