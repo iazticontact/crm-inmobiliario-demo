@@ -242,6 +242,33 @@ export async function getCurrentProfile(userId?: string) {
   return null
 }
 
+async function getCurrentProfileByEmail(email?: string | null) {
+  if (!email) return null
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('email', email)
+    .maybeSingle()
+
+  return data as ProfileRecord | null
+}
+
+async function getFirstAccessibleProfile() {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('*')
+    .limit(1)
+    .maybeSingle()
+
+  return data as ProfileRecord | null
+}
+
 export async function getCurrentWorkspace(profile?: ProfileRecord | null, ownerId?: string) {
   const resolvedProfile = profile ?? (await getCurrentProfile())
   const workspaceId = resolvedProfile?.workspace_id
@@ -272,11 +299,82 @@ export async function getCurrentWorkspace(profile?: ProfileRecord | null, ownerI
   return data as WorkspaceRecord | null
 }
 
+async function getWorkspaceById(workspaceId?: string | null) {
+  if (!workspaceId) return null
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data } = await supabase
+    .from('workspaces')
+    .select('*')
+    .eq('id', workspaceId)
+    .maybeSingle()
+
+  return data as WorkspaceRecord | null
+}
+
+async function getFirstAccessibleWorkspace() {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data } = await supabase
+    .from('workspaces')
+    .select('*')
+    .limit(1)
+    .maybeSingle()
+
+  return data as WorkspaceRecord | null
+}
+
 export async function getWorkspaceContext() {
   const user = await getCurrentUser()
   if (!user) return null
   const profile = await getCurrentProfile(user.id)
   const workspace = await getCurrentWorkspace(profile, user.id)
+  return { user, profile, workspace }
+}
+
+export async function getResolvedWorkspaceContext() {
+  const user = await getCurrentUser()
+  if (!user) return null
+
+  const metadata = (user.user_metadata ?? {}) as Record<string, unknown>
+  const metadataWorkspaceId =
+    asString(metadata.workspace_id) ||
+    asString(metadata.workspaceId) ||
+    asString(metadata.workspace)
+
+  let profile: ProfileRecord | null = null
+  let workspace: WorkspaceRecord | null = null
+
+  try {
+    profile = await getCurrentProfile(user.id)
+  } catch {
+    profile = null
+  }
+
+  if (!profile) {
+    profile = await getCurrentProfileByEmail(user.email).catch(() => null)
+  }
+
+  if (!profile) {
+    profile = await getFirstAccessibleProfile().catch(() => null)
+  }
+
+  try {
+    workspace = await getCurrentWorkspace(profile, user.id)
+  } catch {
+    workspace = null
+  }
+
+  if (!workspace) {
+    workspace = await getWorkspaceById(profile?.workspace_id || metadataWorkspaceId).catch(() => null)
+  }
+
+  if (!workspace) {
+    workspace = await getFirstAccessibleWorkspace().catch(() => null)
+  }
+
   return { user, profile, workspace }
 }
 

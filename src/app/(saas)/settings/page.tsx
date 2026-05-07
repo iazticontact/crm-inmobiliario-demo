@@ -34,7 +34,7 @@ import {
   createActivity,
   getIntegrationSettings,
   getN8nFlows,
-  getWorkspaceContext,
+  getResolvedWorkspaceContext,
   seedN8nFlows,
   updateIntegrationSetting,
   updateN8nFlow,
@@ -230,7 +230,7 @@ export default function SettingsPage() {
     setSettingsLoading(true)
     setSettingsError('')
     try {
-      const context = await getWorkspaceContext()
+      const context = await getResolvedWorkspaceContext()
       const resolvedWorkspaceId = currentUser.workspaceId || context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
         setSettingsPersisted(false)

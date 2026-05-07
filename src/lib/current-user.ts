@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
-import { getWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
+import { getResolvedWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
 
 export type CurrentUser = {
   name: string
@@ -81,7 +81,7 @@ export function useCurrentUser() {
       let profile: ProfileRecord | null = null
       let workspace: WorkspaceRecord | null = null
       try {
-        const context = await getWorkspaceContext()
+        const context = await getResolvedWorkspaceContext()
         profile = context?.profile ?? null
         workspace = context?.workspace ?? null
       } catch {

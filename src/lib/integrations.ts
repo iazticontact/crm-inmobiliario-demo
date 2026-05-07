@@ -55,6 +55,31 @@ export type N8nTriggerResult = {
   activity_created?: boolean
 }
 
+export type AgentToolName =
+  | 'get_workspace_summary'
+  | 'search_clients'
+  | 'get_client_summary'
+  | 'get_client_detail'
+  | 'create_client'
+  | 'update_client'
+  | 'create_invoice'
+  | 'mark_invoice_paid'
+  | 'list_invoices'
+  | 'create_calendar_event'
+  | 'list_calendar_events'
+  | 'list_conversations'
+  | 'save_message'
+  | 'create_activity'
+  | 'get_next_best_actions'
+
+export type AgentToolResult = {
+  ok: boolean
+  tool: AgentToolName
+  result: unknown
+  message: string
+  mode?: string
+}
+
 export type WebhookPayload = N8nTriggerPayload
 
 export type WebhookConfig = {
@@ -202,6 +227,27 @@ export async function triggerN8nWebhook(eventName: N8nEventType, payload: N8nTri
       message: `Webhook "${eventName}" ejecutado en simulacion local.`,
       activity_created: false,
     }
+  }
+}
+
+export async function callAgentTool(tool: AgentToolName, workspaceId: string, input: Record<string, unknown> = {}, metadata: Record<string, unknown> = {}): Promise<AgentToolResult> {
+  const response = await fetch('/api/agent/tool', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tool,
+      workspace_id: workspaceId || 'demo-workspace',
+      input,
+      metadata,
+    }),
+  })
+  const data = await response.json() as Partial<AgentToolResult>
+  return {
+    ok: Boolean(data.ok),
+    tool,
+    result: data.result ?? null,
+    message: data.message || 'Tool procesada.',
+    mode: data.mode,
   }
 }
 
