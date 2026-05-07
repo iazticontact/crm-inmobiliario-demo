@@ -8,30 +8,44 @@ export type MockAIContext = {
   isDemo?: boolean
 }
 
-export function generateMockAIResponse({ input, workspaceName, conversation }: MockAIContext) {
+function hasAny(text: string, words: string[]) {
+  return words.some((word) => text.includes(word))
+}
+
+export function generateMockAIResponse({ input, workspaceName, conversation, messages = [], isDemo }: MockAIContext) {
   const text = input.toLowerCase()
   const client = conversation?.clientName || 'el cliente'
   const workspace = workspaceName || 'tu workspace'
+  const contextSize = messages.length > 3 ? 'Ya hay contexto suficiente en la conversacion.' : 'Aun conviene hacer una pregunta de cualificacion.'
+  const modeLabel = isDemo ? 'modo demo' : 'workspace real'
 
-  if (text.includes('precio') || text.includes('plan') || text.includes('presupuesto') || text.includes('tarifa')) {
-    return `Puedo ayudarte con una respuesta comercial para ${client}. Recomiendo explicar el plan Pro como punto de entrada, ofrecer una demo breve y cerrar con una pregunta clara: "¿Quieres que te reserve 20 minutos esta semana para verlo aplicado a ${workspace}?"`
+  if (hasAny(text, ['precio', 'plan', 'presupuesto', 'tarifa', 'coste', 'cuanto cuesta'])) {
+    return `Para ${client}, responderia con una propuesta breve: validar necesidad, recomendar el plan Pro como punto de entrada y cerrar con una demo de 20 minutos. ${contextSize} En ${workspace}, lo dejaria como oportunidad caliente y siguiente paso comercial claro.`
   }
 
-  if (text.includes('demo') || text.includes('reun') || text.includes('llamada') || text.includes('agenda') || text.includes('cita')) {
-    return `He detectado intención de reunión. Sugerencia: confirma disponibilidad con dos franjas concretas, promete una demo orientada a resultados y deja preparado un evento de seguimiento para ${client}.`
+  if (hasAny(text, ['demo', 'reunion', 'reunir', 'llamada', 'agenda', 'cita', 'calendario'])) {
+    return `Detecto intencion de reunion. Sugiero ofrecer dos franjas concretas, confirmar el objetivo de la llamada y crear un evento de seguimiento. Si activas n8n despues, este caso puede disparar confirmacion por email y recordatorio automatico.`
   }
 
-  if (text.includes('factura') || text.includes('pago') || text.includes('cobro') || text.includes('vencida')) {
-    return `Parece un caso de facturación. Responde con tono tranquilo, confirma que revisas la factura y propone una acción: reenviar enlace de pago, corregir datos o marcar prioridad si hay incidencia.`
+  if (hasAny(text, ['factura', 'pago', 'cobro', 'vencida', 'impago', 'stripe'])) {
+    return `Caso de facturacion. Responderia con tono tranquilo: confirmar que revisas el estado, reenviar enlace de pago si procede y registrar actividad. Si la factura esta vencida, conviene activar un flujo n8n de recordatorio con seguimiento humano.`
   }
 
-  if (text.includes('problema') || text.includes('queja') || text.includes('error') || text.includes('mal') || text.includes('incidencia')) {
-    return `Hay posible fricción. Recomiendo responder con empatía, asumir seguimiento inmediato y escalar internamente si el cliente tiene alto valor o sentimiento negativo.`
+  if (hasAny(text, ['problema', 'queja', 'error', 'mal', 'incidencia', 'molesto', 'enfadado'])) {
+    return `Hay friccion potencial. Recomendacion: responder con empatia, asumir seguimiento inmediato y evitar automatizar en frio. Si el sentimiento sigue negativo, marca la conversacion como urgente y escala a una persona.`
   }
 
-  if (text.includes('whatsapp') || text.includes('instagram') || text.includes('email') || text.includes('automat')) {
-    return `Para este caso destacaría el valor de NowCRM: conversaciones unificadas, IA que prioriza intención y automatizaciones listas para n8n cuando conectes los flujos reales.`
+  if (hasAny(text, ['whatsapp', 'instagram', 'meta', 'canal', 'mensaje'])) {
+    return `Buen caso para vender multicanalidad: centralizar mensajes, detectar intencion y convertir conversaciones en leads accionables. Hoy esta en ${modeLabel}; cuando conectes WhatsApp/Meta, el mismo flujo podra crear clientes y mensajes reales.`
   }
 
-  return `Mensaje registrado. Mi recomendación para ${client}: resume el contexto, confirma el siguiente paso y agenda una acción comercial dentro de las próximas 24 horas para no perder momentum.`
+  if (hasAny(text, ['automatizacion', 'automatizar', 'n8n', 'webhook', 'flujo', 'workflow'])) {
+    return `Recomendaria plantearlo como flujo n8n: trigger claro, payload desde NowCRM, validacion de requisitos y activity final. Para empezar, usaria "Nuevo lead" o "Factura vencida", porque ya tienen datos reales en Supabase.`
+  }
+
+  if (hasAny(text, ['funciona', 'caracteristica', 'feature', 'ia', 'crm'])) {
+    return `Explicaria NowCRM como un CRM con datos reales, assistant persistente e integraciones preparadas. El mensaje clave: menos tareas manuales, mas seguimiento comercial y una base lista para IA/n8n reales.`
+  }
+
+  return `Mensaje registrado para ${client}. Mi siguiente paso recomendado: resumir el contexto, confirmar necesidad y proponer una accion concreta en las proximas 24 horas. ${contextSize}`
 }

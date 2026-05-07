@@ -11,8 +11,13 @@ import type {
   EventType,
   Invoice,
   InvoiceStatus,
+  IntegrationSetting,
+  IntegrationStatus,
   Message,
   MessageSender,
+  N8nFlow,
+  N8nFlowStatus,
+  N8nRequirement,
 } from '@/lib/types'
 
 export type ProfileRecord = {
@@ -91,12 +96,23 @@ export type ActivityPayload = {
 export type N8nFlowPayload = {
   event: string
   label?: string
+  description?: string
+  trigger?: string
   status?: string
   webhookUrl?: string
+  requires?: N8nRequirement[]
 }
 
-type RecordValue = string | number | boolean | null | undefined
-type DataRecord = Record<string, RecordValue>
+export type IntegrationPayload = {
+  key: string
+  name: string
+  description?: string
+  status?: IntegrationStatus
+  category?: string
+  info?: string
+}
+
+type DataRecord = Record<string, unknown>
 
 function asString(value: unknown, fallback = '') {
   return typeof value === 'string' && value.trim() ? value : fallback
@@ -156,6 +172,26 @@ function normalizeSender(value: unknown): MessageSender {
 function normalizeActivityType(value: unknown): ActivityType {
   if (value === 'email' || value === 'call' || value === 'message' || value === 'deal' || value === 'note') return value
   return 'note'
+}
+
+function normalizeN8nFlowStatus(value: unknown): N8nFlowStatus {
+  if (value === 'active' || value === 'inactive' || value === 'demo' || value === 'pending_config' || value === 'error') return value
+  if (value === 'pending') return 'pending_config'
+  return 'demo'
+}
+
+function normalizeIntegrationStatus(value: unknown): IntegrationStatus {
+  if (value === 'connected' || value === 'disconnected' || value === 'pending' || value === 'demo' || value === 'error') return value
+  return 'pending'
+}
+
+function asRequirements(value: unknown): N8nRequirement[] {
+  const allowed: N8nRequirement[] = ['Supabase', 'n8n', 'WhatsApp/API', 'Email/API', 'Billing/API', 'Payment/API']
+  if (Array.isArray(value)) return value.filter((item): item is N8nRequirement => allowed.includes(item as N8nRequirement))
+  if (typeof value === 'string') {
+    return value.split(',').map((item) => item.trim()).filter((item): item is N8nRequirement => allowed.includes(item as N8nRequirement))
+  }
+  return ['Supabase', 'n8n']
 }
 
 function displayTime(value: unknown, fallback = 'Ahora mismo') {
@@ -714,4 +750,220 @@ export async function createActivity(workspaceId: string, payload: ActivityPaylo
 
   if (error) return null
   return mapSupabaseActivity(data as DataRecord)
+}
+
+export function mapSupabaseN8nFlow(row: DataRecord): N8nFlow {
+  const event = asString(row.event ?? row.event_type ?? row.name, 'custom_flow')
+  return {
+    id: asString(row.id, event),
+    event,
+    label: asString(row.label ?? row.name, event),
+    description: asString(row.description, 'Flujo preparado para n8n.'),
+    trigger: asString(row.trigger, 'Evento NowCRM'),
+    webhookUrl: asString(row.webhook_url ?? row.endpoint ?? row.url),
+    status: normalizeN8nFlowStatus(row.status ?? (row.enabled === true ? 'active' : undefined)),
+    requires: asRequirements(row.requires ?? row.requirements),
+    updatedAt: asString(row.updated_at ?? row.created_at) || undefined,
+  }
+}
+
+function toN8nFlowRow(workspaceId: string, payload: N8nFlowPayload): DataRecord {
+  return {
+    workspace_id: workspaceId,
+    event: payload.event,
+    label: payload.label || payload.event,
+    description: payload.description || null,
+    trigger: payload.trigger || null,
+    webhook_url: payload.webhookUrl || null,
+    status: normalizeN8nFlowStatus(payload.status),
+    requires: payload.requires || ['Supabase', 'n8n'],
+  }
+}
+
+export async function getN8nFlows(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('n8n_flows')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseN8nFlow)
+}
+
+export async function upsertN8nFlow(workspaceId: string, payload: N8nFlowPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const existing = await supabase
+    .from('n8n_flows')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('event', payload.event)
+    .maybeSingle()
+
+  const row = toN8nFlowRow(workspaceId, payload)
+
+  if (existing.data) {
+    delete row.workspace_id
+    delete row.event
+    const { data, error } = await supabase
+      .from('n8n_flows')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+
+    if (error) throw error
+    return mapSupabaseN8nFlow(data as DataRecord)
+  }
+
+  const { data, error } = await supabase
+    .from('n8n_flows')
+    .insert(row)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseN8nFlow(data as DataRecord)
+}
+
+export async function updateN8nFlow(id: string, payload: Partial<N8nFlowPayload>) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = {
+    label: payload.label,
+    description: payload.description,
+    trigger: payload.trigger,
+    webhook_url: payload.webhookUrl,
+    status: payload.status ? normalizeN8nFlowStatus(payload.status) : undefined,
+    requires: payload.requires,
+  }
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined) delete row[key]
+  })
+
+  const { data, error } = await supabase
+    .from('n8n_flows')
+    .update(row)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseN8nFlow(data as DataRecord)
+}
+
+export async function seedN8nFlows(workspaceId: string, payloads: N8nFlowPayload[]) {
+  const seeded: N8nFlow[] = []
+  for (const payload of payloads) {
+    seeded.push(await upsertN8nFlow(workspaceId, payload))
+  }
+  return seeded
+}
+
+export function mapSupabaseIntegrationSetting(row: DataRecord): IntegrationSetting {
+  const key = asString(row.key ?? row.provider ?? row.slug ?? row.name, 'integration')
+  return {
+    id: asString(row.id, key),
+    key,
+    name: asString(row.name ?? row.label, key),
+    description: asString(row.description, 'Integracion preparada para la fase real.'),
+    status: normalizeIntegrationStatus(row.status),
+    category: asString(row.category, 'Sistema'),
+    info: asString(row.info ?? row.public_label) || undefined,
+  }
+}
+
+function toIntegrationRow(workspaceId: string, payload: IntegrationPayload): DataRecord {
+  return {
+    workspace_id: workspaceId,
+    key: payload.key,
+    name: payload.name,
+    description: payload.description || null,
+    status: normalizeIntegrationStatus(payload.status),
+    category: payload.category || 'Sistema',
+    info: payload.info || null,
+  }
+}
+
+export async function getIntegrationSettings(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseIntegrationSetting)
+}
+
+export async function upsertIntegrationSetting(workspaceId: string, payload: IntegrationPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const existing = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('key', payload.key)
+    .maybeSingle()
+
+  const row = toIntegrationRow(workspaceId, payload)
+
+  if (existing.data) {
+    delete row.workspace_id
+    delete row.key
+    const { data, error } = await supabase
+      .from('integrations')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+
+    if (error) throw error
+    return mapSupabaseIntegrationSetting(data as DataRecord)
+  }
+
+  const { data, error } = await supabase
+    .from('integrations')
+    .insert(row)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseIntegrationSetting(data as DataRecord)
+}
+
+export async function updateIntegrationSetting(id: string, payload: Partial<IntegrationPayload>) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = {
+    name: payload.name,
+    description: payload.description,
+    status: payload.status ? normalizeIntegrationStatus(payload.status) : undefined,
+    category: payload.category,
+    info: payload.info,
+  }
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined) delete row[key]
+  })
+
+  const { data, error } = await supabase
+    .from('integrations')
+    .update(row)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseIntegrationSetting(data as DataRecord)
 }

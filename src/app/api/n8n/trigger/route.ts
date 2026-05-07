@@ -1,10 +1,67 @@
 import { NextResponse } from 'next/server'
 
+const validEvents = new Set([
+  'new_lead',
+  'whatsapp_incoming',
+  'payment_registered',
+  'appointment_scheduled',
+  'invoice_overdue',
+  'reengagement_sequence',
+  'daily_ai_summary',
+  'urgent_conversation',
+])
+
+type TriggerStatus = 'ok' | 'simulated' | 'skipped' | 'error'
+
 type N8nTriggerBody = {
   event_type?: string
+  workspace_id?: string
   endpoint?: string
+  webhook_url?: string
   mode?: 'demo' | 'real'
   payload?: Record<string, unknown>
+  client?: Record<string, unknown>
+  conversation?: Record<string, unknown>
+  message?: Record<string, unknown>
+  invoice?: Record<string, unknown>
+  event?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+function json(status: TriggerStatus, message: string, init?: ResponseInit, extra?: Record<string, unknown>) {
+  return NextResponse.json({
+    success: status === 'ok' || status === 'simulated' || status === 'skipped',
+    status,
+    message,
+    ...extra,
+  }, init)
+}
+
+function normalizeWebhookUrl(value: unknown) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.includes('tudominio.com')) return ''
+  return trimmed
+}
+
+function buildPayload(body: N8nTriggerBody, mode: 'demo' | 'real') {
+  const merged = body.payload ?? {}
+  return {
+    event_type: body.event_type,
+    workspace_id: body.workspace_id || (typeof merged.workspace_id === 'string' ? merged.workspace_id : undefined),
+    source: 'nowcrm',
+    mode,
+    client: body.client ?? merged.client ?? {},
+    conversation: body.conversation ?? merged.conversation ?? {},
+    message: body.message ?? merged.message ?? {},
+    invoice: body.invoice ?? merged.invoice ?? {},
+    event: body.event ?? merged.event ?? {},
+    metadata: {
+      ...(typeof merged.metadata === 'object' && merged.metadata ? merged.metadata : {}),
+      ...(body.metadata ?? {}),
+      triggered_at: new Date().toISOString(),
+    },
+  }
 }
 
 export async function POST(request: Request) {
@@ -13,49 +70,51 @@ export async function POST(request: Request) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ success: false, message: 'Payload inválido' }, { status: 400 })
+    return json('error', 'Payload JSON invalido.', { status: 400 })
   }
 
-  const eventType = body.event_type || 'unknown'
-  const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : ''
-  const isDemoEndpoint = !endpoint || endpoint.includes('tudominio.com')
-  const payload = {
-    event_type: eventType,
-    source: 'nowcrm',
-    mode: body.mode || (isDemoEndpoint ? 'demo' : 'real'),
-    metadata: {
-      triggered_at: new Date().toISOString(),
-    },
-    ...(body.payload || {}),
+  const eventType = body.event_type?.trim()
+  if (!eventType || !validEvents.has(eventType)) {
+    return json('error', 'event_type no reconocido.', { status: 400 }, { allowed_events: Array.from(validEvents) })
   }
 
-  if (isDemoEndpoint) {
-    return NextResponse.json({
-      success: true,
-      mode: 'demo',
-      message: `Webhook "${eventType}" simulado desde NowCRM.`,
-      payload,
-    })
+  const webhookUrl = normalizeWebhookUrl(body.webhook_url ?? body.endpoint)
+  const mode = body.mode === 'real' && webhookUrl ? 'real' : 'demo'
+  const payload = buildPayload({ ...body, event_type: eventType }, mode)
+
+  if (!webhookUrl) {
+    return json('simulated', `Webhook "${eventType}" simulado desde NowCRM.`, undefined, { mode: 'demo', payload })
   }
+
+  let url: URL
+  try {
+    url = new URL(webhookUrl)
+  } catch {
+    return json('skipped', 'Webhook omitido: URL n8n no valida.', { status: 200 }, { mode: 'demo', payload })
+  }
+
+  if (url.protocol !== 'https:' && url.hostname !== 'localhost') {
+    return json('skipped', 'Webhook omitido: usa HTTPS o localhost para pruebas.', { status: 200 }, { mode: 'demo', payload })
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000)
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     })
 
-    return NextResponse.json({
-      success: response.ok,
+    clearTimeout(timeout)
+    return json(response.ok ? 'ok' : 'error', response.ok ? `Webhook "${eventType}" enviado a n8n.` : 'n8n respondio con error.', { status: response.ok ? 200 : 502 }, {
       mode: 'real',
-      status: response.status,
-      message: response.ok ? `Webhook "${eventType}" enviado a n8n.` : 'n8n respondió con error.',
-    }, { status: response.ok ? 200 : 502 })
+      http_status: response.status,
+    })
   } catch {
-    return NextResponse.json({
-      success: false,
-      mode: 'real',
-      message: 'No se pudo contactar con el endpoint n8n.',
-    }, { status: 502 })
+    clearTimeout(timeout)
+    return json('error', 'No se pudo contactar con el endpoint n8n.', { status: 502 }, { mode: 'real' })
   }
 }

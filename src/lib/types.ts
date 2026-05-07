@@ -8,6 +8,9 @@ export type InvoiceStatus = 'paid' | 'pending' | 'overdue'
 export type AIInsightType = 'warning' | 'opportunity' | 'info'
 export type ActivityType = 'email' | 'call' | 'message' | 'deal' | 'note'
 export type AutomationEmailStatus = 'delivered' | 'opened' | 'clicked' | 'bounced'
+export type N8nFlowStatus = 'active' | 'inactive' | 'demo' | 'pending_config' | 'error'
+export type N8nRequirement = 'Supabase' | 'n8n' | 'WhatsApp/API' | 'Email/API' | 'Billing/API' | 'Payment/API'
+export type IntegrationStatus = 'connected' | 'disconnected' | 'pending' | 'demo' | 'error'
 
 export type Client = {
   id: string
@@ -117,4 +120,26 @@ export type RevenueByPlan = {
   plan: string
   revenue: number
   count: number
+}
+
+export type N8nFlow = {
+  id: string
+  event: string
+  label: string
+  description: string
+  trigger: string
+  webhookUrl: string
+  status: N8nFlowStatus
+  requires: N8nRequirement[]
+  updatedAt?: string
+}
+
+export type IntegrationSetting = {
+  id: string
+  key: string
+  name: string
+  description: string
+  status: IntegrationStatus
+  category: string
+  info?: string
 }

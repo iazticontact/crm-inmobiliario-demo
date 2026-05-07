@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   Database,
   ExternalLink,
   Globe,
+  Loader2,
   Mail,
   MessageSquare,
   Play,
@@ -26,13 +27,23 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook } from '@/lib/integrations'
+import { n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
+import {
+  createActivity,
+  getIntegrationSettings,
+  getN8nFlows,
+  getWorkspaceContext,
+  seedN8nFlows,
+  updateIntegrationSetting,
+  updateN8nFlow,
+  upsertIntegrationSetting,
+  upsertN8nFlow,
+} from '@/lib/supabase-queries'
+import type { IntegrationSetting, IntegrationStatus, N8nFlow, N8nFlowStatus } from '@/lib/types'
 
-type IntegrationStatus = 'connected' | 'disconnected' | 'pending'
-
-type Integration = {
+type IntegrationCard = {
   id: string
   name: string
   description: string
@@ -42,73 +53,82 @@ type Integration = {
   category: string
 }
 
-const integrations: Integration[] = [
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Canal principal simulado para captación y atención.', status: 'connected', icon: <MessageSquare className="h-5 w-5" />, info: '+34 612 345 678', category: 'Mensajería' },
-  { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja de mensajes directos y leads sociales.', status: 'connected', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
-  { id: 'email', name: 'Email SMTP', description: 'Secuencias comerciales y emails transaccionales.', status: 'connected', icon: <Mail className="h-5 w-5" />, info: 'iazti.contact@gmail.com', category: 'Email' },
-  { id: 'web', name: 'Widget Web', description: 'Chat web integrado para captar leads desde la página.', status: 'connected', icon: <Globe className="h-5 w-5" />, info: 'nowcrm-demo.vercel.app', category: 'Web' },
-  { id: 'stripe', name: 'Stripe Payments', description: 'Cobros automáticos y suscripciones para la fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
+const integrations: IntegrationCard[] = [
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Canal preparado para Meta Cloud API y leads conversacionales.', status: 'demo', icon: <MessageSquare className="h-5 w-5" />, info: '+34 612 345 678', category: 'Mensajeria' },
+  { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja social preparada para mensajes y leads de Instagram.', status: 'pending', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
+  { id: 'email', name: 'Email / Resend', description: 'Emails transaccionales y secuencias cuando exista dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
+  { id: 'n8n', name: 'n8n', description: 'Capa de automatizacion por webhooks y workflows externos.', status: 'demo', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'stripe', name: 'Stripe Payments', description: 'Cobros, suscripciones y eventos de pago para fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
   { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
 
 const architectureCards = [
-  { title: 'Supabase', label: 'Datos y Auth', detail: 'Preparado', icon: <Database className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
-  { title: 'n8n', label: 'Webhooks y flujos', detail: 'Simulado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
-  { title: 'WhatsApp Business', label: 'Canal conversacional', detail: 'Demo activa', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
-  { title: 'Integraciones', label: 'Servicios externos', detail: 'Mock controlado', icon: <Globe className="h-5 w-5" />, tone: 'border-sky-100 bg-gradient-to-br from-sky-50 to-white text-sky-700' },
+  { title: 'Supabase', label: 'Auth y datos reales', detail: 'Conectado', icon: <Database className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
+  { title: 'n8n', label: 'Webhooks y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
+  { title: 'Assistant', label: 'Mensajes persistentes', detail: 'IA mock', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
+  { title: 'Canales', label: 'Meta, Email, Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
 const notifDefaults = [
   { key: 'leads', label: 'Nuevos leads', description: 'Cuando un lead entra por cualquier canal', enabled: true },
   { key: 'invoices', label: 'Facturas vencidas', description: 'Alertas de pagos pendientes y recordatorios IA', enabled: true },
-  { key: 'dailyReport', label: 'Resumen diario IA', description: 'Reporte matutino con métricas e insights', enabled: true },
-  { key: 'urgent', label: 'Conversaciones urgentes', description: 'Cuando la IA detecta sentimiento negativo', enabled: false },
-]
-
-const demoWorkspaceItems = [
-  { label: 'Nombre del workspace', value: 'NowCRM Demo', icon: <Building2 className="h-4 w-4" /> },
-  { label: 'Email de administrador', value: 'iazti.contact@gmail.com', icon: <Mail className="h-4 w-4" /> },
-  { label: 'Zona horaria', value: 'Europe/Madrid (UTC+2)', icon: <Globe className="h-4 w-4" /> },
-  { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
+  { key: 'dailyReport', label: 'Resumen diario IA', description: 'Briefing matutino con ventas, alertas y siguientes acciones', enabled: true },
+  { key: 'urgent', label: 'Conversaciones urgentes', description: 'Cuando la IA detecta sentimiento negativo o alta intencion', enabled: false },
 ]
 
 const supabaseReadiness = [
-  { label: 'Auth', value: 'Activo', status: 'Login, registro, callback y reset con Supabase' },
-  { label: 'Clientes', value: 'Datos reales', status: 'CRUD conectado a la tabla clients' },
-  { label: 'Facturas', value: 'Datos reales', status: 'CRUD conectado a invoices con fallback demo' },
-  { label: 'Eventos', value: 'Datos reales', status: 'Calendario conectado a calendar_events' },
-  { label: 'Assistant', value: 'Persistencia real', status: 'Conversations/messages con IA mock preparada' },
-  { label: 'Activities', value: 'Preparado', status: 'Registro best-effort en Supabase' },
-  { label: 'n8n', value: 'API route lista', status: 'Trigger interno /api/n8n/trigger' },
+  { label: 'Auth', value: 'Real', status: 'Login, registro, callback, reset y logout' },
+  { label: 'Clients', value: 'Real', status: 'CRUD Supabase con notas y fallback demo' },
+  { label: 'Billing', value: 'Real', status: 'Facturas persistentes y metricas basicas' },
+  { label: 'Calendar', value: 'Real', status: 'Eventos persistentes por workspace' },
+  { label: 'Assistant', value: 'Mixto', status: 'Mensajes reales e IA mock inteligente' },
+  { label: 'Dashboard', value: 'Mixto', status: 'KPIs reales con widgets demo' },
+  { label: 'n8n', value: 'Preparado', status: 'API route interna y flows configurables' },
+  { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend, IA real y deploy' },
 ]
 
 const productStatusCards = [
   { label: 'Core CRM', value: 'Real', detail: 'Auth, workspace, clients, billing y calendar', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { label: 'Assistant', value: 'Mixto', detail: 'Mensajes reales con respuesta IA mock', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
-  { label: 'n8n', value: 'Preparado', detail: 'Payload y endpoint interno listos', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-  { label: 'Canales', value: 'Demo', detail: 'WhatsApp/Meta pendientes de proveedor real', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+  { label: 'Assistant', value: 'Persistente', detail: 'Conversaciones reales con respuesta mock', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'n8n', value: 'Configurable', detail: 'Endpoints y estados por flujo', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+  { label: 'Canales', value: 'Pendiente', detail: 'WhatsApp/Meta/Email/Stripe por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
-const statusBadge = (status: IntegrationStatus) => {
-  if (status === 'connected') return <Badge variant="success" dot>Conectado</Badge>
-  if (status === 'pending') return <Badge variant="warning" dot>Pendiente</Badge>
-  return <Badge variant="default" dot>Desconectado</Badge>
+const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
+  active: { label: 'Activo', variant: 'success' },
+  demo: { label: 'Demo', variant: 'indigo' },
+  pending_config: { label: 'Pendiente config', variant: 'warning' },
+  inactive: { label: 'Inactivo', variant: 'default' },
+  error: { label: 'Error', variant: 'danger' },
 }
-
-const flowStatusConfig = {
-  active: { label: 'Activo', variant: 'success' as const },
-  demo: { label: 'Demo', variant: 'indigo' as const },
-  pending: { label: 'Pendiente', variant: 'warning' as const },
-  inactive: { label: 'Inactivo', variant: 'default' as const },
-}
-
-type FlowStatus = keyof typeof flowStatusConfig
 
 const envChecks = [
   { key: 'NEXT_PUBLIC_SUPABASE_URL', label: 'Project URL', ready: supabaseStatus.hasUrl },
   { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', label: 'Publishable key', ready: supabaseStatus.hasPublishableKey },
-  { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', label: 'Anon key pública', ready: supabaseStatus.hasAnonKey },
+  { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', label: 'Anon key publica', ready: supabaseStatus.hasAnonKey },
 ]
+
+function statusBadge(status: IntegrationStatus) {
+  if (status === 'connected') return <Badge variant="success" dot>Conectado</Badge>
+  if (status === 'demo') return <Badge variant="indigo" dot>Demo</Badge>
+  if (status === 'error') return <Badge variant="danger" dot>Error</Badge>
+  if (status === 'pending') return <Badge variant="warning" dot>Pendiente</Badge>
+  return <Badge variant="default" dot>Desconectado</Badge>
+}
+
+function defaultPath(config: WebhookConfig) {
+  return config.url.replace('https://n8n.tudominio.com', '')
+}
+
+function splitWebhookUrl(value: string) {
+  if (!value) return { base: 'https://n8n.tudominio.com', path: '' }
+  try {
+    const url = new URL(value)
+    return { base: `${url.protocol}//${url.host}`, path: `${url.pathname}${url.search}` }
+  } catch {
+    return { base: 'https://n8n.tudominio.com', path: value.startsWith('/') ? value : `/${value}` }
+  }
+}
 
 export default function SettingsPage() {
   const { currentUser } = useCurrentUser()
@@ -118,28 +138,116 @@ export default function SettingsPage() {
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatus>>(
     Object.fromEntries(integrations.map((intg) => [intg.id, intg.status]))
   )
+  const [integrationIds, setIntegrationIds] = useState<Record<string, string>>({})
   const [simulatingWA, setSimulatingWA] = useState(false)
   const [n8nUrl, setN8nUrl] = useState('https://n8n.tudominio.com')
-  const [testingN8n, setTestingN8n] = useState(false)
+  const [testingKey, setTestingKey] = useState<string | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
-  const [flowStatuses, setFlowStatuses] = useState<Record<string, FlowStatus>>(
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsPersisted, setSettingsPersisted] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
+  const [flowIds, setFlowIds] = useState<Record<string, string>>({})
+  const [flowStatuses, setFlowStatuses] = useState<Record<string, N8nFlowStatus>>(
     Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.status]))
   )
   const [flowPaths, setFlowPaths] = useState<Record<string, string>>(
-    Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.url.replace('https://n8n.tudominio.com', '')]))
+    Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, defaultPath(wh)]))
   )
-  const visibleWorkspaceItems = currentUser.isDemo ? demoWorkspaceItems : [
+
+  const flowConfigByEvent = useMemo(() => new Map<string, WebhookConfig>(n8nWebhookConfigs.map((flow) => [flow.event, flow])), [])
+
+  const visibleWorkspaceItems = currentUser.isDemo ? [
+    { label: 'Nombre del workspace', value: 'NowCRM Demo', icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Email de administrador', value: 'demo@nowcrm.local', icon: <Mail className="h-4 w-4" /> },
+    { label: 'Estado', value: 'Modo demo', icon: <Shield className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
+  ] : [
     { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: currentUser.trialLabel, icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
   ]
+
+  const composeFlowUrl = useCallback((event: string) => {
+    const rawPath = flowPaths[event] ?? ''
+    if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) return rawPath
+    return `${n8nUrl.replace(/\/$/, '')}${rawPath.startsWith('/') ? rawPath : `/${rawPath}`}`
+  }, [flowPaths, n8nUrl])
+
+  const applyRemoteFlows = useCallback((flows: N8nFlow[]) => {
+    if (!flows.length) return
+    const ids: Record<string, string> = {}
+    const statuses: Record<string, N8nFlowStatus> = {}
+    const paths: Record<string, string> = {}
+    let nextBase = n8nUrl
+
+    for (const flow of flows) {
+      ids[flow.event] = flow.id
+      statuses[flow.event] = flow.status
+      const split = splitWebhookUrl(flow.webhookUrl)
+      paths[flow.event] = split.path || defaultPath(flowConfigByEvent.get(flow.event) ?? n8nWebhookConfigs[0])
+      if (flow.webhookUrl && !flow.webhookUrl.includes('tudominio.com')) nextBase = split.base
+    }
+
+    setFlowIds((prev) => ({ ...prev, ...ids }))
+    setFlowStatuses((prev) => ({ ...prev, ...statuses }))
+    setFlowPaths((prev) => ({ ...prev, ...paths }))
+    setN8nUrl(nextBase)
+  }, [flowConfigByEvent, n8nUrl])
+
+  const applyRemoteIntegrations = useCallback((remoteIntegrations: IntegrationSetting[]) => {
+    if (!remoteIntegrations.length) return
+    setIntegrationIds((prev) => ({ ...prev, ...Object.fromEntries(remoteIntegrations.map((integration) => [integration.key, integration.id])) }))
+    setIntegrationStatuses((prev) => ({ ...prev, ...Object.fromEntries(remoteIntegrations.map((integration) => [integration.key, integration.status])) }))
+  }, [])
+
+  const loadControlCenter = useCallback(async () => {
+    if (currentUser.isDemo) {
+      setSettingsPersisted(false)
+      setSettingsError('')
+      return
+    }
+
+    setSettingsLoading(true)
+    setSettingsError('')
+    try {
+      const context = await getWorkspaceContext()
+      const resolvedWorkspaceId = currentUser.workspaceId || context?.workspace?.id || context?.profile?.workspace_id
+      if (!resolvedWorkspaceId) {
+        setSettingsPersisted(false)
+        setSettingsError('No se ha encontrado workspace real. Settings queda en fallback demo.')
+        return
+      }
+
+      setWorkspaceId(resolvedWorkspaceId)
+      const [flows, remoteIntegrations] = await Promise.all([
+        getN8nFlows(resolvedWorkspaceId).catch(() => []),
+        getIntegrationSettings(resolvedWorkspaceId).catch(() => []),
+      ])
+      applyRemoteFlows(flows)
+      applyRemoteIntegrations(remoteIntegrations)
+      setSettingsPersisted(Boolean(flows.length || remoteIntegrations.length))
+    } catch {
+      setSettingsPersisted(false)
+      setSettingsError('No se pudo leer n8n_flows o integrations. Se mantiene fallback demo.')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }, [applyRemoteFlows, applyRemoteIntegrations, currentUser.isDemo, currentUser.workspaceId])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadControlCenter()
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [loadControlCenter])
 
   const toggleNotif = (key: string) => {
     const next = !notifications[key]
     setNotifications((prev) => ({ ...prev, [key]: next }))
     const label = notifDefaults.find((n) => n.key === key)?.label ?? key
-    toast.success(`Notificación ${next ? 'activada' : 'desactivada'}`, { description: label })
+    toast.success(`Notificacion ${next ? 'activada' : 'desactivada'}`, { description: label })
   }
 
   const handleSimulateWA = async () => {
@@ -153,22 +261,96 @@ export default function SettingsPage() {
     }
   }
 
-  const handleTestN8n = async () => {
-    setTestingN8n(true)
-    await triggerN8nWebhook('new_lead', { source: 'settings', mode: 'demo', url: `${n8nUrl}/webhook/test` })
-    setTestingN8n(false)
-    toast.success('Webhook de prueba enviado', { description: `POST → ${n8nUrl}/webhook/test · modo simulado` })
+  const persistFlow = async (event: string, options?: { status?: N8nFlowStatus; notify?: boolean }) => {
+    const config = flowConfigByEvent.get(event)
+    if (!config) return null
+    const nextStatus = options?.status ?? flowStatuses[event] ?? config.status
+    const webhookUrl = composeFlowUrl(event)
+    setFlowStatuses((prev) => ({ ...prev, [event]: nextStatus }))
+
+    if (currentUser.isDemo || !workspaceId) {
+      if (options?.notify) toast.success('Flujo actualizado en demo', { description: config.label })
+      return null
+    }
+
+    try {
+      const saved = flowIds[event]
+        ? await updateN8nFlow(flowIds[event], { event, status: nextStatus, webhookUrl, label: config.label, description: config.description, trigger: config.trigger, requires: config.requires })
+        : await upsertN8nFlow(workspaceId, { event, status: nextStatus, webhookUrl, label: config.label, description: config.description, trigger: config.trigger, requires: config.requires })
+      setFlowIds((prev) => ({ ...prev, [event]: saved.id }))
+      setFlowStatuses((prev) => ({ ...prev, [event]: saved.status }))
+      setSettingsPersisted(true)
+      if (options?.notify) toast.success('Flujo guardado en Supabase', { description: config.label })
+      return saved
+    } catch {
+      setFlowStatuses((prev) => ({ ...prev, [event]: 'error' }))
+      toast.error('No se pudo guardar el flujo', { description: 'Revisa RLS o columnas de n8n_flows.' })
+      return null
+    }
   }
 
-  const toggleFlow = (event: string) => {
-    setFlowStatuses((prev) => {
-      const current = prev[event]
-      const next = current === 'active' || current === 'demo' ? 'inactive' : 'demo'
-      toast.success(next === 'inactive' ? 'Flujo desactivado en demo' : 'Flujo activado en demo', {
-        description: n8nWebhookConfigs.find((wh) => wh.event === event)?.label,
-      })
-      return { ...prev, [event]: next }
+  const handleInitializeFlows = async () => {
+    if (currentUser.isDemo || !workspaceId) {
+      setFlowStatuses(Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, wh.status])))
+      setFlowPaths(Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, defaultPath(wh)])))
+      toast.success('Flujos demo inicializados')
+      return
+    }
+
+    setSettingsLoading(true)
+    try {
+      const seeded = await seedN8nFlows(workspaceId, n8nWebhookConfigs.map((wh) => ({
+        event: wh.event,
+        label: wh.label,
+        description: wh.description,
+        trigger: wh.trigger,
+        status: wh.status,
+        webhookUrl: composeFlowUrl(wh.event),
+        requires: wh.requires,
+      })))
+      applyRemoteFlows(seeded)
+      await createActivity(workspaceId, { type: 'note', description: 'Flujos n8n inicializados desde Settings' })
+      setSettingsPersisted(true)
+      toast.success('Flujos n8n inicializados en Supabase', { description: `${seeded.length} flujos preparados.` })
+    } catch {
+      toast.error('No se pudieron inicializar los flujos', { description: 'Revisa la tabla n8n_flows y RLS.' })
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  const handleTestN8n = async () => {
+    setTestingKey('global')
+    const result = await triggerN8nWebhook('new_lead', {
+      source: 'settings',
+      mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
+      workspace_id: workspaceId,
+      webhook_url: `${n8nUrl.replace(/\/$/, '')}/webhook/test`,
+      metadata: { test: true },
     })
+    if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Webhook n8n probado: ${result.status ?? 'simulated'}` })
+    setTestingKey(null)
+    toast.success(result.status === 'ok' ? 'Webhook enviado a n8n' : 'Webhook simulado', { description: result.message })
+  }
+
+  const handleTestFlow = async (flow: WebhookConfig) => {
+    setTestingKey(flow.event)
+    const result = await triggerN8nWebhook(flow.event, {
+      source: 'settings_flow',
+      mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
+      workspace_id: workspaceId,
+      webhook_url: composeFlowUrl(flow.event),
+      metadata: { label: flow.label, requirements: flow.requires },
+    })
+    if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Flujo n8n probado: ${flow.label}` })
+    setTestingKey(null)
+    toast.success(result.status === 'ok' ? 'Flujo enviado a n8n' : 'Flujo simulado', { description: result.message })
+  }
+
+  const toggleFlow = async (event: string) => {
+    const current = flowStatuses[event]
+    const next: N8nFlowStatus = current === 'active' || current === 'demo' ? 'inactive' : workspaceId && !currentUser.isDemo ? 'active' : 'demo'
+    await persistFlow(event, { status: next, notify: true })
   }
 
   const updateFlowPath = (event: string, path: string) => {
@@ -185,25 +367,36 @@ export default function SettingsPage() {
   const handleVerifySupabase = () => {
     toast.info(supabaseStatus.configured ? 'Supabase preparado' : 'Supabase pendiente', {
       description: supabaseStatus.configured
-        ? 'Variables públicas detectadas. Auth está preparado; las tablas CRM quedan para la siguiente fase.'
-        : 'La UI está preparada, pero faltan variables públicas o no están disponibles en este entorno.',
+        ? 'Variables publicas detectadas. Auth, clients, billing, calendar y assistant ya tienen capa real.'
+        : 'La UI esta preparada, pero faltan variables publicas en este entorno.',
     })
   }
 
-  const handleIntegrationAction = (integration: Integration) => {
+  const handleIntegrationAction = async (integration: IntegrationCard) => {
     const currentStatus = integrationStatuses[integration.id]
-    if (currentStatus === 'connected') {
-      toast.info(`${integration.name} configurado`, { description: 'Conexión simulada activa en la demo.' })
-      return
+    const nextStatus: IntegrationStatus = currentStatus === 'connected' ? 'pending' : 'connected'
+    setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: nextStatus }))
+
+    if (!currentUser.isDemo && workspaceId) {
+      try {
+        const saved = integrationIds[integration.id]
+          ? await updateIntegrationSetting(integrationIds[integration.id], { status: nextStatus, name: integration.name, description: integration.description, category: integration.category, info: integration.info })
+          : await upsertIntegrationSetting(workspaceId, { key: integration.id, name: integration.name, description: integration.description, status: nextStatus, category: integration.category, info: integration.info })
+        setIntegrationIds((prev) => ({ ...prev, [integration.id]: saved.id }))
+        setSettingsPersisted(true)
+      } catch {
+        setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: 'error' }))
+        toast.error('No se pudo guardar la integracion', { description: 'Revisa integrations y RLS.' })
+        return
+      }
     }
 
-    const nextStatus: IntegrationStatus = currentStatus === 'pending' ? 'connected' : 'pending'
-    setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: nextStatus }))
-    toast.success(
-      nextStatus === 'connected' ? `${integration.name} conectado en demo` : `${integration.name} pendiente de autorización`,
-      { description: 'No se ha llamado a ningún proveedor externo real.' }
-    )
+    toast.success(nextStatus === 'connected' ? `${integration.name} conectado` : `${integration.name} pendiente`, {
+      description: currentUser.isDemo ? 'Cambio aplicado en modo demo.' : 'Estado guardado para este workspace.',
+    })
   }
+
+  const settingsMode = currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Fallback demo'
 
   return (
     <motion.div
@@ -213,9 +406,9 @@ export default function SettingsPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Configuración"
-        description="Arquitectura demo, workspace e integraciones listas para la siguiente fase"
-        action={<Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{currentUser.trialLabel}</Badge>}
+        title="Configuracion"
+        description="Control center para Supabase, n8n, canales y siguiente fase real"
+        action={<Badge variant={currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -241,9 +434,16 @@ export default function SettingsPage() {
         ))}
       </div>
 
+      {settingsError && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {settingsError}
+        </div>
+      )}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
-          <SectionCard title="Workspace" description="Identidad y preferencias del entorno NowCRM">
+          <SectionCard title="Workspace" description="Identidad y estado del entorno NowCRM">
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
@@ -267,26 +467,14 @@ export default function SettingsPage() {
                       <p className="text-sm font-medium text-gray-900">{value}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => toast.info(`Editando: ${label}`, { description: 'Editor de ajustes próximamente.' })}
-                    className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
-                  >
-                    Editar
-                  </button>
                 </div>
               ))}
-            </div>
-
-            <div className="mt-4">
-              <Button variant="secondary" size="sm" onClick={() => toast.success('Cambios guardados', { description: 'La configuración demo se ha actualizado visualmente.' })}>
-                Guardar cambios
-              </Button>
             </div>
           </SectionCard>
 
           <SectionCard
             title="Supabase"
-            description="Base de datos, autenticación y persistencia de la siguiente fase"
+            description="Base de datos, autenticacion y persistencia por workspace"
             action={
               <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
                 Supabase Console
@@ -309,9 +497,9 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-700">Estado técnico</p>
+                <p className="text-xs font-semibold text-gray-700">Estado tecnico</p>
                 <p className="mt-1 text-lg font-bold text-gray-950">{supabaseStatus.configured ? 'Conectado' : 'Preparado visualmente'}</p>
-                <p className="text-[11px] text-gray-500">Auth y Clientes ya usan Supabase; el resto sigue pendiente.</p>
+                <p className="text-[11px] text-gray-500">Auth, clients, billing, calendar y assistant ya tienen capa real.</p>
               </div>
             </div>
 
@@ -339,23 +527,29 @@ export default function SettingsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" onClick={() => toast.info('Checklist Supabase', { description: 'Auth, clients, invoices, events y audit log serán la primera migración.' })}>
+              <Button variant="secondary" size="sm" onClick={() => toast.info('Checklist Supabase', { description: 'Verifica schema, RLS, tipos generados y URLs de Auth antes del deploy.' })}>
                 Ver checklist
               </Button>
               <Button size="sm" onClick={handleVerifySupabase}>
-                Verificar conexión
+                Verificar conexion
               </Button>
             </div>
           </SectionCard>
 
           <SectionCard
             title="n8n / Flujos operativos"
-            description="Centro de control demo para automatizaciones, endpoints y requisitos"
+            description="Endpoints, estados y requisitos para automatizaciones reales"
             action={
-              <a href="https://n8n.io" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
-                Abrir n8n
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" size="sm" loading={settingsLoading} onClick={handleInitializeFlows}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Inicializar flujos
+                </Button>
+                <a href="https://n8n.io" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
+                  Abrir n8n
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
             }
           >
             <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_220px]">
@@ -368,27 +562,34 @@ export default function SettingsPage() {
                     onChange={(e) => setN8nUrl(e.target.value)}
                     className="h-9 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
-                  <Button size="sm" variant="secondary" loading={testingN8n} onClick={handleTestN8n}>
+                  <Button size="sm" variant="secondary" loading={testingKey === 'global'} onClick={handleTestN8n}>
                     <RefreshCw className="h-3.5 w-3.5" />
-                    Probar webhook
+                    Probar
                   </Button>
                 </div>
               </div>
               <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
                 <p className="text-xs font-semibold text-indigo-900">Modo n8n</p>
-                <p className="mt-1 text-lg font-bold text-indigo-700">Simulado</p>
-                <p className="text-[11px] text-indigo-700">Toggles y pruebas no llaman a n8n real.</p>
+                <p className="mt-1 text-lg font-bold text-indigo-700">{settingsPersisted ? 'Persistente' : 'Simulado'}</p>
+                <p className="text-[11px] text-indigo-700">Si la URL sigue en tudominio.com, el trigger se simula.</p>
               </div>
             </div>
+
+            {settingsLoading && (
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Sincronizando control center...
+              </div>
+            )}
 
             <div className="grid gap-3">
               {n8nWebhookConfigs.map((wh) => {
                 const currentStatus = flowStatuses[wh.event] ?? wh.status
                 const cfg = flowStatusConfig[currentStatus]
-                const fullUrl = `${n8nUrl}${flowPaths[wh.event] ?? ''}`
+                const fullUrl = composeFlowUrl(wh.event)
                 return (
                   <div key={wh.event} className="rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white p-3 shadow-sm shadow-gray-950/[0.02]">
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_190px]">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
                       <div className="min-w-0">
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">
                           <p className="text-sm font-semibold text-gray-900">{wh.label}</p>
@@ -402,9 +603,9 @@ export default function SettingsPage() {
                           ))}
                         </div>
                       </div>
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <button
-                          onClick={() => toggleFlow(wh.event)}
+                          onClick={() => void toggleFlow(wh.event)}
                           className={cn(
                             'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
                             currentStatus === 'active' || currentStatus === 'demo' ? 'bg-indigo-600' : 'bg-gray-200'
@@ -412,8 +613,12 @@ export default function SettingsPage() {
                         >
                           <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', currentStatus === 'active' || currentStatus === 'demo' ? 'translate-x-4' : 'translate-x-0')} />
                         </button>
-                        <Button variant="ghost" size="sm" onClick={() => toast.info(`Configurar flujo: ${wh.label}`, { description: 'En la fase real se editarán credenciales, payload y condiciones.' })}>
-                          Configurar
+                        <Button variant="ghost" size="sm" loading={testingKey === wh.event} onClick={() => void handleTestFlow(wh)}>
+                          <Play className="h-3.5 w-3.5" />
+                          Probar
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => void persistFlow(wh.event, { notify: true })}>
+                          Guardar
                         </Button>
                       </div>
                     </div>
@@ -421,6 +626,7 @@ export default function SettingsPage() {
                       <input
                         value={flowPaths[wh.event] ?? ''}
                         onChange={(e) => updateFlowPath(wh.event, e.target.value)}
+                        onBlur={() => void persistFlow(wh.event)}
                         className="h-8 rounded-lg border border-gray-200 bg-white px-2.5 font-mono text-[11px] text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                       <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 ring-1 ring-gray-100">
@@ -439,7 +645,7 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="WhatsApp Business" description="Canal simulado para leads entrantes y conversaciones">
+          <SectionCard title="WhatsApp Business" description="Canal preparado para leads entrantes y conversaciones">
             <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
               <div>
                 <div className="mb-4 flex items-start gap-4">
@@ -448,12 +654,12 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">+34 612 345 678</p>
-                      <Badge variant="success" dot>Conectado demo</Badge>
+                      <p className="text-sm font-semibold text-gray-900">Meta Cloud API</p>
+                      <Badge variant="indigo" dot>Demo preparada</Badge>
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500">WhatsApp Business API · sin proveedor Meta real todavía</p>
+                    <p className="mt-0.5 text-xs text-gray-500">Sin proveedor Meta real todavia</p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      El botón genera un lead mock y muestra el flujo que después podrá crear registros reales en Supabase y disparar n8n.
+                      El boton genera un lead mock y valida el flujo que luego podra crear registros reales en Supabase y disparar n8n.
                     </p>
                   </div>
                 </div>
@@ -465,9 +671,9 @@ export default function SettingsPage() {
               </div>
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-                <p className="text-xs font-semibold text-emerald-900">Flujo demo</p>
+                <p className="text-xs font-semibold text-emerald-900">Flujo objetivo</p>
                 <div className="mt-3 space-y-2">
-                  {['Mensaje entrante', 'Lead mock creado', 'Insight IA', 'Webhook n8n simulado'].map((step, index) => (
+                  {['Mensaje entrante', 'Cliente/conversacion real', 'Respuesta IA', 'Webhook n8n'].map((step, index) => (
                     <div key={step} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
                       <span className="text-xs text-emerald-800">{step}</span>
@@ -478,7 +684,7 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Integraciones externas" description="Canales y servicios conectados o preparados para autorización">
+          <SectionCard title="Integraciones externas" description="Canales y servicios conectados, demo o pendientes">
             <div className="grid gap-3 md:grid-cols-2">
               {integrations.map((intg) => {
                 const currentStatus = integrationStatuses[intg.id]
@@ -506,11 +712,11 @@ export default function SettingsPage() {
                       {statusBadge(currentStatus)}
                     </div>
                     <p className="min-h-10 text-xs leading-5 text-gray-500">{intg.description}</p>
-                    {intg.info && currentStatus === 'connected' && (
+                    {intg.info && currentStatus !== 'disconnected' && (
                       <p className="mt-2 truncate rounded-lg bg-white px-2 py-1.5 font-mono text-[10px] text-indigo-600">{intg.info}</p>
                     )}
                     <button
-                      onClick={() => handleIntegrationAction(intg)}
+                      onClick={() => void handleIntegrationAction(intg)}
                       className={cn(
                         'mt-3 flex w-full items-center justify-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
                         currentStatus === 'connected'
@@ -520,7 +726,7 @@ export default function SettingsPage() {
                             : 'bg-indigo-600 text-white hover:bg-indigo-700'
                       )}
                     >
-                      {currentStatus === 'connected' ? 'Configurar' : currentStatus === 'pending' ? 'Completar demo' : 'Conectar'}
+                      {currentStatus === 'connected' ? 'Pasar a pendiente' : currentStatus === 'pending' ? 'Marcar conectado' : 'Conectar'}
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -531,25 +737,25 @@ export default function SettingsPage() {
         </div>
 
         <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
-          <SectionCard title="Modo demo" description="Entorno funcional con datos mock">
+          <SectionCard title="Modo demo" description="Fallback seguro para mostrar el producto">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
                   <Wifi className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-blue-900">Prototipo funcional activo</p>
+                  <p className="text-sm font-semibold text-blue-900">Demo estable activa</p>
                   <p className="mt-1 text-xs leading-5 text-blue-700">
-                    Las acciones CRM son visuales o simuladas. Auth puede usar Supabase si las variables públicas están disponibles; n8n y Meta siguen en demo.
+                    Si Supabase o una tabla fallan, las pantallas mantienen fallback demo sin romper la presentacion.
                   </p>
                 </div>
               </div>
             </div>
             <div className="mt-3 grid gap-2">
               {[
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'IA demo activa' },
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Mock data completo' },
-                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Sin persistencia real' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM reales' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Fallback demo disponible' },
+                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'IA/n8n externos pendientes' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   {item.icon}
@@ -558,11 +764,11 @@ export default function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <Button variant="secondary" size="sm" onClick={() => toast.info('Datos de demo restablecidos', { description: 'Todos los datos han vuelto al estado inicial visual.' })}>
-                Restablecer datos
+              <Button variant="secondary" size="sm" onClick={() => toast.info('Datos demo listos', { description: 'El fallback local se mantiene sin tocar Supabase.' })}>
+                Revisar fallback
               </Button>
-              <Button size="sm" onClick={() => toast.success('Solicitud registrada', { description: 'Siguiente fase recomendada: conectar Supabase Auth y tablas reales.' })}>
-                Solicitar versión completa
+              <Button size="sm" onClick={() => toast.success('Siguiente fase clara', { description: 'Conectar IA real, n8n real, Resend y deploy.' })}>
+                Ver siguiente fase
               </Button>
             </div>
           </SectionCard>
@@ -589,17 +795,17 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Siguiente fase técnica" description="Orden recomendado de conexión">
+          <SectionCard title="Checklist produccion" description="Lo que falta antes de venderlo en real">
             <div className="space-y-2">
               {[
-                { title: '1. Supabase Auth', desc: 'Login, registro, email y reset de password.' },
-                { title: '2. Tablas CRM', desc: 'clients, invoices, events, conversations.' },
-                { title: '3. Webhooks n8n', desc: 'Reemplazar simulaciones por POST reales.' },
-                { title: '4. Meta WhatsApp', desc: 'Canal real con permisos y número verificado.' },
+                { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
+                { title: '2. IA real', desc: 'Conectar API server con contexto Supabase.' },
+                { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows.' },
+                { title: '4. Deploy', desc: 'Vercel o Hostinger con variables seguras.' },
               ].map((item) => (
-                <div key={item.title} className="rounded-xl border border-gray-100 bg-white p-3">
+                <div key={item.title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
                   <p className="text-xs font-semibold text-gray-900">{item.title}</p>
-                  <p className="mt-0.5 text-[11px] leading-5 text-gray-500">{item.desc}</p>
+                  <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.desc}</p>
                 </div>
               ))}
             </div>

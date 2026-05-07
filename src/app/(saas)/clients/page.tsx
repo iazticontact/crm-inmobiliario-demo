@@ -11,7 +11,7 @@ import { SectionCard } from '@/components/SectionCard'
 import { clients as initialClients } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
-import { createClientLead, deleteClient, getClients, getWorkspaceContext, updateClient } from '@/lib/supabase-queries'
+import { createActivity, createClientLead, deleteClient, getClients, getWorkspaceContext, updateClient } from '@/lib/supabase-queries'
 import type { Client, Channel, ClientStatus } from '@/lib/types'
 
 const channelVariant: Record<Channel, 'success' | 'purple' | 'info' | 'indigo'> = {
@@ -200,9 +200,11 @@ export default function ClientsPage() {
       if (isRealMode && workspaceId) {
         if (form.id) {
           await updateClient(form.id, payload)
+          await createActivity(workspaceId, { type: 'note', description: `Cliente actualizado: ${payload.name}`, clientName: payload.name })
           toast.success(`Cliente actualizado: ${payload.name}`)
         } else {
           await createClientLead(workspaceId, payload)
+          await createActivity(workspaceId, { type: 'deal', description: `Nuevo cliente creado: ${payload.name}`, clientName: payload.name })
           toast.success(`Cliente creado en Supabase: ${payload.name}`)
         }
         await loadClients()
@@ -238,6 +240,7 @@ export default function ClientsPage() {
     try {
       if (isRealMode) {
         await deleteClient(clientToDelete.id)
+        if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Cliente eliminado: ${clientToDelete.name}`, clientName: clientToDelete.name })
         await loadClients()
         toast.success(`Cliente eliminado: ${clientToDelete.name}`)
       } else {

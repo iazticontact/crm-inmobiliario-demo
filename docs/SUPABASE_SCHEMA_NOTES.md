@@ -81,9 +81,49 @@ Columnas usadas:
 
 Tipos normalizados: `deal`, `message`, `email`, `call`, `note`.
 
+## `n8n_flows`
+
+Columnas usadas:
+
+- `id`
+- `workspace_id`
+- `event`
+- `label`
+- `description`
+- `trigger`
+- `webhook_url`
+- `status`
+- `requires`
+- `created_at`
+- `updated_at`
+
+Estados normalizados: `active`, `inactive`, `demo`, `pending_config`, `error`.
+
+## `integrations`
+
+Columnas usadas:
+
+- `id`
+- `workspace_id`
+- `key`
+- `name`
+- `description`
+- `status`
+- `category`
+- `info`
+- `created_at`
+
+Estados normalizados: `connected`, `disconnected`, `pending`, `demo`, `error`.
+
 ## Pendiente recomendado
 
 - Generar tipos oficiales de Supabase.
 - Revisar RLS por `workspace_id`.
 - Crear seeds por workspace para `n8n_flows`.
 - Definir relaciones `client_id` en invoices/events/conversations si se quiere trazabilidad completa.
+
+Comando recomendado cuando Supabase CLI este disponible:
+
+```bash
+npx supabase gen types typescript --project-id TU_PROJECT_ID --schema public > src/lib/database.types.ts
+```

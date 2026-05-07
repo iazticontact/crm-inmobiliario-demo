@@ -41,9 +41,10 @@ En Supabase Auth, anadir:
 Cuando haya dominio:
 
 1. Configurar Resend SMTP.
-2. Activar Confirm email ON en Supabase.
-3. Usar remitente tipo `no-reply@dominio.com`.
-4. Verificar que signup y reset password usan URLs absolutas del dominio.
+2. Mantener Confirm email OFF solo para pruebas locales si hace falta.
+3. Activar Confirm email ON en Supabase para demo publica/produccion.
+4. Usar remitente tipo `no-reply@dominio.com`.
+5. Verificar que signup y reset password usan URLs absolutas del dominio.
 
 ## Checklist previo a demo publica
 
@@ -54,3 +55,4 @@ Cuando haya dominio:
 - Probar clients/billing/calendar.
 - Probar callback y reset password.
 - Revisar URLs autorizadas en Supabase.
+- Probar `POST /api/n8n/trigger` en modo simulado antes de meter endpoints reales.

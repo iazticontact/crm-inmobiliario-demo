@@ -268,6 +268,7 @@ export default function AssistantPage() {
     try {
       if (isRealMode) {
         await markConversationResolved(selected.id)
+        if (workspaceId) await createActivity(workspaceId, { type: 'message', description: `Conversación resuelta: ${selected.clientName}`, clientName: selected.clientName })
         await loadConversations()
       } else {
         setConversationList((prev) => prev.map((conversation) => conversation.id === selected.id ? { ...conversation, unread: false } : conversation))

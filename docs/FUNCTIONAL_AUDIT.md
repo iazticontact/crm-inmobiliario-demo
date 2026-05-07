@@ -18,7 +18,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 | Automations | UI premium con estados visuales y helper n8n preparado. | Mock | No persiste automations reales. | Migrar `automations` y `n8n_flows`. |
 | Calendar | CRUD real de `calendar_events`, modal, loading, empty state y fallback demo. | Real + demo | Semana demo fija para vista principal. | Calendario por fecha actual y sincronizacion externa. |
 | Billing | CRUD real de `invoices`, marcar pagada, eliminar, metricas reales y fallback demo. | Real + demo | No hay Stripe ni pagos reales. | Stripe/checkout y recordatorios. |
-| Settings | Control center actualizado: Supabase, Auth, Clients, Billing, Calendar, Assistant, n8n y canales. | Mixto | Toggles n8n/integraciones aun no persisten en Supabase. | Persistir settings por workspace. |
+| Settings | Control center actualizado: Supabase, Auth, Clients, Billing, Calendar, Assistant, n8n y canales. Carga y guarda `n8n_flows`/`integrations` si hay workspace real. | Mixto | Si el schema de `n8n_flows` o `integrations` difiere, cae a fallback demo. | Verificar columnas y RLS en Supabase. |
 | Supabase | Browser client, helpers por entidad y escritura real en varias tablas. | Mixto | No hay tipos generados de Supabase. | Generar `database.types.ts`. |
 | n8n | API route `/api/n8n/trigger`, payload base y helper cliente preparados. | Preparado | No hay n8n real, firma ni secretos server. | Guardar endpoints y autenticar webhooks. |
 | IA | Mock inteligente por intencion comercial/soporte/cobro/demo. | Mock preparado | Sin OpenAI/Anthropic/n8n agent. | Endpoint IA real y evaluacion. |
@@ -52,13 +52,13 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 
 - Nada critico detectado tras `npm run lint` y `npm run build`.
 - Algunas tablas dependen de que el schema de Supabase tenga las columnas esperadas. Si no, hay fallback/documentacion en `SUPABASE_SCHEMA_NOTES.md`.
-- Settings todavia no persiste toggles ni endpoints n8n en `n8n_flows`.
+- Settings persiste toggles/endpoints n8n e integraciones si las tablas tienen el schema esperado; si no, mantiene fallback demo.
 - La vista semanal de calendario conserva fechas demo fijas; los eventos reales se listan y persisten, pero el grid principal no es calendario dinamico completo.
 - Assistant guarda mensajes, pero la IA sigue siendo mock local.
 
 ## Prioridad antes de n8n
 
-1. Verificar columnas reales de `invoices`, `calendar_events`, `conversations`, `messages` y `activities`.
+1. Verificar columnas reales de `invoices`, `calendar_events`, `conversations`, `messages`, `activities`, `n8n_flows` e `integrations`.
 2. Generar tipos Supabase y ajustar helpers a schema definitivo.
 3. Persistir `n8n_flows` e `integrations` desde Settings.
 4. Definir auth/firma para webhooks internos.
