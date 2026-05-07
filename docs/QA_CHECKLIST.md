@@ -49,8 +49,19 @@
 - Crear conversacion demo/real.
 - Enviar mensaje.
 - Ver respuesta IA mock.
+- Probar quick action `Probar agente`.
+- Probar quick action `Resumen cliente`.
+- Probar quick action `Proxima accion`.
 - Recargar y verificar mensajes persistentes con usuario real.
 - Marcar conversacion como resuelta.
+
+## AI Agent Tools
+
+- Probar `POST /api/agent/tool` con `get_workspace_summary`.
+- Probar `search_clients`.
+- Probar `get_next_best_actions`.
+- Probar una tool de escritura en fallback demo.
+- Si hay service role y secreto, probar `create_client` desde n8n con `x-nowcrm-secret`.
 
 ## Settings
 
@@ -68,6 +79,18 @@
 - Probar desde Settings con URL por defecto: debe simular.
 - Probar con endpoint localhost/HTTPS si existe n8n real.
 - Verificar respuesta `ok`, `simulated`, `skipped` o `error`.
+- Probar `assistant_message`.
+- Probar `new_lead`.
+- Probar flujo inactivo: debe devolver `skipped`.
+- Copiar payload de ejemplo desde docs si hace falta.
+
+## Automations
+
+- Cargar `/automations`.
+- Probar una automatizacion.
+- Activar/pausar una automatizacion.
+- Verificar badge `n8n demo` o `n8n active`.
+- Confirmar que los tests pasan por `/api/n8n/trigger`.
 
 ## Dashboard
 

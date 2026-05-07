@@ -15,13 +15,13 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 | Dashboard | Lee clientes, facturas, eventos, conversaciones y activities si hay workspace real. | Mixto | Insights/grafica semanal siguen mock. | KPIs historicos reales y analytics por fecha. |
 | Assistant | Carga conversations/messages reales, guarda mensajes y genera respuesta IA mock inteligente. | Mixto | La IA no llama proveedor externo. Schema `messages` debe aceptar `sender` o ajustarse. | API route de IA real con contexto Supabase. |
 | Clients | CRUD real de clients, notas incluidas, confirmacion de borrado y fallback demo. | Real + demo | Falta detalle avanzado y importacion. | Vista detalle, tags y pipeline. |
-| Automations | UI premium con estados visuales y helper n8n preparado. | Mock | No persiste automations reales. | Migrar `automations` y `n8n_flows`. |
+| Automations | UI premium alineada con `n8n_flows`, pruebas via `/api/n8n/trigger` y fallback demo. | Mixto | Las metricas/email history siguen mock. | Migrar `automations` reales si se necesita producto completo. |
 | Calendar | CRUD real de `calendar_events`, modal, loading, empty state y fallback demo. | Real + demo | Semana demo fija para vista principal. | Calendario por fecha actual y sincronizacion externa. |
 | Billing | CRUD real de `invoices`, marcar pagada, eliminar, metricas reales y fallback demo. | Real + demo | No hay Stripe ni pagos reales. | Stripe/checkout y recordatorios. |
 | Settings | Control center actualizado: Supabase, Auth, Clients, Billing, Calendar, Assistant, n8n y canales. Carga y guarda `n8n_flows`/`integrations` si hay workspace real. | Mixto | Si el schema de `n8n_flows` o `integrations` difiere, cae a fallback demo. | Verificar columnas y RLS en Supabase. |
 | Supabase | Browser client, helpers por entidad y escritura real en varias tablas. | Mixto | No hay tipos generados de Supabase. | Generar `database.types.ts`. |
-| n8n | API route `/api/n8n/trigger`, payload base y helper cliente preparados. | Preparado | No hay n8n real, firma ni secretos server. | Guardar endpoints y autenticar webhooks. |
-| IA | Mock inteligente por intencion comercial/soporte/cobro/demo. | Mock preparado | Sin OpenAI/Anthropic/n8n agent. | Endpoint IA real y evaluacion. |
+| n8n | API route `/api/n8n/trigger`, payload estandar, aliases heredados, secret opcional y Settings persistente. | Preparado | Falta URL n8n real. | Pegar primer webhook real y probar `assistant_message`. |
+| IA | Mock inteligente por intencion comercial/soporte/cobro/demo. Agent Tools preparado en `/api/agent/tool`. | Mock preparado | Sin OpenAI/n8n agent real. | Conectar OpenAI dentro de n8n y llamar Agent Tools. |
 
 ## Que funciona ya
 

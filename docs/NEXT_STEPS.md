@@ -3,10 +3,12 @@
 ## Prioridad inmediata
 
 1. Pasar QA manual completo con `docs/QA_CHECKLIST.md`.
-2. Revisar schema real de Supabase y generar tipos.
-3. Probar usuario real con CRUD completo: clients, billing, calendar, assistant y settings.
-4. Conectar primer workflow n8n real.
-5. Preparar dominio, email transaccional y deploy.
+2. Pasar URL publica de n8n real.
+3. Montar workflow `assistant_message`.
+4. Conectar OpenAI dentro de n8n usando `/api/agent/tool`.
+5. Configurar secreto server-only para Agent Tools.
+6. Deploy en Vercel/Hostinger.
+7. Configurar Resend cuando haya dominio.
 
 ## Fase IA real
 
@@ -22,7 +24,8 @@
 - Guardar endpoint real por flujo.
 - Usar `/api/n8n/trigger` como unica salida desde cliente.
 - Anadir firma, timeout, retries y logs.
-- Empezar por `new_lead`, `invoice_overdue` y `appointment_scheduled`.
+- Empezar por `new_lead`, `invoice_overdue` y `appointment_booked`.
+- Eventos recomendados iniciales: `assistant_message`, `new_lead`, `invoice_overdue`, `appointment_booked`.
 
 ## Fase canales
 

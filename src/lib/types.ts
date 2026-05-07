@@ -9,8 +9,8 @@ export type AIInsightType = 'warning' | 'opportunity' | 'info'
 export type ActivityType = 'email' | 'call' | 'message' | 'deal' | 'note'
 export type AutomationEmailStatus = 'delivered' | 'opened' | 'clicked' | 'bounced'
 export type N8nFlowStatus = 'active' | 'inactive' | 'demo' | 'pending_config' | 'error'
-export type N8nRequirement = 'Supabase' | 'n8n' | 'WhatsApp/API' | 'Email/API' | 'Billing/API' | 'Payment/API'
-export type IntegrationStatus = 'connected' | 'disconnected' | 'pending' | 'demo' | 'error'
+export type N8nRequirement = 'Supabase' | 'n8n' | 'WhatsApp/API' | 'Email/API' | 'Billing/API' | 'Payment/API' | 'IA/API'
+export type IntegrationStatus = 'connected' | 'demo_connected' | 'demo_ready' | 'disconnected' | 'pending' | 'pending_config' | 'error'
 
 export type Client = {
   id: string

@@ -54,10 +54,14 @@ type IntegrationCard = {
 }
 
 const integrations: IntegrationCard[] = [
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Canal preparado para Meta Cloud API y leads conversacionales.', status: 'demo', icon: <MessageSquare className="h-5 w-5" />, info: '+34 612 345 678', category: 'Mensajeria' },
+  { id: 'supabase', name: 'Supabase', description: 'Auth, datos reales y persistencia por workspace.', status: 'connected', icon: <Database className="h-5 w-5" />, category: 'Core' },
+  { id: 'agent-tools', name: 'AI Agent Tools', description: 'API interna para que n8n/OpenAI consulte y ejecute acciones CRM controladas.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'IA' },
+  { id: 'n8n', name: 'n8n', description: 'Capa de automatizacion por webhooks y workflows externos.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Canal preparado para Meta Cloud API y leads conversacionales.', status: 'demo_ready', icon: <MessageSquare className="h-5 w-5" />, info: '+34 612 345 678', category: 'Mensajeria' },
   { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja social preparada para mensajes y leads de Instagram.', status: 'pending', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
   { id: 'email', name: 'Email / Resend', description: 'Emails transaccionales y secuencias cuando exista dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'n8n', name: 'n8n', description: 'Capa de automatizacion por webhooks y workflows externos.', status: 'demo', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'resend', name: 'Resend', description: 'SMTP transaccional para confirmaciones y reset con dominio.', status: 'pending_config', icon: <Mail className="h-5 w-5" />, category: 'Email' },
+  { id: 'openai', name: 'OpenAI / IA', description: 'Proveedor IA futuro o n8n como backend de assistant.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
   { id: 'stripe', name: 'Stripe Payments', description: 'Cobros, suscripciones y eventos de pago para fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
   { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
@@ -65,7 +69,7 @@ const integrations: IntegrationCard[] = [
 const architectureCards = [
   { title: 'Supabase', label: 'Auth y datos reales', detail: 'Conectado', icon: <Database className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
   { title: 'n8n', label: 'Webhooks y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
-  { title: 'Assistant', label: 'Mensajes persistentes', detail: 'IA mock', icon: <MessageSquare className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
+  { title: 'Agent Tools', label: 'Tools CRM seguras', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
   { title: 'Canales', label: 'Meta, Email, Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
@@ -82,6 +86,9 @@ const supabaseReadiness = [
   { label: 'Billing', value: 'Real', status: 'Facturas persistentes y metricas basicas' },
   { label: 'Calendar', value: 'Real', status: 'Eventos persistentes por workspace' },
   { label: 'Assistant', value: 'Mixto', status: 'Mensajes reales e IA mock inteligente' },
+  { label: 'AI Agent Tools', value: 'Preparado', status: 'POST /api/agent/tool con allowlist' },
+  { label: 'OpenAI', value: 'Pendiente', status: 'Configurar en n8n Credentials' },
+  { label: 'n8n Agent', value: 'Pendiente', status: 'Webhook real para assistant/tools' },
   { label: 'Dashboard', value: 'Mixto', status: 'KPIs reales con widgets demo' },
   { label: 'n8n', value: 'Preparado', status: 'API route interna y flows configurables' },
   { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend, IA real y deploy' },
@@ -90,6 +97,7 @@ const supabaseReadiness = [
 const productStatusCards = [
   { label: 'Core CRM', value: 'Real', detail: 'Auth, workspace, clients, billing y calendar', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
   { label: 'Assistant', value: 'Persistente', detail: 'Conversaciones reales con respuesta mock', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'Agent Tools', value: 'Ready', detail: 'Tools allowlist para n8n/OpenAI', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
   { label: 'n8n', value: 'Configurable', detail: 'Endpoints y estados por flujo', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
   { label: 'Canales', value: 'Pendiente', detail: 'WhatsApp/Meta/Email/Stripe por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
@@ -110,8 +118,10 @@ const envChecks = [
 
 function statusBadge(status: IntegrationStatus) {
   if (status === 'connected') return <Badge variant="success" dot>Conectado</Badge>
-  if (status === 'demo') return <Badge variant="indigo" dot>Demo</Badge>
+  if (status === 'demo_connected') return <Badge variant="indigo" dot>Demo conectado</Badge>
+  if (status === 'demo_ready') return <Badge variant="indigo" dot>Demo ready</Badge>
   if (status === 'error') return <Badge variant="danger" dot>Error</Badge>
+  if (status === 'pending_config') return <Badge variant="warning" dot>Pendiente config</Badge>
   if (status === 'pending') return <Badge variant="warning" dot>Pendiente</Badge>
   return <Badge variant="default" dot>Desconectado</Badge>
 }
@@ -322,11 +332,10 @@ export default function SettingsPage() {
   const handleTestN8n = async () => {
     setTestingKey('global')
     const result = await triggerN8nWebhook('new_lead', {
-      source: 'settings',
       mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
-      workspace_id: workspaceId,
+      workspace_id: workspaceId || undefined,
       webhook_url: `${n8nUrl.replace(/\/$/, '')}/webhook/test`,
-      metadata: { test: true },
+      metadata: { source: 'settings', test: true },
     })
     if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Webhook n8n probado: ${result.status ?? 'simulated'}` })
     setTestingKey(null)
@@ -336,11 +345,10 @@ export default function SettingsPage() {
   const handleTestFlow = async (flow: WebhookConfig) => {
     setTestingKey(flow.event)
     const result = await triggerN8nWebhook(flow.event, {
-      source: 'settings_flow',
       mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
-      workspace_id: workspaceId,
+      workspace_id: workspaceId || undefined,
       webhook_url: composeFlowUrl(flow.event),
-      metadata: { label: flow.label, requirements: flow.requires },
+      metadata: { source: 'settings_flow', label: flow.label, requirements: flow.requires },
     })
     if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Flujo n8n probado: ${flow.label}` })
     setTestingKey(null)
@@ -363,6 +371,22 @@ export default function SettingsPage() {
     setTimeout(() => setCopiedKey(null), 1500)
     toast.success('Copiado al portapapeles')
   }
+
+  const buildExamplePayload = (flow: WebhookConfig) => JSON.stringify({
+    event_type: flow.event,
+    workspace_id: workspaceId || 'workspace-id',
+    flow_id: flowIds[flow.event] || 'flow-id',
+    source: 'nowcrm',
+    mode: currentUser.isDemo ? 'demo' : 'real',
+    timestamp: new Date().toISOString(),
+    client: { id: 'client-id', name: 'Cliente Demo' },
+    conversation: {},
+    message: {},
+    invoice: {},
+    calendar_event: {},
+    activity: {},
+    metadata: { test: true, source: 'settings_payload_copy' },
+  }, null, 2)
 
   const handleVerifySupabase = () => {
     toast.info(supabaseStatus.configured ? 'Supabase preparado' : 'Supabase pendiente', {
@@ -616,6 +640,10 @@ export default function SettingsPage() {
                         <Button variant="ghost" size="sm" loading={testingKey === wh.event} onClick={() => void handleTestFlow(wh)}>
                           <Play className="h-3.5 w-3.5" />
                           Probar
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => copyToClipboard(buildExamplePayload(wh), `${wh.event}-payload`)}>
+                          {copiedKey === `${wh.event}-payload` ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                          Payload
                         </Button>
                         <Button variant="secondary" size="sm" onClick={() => void persistFlow(wh.event, { notify: true })}>
                           Guardar

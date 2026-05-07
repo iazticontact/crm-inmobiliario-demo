@@ -99,6 +99,13 @@ Columnas usadas:
 
 Estados normalizados: `active`, `inactive`, `demo`, `pending_config`, `error`.
 
+Columnas opcionales recomendadas para logs ligeros:
+
+- `last_test_at`
+- `last_status`
+- `last_error`
+- `last_response jsonb`
+
 ## `integrations`
 
 Columnas usadas:
@@ -113,7 +120,13 @@ Columnas usadas:
 - `info`
 - `created_at`
 
-Estados normalizados: `connected`, `disconnected`, `pending`, `demo`, `error`.
+Estados normalizados: `connected`, `demo_connected`, `demo_ready`, `disconnected`, `pending`, `pending_config`, `error`.
+
+## `n8n_trigger_logs` opcional
+
+No es necesaria para la demo actual. Se recomienda si se quiere auditoria avanzada de ejecuciones n8n.
+
+Ver `docs/supabase-optional-migrations.sql`.
 
 ## Pendiente recomendado
 
@@ -121,6 +134,7 @@ Estados normalizados: `connected`, `disconnected`, `pending`, `demo`, `error`.
 - Revisar RLS por `workspace_id`.
 - Crear seeds por workspace para `n8n_flows`.
 - Definir relaciones `client_id` en invoices/events/conversations si se quiere trazabilidad completa.
+- Para Agent Tools reales desde n8n, configurar `SUPABASE_SERVICE_ROLE_KEY` solo en servidor y proteger con `AGENT_TOOL_SECRET` o `N8N_WEBHOOK_SECRET`.
 
 Comando recomendado cuando Supabase CLI este disponible:
 

@@ -51,9 +51,9 @@ const channels = [
 ]
 
 const aiActions = [
-  { title: 'Agendar seguimiento con 3 leads calientes', cta: 'Agendar', event: 'appointment_scheduled' as const, icon: <Phone className="h-3.5 w-3.5" /> },
+  { title: 'Agendar seguimiento con 3 leads calientes', cta: 'Agendar', event: 'appointment_booked' as const, icon: <Phone className="h-3.5 w-3.5" /> },
   { title: 'Enviar propuesta a Carlos Méndez', cta: 'Enviar', event: 'new_lead' as const, icon: <Mail className="h-3.5 w-3.5" /> },
-  { title: 'Cobrar factura vencida: Textil SL (€299)', cta: 'Cobrar', event: 'payment_registered' as const, icon: <DollarSign className="h-3.5 w-3.5" /> },
+  { title: 'Cobrar factura vencida: Textil SL (EUR 299)', cta: 'Cobrar', event: 'invoice_paid' as const, icon: <DollarSign className="h-3.5 w-3.5" /> },
   { title: 'Revisar conversación negativa: Miguel Torres', cta: 'Ver', event: 'invoice_overdue' as const, icon: <AlertTriangle className="h-3.5 w-3.5" /> },
 ]
 
@@ -117,7 +117,7 @@ export default function DashboardPage() {
   const handleInsightAction = async (action: string, insightId: string) => {
     if (insightId === '1') {
       setLoadingAction(insightId)
-      await triggerN8nWebhook('new_lead', { trigger: 'reengagement', count: 34 })
+      await triggerN8nWebhook('reengagement_needed', { metadata: { trigger: 'reengagement', count: 34 } })
       setLoadingAction(null)
       setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'email', description: 'Secuencia de re-engagement activada para 34 leads', timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
       toast.success(`${action} activada`, { description: '34 leads entrarán en la secuencia de re-engagement.' })
@@ -130,7 +130,7 @@ export default function DashboardPage() {
 
   const handleAIAction = async (action: typeof aiActions[0]) => {
     setLoadingAction(action.event)
-    await triggerN8nWebhook(action.event, { source: 'dashboard', action: action.title })
+    await triggerN8nWebhook(action.event, { metadata: { source: 'dashboard', action: action.title } })
     setLoadingAction(null)
     setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'note', description: `IA ejecutó: ${action.title}`, timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
     toast.success(`Acción completada: ${action.cta}`, { description: action.title })

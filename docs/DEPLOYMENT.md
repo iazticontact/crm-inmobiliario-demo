@@ -8,6 +8,16 @@ No incluir valores en el repositorio. Configurar en el proveedor:
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+Variables opcionales para integraciones:
+
+- `N8N_WEBHOOK_SECRET`
+- `N8N_DEFAULT_TIMEOUT_MS`
+- `N8N_BASE_URL`
+- `AGENT_TOOL_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY` (SERVER ONLY, nunca `NEXT_PUBLIC`)
+- `AI_PROVIDER`
+- `AI_API_KEY`
+
 ## Vercel
 
 1. Importar el repositorio de GitHub.
@@ -36,6 +46,17 @@ En Supabase Auth, anadir:
 - `https://dominio.com/auth/callback`
 - `https://dominio.com/reset-password`
 
+## EasyPanel / n8n en VPS
+
+Para n8n real:
+
+1. Desplegar n8n en EasyPanel/VPS con HTTPS.
+2. Crear workflows con Webhook POST.
+3. Copiar cada URL publica en Settings.
+4. Si se usa secreto, configurar `N8N_WEBHOOK_SECRET` en NowCRM y validar `x-nowcrm-secret` en n8n.
+5. Para Agent Tools de escritura, configurar `AGENT_TOOL_SECRET` o reutilizar `N8N_WEBHOOK_SECRET`.
+6. Mantener credenciales IA/Supabase dentro de n8n Credentials.
+
 ## Email transaccional
 
 Cuando haya dominio:
@@ -56,3 +77,4 @@ Cuando haya dominio:
 - Probar callback y reset password.
 - Revisar URLs autorizadas en Supabase.
 - Probar `POST /api/n8n/trigger` en modo simulado antes de meter endpoints reales.
+- Probar `POST /api/n8n/trigger` contra una URL n8n HTTPS real antes de la demo final.

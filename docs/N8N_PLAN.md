@@ -12,18 +12,40 @@ NowCRM ya tiene una base preparada:
 
 Todavia no hay n8n real conectado ni persistencia de configuracion por workspace.
 
+## Eventos estandar
+
+- `new_lead`
+- `client_updated`
+- `client_deleted`
+- `whatsapp_message`
+- `assistant_message`
+- `conversation_resolved`
+- `appointment_booked`
+- `calendar_event_created`
+- `invoice_created`
+- `invoice_paid`
+- `invoice_overdue`
+- `reengagement_needed`
+- `daily_summary`
+- `urgent_conversation`
+- `test_flow`
+
 ## Payload base
 
 ```json
 {
-  "event_type": "new_lead",
+  "event_type": "assistant_message",
   "workspace_id": "workspace-id",
+  "flow_id": "optional-flow-id",
   "source": "nowcrm",
   "mode": "demo|real",
+  "timestamp": "2026-05-07T08:00:00.000Z",
   "client": {},
   "conversation": {},
   "message": {},
   "invoice": {},
+  "calendar_event": {},
+  "activity": {},
   "metadata": {}
 }
 ```
@@ -32,12 +54,15 @@ Todavia no hay n8n real conectado ni persistencia de configuracion por workspace
 
 1. Nuevo lead registrado.
 2. Mensaje entrante WhatsApp.
-3. Reunion agendada.
-4. Factura vencida.
-5. Cobro registrado.
-6. Secuencia de re-engagement.
-7. Resumen diario IA.
-8. Conversacion urgente.
+3. Assistant message como backend IA.
+4. Reunion agendada.
+5. Evento de calendario creado.
+6. Factura creada.
+7. Factura pagada.
+8. Factura vencida.
+9. Secuencia de re-engagement.
+10. Resumen diario IA.
+11. Conversacion urgente.
 
 ## Implementacion recomendada
 
@@ -64,16 +89,114 @@ Acepta:
 
 - `event_type`
 - `workspace_id`
+- `flow_id`
 - `webhook_url`
+- `flow_status`
 - `mode`
 - `client`
 - `conversation`
 - `message`
 - `invoice`
-- `event`
+- `calendar_event`
+- `activity`
 - `metadata`
 
 Devuelve `status`: `ok`, `simulated`, `skipped` o `error`.
+
+## Respuesta recomendada desde n8n
+
+```json
+{
+  "ok": true,
+  "suggested_response": "Texto opcional para Assistant",
+  "action": "reply|schedule|invoice|notify|none",
+  "activity": {
+    "title": "Accion registrada",
+    "description": "Detalle breve"
+  },
+  "metadata": {}
+}
+```
+
+`suggested_response` ya esta preparado para que Assistant lo use cuando el workflow real este conectado.
+
+## Como conectar un workflow real
+
+1. En n8n, crear workflow nuevo.
+2. Anadir nodo `Webhook`.
+3. Metodo: `POST`.
+4. Copiar la URL publica del webhook.
+5. Pegar la URL en Settings > n8n / Flujos operativos.
+6. Guardar el flujo.
+7. Probar desde NowCRM.
+8. Si responde `ok`, cambiar el estado a `active`.
+
+## IA dentro de n8n
+
+Para `assistant_message`:
+
+1. Recibir payload en Webhook.
+2. Leer `conversation`, `message` y `metadata`.
+3. Llamar al proveedor IA dentro de n8n.
+4. Devolver `suggested_response`.
+5. NowCRM guardara la respuesta como mensaje assistant.
+
+## AI Agent Tools
+
+NowCRM expone una capa interna de herramientas:
+
+`POST /api/agent/tool`
+
+Uso desde n8n/OpenAI:
+
+```json
+{
+  "tool": "search_clients",
+  "workspace_id": "workspace-id",
+  "input": {
+    "query": "Ana"
+  },
+  "metadata": {
+    "source": "n8n",
+    "conversation_id": "conversation-id"
+  }
+}
+```
+
+Tools iniciales:
+
+- `get_workspace_summary`
+- `search_clients`
+- `get_client_detail`
+- `create_client`
+- `update_client`
+- `create_invoice`
+- `mark_invoice_paid`
+- `list_invoices`
+- `create_calendar_event`
+- `list_calendar_events`
+- `list_conversations`
+- `save_message`
+- `create_activity`
+- `get_next_best_actions`
+
+Para escritura real con service role, usar header `x-nowcrm-secret`.
+El valor debe configurarse en variables server-only, nunca en cliente.
+
+## Supabase credentials en n8n
+
+- Usar credenciales internas de n8n.
+- No pegar service role en NowCRM.
+- Si se necesita Supabase desde n8n, guardar credenciales solo en n8n Credentials.
+- Usar RLS o service role con mucho cuidado solo server-side.
+
+## WhatsApp/Meta mas adelante
+
+- Crear workflow `whatsapp_message`.
+- Recibir payload de Meta Cloud API en n8n.
+- Crear/actualizar cliente en Supabase.
+- Crear conversacion/mensaje.
+- Opcional: llamar a IA y devolver respuesta sugerida.
 
 ## Primer workflow real sugerido
 

@@ -1,19 +1,62 @@
 import type { N8nFlowStatus, N8nRequirement } from '@/lib/types'
 
-export type WebhookEvent =
-  | 'new_lead'
-  | 'whatsapp_incoming'
-  | 'payment_registered'
-  | 'appointment_scheduled'
-  | 'invoice_overdue'
-  | 'reengagement_sequence'
-  | 'daily_ai_summary'
-  | 'urgent_conversation'
+export const N8N_EVENT_TYPES = [
+  'new_lead',
+  'client_updated',
+  'client_deleted',
+  'whatsapp_message',
+  'assistant_message',
+  'conversation_resolved',
+  'appointment_booked',
+  'calendar_event_created',
+  'invoice_created',
+  'invoice_paid',
+  'invoice_overdue',
+  'reengagement_needed',
+  'daily_summary',
+  'urgent_conversation',
+  'test_flow',
+] as const
 
-export type WebhookPayload = Record<string, unknown>
+export type N8nEventType = typeof N8N_EVENT_TYPES[number]
+export type WebhookEvent = N8nEventType
+export type N8nTriggerStatus = 'ok' | 'simulated' | 'skipped' | 'error'
+export type N8nTriggerMode = 'demo' | 'real'
+
+export type N8nTriggerPayload = {
+  event_type?: N8nEventType
+  workspace_id?: string
+  flow_id?: string
+  source?: 'nowcrm'
+  mode?: N8nTriggerMode
+  timestamp?: string
+  webhook_url?: string
+  flow_status?: N8nFlowStatus
+  client?: Record<string, unknown>
+  conversation?: Record<string, unknown>
+  message?: Record<string, unknown>
+  invoice?: Record<string, unknown>
+  calendar_event?: Record<string, unknown>
+  activity?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export type N8nTriggerResult = {
+  ok: boolean
+  success: boolean
+  status: N8nTriggerStatus
+  event_type: N8nEventType
+  message: string
+  n8n_response?: unknown
+  suggested_response?: string
+  activity_created?: boolean
+}
+
+export type WebhookPayload = N8nTriggerPayload
 
 export type WebhookConfig = {
-  event: WebhookEvent
+  event: N8nEventType
   label: string
   description: string
   trigger: string
@@ -22,42 +65,88 @@ export type WebhookConfig = {
   requires: N8nRequirement[]
 }
 
+const eventAliases: Record<string, N8nEventType> = {
+  whatsapp_incoming: 'whatsapp_message',
+  appointment_scheduled: 'appointment_booked',
+  payment_registered: 'invoice_paid',
+  reengagement_sequence: 'reengagement_needed',
+  daily_ai_summary: 'daily_summary',
+}
+
+export function normalizeN8nEventType(value: unknown): N8nEventType | null {
+  if (typeof value !== 'string') return null
+  if ((N8N_EVENT_TYPES as readonly string[]).includes(value)) return value as N8nEventType
+  return eventAliases[value] ?? null
+}
+
 export const n8nWebhookConfigs: WebhookConfig[] = [
-  { event: 'new_lead', label: 'Nuevo lead registrado', description: 'Crea lead, calcula score inicial y avisa al equipo.', trigger: 'Lead desde cualquier canal', url: 'https://n8n.tudominio.com/webhook/nuevo-lead', status: 'demo', requires: ['Supabase', 'n8n'] },
-  { event: 'whatsapp_incoming', label: 'Mensaje entrante WhatsApp', description: 'Registra conversacion, clasifica intencion y propone respuesta IA.', trigger: 'Mensaje WhatsApp Business', url: 'https://n8n.tudominio.com/webhook/whatsapp-incoming', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
-  { event: 'appointment_scheduled', label: 'Reunion agendada', description: 'Guarda evento, envia confirmacion y prepara resumen previo.', trigger: 'Nueva cita en calendario', url: 'https://n8n.tudominio.com/webhook/cita-agendada', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
-  { event: 'invoice_overdue', label: 'Factura vencida', description: 'Detecta impago, programa recordatorio y registra actividad.', trigger: 'Factura supera vencimiento', url: 'https://n8n.tudominio.com/webhook/factura-vencida', status: 'demo', requires: ['Supabase', 'n8n', 'Billing/API'] },
-  { event: 'payment_registered', label: 'Cobro registrado', description: 'Actualiza factura y lanza confirmacion al cliente.', trigger: 'Pago confirmado', url: 'https://n8n.tudominio.com/webhook/cobro-registrado', status: 'demo', requires: ['Supabase', 'n8n', 'Billing/API'] },
-  { event: 'reengagement_sequence', label: 'Secuencia de re-engagement', description: 'Reactiva leads frios con mensajes y tareas comerciales.', trigger: 'Lead sin contacto 7+ dias', url: 'https://n8n.tudominio.com/webhook/reengagement', status: 'inactive', requires: ['Supabase', 'n8n', 'Email/API'] },
-  { event: 'daily_ai_summary', label: 'Resumen diario IA', description: 'Genera briefing con ventas, alertas y siguientes acciones.', trigger: 'Cada dia a las 08:00', url: 'https://n8n.tudominio.com/webhook/daily-summary', status: 'pending_config', requires: ['Supabase', 'n8n'] },
+  { event: 'new_lead', label: 'Nuevo lead registrado', description: 'Crea lead, calcula score inicial y avisa al equipo.', trigger: 'Lead desde cualquier canal', url: 'https://n8n.tudominio.com/webhook/new-lead', status: 'demo', requires: ['Supabase', 'n8n'] },
+  { event: 'client_updated', label: 'Cliente actualizado', description: 'Sincroniza cambios del perfil comercial y registra seguimiento.', trigger: 'Edicion de cliente', url: 'https://n8n.tudominio.com/webhook/client-updated', status: 'pending_config', requires: ['Supabase', 'n8n'] },
+  { event: 'client_deleted', label: 'Cliente eliminado', description: 'Limpia tareas pendientes o avisa al equipo antes de borrar contexto.', trigger: 'Borrado de cliente', url: 'https://n8n.tudominio.com/webhook/client-deleted', status: 'inactive', requires: ['Supabase', 'n8n'] },
+  { event: 'whatsapp_message', label: 'Mensaje WhatsApp', description: 'Registra conversacion, clasifica intencion y propone respuesta IA.', trigger: 'Mensaje WhatsApp Business', url: 'https://n8n.tudominio.com/webhook/whatsapp-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
+  { event: 'assistant_message', label: 'Assistant message', description: 'Permite usar n8n como backend IA y devolver suggested_response.', trigger: 'Mensaje enviado al assistant', url: 'https://n8n.tudominio.com/webhook/assistant-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'IA/API'] },
+  { event: 'conversation_resolved', label: 'Conversacion resuelta', description: 'Registra cierre, resumen y siguiente accion si procede.', trigger: 'Conversacion marcada como resuelta', url: 'https://n8n.tudominio.com/webhook/conversation-resolved', status: 'demo', requires: ['Supabase', 'n8n'] },
+  { event: 'appointment_booked', label: 'Reunion agendada', description: 'Guarda evento, envia confirmacion y prepara resumen previo.', trigger: 'Nueva cita en calendario', url: 'https://n8n.tudominio.com/webhook/appointment-booked', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
+  { event: 'calendar_event_created', label: 'Evento de calendario', description: 'Dispara recordatorios o preparacion comercial para reuniones.', trigger: 'Nuevo evento en calendario', url: 'https://n8n.tudominio.com/webhook/calendar-event-created', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
+  { event: 'invoice_created', label: 'Factura creada', description: 'Prepara email, recordatorio o sincronizacion de cobro.', trigger: 'Nueva factura', url: 'https://n8n.tudominio.com/webhook/invoice-created', status: 'demo', requires: ['Supabase', 'n8n', 'Billing/API'] },
+  { event: 'invoice_paid', label: 'Factura pagada', description: 'Actualiza ciclo de vida del cliente y notifica cobro recibido.', trigger: 'Factura marcada pagada', url: 'https://n8n.tudominio.com/webhook/invoice-paid', status: 'demo', requires: ['Supabase', 'n8n', 'Billing/API'] },
+  { event: 'invoice_overdue', label: 'Factura vencida', description: 'Detecta impago, programa recordatorio y registra actividad.', trigger: 'Factura supera vencimiento', url: 'https://n8n.tudominio.com/webhook/invoice-overdue', status: 'demo', requires: ['Supabase', 'n8n', 'Billing/API'] },
+  { event: 'reengagement_needed', label: 'Re-engagement', description: 'Reactiva leads frios con mensajes y tareas comerciales.', trigger: 'Lead sin contacto 7+ dias', url: 'https://n8n.tudominio.com/webhook/reengagement-needed', status: 'inactive', requires: ['Supabase', 'n8n', 'Email/API'] },
+  { event: 'daily_summary', label: 'Resumen diario IA', description: 'Genera briefing con ventas, alertas y siguientes acciones.', trigger: 'Cada dia a las 08:00', url: 'https://n8n.tudominio.com/webhook/daily-summary', status: 'pending_config', requires: ['Supabase', 'n8n'] },
   { event: 'urgent_conversation', label: 'Conversacion urgente', description: 'Escala conversaciones negativas o de alta intencion.', trigger: 'Sentimiento negativo o score alto', url: 'https://n8n.tudominio.com/webhook/urgent-conversation', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
+  { event: 'test_flow', label: 'Test flow', description: 'Payload de prueba para validar conectividad sin tocar datos reales.', trigger: 'Test manual desde Settings', url: 'https://n8n.tudominio.com/webhook/test-flow', status: 'demo', requires: ['n8n'] },
 ]
 
-export async function triggerN8nWebhook(eventName: WebhookEvent, payload: WebhookPayload): Promise<{ success: boolean; message: string; status?: string }> {
+export function buildN8nTriggerPayload(eventName: N8nEventType, payload: N8nTriggerPayload = {}): N8nTriggerPayload {
+  return {
+    ...payload,
+    event_type: eventName,
+    source: 'nowcrm',
+    mode: payload.mode === 'real' ? 'real' : 'demo',
+    timestamp: payload.timestamp || new Date().toISOString(),
+    metadata: payload.metadata ?? {},
+  }
+}
+
+export async function triggerN8nWebhook(eventName: N8nEventType, payload: N8nTriggerPayload = {}): Promise<N8nTriggerResult> {
   const endpoint =
     typeof payload.webhook_url === 'string' ? payload.webhook_url :
     typeof payload.endpoint === 'string' ? payload.endpoint :
     typeof payload.url === 'string' ? payload.url :
     undefined
-  const mode = payload.mode === 'real' ? 'real' : 'demo'
+  const normalized = buildN8nTriggerPayload(eventName, payload)
 
   try {
     const response = await fetch('/api/n8n/trigger', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        event_type: eventName,
-        workspace_id: typeof payload.workspace_id === 'string' ? payload.workspace_id : undefined,
+        ...normalized,
         webhook_url: endpoint,
-        mode,
-        payload,
+        payload: normalized,
       }),
     })
-    const data = await response.json() as { success?: boolean; message?: string; status?: string }
-    return { success: Boolean(data.success), message: data.message || `Webhook "${eventName}" procesado.`, status: data.status }
+    const data = await response.json() as Partial<N8nTriggerResult>
+    return {
+      ok: Boolean(data.ok ?? data.success),
+      success: Boolean(data.success ?? data.ok),
+      status: data.status ?? (response.ok ? 'simulated' : 'error'),
+      event_type: data.event_type ?? eventName,
+      message: data.message || `Webhook "${eventName}" procesado.`,
+      n8n_response: data.n8n_response,
+      suggested_response: data.suggested_response,
+      activity_created: Boolean(data.activity_created),
+    }
   } catch {
     await new Promise((r) => setTimeout(r, 600))
-    return { success: true, status: 'simulated', message: `Webhook "${eventName}" ejecutado en simulacion local.` }
+    return {
+      ok: true,
+      success: true,
+      status: 'simulated',
+      event_type: eventName,
+      message: `Webhook "${eventName}" ejecutado en simulacion local.`,
+      activity_created: false,
+    }
   }
 }
 

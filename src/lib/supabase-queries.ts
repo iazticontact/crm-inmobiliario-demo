@@ -181,12 +181,13 @@ function normalizeN8nFlowStatus(value: unknown): N8nFlowStatus {
 }
 
 function normalizeIntegrationStatus(value: unknown): IntegrationStatus {
-  if (value === 'connected' || value === 'disconnected' || value === 'pending' || value === 'demo' || value === 'error') return value
+  if (value === 'connected' || value === 'demo_connected' || value === 'demo_ready' || value === 'disconnected' || value === 'pending' || value === 'pending_config' || value === 'error') return value
+  if (value === 'demo') return 'demo_ready'
   return 'pending'
 }
 
 function asRequirements(value: unknown): N8nRequirement[] {
-  const allowed: N8nRequirement[] = ['Supabase', 'n8n', 'WhatsApp/API', 'Email/API', 'Billing/API', 'Payment/API']
+  const allowed: N8nRequirement[] = ['Supabase', 'n8n', 'WhatsApp/API', 'Email/API', 'Billing/API', 'Payment/API', 'IA/API']
   if (Array.isArray(value)) return value.filter((item): item is N8nRequirement => allowed.includes(item as N8nRequirement))
   if (typeof value === 'string') {
     return value.split(',').map((item) => item.trim()).filter((item): item is N8nRequirement => allowed.includes(item as N8nRequirement))

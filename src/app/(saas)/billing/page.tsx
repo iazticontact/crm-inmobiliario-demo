@@ -12,6 +12,7 @@ import { SectionCard } from '@/components/SectionCard'
 import { invoices as initialInvoices } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { triggerN8nWebhook } from '@/lib/integrations'
 import {
   createActivity,
   createInvoice,
@@ -171,6 +172,7 @@ export default function BillingPage() {
       if (isRealMode && workspaceId) {
         await markInvoicePaid(inv.id)
         await createActivity(workspaceId, { type: 'deal', description: `Factura marcada como pagada: ${inv.clientName}`, clientName: inv.clientName })
+        await triggerN8nWebhook('invoice_paid', { workspace_id: workspaceId, mode: 'real', invoice: { id: inv.id, client_name: inv.clientName, amount: inv.amount } })
         await loadInvoices()
       } else {
         setInvoiceList((prev) => prev.map((item) => item.id === inv.id ? { ...item, status: 'paid' } : item))
@@ -209,6 +211,7 @@ export default function BillingPage() {
         } else {
           await createInvoice(workspaceId, payload)
           await createActivity(workspaceId, { type: 'deal', description: `Factura creada: ${payload.clientName}`, clientName: payload.clientName })
+          await triggerN8nWebhook('invoice_created', { workspace_id: workspaceId, mode: 'real', invoice: payload })
           toast.success(`Factura creada en Supabase: ${payload.clientName}`)
         }
         await loadInvoices()

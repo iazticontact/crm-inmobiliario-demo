@@ -10,6 +10,7 @@ import { Badge } from '@/components/Badge'
 import { calendarEvents as initialEvents } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { triggerN8nWebhook } from '@/lib/integrations'
 import {
   createActivity,
   createCalendarEvent,
@@ -174,8 +175,9 @@ export default function CalendarPage() {
           await createActivity(workspaceId, { type: 'call', description: `Evento actualizado: ${payload.title}`, clientName: payload.clientName })
           toast.success(`Evento actualizado: ${payload.title}`)
         } else {
-          await createCalendarEvent(workspaceId, payload)
+          const created = await createCalendarEvent(workspaceId, payload)
           await createActivity(workspaceId, { type: 'call', description: `Evento creado: ${payload.title}`, clientName: payload.clientName })
+          await triggerN8nWebhook('calendar_event_created', { workspace_id: workspaceId, mode: 'real', calendar_event: { ...payload, id: created.id } })
           toast.success(`Evento creado en Supabase: ${payload.title}`)
         }
         await loadEvents()

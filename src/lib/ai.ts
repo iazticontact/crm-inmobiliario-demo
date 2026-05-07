@@ -1,4 +1,5 @@
 import type { Conversation, Message } from '@/lib/types'
+import { triggerN8nWebhook, type N8nTriggerResult } from '@/lib/integrations'
 
 export type MockAIContext = {
   input: string
@@ -6,6 +7,8 @@ export type MockAIContext = {
   conversation?: Conversation | null
   messages?: Message[]
   isDemo?: boolean
+  workspaceId?: string | null
+  webhookUrl?: string
 }
 
 function hasAny(text: string, words: string[]) {
@@ -48,4 +51,45 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   }
 
   return `Mensaje registrado para ${client}. Mi siguiente paso recomendado: resumir el contexto, confirmar necesidad y proponer una accion concreta en las proximas 24 horas. ${contextSize}`
+}
+
+export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N8nTriggerResult> {
+  return triggerN8nWebhook('assistant_message', {
+    workspace_id: context.workspaceId || undefined,
+    mode: context.workspaceId && !context.isDemo ? 'real' : 'demo',
+    webhook_url: context.webhookUrl,
+    conversation: context.conversation ? {
+      id: context.conversation.id,
+      client_name: context.conversation.clientName,
+      channel: context.conversation.channel,
+      sentiment: context.conversation.sentiment,
+      intent: context.conversation.intent,
+    } : {},
+    message: {
+      content: context.input,
+      role: 'user',
+    },
+    metadata: {
+      source: 'assistant',
+      requested_action: 'generate_response',
+      previous_messages: context.messages?.length ?? 0,
+    },
+  })
+}
+
+export async function respondWithAssistant(context: MockAIContext) {
+  const n8nResult = await triggerAssistantN8nFlow(context)
+  if (n8nResult.status === 'ok' && n8nResult.suggested_response?.trim()) {
+    return {
+      response: n8nResult.suggested_response.trim(),
+      source: 'n8n' as const,
+      trigger: n8nResult,
+    }
+  }
+
+  return {
+    response: generateMockAIResponse(context),
+    source: 'mock' as const,
+    trigger: n8nResult,
+  }
 }

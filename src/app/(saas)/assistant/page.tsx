@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
 import { triggerN8nWebhook } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
-import { generateMockAIResponse } from '@/lib/ai'
+import { respondWithAssistant } from '@/lib/ai'
 import {
   createActivity,
   createConversation,
@@ -171,8 +171,9 @@ export default function AssistantPage() {
         await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${selected.clientName}`, clientName: selected.clientName })
       }
 
-      const response = generateMockAIResponse({
+      const assistantResult = await respondWithAssistant({
         input: content,
+        workspaceId,
         workspaceName: currentUser.workspaceName,
         conversation: selected,
         messages: msgs,
@@ -181,20 +182,21 @@ export default function AssistantPage() {
 
       await new Promise((resolve) => setTimeout(resolve, 900))
 
-      const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content: response, sender: 'ai', timestamp: nowTime() }
+      const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content: assistantResult.response, sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(conversationId, aiMsg)
 
       if (isRealMode) {
-        await createMessage(conversationId, { content: response, sender: 'ai' })
-        await updateConversation(conversationId, { lastMessage: response, unread: true })
+        await createMessage(conversationId, { content: assistantResult.response, sender: 'ai' })
+        await updateConversation(conversationId, { lastMessage: assistantResult.response, unread: true })
+        if (workspaceId) await createActivity(workspaceId, { type: 'message', description: `Respuesta assistant generada (${assistantResult.source}): ${selected.clientName}`, clientName: selected.clientName })
       }
 
       const lower = content.toLowerCase()
       if (lower.includes('pago') || lower.includes('factura') || lower.includes('cobro')) {
-        await triggerN8nWebhook('payment_registered', { message: content, client: selected.clientName, workspace_id: workspaceId, mode: isRealMode ? 'real' : 'demo' })
+        await triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
       if (lower.includes('llamada') || lower.includes('reun') || lower.includes('agenda')) {
-        await triggerN8nWebhook('appointment_scheduled', { message: content, client: selected.clientName, workspace_id: workspaceId, mode: isRealMode ? 'real' : 'demo' })
+        await triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
     } catch (error) {
       toast.error('No se pudo guardar el mensaje', { description: error instanceof Error ? error.message : 'Se mantiene en pantalla como fallback local.' })
@@ -251,15 +253,56 @@ export default function AssistantPage() {
 
   const handleQuickAction = async (action: string) => {
     if (!selected) return
+    if (['Resumen cliente', 'Próxima acción', 'Crear factura', 'Probar agente'].includes(action)) {
+      const toolByAction: Record<string, string> = {
+        'Resumen cliente': 'get_client_summary',
+        'Próxima acción': 'get_next_best_actions',
+        'Crear factura': 'create_invoice',
+        'Probar agente': 'get_workspace_summary',
+      }
+      const inputByAction: Record<string, Record<string, unknown>> = {
+        'Resumen cliente': { name: selected.clientName },
+        'Próxima acción': { conversation_id: selected.id },
+        'Crear factura': { client_name: selected.clientName, concept: 'Plan Pro', amount: 299, status: 'pending', due_date: new Date().toISOString().slice(0, 10), notes: 'Factura preparada desde Assistant' },
+        'Probar agente': {},
+      }
+
+      try {
+        const response = await fetch('/api/agent/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tool: toolByAction[action],
+            workspace_id: workspaceId || 'demo-workspace',
+            input: inputByAction[action],
+            metadata: { source: 'assistant', conversation_id: selected.id, user_intent: action },
+          }),
+        })
+        const data = await response.json() as { ok?: boolean; message?: string; mode?: string }
+        const content = data.ok
+          ? `Agent tool: ${toolByAction[action]}\n${data.message}${data.mode === 'fallback' ? '\nModo fallback seguro: listo para n8n con secreto.' : ''}`
+          : `Agent tool no ejecutada: ${data.message ?? 'Revisa configuración.'}`
+        const toolMsg: Message = { id: `tool-${Date.now()}`, conversationId: selected.id, content, sender: 'ai', timestamp: nowTime() }
+        appendLocalMessage(selected.id, toolMsg)
+        if (isRealMode) await createMessage(selected.id, { content, sender: 'ai' })
+        toast.success(`Agente: ${action}`, { description: data.message ?? 'Tool preparada.' })
+      } catch {
+        toast.error('No se pudo llamar a Agent Tools', { description: 'Se mantiene la conversación sin cambios.' })
+      }
+      return
+    }
+
     const responses: Record<string, string> = {
       'Generar propuesta': 'Propuesta comercial generada y lista para revisar. Incluye alcance, plan recomendado y siguiente paso.',
       'Agendar llamada': 'Llamada preparada. Puedes crear el evento desde Calendario y enviar confirmación al cliente.',
       'Enviar pricing': 'Pricing preparado para enviar por el canal preferido del cliente.',
+      'Probar n8n': 'Trigger assistant_message preparado. Cuando pegues el webhook real, n8n podra devolver suggested_response.',
     }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId: selected.id, content: responses[action] ?? 'Acción ejecutada.', sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(selected.id, aiMsg)
     if (isRealMode) await createMessage(selected.id, { content: aiMsg.content, sender: 'ai' })
-    if (action === 'Agendar llamada') await triggerN8nWebhook('appointment_scheduled', { action, client: selected.clientName, mode: isRealMode ? 'real' : 'demo' })
+    if (action === 'Agendar llamada') await triggerN8nWebhook('appointment_booked', { metadata: { action }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
+    if (action === 'Probar n8n') await triggerN8nWebhook('assistant_message', { workspace_id: workspaceId || undefined, conversation: { id: selected.id, client_name: selected.clientName }, message: { content: 'test assistant n8n' }, mode: isRealMode ? 'real' : 'demo' })
     toast.success(`IA: ${action}`, { description: 'Acción preparada correctamente.' })
   }
 
@@ -288,7 +331,7 @@ export default function AssistantPage() {
     >
       <PageHeader
         title="Asistente IA"
-        description={isRealMode ? 'Conversaciones persistentes con IA mock preparada para API real' : 'Conversaciones demo con IA simulada'}
+        description={isRealMode ? 'Conversaciones persistentes con IA mock y n8n preparado como backend IA' : 'Conversaciones demo con IA simulada'}
         action={
           <div className="flex items-center gap-2">
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Mensajes reales' : 'Modo demo'}</Badge>
@@ -424,7 +467,7 @@ export default function AssistantPage() {
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-[10px] text-gray-400">Acciones rápidas:</span>
-                  {['Generar propuesta', 'Agendar llamada', 'Enviar pricing'].map((action) => (
+                  {['Generar propuesta', 'Agendar llamada', 'Enviar pricing', 'Resumen cliente', 'Próxima acción', 'Crear factura', 'Probar agente', 'Probar n8n'].map((action) => (
                     <button key={action} onClick={() => handleQuickAction(action)} className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 transition-colors hover:bg-indigo-100 hover:text-indigo-700">
                       {action}
                     </button>
