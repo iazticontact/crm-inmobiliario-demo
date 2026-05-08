@@ -23,7 +23,7 @@ import {
   getN8nFlows,
   getResolvedWorkspaceContext,
   markConversationResolved,
-  updateConversation,
+  updateConversationScoped,
 } from '@/lib/supabase-queries'
 import type { Channel, Conversation, ConversationSentiment, Message, N8nFlowStatus } from '@/lib/types'
 
@@ -48,38 +48,76 @@ const leadScoreColor = (score: number) =>
   score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-red-500'
 
 const quickPrompts = [
-  { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme los datos necesarios y prepara el evento de calendario.', intent: 'booking' },
-  { label: 'Buscar hueco', prompt: 'Revisa qué datos necesitas para buscar un hueco disponible y preparar una cita.', intent: 'slot_search' },
-  { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial.', intent: 'resumen' },
+  { label: 'Qué puedes hacer', prompt: 'Qué puedes hacer como Assistant Agent interno de NowCRM?', intent: 'capabilities' },
+  { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking' },
   { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice' },
-  { label: 'Revisar cobros', prompt: 'Revisa si hay facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing' },
+  { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search' },
+  { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial.', intent: 'resumen' },
   { label: 'Próxima acción', prompt: 'Dime la siguiente acción comercial recomendada para este cliente.', intent: 'next_action' },
+  { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing' },
   { label: 'Preparar propuesta', prompt: 'Prepara una propuesta comercial breve con siguiente paso claro.', intent: 'proposal' },
-  { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con un mensaje comercial de pricing.', intent: 'n8n_test' },
+  { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una consulta interna breve.', intent: 'n8n_test' },
 ]
 
-const capabilities = ['Reservas', 'Clientes', 'Facturas', 'Calendario', 'Conversaciones', 'Próximas acciones', 'Seguimiento comercial', 'Resúmenes', 'Propuestas']
+const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'n8n preparado']
+const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp/Whapi futuro']
+const capabilityExamples = [
+  'Resume este cliente',
+  'Prepara una cita',
+  'Crea una factura',
+  'Revisa cobros pendientes',
+  'Dime la próxima acción',
+  'Busca un cliente',
+  'Prepara una respuesta comercial',
+]
+
+type AssistantMode = 'inbox' | 'copilot'
+
+const assistantModes: Array<{
+  id: AssistantMode
+  title: string
+  eyebrow: string
+  description: string
+  badge: string
+}> = [
+  {
+    id: 'inbox',
+    title: 'Conversaciones',
+    eyebrow: 'Inbox Assistant',
+    description: 'Gestiona mensajes con clientes/leads, detecta intención y prepara acciones desde conversaciones.',
+    badge: 'Whapi siguiente fase',
+  },
+  {
+    id: 'copilot',
+    title: 'Copilot CRM',
+    eyebrow: 'Asistente interno',
+    description: 'Opera el CRM para buscar clientes, preparar citas, facturas, cobros, propuestas y documentos.',
+    badge: 'Tools + Supabase',
+  },
+]
 
 type PreparedAction =
   | {
       id: string
       type: 'booking'
       title: string
-      clientName: string
-      service: string
-      date: string
-      time: string
-      duration: number
+      clientName?: string
+      service?: string
+      date?: string
+      time?: string
+      duration?: number
+      missingFields: string[]
       notes?: string
     }
   | {
       id: string
       type: 'invoice'
       title: string
-      clientName: string
-      concept: string
-      amount: number
-      dueDate: string
+      clientName?: string
+      concept?: string
+      amount?: number
+      dueDate?: string
+      missingFields: string[]
       notes?: string
     }
 
@@ -89,12 +127,6 @@ function nowTime() {
 
 function getInitials(name: string) {
   return name.trim().split(/\s+/).map((word) => word[0]).join('').slice(0, 2).toUpperCase() || 'NC'
-}
-
-function addDaysIso(days: number) {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
 }
 
 function parseHourMinute(value: string) {
@@ -112,14 +144,40 @@ function endTime(start: string, duration: number) {
 }
 
 function isGenericConversationName(value?: string) {
-  return !value || /nuevo lead|lead demo|cliente demo|sin cliente/i.test(value)
+  return !value || /nuevo lead|lead demo|cliente demo|sin cliente|asistente interno|consulta crm|operacion comercial|operación comercial/i.test(value)
+}
+
+function normalizeInput(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function isCapabilityQuestion(value: string) {
+  const text = normalizeInput(value)
+  return ['que haces', 'que puedes hacer', 'echame un cable', 'ayudame', 'que eres', 'para que sirves'].some((pattern) => text.includes(pattern))
+}
+
+function isPricingQuestion(value: string) {
+  const text = normalizeInput(value)
+  return ['precios', 'precio', 'planes', 'tarifas', 'cuanto cuesta', 'coste'].some((pattern) => text.includes(pattern)) || (text.includes('plan') && /precio|incluye|cuesta/.test(text))
+}
+
+function internalAssistantIntro() {
+  return 'Soy tu Assistant Agent interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
+}
+
+function pricingGuidance() {
+  return 'Puedo ayudarte a preparar una propuesta, pero no voy a inventar precios. Necesito saber el tipo de negocio, número de usuarios y qué módulos quiere activar: clientes, calendario, facturación, IA o WhatsApp. Con eso preparo una propuesta clara para revisar.'
 }
 
 function intentLabel(intent: AssistantIntent) {
-  if (intent.intent === 'booking') return 'Acción detectada: cita'
-  if (intent.intent === 'invoice') return 'Acción detectada: factura'
+  if (intent.intent === 'booking' || intent.intent === 'booking_concrete') return 'Acción detectada: cita'
+  if (intent.intent === 'booking_strategy') return ''
+  if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete') return 'Acción detectada: factura'
   if (intent.intent === 'client_search') return 'Acción detectada: cliente'
+  if (intent.intent === 'client_summary') return 'Acción detectada: resumen'
   if (intent.intent === 'next_action') return 'Acción detectada: próxima acción'
+  if (intent.intent === 'proposal') return 'Acción detectada: propuesta'
+  if (intent.intent === 'collection') return 'Acción detectada: cobros'
   return ''
 }
 
@@ -129,21 +187,22 @@ function missingText(fields: string[]) {
 
 function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
   const { extracted } = intent
-  if (intent.intent === 'booking' && !intent.missingFields.length && extracted.clientName && extracted.service && extracted.date && extracted.time) {
+  if ((intent.intent === 'booking' || intent.intent === 'booking_concrete') && (extracted.clientName || extracted.service || extracted.date || extracted.time)) {
     return {
       id: `booking-${Date.now()}`,
       type: 'booking',
-      title: 'Crear evento en calendario',
+      title: 'Crear cita',
       clientName: extracted.clientName,
       service: extracted.service,
       date: extracted.date,
       time: extracted.time,
-      duration: extracted.duration ?? 60,
-      notes: `Reserva preparada desde Assistant Agent para ${extracted.service}.`,
+      duration: extracted.duration,
+      missingFields: intent.missingFields,
+      notes: extracted.service ? `Reserva preparada desde Assistant Agent para ${extracted.service}.` : 'Reserva preparada desde Assistant Agent.',
     }
   }
 
-  if (intent.intent === 'invoice' && !intent.missingFields.length && extracted.clientName && extracted.amount && extracted.concept) {
+  if ((intent.intent === 'invoice' || intent.intent === 'invoice_concrete') && (extracted.clientName || extracted.amount || extracted.concept)) {
     return {
       id: `invoice-${Date.now()}`,
       type: 'invoice',
@@ -151,7 +210,8 @@ function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
       clientName: extracted.clientName,
       concept: extracted.concept,
       amount: extracted.amount,
-      dueDate: addDaysIso(7),
+      dueDate: extracted.dueDate,
+      missingFields: intent.missingFields,
       notes: 'Factura preparada desde Assistant Agent. Requiere confirmación.',
     }
   }
@@ -160,16 +220,36 @@ function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
 }
 
 function buildLocalOperationalResponse(intent: AssistantIntent) {
-  if (intent.intent === 'booking') {
+  if (intent.intent === 'capabilities') {
+    return internalAssistantIntro()
+  }
+
+  if (intent.intent === 'pricing') {
+    return pricingGuidance()
+  }
+
+  if (intent.intent === 'consultative') {
+    return 'Para ese tipo de negocio, NowCRM puede centralizar clientes, preparar citas o tareas, automatizar seguimientos y ayudarte a responder mejor sin perder contexto. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
+  }
+
+  if (intent.intent === 'booking_strategy') {
+    return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día y hora, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp/Whapi, web o llamadas.'
+  }
+
+  if (intent.intent === 'booking' || intent.intent === 'booking_concrete') {
     if (intent.missingFields.length) {
-      return `Sí, se puede. Para crear la reserva necesito: ${missingText(intent.missingFields)}. Dime esos datos y preparo la cita en el calendario.`
+      return buildPreparedAction(intent)
+        ? `Tengo la cita casi lista. Falta: ${missingText(intent.missingFields)}. Completa esos datos y la dejo lista para confirmar.`
+        : `Sí, se puede. Para crear la reserva necesito: ${missingText(intent.missingFields)}. Dime esos datos y preparo la cita en el calendario.`
     }
     return 'Tengo la cita preparada. Revísala abajo y pulsa Confirmar para crearla en Calendario.'
   }
 
-  if (intent.intent === 'invoice') {
+  if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete') {
     if (intent.missingFields.length) {
-      return `Puedo prepararla. Para crear la factura necesito: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
+      return buildPreparedAction(intent)
+        ? `Tengo la factura casi lista. Falta: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
+        : `Puedo prepararla. Para crear la factura necesito: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
     }
     return 'Tengo la factura preparada. Revísala abajo y pulsa Confirmar para crearla.'
   }
@@ -179,6 +259,81 @@ function buildLocalOperationalResponse(intent: AssistantIntent) {
   }
 
   return ''
+}
+
+function mergePreparedAction(action: PreparedAction, intent: AssistantIntent): PreparedAction {
+  const extracted = intent.extracted
+  if (action.type === 'booking') {
+    const next = {
+      ...action,
+      clientName: extracted.clientName || action.clientName,
+      service: extracted.service || action.service,
+      date: extracted.date || action.date,
+      time: extracted.time || action.time,
+      duration: extracted.duration || action.duration,
+    }
+    return {
+      ...next,
+      missingFields: [
+        !next.clientName && 'cliente',
+        !next.service && 'servicio',
+        !next.date && 'fecha',
+        !next.time && 'hora',
+        !next.duration && 'duración',
+      ].filter(Boolean) as string[],
+    }
+  }
+
+  const next = {
+    ...action,
+    clientName: extracted.clientName || action.clientName,
+    concept: extracted.concept || action.concept,
+    amount: action.amount ?? extracted.amount,
+    dueDate: extracted.dueDate || extracted.date || action.dueDate,
+  }
+  return {
+    ...next,
+    missingFields: [
+      !next.clientName && 'cliente',
+      !next.amount && 'importe',
+      !next.concept && 'concepto',
+      !next.dueDate && 'vencimiento',
+    ].filter(Boolean) as string[],
+  }
+}
+
+function getRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function formatToolResult(tool: AgentToolName, result: unknown) {
+  if (tool === 'get_next_best_actions' && Array.isArray(result)) {
+    return result.length
+      ? `Próximas acciones recomendadas:\n${result.slice(0, 4).map((item, index) => `${index + 1}. ${String(item)}`).join('\n')}`
+      : 'No hay acciones urgentes detectadas ahora mismo.'
+  }
+
+  if (Array.isArray(result)) {
+    if (!result.length) return 'No he encontrado resultados con los datos actuales.'
+    const rows = result.slice(0, 4).map((item, index) => {
+      const row = getRecord(item)
+      const name = String(row?.name ?? row?.client_name ?? row?.title ?? row?.plan ?? `Resultado ${index + 1}`)
+      const detail = String(row?.email ?? row?.status ?? row?.date ?? row?.amount ?? '').trim()
+      return `${index + 1}. ${name}${detail ? ` · ${detail}` : ''}`
+    })
+    return `He encontrado ${result.length} resultado(s):\n${rows.join('\n')}`
+  }
+
+  const record = getRecord(result)
+  const client = getRecord(record?.client)
+  if (client) {
+    const name = String(client.name ?? 'Cliente')
+    const status = String(client.status ?? 'sin estado')
+    const notes = String(client.notes ?? '').trim()
+    return `Resumen de ${name}: estado ${status}.${notes ? `\nNotas: ${notes}` : ''}\nSiguiente paso: confirma necesidad y agenda seguimiento.`
+  }
+
+  return 'Tool ejecutada. Resultado preparado para el Assistant Agent.'
 }
 
 export default function AssistantPage() {
@@ -199,6 +354,8 @@ export default function AssistantPage() {
   const [assistantFlowFound, setAssistantFlowFound] = useState(false)
   const [assistantFlowStatus, setAssistantFlowStatus] = useState<N8nFlowStatus>('demo')
   const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | null>(null)
+  const [lastActionStatus, setLastActionStatus] = useState('')
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
   const [confirmingAction, setConfirmingAction] = useState(false)
@@ -270,7 +427,7 @@ export default function AssistantPage() {
     const loadMessages = async () => {
       setLoadingMessages(true)
       try {
-        const realMessages = await getConversationMessages(selected.id)
+        const realMessages = await getConversationMessages(selected.id, workspaceId ?? undefined)
         setLocalMessages((prev) => ({ ...prev, [selected.id]: realMessages }))
       } catch {
         setLocalMessages((prev) => ({ ...prev, [selected.id]: [] }))
@@ -283,7 +440,7 @@ export default function AssistantPage() {
       void loadMessages()
     }, 0)
     return () => window.clearTimeout(timeout)
-  }, [isRealMode, selected])
+  }, [isRealMode, selected, workspaceId])
 
   const msgs = useMemo(() => selected ? localMessages[selected.id] ?? [] : [], [localMessages, selected])
 
@@ -309,9 +466,9 @@ export default function AssistantPage() {
   const appendAssistantMessage = async (conversationId: string, content: string, clientName?: string) => {
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
-    if (isRealMode) {
-      await createMessage(conversationId, { content, sender: 'ai' })
-      await updateConversation(conversationId, { lastMessage: content, unread: true })
+    if (isRealMode && workspaceId) {
+      await createMessage(conversationId, { content, sender: 'ai', metadata: { source: 'assistant_agent' } }, workspaceId)
+      await updateConversationScoped(conversationId, workspaceId, { lastMessage: content, unread: true }).catch(() => null)
       if (workspaceId) {
         await createActivity(workspaceId, { type: 'message', description: `Assistant Agent: ${content.slice(0, 90)}`, clientName })
       }
@@ -334,25 +491,82 @@ export default function AssistantPage() {
 
     try {
       if (isRealMode && workspaceId) {
-        await createMessage(conversationId, { content, sender: 'agent' })
-        await updateConversation(conversationId, { lastMessage: content, unread: false })
+        await createMessage(conversationId, { content, sender: 'agent', metadata: { source: 'assistant_ui' } }, workspaceId)
+        await updateConversationScoped(conversationId, workspaceId, { lastMessage: content, unread: false }).catch(() => null)
         await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${selected.clientName}`, clientName: selected.clientName })
       }
 
-      if (/no entiendo|no sé|no se|ayuda/i.test(content)) {
+      if (!assistantN8nActive && isCapabilityQuestion(content)) {
+        await appendAssistantMessage(conversationId, internalAssistantIntro(), selected.clientName)
+        setLastResponseSource(null)
+        return
+      }
+
+      if (!assistantN8nActive && isPricingQuestion(content)) {
+        await appendAssistantMessage(conversationId, pricingGuidance(), selected.clientName)
+        setLastResponseSource(null)
+        return
+      }
+
+      if (!assistantN8nActive && /no entiendo|no sé|no se|ayuda/i.test(content)) {
         await appendAssistantMessage(conversationId, 'Claro. Dime si quieres crear una cita, buscar un cliente, preparar una factura o ver la próxima acción comercial.', selected.clientName)
         setLastResponseSource(null)
         return
       }
 
+      if (preparedAction?.missingFields.length) {
+        const mergedAction = mergePreparedAction(preparedAction, operationalIntent)
+        if (mergedAction.missingFields.length < preparedAction.missingFields.length) {
+          setPreparedAction(mergedAction)
+          setLastActionStatus(`Acción actualizada: ${mergedAction.type === 'booking' ? 'cita' : 'factura'}`)
+          await appendAssistantMessage(
+            conversationId,
+            mergedAction.missingFields.length
+              ? `Perfecto, he actualizado la acción. Todavía falta: ${missingText(mergedAction.missingFields)}.`
+              : 'Perfecto, ya tengo todos los datos. Revisa la card y pulsa Confirmar para ejecutarla.',
+            selected.clientName
+          )
+          setLastResponseSource(null)
+          return
+        }
+      }
+
+      const concreteActionIntents: AssistantIntent['intent'][] = ['booking', 'booking_concrete', 'invoice', 'invoice_concrete']
+      const shouldUseLocalResponse = concreteActionIntents.includes(operationalIntent.intent) || !assistantN8nActive
       const localResponse = buildLocalOperationalResponse(operationalIntent)
-      if (localResponse) {
+      if (localResponse && shouldUseLocalResponse) {
         const action = buildPreparedAction(operationalIntent)
         await new Promise((resolve) => setTimeout(resolve, 350))
         await appendAssistantMessage(conversationId, localResponse, selected.clientName)
         setPreparedAction(action)
+        if (action) setLastActionStatus(`Última acción preparada: ${action.type === 'booking' ? 'cita' : 'factura'}`)
         setLastResponseSource(null)
         return
+      }
+
+      const safeToolByIntent: Partial<Record<AssistantIntent['intent'], AgentToolName>> = {
+        client_search: 'search_clients',
+        client_summary: 'get_client_summary',
+        next_action: 'get_next_best_actions',
+        collection: 'list_invoices',
+      }
+      const safeTool = safeToolByIntent[operationalIntent.intent]
+      if (safeTool && workspaceId) {
+        const toolInput =
+          safeTool === 'search_clients' ? { query: operationalIntent.extracted.clientName || content } :
+          safeTool === 'get_client_summary' ? { name: operationalIntent.extracted.clientName || selected.clientName } :
+          safeTool === 'list_invoices' ? { status: 'pending' } :
+          {}
+        const toolResult = await callAgentTool(safeTool, workspaceId, toolInput, {
+          source: 'assistant_local_intent',
+          conversation_id: selected.id,
+          user_intent: operationalIntent.intent,
+        }).catch(() => null)
+        if (toolResult?.ok) {
+          await appendAssistantMessage(conversationId, formatToolResult(safeTool, toolResult.result), selected.clientName)
+          setLastResponseSource(null)
+          return
+        }
       }
 
       const assistantResult = await respondWithAssistant({
@@ -400,6 +614,10 @@ export default function AssistantPage() {
     setConfirmingAction(true)
     try {
       if (preparedAction.type === 'booking') {
+        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.service || !preparedAction.date || !preparedAction.time || !preparedAction.duration) {
+          toast.warning('Faltan datos para crear la cita', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
+          return
+        }
         const { startHour, startMinute } = parseHourMinute(preparedAction.time)
         const toolInput = {
           title: `${preparedAction.service} - ${preparedAction.clientName}`,
@@ -445,9 +663,14 @@ export default function AssistantPage() {
 
         await appendAssistantMessage(selected.id, `Cita creada en Calendario: ${preparedAction.clientName}, ${preparedAction.service}, ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName)
         toast.success('Cita creada en Calendario')
+        setLastActionStatus('Última acción confirmada: cita creada')
       }
 
       if (preparedAction.type === 'invoice') {
+        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.concept || !preparedAction.amount || !preparedAction.dueDate) {
+          toast.warning('Faltan datos para crear la factura', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
+          return
+        }
         const toolInput = {
           client_name: preparedAction.clientName,
           concept: preparedAction.concept,
@@ -489,6 +712,7 @@ export default function AssistantPage() {
 
         await appendAssistantMessage(selected.id, `Factura creada: ${preparedAction.clientName}, ${preparedAction.concept}, ${preparedAction.amount} EUR.`, preparedAction.clientName)
         toast.success('Factura creada')
+        setLastActionStatus('Última acción confirmada: factura creada')
       }
 
       setPreparedAction(null)
@@ -501,24 +725,25 @@ export default function AssistantPage() {
 
   const cancelPreparedAction = () => {
     setPreparedAction(null)
+    setLastActionStatus('Última acción cancelada')
     toast.info('Acción descartada', { description: 'No se ha creado nada en Supabase.' })
   }
 
   const createDemoConversation = async () => {
     const payload = {
-      clientName: 'Nuevo lead demo',
-      clientAvatar: 'NL',
-      channel: 'WhatsApp' as Channel,
+      clientName: isRealMode ? 'Consulta CRM' : 'Consulta CRM demo',
+      clientAvatar: isRealMode ? 'CRM' : 'CD',
+      channel: 'Web' as Channel,
       sentiment: 'neutral' as ConversationSentiment,
-      intent: 'Consulta comercial',
-      lastMessage: 'Hola, me gustaría saber cómo funciona NowCRM.',
+      intent: isRealMode ? 'Operación comercial' : 'Consulta demo',
+      lastMessage: isRealMode ? 'Abre una consulta interna para gestionar clientes, citas o facturas.' : 'Hola, me gustaría probar el Assistant interno de NowCRM.',
       unread: true,
     }
 
     try {
       if (isRealMode && workspaceId) {
         const created = await createConversation(workspaceId, payload)
-        await createMessage(created.id, { content: payload.lastMessage, sender: 'client' })
+        await createMessage(created.id, { content: payload.lastMessage, sender: 'client', metadata: { source: 'assistant_new_conversation' } }, workspaceId)
         await createActivity(workspaceId, { type: 'message', description: `Nueva conversación: ${created.clientName}`, clientName: created.clientName })
         await loadConversations()
         setSelectedId(created.id)
@@ -557,7 +782,7 @@ export default function AssistantPage() {
       const webhookForTest = assistantWebhookUrl || ASSISTANT_AGENT_WEBHOOK_URL
       const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: selected.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(selected.id, testingMsg)
-      if (isRealMode) await createMessage(selected.id, { content: testingMsg.content, sender: 'ai' })
+      if (isRealMode && workspaceId) await createMessage(selected.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test' } }, workspaceId)
       const result = await triggerN8nWebhook('assistant_message', {
         workspace_id: workspaceId ?? undefined,
         webhook_url: webhookForTest,
@@ -579,7 +804,7 @@ export default function AssistantPage() {
         if (result.suggested_response) {
           const n8nMsg: Message = { id: `n8n-${Date.now()}`, conversationId: selected.id, content: result.suggested_response, sender: 'ai', timestamp: nowTime() }
           appendLocalMessage(selected.id, n8nMsg)
-          if (isRealMode) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai' })
+          if (isRealMode && workspaceId) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai', metadata: { source: 'assistant_n8n_test' } }, workspaceId)
         }
         toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
       } else {
@@ -597,14 +822,24 @@ export default function AssistantPage() {
       next_action: 'get_next_best_actions',
       slot_search: 'list_calendar_events',
       billing: 'list_invoices',
+      client_search: 'search_clients',
     }
     const tool = safeToolsByIntent[selectedPrompt.intent]
     if (tool && workspaceId) {
-      void callAgentTool(tool, workspaceId, tool === 'get_client_summary' ? { name: selected.clientName } : {}, {
+      const toolInput =
+        tool === 'get_client_summary' ? { name: selected.clientName } :
+        tool === 'search_clients' ? { query: selected.clientName } :
+        {}
+      const result = await callAgentTool(tool, workspaceId, toolInput, {
         source: 'assistant_quick_action',
         conversation_id: selected.id,
         user_intent: selectedPrompt.intent,
       }).catch(() => null)
+      if (result?.ok) {
+        await appendAssistantMessage(selected.id, formatToolResult(tool, result.result), selected.clientName)
+        toast.success('Tool consultada', { description: result.message })
+        return
+      }
     }
     await sendMessage(selectedPrompt.prompt)
   }
@@ -665,12 +900,13 @@ export default function AssistantPage() {
     >
       <PageHeader
         title="Asistente IA"
-        description={assistantN8nActive ? 'Assistant Agent conectado a n8n/OpenAI para operar tu CRM.' : isRealMode ? 'Workspace real con Assistant Agent preparado.' : 'Conversaciones demo con IA simulada'}
+        description="Assistant Agent opera tu CRM: clientes, citas, facturas, cobros y próximas acciones."
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Mensajes reales' : 'Modo demo'}</Badge>
             <Badge variant={assistantN8nActive ? 'success' : 'warning'} dot>{assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
-            {isRealMode && <Badge variant="success" dot>Workspace real</Badge>}
+            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
+            <Badge variant="indigo" dot>Acciones con confirmación</Badge>
+            <Badge variant="warning" dot>WhatsApp siguiente fase</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
               {isRealMode ? 'Crear conversación' : 'Crear conversación demo'}
@@ -678,6 +914,39 @@ export default function AssistantPage() {
           </div>
         }
       />
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {assistantModes.map((mode) => {
+          const isActive = assistantMode === mode.id
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => setAssistantMode(mode.id)}
+              className={cn(
+                'rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md',
+                isActive
+                  ? 'border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 shadow-indigo-950/[0.04]'
+                  : 'border-gray-200 bg-white shadow-gray-950/[0.025] hover:border-indigo-100'
+              )}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500')}>
+                    {mode.id === 'inbox' ? <MessageSquare className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{mode.eyebrow}</p>
+                    <p className="text-sm font-bold text-gray-950">{mode.title}</p>
+                  </div>
+                </div>
+                <Badge variant={isActive ? 'indigo' : 'default'}>{mode.badge}</Badge>
+              </div>
+              <p className="text-xs leading-5 text-gray-600">{mode.description}</p>
+            </button>
+          )
+        })}
+      </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
         {assistantStats.map(({ label, value, detail, icon, tone }) => (
@@ -757,8 +1026,8 @@ export default function AssistantPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Crear cita')}><Phone className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Preparar propuesta')}><Mail className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Crear cita')} aria-label="Crear cita"><Phone className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Preparar propuesta')} aria-label="Preparar propuesta"><Mail className="h-3.5 w-3.5" /></Button>
                   <Button variant="secondary" size="sm" onClick={resolveConversation}>
                     <CheckCircle className="h-3.5 w-3.5" />
                     Resolver
@@ -802,7 +1071,7 @@ export default function AssistantPage() {
                             {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-gray-950">Acción preparada</p>
+                            <p className="text-sm font-bold text-gray-950">Acción preparada: {preparedAction.type === 'booking' ? 'crear cita' : 'crear factura'}</p>
                             <p className="text-[11px] text-gray-500">{preparedAction.title}</p>
                           </div>
                         </div>
@@ -812,41 +1081,46 @@ export default function AssistantPage() {
                       <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-2">
                         <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                           <span className="block text-[10px] font-semibold uppercase text-gray-400">Cliente</span>
-                          {preparedAction.clientName}
+                          {preparedAction.clientName ?? 'Pendiente'}
                         </div>
                         {preparedAction.type === 'booking' ? (
                           <>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Servicio</span>
-                              {preparedAction.service}
+                              {preparedAction.service ?? 'Pendiente'}
                             </div>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Fecha y hora</span>
-                              {preparedAction.date} · {preparedAction.time}
+                              {preparedAction.date ?? 'Fecha pendiente'} · {preparedAction.time ?? 'hora pendiente'}
                             </div>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Duración</span>
-                              {preparedAction.duration} min
+                              {preparedAction.duration ? `${preparedAction.duration} min` : 'Pendiente'}
                             </div>
                           </>
                         ) : (
                           <>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Concepto</span>
-                              {preparedAction.concept}
+                              {preparedAction.concept ?? 'Pendiente'}
                             </div>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Importe</span>
-                              {preparedAction.amount.toLocaleString('es-ES')} EUR
+                              {preparedAction.amount ? `${preparedAction.amount.toLocaleString('es-ES')} EUR` : 'Pendiente'}
                             </div>
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Vencimiento</span>
-                              {preparedAction.dueDate}
+                              {preparedAction.dueDate ?? 'Pendiente'}
                             </div>
                           </>
                         )}
                       </div>
 
+                      {preparedAction.missingFields.length > 0 && (
+                        <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50 p-2 text-xs font-medium text-amber-700">
+                          Faltan datos: {missingText(preparedAction.missingFields)}. Escríbelos en el chat para completar la acción.
+                        </p>
+                      )}
                       {preparedAction.notes && <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs leading-5 text-gray-500">{preparedAction.notes}</p>}
 
                       <div className="mt-3 flex items-center justify-end gap-2">
@@ -854,9 +1128,9 @@ export default function AssistantPage() {
                           <X className="h-3.5 w-3.5" />
                           Cancelar
                         </Button>
-                        <Button size="sm" onClick={() => void confirmPreparedAction()} loading={confirmingAction}>
+                        <Button size="sm" onClick={() => void confirmPreparedAction()} loading={confirmingAction} disabled={preparedAction.missingFields.length > 0}>
                           <CheckCircle className="h-3.5 w-3.5" />
-                          Confirmar
+                          {preparedAction.missingFields.length ? 'Faltan datos' : preparedAction.type === 'booking' ? 'Confirmar cita' : 'Confirmar factura'}
                         </Button>
                       </div>
                     </div>
@@ -881,8 +1155,8 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Pide al Assistant que consulte clientes, prepare facturas o proponga la siguiente acción..." rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
-                  <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping}>
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Pide al Assistant que prepare citas, facture, busque clientes o proponga la siguiente acción..." rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
@@ -903,7 +1177,12 @@ export default function AssistantPage() {
                   <Bot className="h-5 w-5" />
                 </div>
                 <p className="text-sm font-semibold text-gray-900">{isRealMode ? 'No hay conversaciones todavía' : 'Assistant listo'}</p>
-                <p className="mt-1 text-xs text-gray-400">{isRealMode ? 'Crea una conversación para probar Assistant Agent con n8n/OpenAI.' : 'Crea una conversación para probar la respuesta IA demo persistente.'}</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">{isRealMode ? 'Crea una conversación interna para pedirle al Assistant que prepare citas, facturas, cobros o próximas acciones.' : 'Crea una conversación para probar el Assistant interno en modo demo.'}</p>
+                <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
+                  {capabilityExamples.slice(0, 4).map((example) => (
+                    <span key={example} className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">{example}</span>
+                  ))}
+                </div>
                 <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{isRealMode ? 'Crear conversación' : 'Crear conversación demo'}</Button>
               </div>
             </div>
@@ -944,16 +1223,36 @@ export default function AssistantPage() {
               <p className="mt-1 text-[10px] text-emerald-600">Calendar tools preparadas.</p>
               <p className="mt-1 text-[10px] text-emerald-600">Confirmación requerida para escrituras.</p>
               <p className="mt-1 text-[10px] text-emerald-600">Fallback seguro disponible.</p>
+              {lastResponseSource === 'n8n' && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">Última respuesta por n8n/OpenAI</p>}
+              {lastActionStatus && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">{lastActionStatus}</p>}
               {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta por fallback</p>}
             </div>
 
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Puede ayudarte con</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'Copilot CRM' : 'Inbox Assistant'}</p>
               <div className="flex flex-wrap gap-1.5">
-                {capabilities.map((capability) => (
+                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities).map((capability) => (
                   <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>
                 ))}
               </div>
+              {assistantMode === 'copilot' ? (
+                <div className="mt-3 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase text-gray-400">Puedes pedirme</p>
+                  {capabilityExamples.map((example) => (
+                    <p key={example} className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-[11px] font-medium text-gray-700">{example}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                  Inbox Assistant es la capa para conversaciones de clientes. Ahora trabaja sobre mensajes persistentes; cuando conectes WhatsApp/Whapi, los mensajes entrantes caerán aquí.
+                </p>
+              )}
+              <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium leading-5 text-amber-800">
+                Las acciones importantes requieren confirmación antes de guardarse.
+              </p>
+              <p className="mt-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                WhatsApp/Whapi será la siguiente fase: permitirá recibir mensajes reales y convertirlos en clientes, citas o seguimientos dentro de NowCRM.
+              </p>
             </div>
 
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">

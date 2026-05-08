@@ -43,11 +43,11 @@ const activityBg: Record<ActivityType, string> = {
 }
 
 const channels = [
-  { name: 'WhatsApp', status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 62, icon: <MessageSquare className="h-4 w-4" /> },
-  { name: 'Instagram', status: 'connected', color: 'text-violet-600 bg-violet-50', leads: 35, icon: <Globe className="h-4 w-4" /> },
-  { name: 'Web Chat', status: 'connected', color: 'text-blue-600 bg-blue-50', leads: 41, icon: <Wifi className="h-4 w-4" /> },
-  { name: 'Email', status: 'connected', color: 'text-indigo-600 bg-indigo-50', leads: 22, icon: <Mail className="h-4 w-4" /> },
-  { name: 'n8n', status: 'pending', color: 'text-amber-600 bg-amber-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
+  { name: 'Assistant n8n/OpenAI', status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
+  { name: 'Web Chat', status: 'prepared', color: 'text-blue-600 bg-blue-50', leads: 0, icon: <Wifi className="h-4 w-4" /> },
+  { name: 'WhatsApp / Whapi', status: 'pending', color: 'text-amber-600 bg-amber-50', leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
+  { name: 'Instagram', status: 'pending', color: 'text-violet-600 bg-violet-50', leads: 0, icon: <Globe className="h-4 w-4" /> },
+  { name: 'Email / Resend', status: 'pending', color: 'text-indigo-600 bg-indigo-50', leads: 0, icon: <Mail className="h-4 w-4" /> },
 ]
 
 const aiActions = [
@@ -161,7 +161,7 @@ export default function DashboardPage() {
           </div>
           {realStats && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {['Clientes reales', 'Facturación real', 'Calendario real', 'IA mock persistente', 'n8n preparado'].map((label) => (
+              {['Clientes reales', 'Facturación real', 'Calendario real', 'Assistant n8n/OpenAI', 'n8n preparado'].map((label) => (
                 <span key={label} className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{label}</span>
               ))}
             </div>
@@ -263,7 +263,7 @@ export default function DashboardPage() {
 
         <div className="space-y-4">
           {/* Channels connected */}
-          <SectionCard title="Canales conectados" description="Estado en tiempo real">
+          <SectionCard title="Canales e integraciones" description="Conectado ahora y siguiente fase">
             <ul className="space-y-2">
               {channels.map((ch) => (
                 <li key={ch.name} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50">
@@ -274,7 +274,9 @@ export default function DashboardPage() {
                   </div>
                   {ch.status === 'connected'
                     ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    : <Badge variant="warning" className="text-[10px]">Pendiente</Badge>
+                    : ch.status === 'prepared'
+                      ? <Badge variant="indigo" className="text-[10px]">Preparado</Badge>
+                      : <Badge variant="warning" className="text-[10px]">Pendiente</Badge>
                   }
                 </li>
               ))}

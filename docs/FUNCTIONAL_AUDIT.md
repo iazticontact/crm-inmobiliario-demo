@@ -13,7 +13,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 | Auth | Login, signup, callback, reset password y logout usan Supabase. Demo mode sigue entrando a `/dashboard`. | Real + demo | Confirm email puede estar OFF en local; middleware server no implementado. | Activar confirm email con dominio/Resend y cerrar proteccion server. |
 | Usuario/workspace | Sidebar, Topbar, Dashboard y Settings usan usuario/workspace real con fallback a metadata/demo. | Mixto | Si profile/workspace falta por RLS, usa fallback. | Tipos DB generados y helper server compartido. |
 | Dashboard | Lee clientes, facturas, eventos, conversaciones y activities si hay workspace real. | Mixto | Insights/grafica semanal siguen mock. | KPIs historicos reales y analytics por fecha. |
-| Assistant | Carga conversations/messages reales, guarda mensajes y usa n8n/OpenAI real cuando `assistant_message` esta activo; si falla, usa IA demo. | Mixto | Schema `messages` debe aceptar `sender` o ajustarse. | Ampliar contexto del agente y tools desde n8n. |
+| Assistant | Carga conversations/messages reales, guarda mensajes y usa n8n/OpenAI real cuando `assistant_message` esta activo. Detecta intenciones locales para reservas/facturas, prepara cards con confirmacion y usa tools seguras para lecturas. | Mixto avanzado | Schema `messages` debe aceptar `sender` o ajustarse; disponibilidad avanzada de calendario no calcula huecos complejos. | Conectar WhatsApp/Whapi y ampliar workflows operativos. |
 | Clients | CRUD real de clients, notas incluidas, confirmacion de borrado y fallback demo. | Real + demo | Falta detalle avanzado y importacion. | Vista detalle, tags y pipeline. |
 | Automations | UI premium alineada con `n8n_flows`, pruebas via `/api/n8n/trigger` y fallback demo. | Mixto | Las metricas/email history siguen mock. | Migrar `automations` reales si se necesita producto completo. |
 | Calendar | CRUD real de `calendar_events`, modal, loading, empty state y fallback demo. | Real + demo | Semana demo fija para vista principal. | Calendario por fecha actual y sincronizacion externa. |
@@ -31,7 +31,9 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 - CRUD real de clientes con notas.
 - CRUD real de facturas y metricas basicas reales.
 - CRUD real de eventos de calendario.
-- Persistencia de conversations/messages en Assistant con respuesta n8n/OpenAI real si el flujo esta activo y fallback IA demo.
+- Persistencia de conversations/messages en Assistant con respuesta n8n/OpenAI real si el flujo esta activo y fallback seguro.
+- Cards operativas del Assistant para preparar citas/facturas sin escribir hasta confirmar.
+- Lecturas de Agent Tools desde Assistant para resumen, cobros, huecos y proximas acciones.
 - Activities best-effort para acciones importantes.
 - API route interna para probar/disparar n8n sin exponer secretos.
 - Dashboard mezcla datos reales disponibles con widgets demo.
@@ -54,15 +56,17 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 - Algunas tablas dependen de que el schema de Supabase tenga las columnas esperadas. Si no, hay fallback/documentacion en `SUPABASE_SCHEMA_NOTES.md`.
 - Settings persiste toggles/endpoints n8n e integraciones si las tablas tienen el schema esperado; si no, mantiene fallback demo.
 - La vista semanal de calendario conserva fechas demo fijas; los eventos reales se listan y persisten, pero el grid principal no es calendario dinamico completo.
-- Assistant ya puede usar n8n/OpenAI real para `assistant_message`; si el webhook falla, cae a mock local.
+- Assistant ya puede usar n8n/OpenAI real para `assistant_message`; si el webhook falla, mantiene estado real y usa fallback seguro.
+- Las cards de cita/factura dependen de parsing heuristico simple; frases complejas pueden necesitar aclaracion manual.
 
 ## Prioridad antes de n8n
 
 1. Verificar columnas reales de `invoices`, `calendar_events`, `conversations`, `messages`, `activities`, `n8n_flows` e `integrations`.
 2. Generar tipos Supabase y ajustar helpers a schema definitivo.
-3. Persistir `n8n_flows` e `integrations` desde Settings.
-4. Definir auth/firma para webhooks internos.
-5. Conectar el siguiente workflow n8n real: nuevo lead o factura vencida.
+3. Ensayar demo de Assistant operativo con reservas y facturas.
+4. Persistir `n8n_flows` e `integrations` desde Settings.
+5. Definir auth/firma para webhooks internos.
+6. Conectar el siguiente workflow n8n real: nuevo lead o factura vencida.
 
 ## Plan recomendado para hacer todo funcional
 
@@ -81,8 +85,9 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 ### Fase 3: Assistant persistente
 
 - Mantener persistence actual de messages.
-- Crear API route IA real.
-- Construir contexto con clients, billing, calendar y conversations.
+- Mantener n8n/OpenAI como backend IA principal.
+- Usar deteccion local para intenciones operativas simples.
+- Convertir actions cards en ejecuciones reales confirmadas con calendario, facturacion y clientes.
 
 ### Fase 4: n8n webhooks
 

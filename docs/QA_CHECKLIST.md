@@ -38,6 +38,7 @@
 
 - Cargar `/calendar`.
 - Crear evento.
+- Confirmar que eventos creados desde Assistant aparecen tras recargar.
 - Editar evento.
 - Eliminar evento.
 - Recargar y verificar persistencia.
@@ -46,13 +47,26 @@
 ## Assistant
 
 - Cargar `/assistant`.
-- Crear conversacion demo/real.
-- Enviar mensaje.
+- Verificar que no aparece flash demo con usuario real.
+- Verificar badges: `Mensajes reales`, `n8n/OpenAI activo`, `Workspace real`.
+- Crear conversacion real.
+- Enviar `Hola buenas, ¿con quién hablo?`.
+- Enviar `Soy una peluquería y quiero que la IA gestione reservas`.
+- Verificar respuesta corta y operativa sobre reservas.
+- Enviar `Reserva a Ana mañana a las 10 para corte`.
+- Verificar card `Acción preparada` con datos faltantes y confirmacion bloqueada si falta duracion.
+- Enviar `30 minutos`, confirmar card y comprobar evento en `/calendar`.
+- Enviar `Crea una factura a Ana de 299€ por Plan Pro`.
+- Verificar card de factura y confirmacion bloqueada si falta vencimiento.
 - Con flujo `assistant_message` activo, verificar respuesta n8n/OpenAI y mensaje assistant guardado.
-- Si n8n falla, verificar fallback IA demo.
-- Probar quick action `Probar agente`.
+- Si n8n falla, verificar fallback seguro sin cambiar la pantalla a demo.
 - Probar quick action `Resumen cliente`.
 - Probar quick action `Proxima accion`.
+- Probar quick action `Crear cita`.
+- Probar quick action `Buscar hueco`.
+- Probar quick action `Crear factura`.
+- Probar quick action `Revisar cobros`.
+- Probar quick action `Buscar cliente`.
 - Probar quick action `Probar n8n`.
 - Recargar y verificar mensajes persistentes con usuario real.
 - Marcar conversacion como resuelta.
@@ -100,7 +114,15 @@
 
 - Comprobar KPIs con usuario real.
 - Comprobar activities recientes si existen.
-- Confirmar badges de datos reales/IA mock/n8n preparado.
+- Confirmar badges de datos reales, Assistant n8n/OpenAI y n8n preparado.
+
+## Lockdown antes de demo
+
+- No tocar `.env.local`.
+- No cambiar el webhook real de n8n.
+- No editar RLS ni redirects de Supabase si todo funciona.
+- No instalar paquetes.
+- Revisar `docs/DEMO_LOCKDOWN.md`.
 
 ## Deploy
 

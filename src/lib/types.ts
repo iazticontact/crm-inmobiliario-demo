@@ -143,3 +143,19 @@ export type IntegrationSetting = {
   category: string
   info?: string
 }
+
+export type DocumentType = 'client_file' | 'invoice_pdf' | 'proposal_pdf' | 'conversation_attachment' | 'workspace_asset'
+
+export type WorkspaceDocument = {
+  id: string
+  workspaceId: string
+  clientId?: string
+  title: string
+  type: DocumentType
+  storageBucket: string
+  storagePath: string
+  mimeType?: string
+  size?: number
+  createdBy?: string
+  createdAt?: string
+}

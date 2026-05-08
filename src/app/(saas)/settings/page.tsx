@@ -57,11 +57,12 @@ const integrations: IntegrationCard[] = [
   { id: 'supabase', name: 'Supabase', description: 'Auth, datos reales y persistencia por workspace.', status: 'connected', icon: <Database className="h-5 w-5" />, category: 'Core' },
   { id: 'agent-tools', name: 'AI Agent Tools', description: 'API interna para que n8n/OpenAI consulte y ejecute acciones CRM controladas.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'IA' },
   { id: 'n8n', name: 'n8n', description: 'Capa de automatizacion por webhooks y workflows externos.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Canal preparado para Meta Cloud API y leads conversacionales.', status: 'demo_ready', icon: <MessageSquare className="h-5 w-5" />, info: '+34 612 345 678', category: 'Mensajeria' },
+  { id: 'whatsapp', name: 'WhatsApp / Whapi', description: 'Siguiente fase: QR, webhook Whapi y n8n para mensajes entrantes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente QR + webhook', category: 'Mensajeria' },
   { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja social preparada para mensajes y leads de Instagram.', status: 'pending', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
   { id: 'email', name: 'Email / Resend', description: 'Emails transaccionales y secuencias cuando exista dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
   { id: 'resend', name: 'Resend', description: 'SMTP transaccional para confirmaciones y reset con dominio.', status: 'pending_config', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'openai', name: 'OpenAI / IA', description: 'Proveedor IA futuro o n8n como backend de assistant.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
+  { id: 'openai', name: 'OpenAI / IA', description: 'Activo dentro del workflow n8n Assistant Agent. La key no vive en NowCRM.', status: 'demo_connected', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
+  { id: 'storage', name: 'Documents / PDFs', description: 'Supabase Storage preparado para propuestas, facturas PDF y adjuntos futuros.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
   { id: 'stripe', name: 'Stripe Payments', description: 'Cobros, suscripciones y eventos de pago para fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
   { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
@@ -70,7 +71,7 @@ const architectureCards = [
   { title: 'Supabase', label: 'Auth y datos reales', detail: 'Conectado', icon: <Database className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
   { title: 'n8n', label: 'Webhooks y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
   { title: 'Agent Tools', label: 'Tools CRM seguras', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
-  { title: 'Canales', label: 'Meta, Email, Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Canales', label: 'Whapi, Email, Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
 const notifDefaults = [
@@ -85,21 +86,23 @@ const supabaseReadiness = [
   { label: 'Clients', value: 'Real', status: 'CRUD Supabase con notas y fallback demo' },
   { label: 'Billing', value: 'Real', status: 'Facturas persistentes y metricas basicas' },
   { label: 'Calendar', value: 'Real', status: 'Eventos persistentes por workspace' },
-  { label: 'Assistant', value: 'Mixto', status: 'Mensajes reales e IA mock inteligente' },
+  { label: 'Assistant', value: 'Real + n8n', status: 'Mensajes reales y Assistant Agent conectado a n8n/OpenAI' },
   { label: 'AI Agent Tools', value: 'Preparado', status: 'POST /api/agent/tool con allowlist' },
-  { label: 'OpenAI', value: 'Pendiente', status: 'Configurar en n8n Credentials' },
-  { label: 'n8n Agent', value: 'Pendiente', status: 'Webhook real para assistant/tools' },
+  { label: 'OpenAI', value: 'Via n8n', status: 'Key solo en n8n Credentials' },
+  { label: 'n8n Agent', value: 'Activo', status: 'assistant_message real conectado' },
+  { label: 'Storage', value: 'Preparado', status: 'Buckets/documentos definidos para siguiente fase' },
   { label: 'Dashboard', value: 'Mixto', status: 'KPIs reales con widgets demo' },
   { label: 'n8n', value: 'Preparado', status: 'API route interna y flows configurables' },
-  { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend, IA real y deploy' },
+  { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend y deploy' },
 ]
 
 const productStatusCards = [
   { label: 'Core CRM', value: 'Real', detail: 'Auth, workspace, clients, billing y calendar', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { label: 'Assistant', value: 'Persistente', detail: 'Conversaciones reales con respuesta mock', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'Assistant', value: 'n8n/OpenAI', detail: 'Conversaciones reales con fallback seguro', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
   { label: 'Agent Tools', value: 'Ready', detail: 'Tools allowlist para n8n/OpenAI', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+  { label: 'Documents', value: 'Preparado', detail: 'Storage/PDFs como siguiente fase', tone: 'border-blue-100 bg-blue-50 text-blue-700' },
   { label: 'n8n', value: 'Configurable', detail: 'Endpoints y estados por flujo', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-  { label: 'Canales', value: 'Pendiente', detail: 'WhatsApp/Meta/Email/Stripe por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+  { label: 'Canales', value: 'Pendiente', detail: 'Whapi/Email/Stripe por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
 const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
@@ -766,7 +769,7 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="WhatsApp Business" description="Canal preparado para leads entrantes y conversaciones">
+          <SectionCard title="WhatsApp / Whapi" description="Siguiente fase para leads entrantes y reservas por chat">
             <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
               <div>
                 <div className="mb-4 flex items-start gap-4">
@@ -775,12 +778,12 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">Meta Cloud API</p>
-                      <Badge variant="indigo" dot>Demo preparada</Badge>
+                      <p className="text-sm font-semibold text-gray-900">Whapi por QR</p>
+                      <Badge variant="warning" dot>Pendiente conectar</Badge>
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500">Sin proveedor Meta real todavia</p>
+                    <p className="mt-0.5 text-xs text-gray-500">Sin QR ni webhook WhatsApp real todavia</p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      El boton genera un lead mock y valida el flujo que luego podra crear registros reales en Supabase y disparar n8n.
+                      Conecta un canal Whapi por QR para recibir mensajes de WhatsApp en NowCRM. El boton actual simula un lead y valida el flujo que luego pasara por n8n.
                     </p>
                   </div>
                 </div>
@@ -794,7 +797,7 @@ export default function SettingsPage() {
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
                 <p className="text-xs font-semibold text-emerald-900">Flujo objetivo</p>
                 <div className="mt-3 space-y-2">
-                  {['Mensaje entrante', 'Cliente/conversacion real', 'Respuesta IA', 'Webhook n8n'].map((step, index) => (
+                  {['Mensaje WhatsApp', 'Whapi webhook', 'n8n + OpenAI', 'NowCRM tools'].map((step, index) => (
                     <div key={step} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
                       <span className="text-xs text-emerald-800">{step}</span>
@@ -876,7 +879,8 @@ export default function SettingsPage() {
               {[
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM reales' },
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Fallback demo disponible' },
-                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'IA/n8n externos pendientes' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Assistant n8n/OpenAI activo' },
+                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Whapi/Stripe/Resend pendientes' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   {item.icon}

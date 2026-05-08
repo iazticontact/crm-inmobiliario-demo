@@ -60,13 +60,22 @@ Columnas usadas:
 Columnas usadas:
 
 - `id`
+- `workspace_id`
 - `conversation_id`
 - `content`
 - `sender`
 - `role`
+- `metadata`
 - `created_at`
 
-El helper inserta `sender` y `role` para tolerar ambos estilos. Si tu tabla solo tiene `sender`, el fallback elimina `role`. Si solo tiene `role`, ajusta el helper para eliminar `sender`.
+El helper inserta `workspace_id`, `sender`, `role` y `metadata` cuando existen. Si tu tabla todavia no tiene `workspace_id`, `role` o `metadata`, el fallback elimina esas columnas y mantiene la escritura basica por `conversation_id`.
+
+Recomendacion para persistencia robusta del Assistant:
+
+- Mantener `workspace_id` en `messages`.
+- Filtrar lecturas por `conversation_id` y `workspace_id`.
+- Crear indice `(workspace_id, conversation_id, created_at)`.
+- RLS: permitir select/insert si el usuario pertenece al workspace.
 
 ## `activities`
 
@@ -127,6 +136,65 @@ Estados normalizados: `connected`, `demo_connected`, `demo_ready`, `disconnected
 No es necesaria para la demo actual. Se recomienda si se quiere auditoria avanzada de ejecuciones n8n.
 
 Ver `docs/supabase-optional-migrations.sql`.
+
+## `agent_action_logs` opcional
+
+Recomendada si se quiere auditar acciones preparadas/confirmadas por Assistant:
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `tool`
+- `status`
+- `input jsonb`
+- `result jsonb`
+- `error_message`
+- `created_at`
+
+Estados recomendados: `prepared`, `confirmed`, `skipped`, `error`.
+
+Tambien se recomiendan indices por `workspace_id` y fecha en `clients`, `invoices`, `calendar_events`, `n8n_trigger_logs` y `agent_action_logs`.
+
+## Supabase Storage recomendado
+
+Buckets recomendados para la siguiente fase:
+
+- `client-files`: documentos asociados a clientes.
+- `invoice-pdfs`: PDFs de facturas generadas.
+- `proposal-pdfs`: propuestas comerciales.
+- `conversation-attachments`: adjuntos de conversaciones/WhatsApp.
+- `workspace-assets`: logos, plantillas e imagenes del workspace.
+
+Politicas recomendadas:
+
+- Rutas prefijadas por workspace, por ejemplo `workspace_id/client_id/file.pdf`.
+- Select/read solo para miembros del workspace.
+- Insert/update/delete solo para miembros autorizados del workspace.
+- No usar buckets publicos salvo assets estrictamente publicos.
+
+## `documents` recomendado
+
+Tabla recomendada para indexar archivos de Storage:
+
+- `id`
+- `workspace_id`
+- `client_id` nullable
+- `title`
+- `type`
+- `storage_bucket`
+- `storage_path`
+- `mime_type`
+- `size`
+- `created_by`
+- `created_at`
+
+Tipos sugeridos: `client_file`, `invoice_pdf`, `proposal_pdf`, `conversation_attachment`, `workspace_asset`.
+
+Helpers preparados en codigo:
+
+- `listDocuments(workspaceId, clientId?)`
+- `createDocumentRecord(workspaceId, payload)`
+- `getSignedDocumentUrl(document)`
 
 ## Pendiente recomendado
 

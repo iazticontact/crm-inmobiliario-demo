@@ -18,6 +18,7 @@ import type {
   N8nFlow,
   N8nFlowStatus,
   N8nRequirement,
+  WorkspaceDocument,
 } from '@/lib/types'
 
 export type ProfileRecord = {
@@ -85,6 +86,7 @@ export type ConversationPayload = {
 export type MessagePayload = {
   content: string
   sender: MessageSender
+  metadata?: Record<string, unknown>
 }
 
 export type ActivityPayload = {
@@ -110,6 +112,17 @@ export type IntegrationPayload = {
   status?: IntegrationStatus
   category?: string
   info?: string
+}
+
+export type DocumentPayload = {
+  clientId?: string
+  title: string
+  type: WorkspaceDocument['type']
+  storageBucket: string
+  storagePath: string
+  mimeType?: string
+  size?: number
+  createdBy?: string
 }
 
 type DataRecord = Record<string, unknown>
@@ -734,6 +747,45 @@ export async function updateConversation(id: string, payload: Partial<Conversati
   return mapSupabaseConversation(data as DataRecord)
 }
 
+export async function updateConversationScoped(id: string, workspaceId: string, payload: Partial<ConversationPayload>) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = {
+    last_message: payload.lastMessage,
+    unread: payload.unread,
+    sentiment: payload.sentiment,
+    intent: payload.intent,
+    updated_at: new Date().toISOString(),
+  }
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined) delete row[key]
+  })
+
+  let result = await supabase
+    .from('conversations')
+    .update(row)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+
+  if (result.error && result.error.message.toLowerCase().includes('updated_at')) {
+    const fallbackRow = { ...row }
+    delete fallbackRow.updated_at
+    result = await supabase
+      .from('conversations')
+      .update(fallbackRow)
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .select('*')
+      .single()
+  }
+
+  if (result.error) throw result.error
+  return mapSupabaseConversation(result.data as DataRecord)
+}
+
 export async function markConversationResolved(id: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
@@ -759,52 +811,95 @@ export function mapSupabaseMessage(row: DataRecord): Message {
   }
 }
 
-export async function getConversationMessages(conversationId: string) {
+export async function getConversationMessages(conversationId: string, workspaceId?: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('messages')
     .select('*')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
 
+  if (workspaceId) query = query.eq('workspace_id', workspaceId)
+  let { data, error } = await query
+
+  if (error && workspaceId && error.message.toLowerCase().includes('workspace_id')) {
+    const retry = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+    data = retry.data
+    error = retry.error
+  }
+
   if (error) throw error
   return ((data as DataRecord[] | null) ?? []).map(mapSupabaseMessage)
 }
 
-export async function createMessage(conversationId: string, payload: MessagePayload) {
+export async function createMessage(conversationId: string, payload: MessagePayload, workspaceId?: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const row = {
+  const baseRow: DataRecord = {
     conversation_id: conversationId,
+    workspace_id: workspaceId || undefined,
     content: payload.content.trim(),
     sender: payload.sender,
     role: payload.sender === 'ai' ? 'assistant' : payload.sender,
+    metadata: payload.metadata,
   }
+  Object.keys(baseRow).forEach((key) => {
+    if (baseRow[key] === undefined) delete baseRow[key]
+  })
 
-  let result = await supabase
-    .from('messages')
-    .insert(row)
-    .select('*')
-    .single()
+  const variants: DataRecord[] = [
+    baseRow,
+    { ...baseRow, role: undefined },
+    { ...baseRow, metadata: undefined },
+    { ...baseRow, workspace_id: undefined },
+    {
+      conversation_id: conversationId,
+      content: payload.content.trim(),
+      sender: payload.sender,
+    },
+  ].map((row) => {
+    const next = { ...row }
+    Object.keys(next).forEach((key) => {
+      if (next[key] === undefined) delete next[key]
+    })
+    return next
+  })
 
-  if (result.error && result.error.message.toLowerCase().includes('role')) {
-    const fallbackRow = {
-      conversation_id: row.conversation_id,
-      content: row.content,
-      sender: row.sender,
-    }
-    result = await supabase
+  let lastError: unknown = null
+  for (const row of variants) {
+    const result = await supabase
       .from('messages')
-      .insert(fallbackRow)
+      .insert(row)
       .select('*')
       .single()
+
+    if (!result.error) return mapSupabaseMessage(result.data as DataRecord)
+    lastError = result.error
   }
 
-  if (result.error) throw result.error
-  return mapSupabaseMessage(result.data as DataRecord)
+  throw lastError
+}
+
+export async function ensureAssistantConversation(workspaceId: string) {
+  const conversations = await getConversations(workspaceId)
+  if (conversations.length) return conversations[0]
+
+  return createConversation(workspaceId, {
+    clientName: 'Consulta CRM',
+    clientAvatar: 'CRM',
+    channel: 'Web',
+    sentiment: 'neutral',
+    intent: 'Operación comercial',
+    lastMessage: 'Conversacion interna iniciada.',
+    unread: true,
+  })
 }
 
 export function mapSupabaseActivity(row: DataRecord): Activity {
@@ -849,6 +944,84 @@ export async function createActivity(workspaceId: string, payload: ActivityPaylo
 
   if (error) return null
   return mapSupabaseActivity(data as DataRecord)
+}
+
+export function mapSupabaseDocument(row: DataRecord): WorkspaceDocument {
+  return {
+    id: asString(row.id),
+    workspaceId: asString(row.workspace_id),
+    clientId: asString(row.client_id) || undefined,
+    title: asString(row.title, 'Documento'),
+    type: normalizeDocumentType(row.type),
+    storageBucket: asString(row.storage_bucket),
+    storagePath: asString(row.storage_path),
+    mimeType: asString(row.mime_type) || undefined,
+    size: asNumber(row.size, 0) || undefined,
+    createdBy: asString(row.created_by) || undefined,
+    createdAt: asString(row.created_at) || undefined,
+  }
+}
+
+function normalizeDocumentType(value: unknown): WorkspaceDocument['type'] {
+  if (value === 'client_file' || value === 'invoice_pdf' || value === 'proposal_pdf' || value === 'conversation_attachment' || value === 'workspace_asset') return value
+  return 'client_file'
+}
+
+function toDocumentRow(workspaceId: string, payload: DocumentPayload): DataRecord {
+  return {
+    workspace_id: workspaceId,
+    client_id: payload.clientId || null,
+    title: payload.title.trim(),
+    type: payload.type,
+    storage_bucket: payload.storageBucket,
+    storage_path: payload.storagePath,
+    mime_type: payload.mimeType || null,
+    size: payload.size ?? null,
+    created_by: payload.createdBy || null,
+  }
+}
+
+export async function listDocuments(workspaceId: string, clientId?: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  let query = supabase
+    .from('documents')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+
+  if (clientId) query = query.eq('client_id', clientId)
+  const { data, error } = await query
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseDocument)
+}
+
+export async function createDocumentRecord(workspaceId: string, payload: DocumentPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { data, error } = await supabase
+    .from('documents')
+    .insert(toDocumentRow(workspaceId, payload))
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseDocument(data as DataRecord)
+}
+
+export async function getSignedDocumentUrl(document: Pick<WorkspaceDocument, 'storageBucket' | 'storagePath'>, expiresIn = 60 * 10) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { data, error } = await supabase
+    .storage
+    .from(document.storageBucket)
+    .createSignedUrl(document.storagePath, expiresIn)
+
+  if (error) throw error
+  return data.signedUrl
 }
 
 export function mapSupabaseN8nFlow(row: DataRecord): N8nFlow {

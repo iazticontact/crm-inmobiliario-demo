@@ -45,23 +45,45 @@ Respuesta:
 }
 ```
 
-## Tools disponibles
+## Dos roles de Assistant
+
+### Inbox Assistant / Conversaciones
+
+Gestiona conversaciones con clientes/leads. Es la capa preparada para WhatsApp/Whapi futuro: mensajes entrantes, intención, sentimiento, respuestas sugeridas y conversión de conversaciones en acciones.
+
+### CRM Copilot / Asistente interno
+
+Empleado interno del CRM. El usuario le pide buscar clientes, resumir cuentas, preparar citas, crear facturas con confirmación, revisar cobros, proponer próximas acciones y preparar documentos cuando Storage esté listo.
+
+## Tools disponibles por categoria
+
+### Lectura segura
 
 - `get_workspace_summary`
 - `search_clients`
 - `get_client_summary`
 - `get_client_detail`
+- `list_invoices`
+- `list_calendar_events`
+- `list_conversations`
+- `get_next_best_actions`
+
+### Escritura con confirmacion
+
 - `create_client`
 - `update_client`
 - `create_invoice`
 - `mark_invoice_paid`
-- `list_invoices`
 - `create_calendar_event`
-- `list_calendar_events`
-- `list_conversations`
 - `save_message`
 - `create_activity`
-- `get_next_best_actions`
+
+### Futuras tools con Storage
+
+- `create_proposal_document`
+- `generate_invoice_pdf`
+- `attach_file_to_client`
+- `list_client_documents`
 
 ## Seguridad
 
@@ -109,6 +131,18 @@ Flujo actual:
 
 NowCRM no contiene la API key de OpenAI. La clave vive solo en n8n Credentials.
 
+## Storage / Documents readiness
+
+Supabase Storage queda como siguiente fase para propuestas, PDFs de factura y adjuntos de conversaciones. Buckets recomendados:
+
+- `client-files`
+- `invoice-pdfs`
+- `proposal-pdfs`
+- `conversation-attachments`
+- `workspace-assets`
+
+El CRM debe indexar esos archivos en una tabla `documents` con `workspace_id`, `client_id`, `storage_bucket`, `storage_path`, `mime_type` y `size`. Las tools futuras deben crear primero el archivo en Storage y después registrar el documento.
+
 ## OpenAI dentro de n8n
 
 Prompt recomendado:
@@ -130,9 +164,9 @@ Ejemplos de usuario:
 
 ## Proximos pasos
 
-1. Pasar URL real de n8n.
-2. Crear workflow `assistant_message`.
-3. Anadir nodo OpenAI dentro de n8n.
-4. Permitir que OpenAI decida tool + input.
-5. Ejecutar tool con `x-nowcrm-secret`.
-6. Devolver `suggested_response` a NowCRM.
+1. Mantener `assistant_message` como workflow real.
+2. Conectar Whapi para Inbox Assistant.
+3. Permitir que OpenAI decida tool + input en n8n.
+4. Ejecutar tool con `x-nowcrm-secret`.
+5. Crear buckets Storage y tabla `documents`.
+6. Añadir tools de documentos/PDFs.
