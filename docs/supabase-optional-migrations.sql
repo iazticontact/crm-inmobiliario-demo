@@ -73,7 +73,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = conversations.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -95,7 +95,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = conversations.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -117,7 +117,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = conversations.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     )
     with check (
@@ -125,7 +125,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = conversations.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -176,7 +176,7 @@ using (
     select 1
     from public.profiles p
     where p.workspace_id = n8n_trigger_logs.workspace_id
-      and p.user_id = auth.uid()
+      and p.id = auth.uid()
   )
 );
 
@@ -188,7 +188,7 @@ with check (
     select 1
     from public.profiles p
     where p.workspace_id = n8n_trigger_logs.workspace_id
-      and p.user_id = auth.uid()
+      and p.id = auth.uid()
   )
 );
 
@@ -214,7 +214,7 @@ using (
     select 1
     from public.profiles p
     where p.workspace_id = agent_action_logs.workspace_id
-      and p.user_id = auth.uid()
+      and p.id = auth.uid()
   )
 );
 
@@ -226,7 +226,7 @@ with check (
     select 1
     from public.profiles p
     where p.workspace_id = agent_action_logs.workspace_id
-      and p.user_id = auth.uid()
+      and p.id = auth.uid()
   )
 );
 
@@ -300,7 +300,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = messages.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -322,7 +322,37 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = messages.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'messages'
+      and policyname = 'messages can be updated by workspace members'
+  ) then
+    create policy "messages can be updated by workspace members"
+    on public.messages
+    for update
+    using (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = messages.workspace_id
+          and p.id = auth.uid()
+      )
+    )
+    with check (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = messages.workspace_id
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -385,7 +415,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = documents.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;
@@ -407,7 +437,7 @@ begin
         select 1
         from public.profiles p
         where p.workspace_id = documents.workspace_id
-          and p.user_id = auth.uid()
+          and p.id = auth.uid()
       )
     );
   end if;

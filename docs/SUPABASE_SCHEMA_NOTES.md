@@ -115,7 +115,7 @@ Recomendacion para persistencia robusta del Assistant:
 - Filtrar conversaciones por modo usando `intent` y `channel`.
 - Crear indice `(workspace_id, intent, updated_at)`.
 - Crear indice `(workspace_id, conversation_id, created_at)`.
-- RLS: permitir select/insert si el usuario pertenece al workspace.
+- RLS: permitir select/insert/update si el usuario pertenece al workspace usando `profiles.id = auth.uid()` y `profiles.workspace_id = <tabla>.workspace_id`.
 
 ## `activities`
 

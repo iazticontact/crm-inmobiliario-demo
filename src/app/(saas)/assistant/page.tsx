@@ -18,6 +18,7 @@ import {
   createAssistantConversation,
   createInvoice,
   createMessage,
+  getAssistantConversationById,
   getAssistantConversations,
   getConversationMessages,
   getN8nFlows,
@@ -138,6 +139,11 @@ type PersistenceDiagnostics = {
   lastReadConversationsStatus: string
   lastReadMessagesStatus: string
   lastSupabaseError: string
+  totalConversationsForWorkspace: number
+  filteredConversationsForMode: number
+  queryMode: string
+  lastCreatedConversationId: string
+  lastCreatedMessageId: string
 }
 
 const initialDiagnostics: PersistenceDiagnostics = {
@@ -146,6 +152,11 @@ const initialDiagnostics: PersistenceDiagnostics = {
   lastReadConversationsStatus: 'Sin probar',
   lastReadMessagesStatus: 'Sin probar',
   lastSupabaseError: '',
+  totalConversationsForWorkspace: 0,
+  filteredConversationsForMode: 0,
+  queryMode: 'none',
+  lastCreatedConversationId: '',
+  lastCreatedMessageId: '',
 }
 
 function nowTime() {
@@ -445,6 +456,9 @@ export default function AssistantPage() {
           lastReadConversationsStatus: 'Sin sesión real',
           lastReadMessagesStatus: 'Sin sesión real',
           lastSupabaseError: isDemoMode ? '' : 'No se ha encontrado sesión real.',
+          totalConversationsForWorkspace: 0,
+          filteredConversationsForMode: 0,
+          queryMode: isDemoMode ? 'demo' : 'no-session',
         })
         if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se ha encontrado un workspace real.' })
         return
@@ -458,13 +472,17 @@ export default function AssistantPage() {
         try {
           realConversations = await getAssistantConversations(resolvedWorkspaceId)
           updateDiagnostics({
-            lastReadConversationsStatus: `OK: ${realConversations.length} conversación(es)`,
+            lastReadConversationsStatus: `OK workspace: ${realConversations.length} conversación(es)`,
             lastSupabaseError: '',
+            totalConversationsForWorkspace: realConversations.length,
+            queryMode: `workspace_id=${resolvedWorkspaceId}`,
           })
         } catch (error) {
           updateDiagnostics({
             lastReadConversationsStatus: 'ERROR leyendo conversations',
             lastSupabaseError: safeErrorMessage(error),
+            totalConversationsForWorkspace: 0,
+            queryMode: `workspace_id=${resolvedWorkspaceId}`,
           })
           realConversations = []
         }
@@ -472,6 +490,9 @@ export default function AssistantPage() {
         updateDiagnostics({
           lastReadConversationsStatus: 'ERROR: workspaceId null',
           lastSupabaseError: 'Usuario real sin workspaceId resuelto.',
+          totalConversationsForWorkspace: 0,
+          filteredConversationsForMode: 0,
+          queryMode: 'workspaceId=null',
         })
       }
       setConversationList(realConversations)
@@ -513,6 +534,9 @@ export default function AssistantPage() {
         lastReadConversationsStatus: isDemoMode ? 'Modo demo' : 'ERROR contexto workspace',
         lastReadMessagesStatus: isDemoMode ? 'Modo demo' : 'No intentado',
         lastSupabaseError: isDemoMode ? '' : safeErrorMessage(error),
+        totalConversationsForWorkspace: 0,
+        filteredConversationsForMode: 0,
+        queryMode: isDemoMode ? 'demo' : 'context-error',
       })
       if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
     } finally {
@@ -909,7 +933,11 @@ export default function AssistantPage() {
             ...payload,
             metadata: { source: 'assistant_new_conversation', assistant_mode: assistantMode },
           })
-          updateDiagnostics({ lastCreateConversationStatus: `OK conversation: ${created.id}`, lastSupabaseError: '' })
+          updateDiagnostics({
+            lastCreateConversationStatus: `OK conversation: ${created.id}`,
+            lastCreatedConversationId: created.id,
+            lastSupabaseError: '',
+          })
         } catch (error) {
           updateDiagnostics({
             lastCreateConversationStatus: 'ERROR creando conversation',
@@ -924,7 +952,11 @@ export default function AssistantPage() {
             sender: isCopilot ? 'ai' : 'client',
             metadata: { source: 'assistant_new_conversation', assistant_mode: assistantMode },
           }, workspaceId)
-          updateDiagnostics({ lastCreateMessageStatus: `OK initial message: ${createdMessage.id}`, lastSupabaseError: '' })
+          updateDiagnostics({
+            lastCreateMessageStatus: `OK initial message: ${createdMessage.id}`,
+            lastCreatedMessageId: createdMessage.id,
+            lastSupabaseError: '',
+          })
         } catch (error) {
           updateDiagnostics({
             lastCreateMessageStatus: 'ERROR creando mensaje inicial',
@@ -988,24 +1020,37 @@ export default function AssistantPage() {
         unread: false,
         metadata: { source: 'assistant_persistence_test', assistant_mode: assistantMode },
       })
-      updateDiagnostics({ lastCreateConversationStatus: `OK conversation: ${created.id}`, lastSupabaseError: '' })
+      updateDiagnostics({
+        lastCreateConversationStatus: `OK conversation: ${created.id}`,
+        lastCreatedConversationId: created.id,
+        lastSupabaseError: '',
+      })
 
       const createdMessage = await createMessage(created.id, {
         content: testMessage,
         sender: assistantMode === 'copilot' ? 'agent' : 'client',
         metadata: { source: 'assistant_persistence_test', assistant_mode: assistantMode },
       }, workspaceId)
-      updateDiagnostics({ lastCreateMessageStatus: `OK message: ${createdMessage.id}`, lastSupabaseError: '' })
+      updateDiagnostics({
+        lastCreateMessageStatus: `OK message: ${createdMessage.id}`,
+        lastCreatedMessageId: createdMessage.id,
+        lastSupabaseError: '',
+      })
 
+      const conversationById = await getAssistantConversationById(created.id, workspaceId)
       const conversations = await getAssistantConversations(workspaceId, assistantMode)
       const foundConversation = conversations.some((conversation) => conversation.id === created.id)
       const messages = await getConversationMessages(created.id, workspaceId)
       const foundMessage = messages.some((message) => message.id === createdMessage.id || message.content === testMessage)
+      const readByIdOk = conversationById?.id === created.id
 
       updateDiagnostics({
-        lastReadConversationsStatus: foundConversation ? `OK leído: ${conversations.length}` : `ERROR: creada ${created.id}, no leída`,
+        lastReadConversationsStatus: readByIdOk && foundConversation ? `OK by id + mode: ${conversations.length}` : `ERROR by id=${String(readByIdOk)} mode=${String(foundConversation)}`,
         lastReadMessagesStatus: foundMessage ? `OK leído: ${messages.length}` : `ERROR: creado ${createdMessage.id}, no leído`,
-        lastSupabaseError: foundConversation && foundMessage ? '' : 'La escritura funciona parcialmente, pero la lectura no devuelve lo creado. Revisa RLS/filtros por workspace.',
+        totalConversationsForWorkspace: conversations.length,
+        filteredConversationsForMode: conversations.length,
+        queryMode: `workspace_id=${workspaceId} mode=${assistantMode}`,
+        lastSupabaseError: readByIdOk && foundConversation && foundMessage ? '' : 'La escritura funciona parcialmente, pero la lectura por id, modo o mensajes no devuelve lo creado. Revisa RLS/filtros por workspace.',
       })
 
       setConversationList(conversations)
@@ -1549,8 +1594,12 @@ export default function AssistantPage() {
           <p className="text-amber-700">isRealMode: {String(isRealMode)}</p>
           <p className="text-amber-700">activeAssistantMode: {assistantMode}</p>
           <p className="text-amber-700">selectedConversationId: {activeSelectedId || 'null'}</p>
-          <p className="text-amber-700">conversations count: {modeConversations.length}</p>
+          <p className="text-amber-700">totalConversationsForWorkspace: {conversationList.length}</p>
+          <p className="text-amber-700">filteredConversationsForMode: {modeConversations.length}</p>
           <p className="text-amber-700">messages count: {msgs.length}</p>
+          <p className="text-amber-700">queryMode: {isRealMode ? `workspace_id=${workspaceId ?? 'null'} mode=${assistantMode}` : (currentUser.isDemo ? 'demo' : 'not-real')}</p>
+          <p className="text-amber-700">lastCreatedConversationId: {diagnostics.lastCreatedConversationId || 'none'}</p>
+          <p className="text-amber-700">lastCreatedMessageId: {diagnostics.lastCreatedMessageId || 'none'}</p>
           <p className="text-amber-700">assistantFlow found: {assistantFlowFound ? 'true' : 'false'}</p>
           <p className="text-amber-700">assistantFlow status: {assistantFlowStatus}</p>
           <p className="text-amber-700">webhookUrl exists: {assistantWebhookUrl ? 'true' : 'false'}</p>
