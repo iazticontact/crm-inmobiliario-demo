@@ -15,19 +15,19 @@ import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } fro
 import {
   createActivity,
   createCalendarEvent,
-  createConversation,
+  createAssistantConversation,
   createInvoice,
   createMessage,
+  getAssistantConversations,
   getConversationMessages,
-  getConversations,
   getN8nFlows,
   getResolvedWorkspaceContext,
   markConversationResolved,
   updateConversationScoped,
 } from '@/lib/supabase-queries'
-import type { Channel, Conversation, ConversationSentiment, Message, N8nFlowStatus } from '@/lib/types'
+import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 
-const SHOW_ASSISTANT_DEBUG = false
+const SHOW_ASSISTANT_DEBUG = process.env.NODE_ENV === 'development'
 
 const sentimentConfig: Record<ConversationSentiment, { label: string; variant: 'success' | 'warning' | 'danger' }> = {
   positive: { label: 'Positivo', variant: 'success' },
@@ -47,17 +47,28 @@ const leadScores: Record<string, number> = { '1': 92, '2': 74, '3': 88, '4': 96,
 const leadScoreColor = (score: number) =>
   score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-red-500'
 
-const quickPrompts = [
-  { label: 'Qué puedes hacer', prompt: 'Qué puedes hacer como Assistant Agent interno de NowCRM?', intent: 'capabilities' },
-  { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking' },
-  { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice' },
-  { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search' },
-  { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial.', intent: 'resumen' },
-  { label: 'Próxima acción', prompt: 'Dime la siguiente acción comercial recomendada para este cliente.', intent: 'next_action' },
-  { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing' },
-  { label: 'Preparar propuesta', prompt: 'Prepara una propuesta comercial breve con siguiente paso claro.', intent: 'proposal' },
-  { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una consulta interna breve.', intent: 'n8n_test' },
-]
+const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }>> = {
+  inbox: [
+    { label: 'Responder cliente', prompt: 'Prepara una respuesta breve para el último mensaje del cliente y deja claro el siguiente paso.', intent: 'reply_customer', sender: 'agent' },
+    { label: 'Detectar intención', prompt: 'Detecta la intención del cliente y resume qué acción conviene preparar.', intent: 'detect_intent', sender: 'agent' },
+    { label: 'Resumir conversación', prompt: 'Resume esta conversación en 3 puntos y dime qué falta para avanzar.', intent: 'conversation_summary', sender: 'agent' },
+    { label: 'Preparar cita', prompt: 'Prepara una cita desde esta conversación. Pide cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
+    { label: 'Preparar factura', prompt: 'Prepara una factura desde esta conversación. Pide cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
+    { label: 'Siguiente respuesta', prompt: 'Dime la siguiente respuesta recomendada para el cliente.', intent: 'next_reply', sender: 'agent' },
+    { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una conversación de cliente.', intent: 'n8n_test', sender: 'agent' },
+  ],
+  copilot: [
+    { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
+    { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
+    { label: 'Próxima acción', prompt: 'Dime la siguiente acción comercial recomendada para este cliente.', intent: 'next_action', sender: 'agent' },
+    { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
+    { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
+    { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing', sender: 'agent' },
+    { label: 'Preparar propuesta', prompt: 'Prepara una propuesta comercial breve con siguiente paso claro.', intent: 'proposal', sender: 'agent' },
+    { label: 'Consultar calendario', prompt: 'Revisa los próximos eventos de calendario y dime qué preparación comercial falta.', intent: 'calendar', sender: 'agent' },
+    { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una consulta interna breve.', intent: 'n8n_test', sender: 'agent' },
+  ],
+}
 
 const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'n8n preparado']
 const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp/Whapi futuro']
@@ -70,8 +81,6 @@ const capabilityExamples = [
   'Busca un cliente',
   'Prepara una respuesta comercial',
 ]
-
-type AssistantMode = 'inbox' | 'copilot'
 
 const assistantModes: Array<{
   id: AssistantMode
@@ -101,6 +110,7 @@ type PreparedAction =
       id: string
       type: 'booking'
       title: string
+      assistantMode: AssistantMode
       clientName?: string
       service?: string
       date?: string
@@ -113,6 +123,7 @@ type PreparedAction =
       id: string
       type: 'invoice'
       title: string
+      assistantMode: AssistantMode
       clientName?: string
       concept?: string
       amount?: number
@@ -120,6 +131,22 @@ type PreparedAction =
       missingFields: string[]
       notes?: string
     }
+
+type PersistenceDiagnostics = {
+  lastCreateConversationStatus: string
+  lastCreateMessageStatus: string
+  lastReadConversationsStatus: string
+  lastReadMessagesStatus: string
+  lastSupabaseError: string
+}
+
+const initialDiagnostics: PersistenceDiagnostics = {
+  lastCreateConversationStatus: 'Sin probar',
+  lastCreateMessageStatus: 'Sin probar',
+  lastReadConversationsStatus: 'Sin probar',
+  lastReadMessagesStatus: 'Sin probar',
+  lastSupabaseError: '',
+}
 
 function nowTime() {
   return new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
@@ -161,8 +188,12 @@ function isPricingQuestion(value: string) {
   return ['precios', 'precio', 'planes', 'tarifas', 'cuanto cuesta', 'coste'].some((pattern) => text.includes(pattern)) || (text.includes('plan') && /precio|incluye|cuesta/.test(text))
 }
 
-function internalAssistantIntro() {
-  return 'Soy tu Assistant Agent interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
+function internalAssistantIntro(mode: AssistantMode = 'copilot') {
+  if (mode === 'inbox') {
+    return 'Soy Inbox Assistant, la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. WhatsApp/Whapi será la siguiente fase para que esos mensajes entren automáticamente.'
+  }
+
+  return 'Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
 }
 
 function pricingGuidance() {
@@ -185,13 +216,14 @@ function missingText(fields: string[]) {
   return fields.join(', ').replace(/, ([^,]*)$/, ' y $1')
 }
 
-function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
+function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): PreparedAction | null {
   const { extracted } = intent
   if ((intent.intent === 'booking' || intent.intent === 'booking_concrete') && (extracted.clientName || extracted.service || extracted.date || extracted.time)) {
     return {
       id: `booking-${Date.now()}`,
       type: 'booking',
       title: 'Crear cita',
+      assistantMode: mode,
       clientName: extracted.clientName,
       service: extracted.service,
       date: extracted.date,
@@ -207,6 +239,7 @@ function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
       id: `invoice-${Date.now()}`,
       type: 'invoice',
       title: 'Crear factura',
+      assistantMode: mode,
       clientName: extracted.clientName,
       concept: extracted.concept,
       amount: extracted.amount,
@@ -219,9 +252,9 @@ function buildPreparedAction(intent: AssistantIntent): PreparedAction | null {
   return null
 }
 
-function buildLocalOperationalResponse(intent: AssistantIntent) {
+function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantMode = 'copilot') {
   if (intent.intent === 'capabilities') {
-    return internalAssistantIntro()
+    return internalAssistantIntro(mode)
   }
 
   if (intent.intent === 'pricing') {
@@ -229,16 +262,26 @@ function buildLocalOperationalResponse(intent: AssistantIntent) {
   }
 
   if (intent.intent === 'consultative') {
-    return 'Para ese tipo de negocio, NowCRM puede centralizar clientes, preparar citas o tareas, automatizar seguimientos y ayudarte a responder mejor sin perder contexto. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
+    return mode === 'inbox'
+      ? 'Como Inbox Assistant, puedo ayudarte a convertir esa conversación en una respuesta clara, detectar intención y preparar una cita o seguimiento con confirmación. Si quieres que los mensajes entren desde WhatsApp real, la siguiente fase es Whapi/n8n.'
+      : 'Como CRM Copilot, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
   }
 
   if (intent.intent === 'booking_strategy') {
-    return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día y hora, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp/Whapi, web o llamadas.'
+    return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día, hora y duración, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp/Whapi, web o llamadas.'
+  }
+
+  if (intent.intent === 'invoice_general') {
+    return 'Puedo ayudarte a preparar facturas, revisar pendientes y generar seguimientos de cobro. Para crear una factura real necesito cliente, importe, concepto y vencimiento, y siempre pediré confirmación antes de guardarla.'
+  }
+
+  if (intent.intent === 'document_request') {
+    return 'La parte de documentos/PDFs está preparada como siguiente fase con Supabase Storage. Ahora puedo ayudarte a preparar el contenido de una propuesta o factura; la generación y adjuntos reales quedarán conectados cuando actives Storage.'
   }
 
   if (intent.intent === 'booking' || intent.intent === 'booking_concrete') {
     if (intent.missingFields.length) {
-      return buildPreparedAction(intent)
+      return buildPreparedAction(intent, mode)
         ? `Tengo la cita casi lista. Falta: ${missingText(intent.missingFields)}. Completa esos datos y la dejo lista para confirmar.`
         : `Sí, se puede. Para crear la reserva necesito: ${missingText(intent.missingFields)}. Dime esos datos y preparo la cita en el calendario.`
     }
@@ -247,7 +290,7 @@ function buildLocalOperationalResponse(intent: AssistantIntent) {
 
   if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete') {
     if (intent.missingFields.length) {
-      return buildPreparedAction(intent)
+      return buildPreparedAction(intent, mode)
         ? `Tengo la factura casi lista. Falta: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
         : `Puedo prepararla. Para crear la factura necesito: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
     }
@@ -336,12 +379,18 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
   return 'Tool ejecutada. Resultado preparado para el Assistant Agent.'
 }
 
+function safeErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message)
+  return String(error || 'Error desconocido')
+}
+
 export default function AssistantPage() {
   const { currentUser } = useCurrentUser()
   const userWorkspaceId = currentUser.workspaceId
   const [assistantReady, setAssistantReady] = useState(false)
   const [conversationList, setConversationList] = useState<Conversation[]>([])
-  const [selectedId, setSelectedId] = useState<string>('')
+  const [selectedIds, setSelectedIds] = useState<Record<AssistantMode, string>>({ inbox: '', copilot: '' })
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [localMessages, setLocalMessages] = useState<Record<string, Message[]>>({})
@@ -359,7 +408,13 @@ export default function AssistantPage() {
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
   const [confirmingAction, setConfirmingAction] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<PersistenceDiagnostics>(initialDiagnostics)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const activeQuickPrompts = quickPromptsByMode[assistantMode]
+
+  const updateDiagnostics = useCallback((patch: Partial<PersistenceDiagnostics>) => {
+    setDiagnostics((prev) => ({ ...prev, ...patch }))
+  }, [])
 
   const loadConversations = useCallback(async () => {
     setLoadingConversations(true)
@@ -370,14 +425,27 @@ export default function AssistantPage() {
       const resolvedWorkspaceId = userWorkspaceId || context?.workspace?.id || context?.profile?.workspace_id
       if (!hasRealSession) {
         const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-        setConversationList(mockConversations)
-        setSelectedId(mockConversations[0]?.id ?? '')
+        const demoConversations = mockConversations.map((conversation, index) => ({
+          ...conversation,
+          assistantMode: index === 0 ? 'copilot' as AssistantMode : 'inbox' as AssistantMode,
+          metadata: { assistant_mode: index === 0 ? 'copilot' : 'inbox', source: 'demo' },
+        }))
+        setConversationList(demoConversations)
+        setSelectedIds({
+          inbox: demoConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
+          copilot: demoConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
+        })
         setWorkspaceId(null)
         setIsRealMode(false)
         setAssistantWebhookUrl('')
         setAssistantFlowFound(false)
         setAssistantFlowStatus('demo')
         setLocalMessages(mockMessages)
+        updateDiagnostics({
+          lastReadConversationsStatus: 'Sin sesión real',
+          lastReadMessagesStatus: 'Sin sesión real',
+          lastSupabaseError: isDemoMode ? '' : 'No se ha encontrado sesión real.',
+        })
         if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se ha encontrado un workspace real.' })
         return
       }
@@ -385,31 +453,73 @@ export default function AssistantPage() {
       window.localStorage.removeItem(DEMO_MODE_KEY)
       const flows = resolvedWorkspaceId ? await getN8nFlows(resolvedWorkspaceId).catch(() => []) : []
       const assistantFlow = getAssistantAgentFlow(flows, false)
-      const realConversations = resolvedWorkspaceId ? await getConversations(resolvedWorkspaceId).catch((): Conversation[] => []) : []
+      let realConversations: Conversation[] = []
+      if (resolvedWorkspaceId) {
+        try {
+          realConversations = await getAssistantConversations(resolvedWorkspaceId)
+          updateDiagnostics({
+            lastReadConversationsStatus: `OK: ${realConversations.length} conversación(es)`,
+            lastSupabaseError: '',
+          })
+        } catch (error) {
+          updateDiagnostics({
+            lastReadConversationsStatus: 'ERROR leyendo conversations',
+            lastSupabaseError: safeErrorMessage(error),
+          })
+          realConversations = []
+        }
+      } else {
+        updateDiagnostics({
+          lastReadConversationsStatus: 'ERROR: workspaceId null',
+          lastSupabaseError: 'Usuario real sin workspaceId resuelto.',
+        })
+      }
       setConversationList(realConversations)
-      setSelectedId(realConversations[0]?.id ?? '')
+      setSelectedIds({
+        inbox: realConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
+        copilot: realConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
+      })
       setLocalMessages({})
       setWorkspaceId(resolvedWorkspaceId ?? null)
       setIsRealMode(true)
       setAssistantWebhookUrl(assistantFlow.webhookUrl || ASSISTANT_AGENT_WEBHOOK_URL)
       setAssistantFlowFound(assistantFlow.isActive)
       setAssistantFlowStatus(assistantFlow.status)
-    } catch {
+    } catch (error) {
       const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-      setConversationList(mockConversations)
-      setSelectedId(mockConversations[0]?.id ?? '')
       setWorkspaceId(null)
       setIsRealMode(false)
       setAssistantWebhookUrl('')
       setAssistantFlowFound(false)
       setAssistantFlowStatus('demo')
-      setLocalMessages(isDemoMode ? mockMessages : {})
+      if (isDemoMode) {
+        const demoConversations = mockConversations.map((conversation, index) => ({
+          ...conversation,
+          assistantMode: index === 0 ? 'copilot' as AssistantMode : 'inbox' as AssistantMode,
+          metadata: { assistant_mode: index === 0 ? 'copilot' : 'inbox', source: 'demo' },
+        }))
+        setConversationList(demoConversations)
+        setSelectedIds({
+          inbox: demoConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
+          copilot: demoConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
+        })
+        setLocalMessages(mockMessages)
+      } else {
+        setConversationList([])
+        setSelectedIds({ inbox: '', copilot: '' })
+        setLocalMessages({})
+      }
+      updateDiagnostics({
+        lastReadConversationsStatus: isDemoMode ? 'Modo demo' : 'ERROR contexto workspace',
+        lastReadMessagesStatus: isDemoMode ? 'Modo demo' : 'No intentado',
+        lastSupabaseError: isDemoMode ? '' : safeErrorMessage(error),
+      })
       if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
     } finally {
       setLoadingConversations(false)
       setAssistantReady(true)
     }
-  }, [userWorkspaceId])
+  }, [updateDiagnostics, userWorkspaceId])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -418,7 +528,13 @@ export default function AssistantPage() {
     return () => window.clearTimeout(timeout)
   }, [loadConversations])
 
-  const selected = conversationList.find((conversation) => conversation.id === selectedId) ?? conversationList[0] ?? null
+  const modeConversations = useMemo(
+    () => conversationList.filter((conversation) => (conversation.assistantMode ?? 'inbox') === assistantMode),
+    [assistantMode, conversationList]
+  )
+  const selectedId = selectedIds[assistantMode]
+  const selected = modeConversations.find((conversation) => conversation.id === selectedId) ?? modeConversations[0] ?? null
+  const activeSelectedId = selected?.id ?? ''
 
   useEffect(() => {
     if (!selected) return
@@ -429,8 +545,16 @@ export default function AssistantPage() {
       try {
         const realMessages = await getConversationMessages(selected.id, workspaceId ?? undefined)
         setLocalMessages((prev) => ({ ...prev, [selected.id]: realMessages }))
-      } catch {
+        updateDiagnostics({
+          lastReadMessagesStatus: `OK: ${realMessages.length} mensaje(s) en ${selected.id}`,
+          lastSupabaseError: '',
+        })
+      } catch (error) {
         setLocalMessages((prev) => ({ ...prev, [selected.id]: [] }))
+        updateDiagnostics({
+          lastReadMessagesStatus: `ERROR leyendo messages en ${selected.id}`,
+          lastSupabaseError: safeErrorMessage(error),
+        })
       } finally {
         setLoadingMessages(false)
       }
@@ -440,7 +564,7 @@ export default function AssistantPage() {
       void loadMessages()
     }, 0)
     return () => window.clearTimeout(timeout)
-  }, [isRealMode, selected, workspaceId])
+  }, [isRealMode, selected, updateDiagnostics, workspaceId])
 
   const msgs = useMemo(() => selected ? localMessages[selected.id] ?? [] : [], [localMessages, selected])
 
@@ -448,15 +572,15 @@ export default function AssistantPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, isTyping])
 
-  const filteredConvs = conversationList.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
-  const averageLeadScore = Math.round((conversationList.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(conversationList.length, 1)))
+  const filteredConvs = modeConversations.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
+  const averageLeadScore = Math.round((modeConversations.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(modeConversations.length, 1)))
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
   const assistantN8nActive = isRealMode && Boolean(assistantWebhookUrl)
 
   const assistantStats = [
-    { label: 'Conversaciones activas', value: String(conversationList.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
+    { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas Copilot', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
     { label: 'IA en modo', value: assistantN8nActive ? 'n8n/OpenAI' : 'Demo', detail: assistantN8nActive ? 'workflow activo' : 'fallback mock', icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
-    { label: 'Lead score medio', value: String(averageLeadScore), detail: 'estimado', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
+    { label: assistantMode === 'inbox' ? 'Lead score medio' : 'Acciones preparadas', value: assistantMode === 'inbox' ? String(averageLeadScore) : (preparedAction ? '1' : '0'), detail: assistantMode === 'inbox' ? 'estimado' : 'requieren confirmación', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
 
   const appendLocalMessage = (conversationId: string, message: Message) => {
@@ -467,19 +591,35 @@ export default function AssistantPage() {
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
     if (isRealMode && workspaceId) {
-      await createMessage(conversationId, { content, sender: 'ai', metadata: { source: 'assistant_agent' } }, workspaceId)
-      await updateConversationScoped(conversationId, workspaceId, { lastMessage: content, unread: true }).catch(() => null)
+      let saved: Message
+      try {
+        saved = await createMessage(conversationId, { content, sender: 'ai', metadata: { source: 'assistant_agent', assistant_mode: assistantMode } }, workspaceId)
+        updateDiagnostics({ lastCreateMessageStatus: `OK assistant message: ${saved.id}`, lastSupabaseError: '' })
+      } catch (error) {
+        updateDiagnostics({
+          lastCreateMessageStatus: 'ERROR guardando assistant message',
+          lastSupabaseError: safeErrorMessage(error),
+        })
+        throw error
+      }
+      await updateConversationScoped(conversationId, workspaceId, {
+        lastMessage: content,
+        unread: true,
+        assistantMode,
+        metadata: { assistant_mode: assistantMode, last_source: 'assistant_agent' },
+      }).catch(() => null)
       if (workspaceId) {
         await createActivity(workspaceId, { type: 'message', description: `Assistant Agent: ${content.slice(0, 90)}`, clientName })
       }
     }
   }
 
-  const sendMessage = async (overrideContent?: string) => {
+  const sendMessage = async (overrideContent?: string, options: { sender?: MessageSender } = {}) => {
     const content = (overrideContent ?? input).trim()
     if (!content || !selected || isTyping) return
     const conversationId = selected.id
-    const userMsg: Message = { id: `agent-${Date.now()}`, conversationId, content, sender: 'agent', timestamp: nowTime() }
+    const userSender: MessageSender = options.sender || (assistantMode === 'inbox' ? 'client' : 'agent')
+    const userMsg: Message = { id: `${userSender}-${Date.now()}`, conversationId, content, sender: userSender, timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }
     const defaultClientName = isGenericConversationName(selected.clientName) ? undefined : selected.clientName
     const operationalIntent = detectAssistantIntent(content, { defaultClientName })
     const localIntentLabel = intentLabel(operationalIntent)
@@ -491,13 +631,29 @@ export default function AssistantPage() {
 
     try {
       if (isRealMode && workspaceId) {
-        await createMessage(conversationId, { content, sender: 'agent', metadata: { source: 'assistant_ui' } }, workspaceId)
-        await updateConversationScoped(conversationId, workspaceId, { lastMessage: content, unread: false }).catch(() => null)
+        let saved: Message
+        try {
+          saved = await createMessage(conversationId, { content, sender: userSender, metadata: { source: 'assistant_ui', assistant_mode: assistantMode, detected_intent: operationalIntent.intent } }, workspaceId)
+          updateDiagnostics({ lastCreateMessageStatus: `OK user message: ${saved.id}`, lastSupabaseError: '' })
+        } catch (error) {
+          updateDiagnostics({
+            lastCreateMessageStatus: 'ERROR guardando user message',
+            lastSupabaseError: safeErrorMessage(error),
+          })
+          throw error
+        }
+        await updateConversationScoped(conversationId, workspaceId, {
+          lastMessage: content,
+          unread: userSender === 'client',
+          assistantMode,
+          intent: operationalIntent.intent,
+          metadata: { assistant_mode: assistantMode, last_source: 'assistant_ui', detected_intent: operationalIntent.intent },
+        }).catch(() => null)
         await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${selected.clientName}`, clientName: selected.clientName })
       }
 
       if (!assistantN8nActive && isCapabilityQuestion(content)) {
-        await appendAssistantMessage(conversationId, internalAssistantIntro(), selected.clientName)
+        await appendAssistantMessage(conversationId, internalAssistantIntro(assistantMode), selected.clientName)
         setLastResponseSource(null)
         return
       }
@@ -514,7 +670,7 @@ export default function AssistantPage() {
         return
       }
 
-      if (preparedAction?.missingFields.length) {
+      if (preparedAction?.assistantMode === assistantMode && preparedAction.missingFields.length) {
         const mergedAction = mergePreparedAction(preparedAction, operationalIntent)
         if (mergedAction.missingFields.length < preparedAction.missingFields.length) {
           setPreparedAction(mergedAction)
@@ -533,9 +689,9 @@ export default function AssistantPage() {
 
       const concreteActionIntents: AssistantIntent['intent'][] = ['booking', 'booking_concrete', 'invoice', 'invoice_concrete']
       const shouldUseLocalResponse = concreteActionIntents.includes(operationalIntent.intent) || !assistantN8nActive
-      const localResponse = buildLocalOperationalResponse(operationalIntent)
+      const localResponse = buildLocalOperationalResponse(operationalIntent, assistantMode)
       if (localResponse && shouldUseLocalResponse) {
-        const action = buildPreparedAction(operationalIntent)
+        const action = buildPreparedAction(operationalIntent, assistantMode)
         await new Promise((resolve) => setTimeout(resolve, 350))
         await appendAssistantMessage(conversationId, localResponse, selected.clientName)
         setPreparedAction(action)
@@ -551,7 +707,7 @@ export default function AssistantPage() {
         collection: 'list_invoices',
       }
       const safeTool = safeToolByIntent[operationalIntent.intent]
-      if (safeTool && workspaceId) {
+      if (assistantMode === 'copilot' && safeTool && workspaceId) {
         const toolInput =
           safeTool === 'search_clients' ? { query: operationalIntent.extracted.clientName || content } :
           safeTool === 'get_client_summary' ? { name: operationalIntent.extracted.clientName || selected.clientName } :
@@ -577,6 +733,7 @@ export default function AssistantPage() {
         messages: [...msgs, userMsg],
         isDemo: !isRealMode,
         webhookUrl: assistantN8nActive ? assistantWebhookUrl : undefined,
+        assistantMode,
       })
 
       await new Promise((resolve) => setTimeout(resolve, 900))
@@ -730,23 +887,54 @@ export default function AssistantPage() {
   }
 
   const createDemoConversation = async () => {
+    const isCopilot = assistantMode === 'copilot'
     const payload = {
-      clientName: isRealMode ? 'Consulta CRM' : 'Consulta CRM demo',
-      clientAvatar: isRealMode ? 'CRM' : 'CD',
+      clientName: isCopilot ? (isRealMode ? 'Consulta CRM' : 'Consulta CRM demo') : (isRealMode ? 'Nueva conversación' : 'Lead demo'),
+      clientAvatar: isCopilot ? 'CRM' : 'IN',
       channel: 'Web' as Channel,
       sentiment: 'neutral' as ConversationSentiment,
-      intent: isRealMode ? 'Operación comercial' : 'Consulta demo',
-      lastMessage: isRealMode ? 'Abre una consulta interna para gestionar clientes, citas o facturas.' : 'Hola, me gustaría probar el Assistant interno de NowCRM.',
+      intent: isCopilot ? 'Copilot CRM' : 'Inbox Assistant',
+      lastMessage: isCopilot
+        ? 'Abre una consulta interna para gestionar clientes, citas o facturas.'
+        : 'Conversación lista para simular un mensaje de cliente.',
       unread: true,
+      assistantMode,
     }
 
     try {
       if (isRealMode && workspaceId) {
-        const created = await createConversation(workspaceId, payload)
-        await createMessage(created.id, { content: payload.lastMessage, sender: 'client', metadata: { source: 'assistant_new_conversation' } }, workspaceId)
+        let created: Conversation
+        try {
+          created = await createAssistantConversation(workspaceId, assistantMode, {
+            ...payload,
+            metadata: { source: 'assistant_new_conversation', assistant_mode: assistantMode },
+          })
+          updateDiagnostics({ lastCreateConversationStatus: `OK conversation: ${created.id}`, lastSupabaseError: '' })
+        } catch (error) {
+          updateDiagnostics({
+            lastCreateConversationStatus: 'ERROR creando conversation',
+            lastSupabaseError: safeErrorMessage(error),
+          })
+          throw error
+        }
+
+        try {
+          const createdMessage = await createMessage(created.id, {
+            content: payload.lastMessage,
+            sender: isCopilot ? 'ai' : 'client',
+            metadata: { source: 'assistant_new_conversation', assistant_mode: assistantMode },
+          }, workspaceId)
+          updateDiagnostics({ lastCreateMessageStatus: `OK initial message: ${createdMessage.id}`, lastSupabaseError: '' })
+        } catch (error) {
+          updateDiagnostics({
+            lastCreateMessageStatus: 'ERROR creando mensaje inicial',
+            lastSupabaseError: safeErrorMessage(error),
+          })
+          throw error
+        }
         await createActivity(workspaceId, { type: 'message', description: `Nueva conversación: ${created.clientName}`, clientName: created.clientName })
         await loadConversations()
-        setSelectedId(created.id)
+        setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
         toast.success('Conversación real creada')
         return
       }
@@ -762,16 +950,75 @@ export default function AssistantPage() {
         sentiment: payload.sentiment,
         channel: payload.channel,
         intent: payload.intent,
+        assistantMode,
+        metadata: { assistant_mode: assistantMode, source: 'demo' },
       }
       setConversationList((prev) => [localConversation, ...prev])
       setLocalMessages((prev) => ({
         ...prev,
-        [localConversation.id]: [{ id: `msg-${Date.now()}`, conversationId: localConversation.id, content: payload.lastMessage, sender: 'client', timestamp: nowTime() }],
+        [localConversation.id]: [{ id: `msg-${Date.now()}`, conversationId: localConversation.id, content: payload.lastMessage, sender: isCopilot ? 'ai' : 'client', timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }],
       }))
-      setSelectedId(localConversation.id)
+      setSelectedIds((prev) => ({ ...prev, [assistantMode]: localConversation.id }))
       toast.success('Conversación demo creada')
     } catch (error) {
       toast.error('No se pudo crear la conversación', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+    }
+  }
+
+  const runPersistenceTest = async () => {
+    if (!isRealMode || !workspaceId) {
+      const message = 'No hay workspace real para probar persistencia.'
+      updateDiagnostics({
+        lastCreateConversationStatus: 'No ejecutado',
+        lastCreateMessageStatus: 'No ejecutado',
+        lastReadConversationsStatus: 'No ejecutado',
+        lastReadMessagesStatus: 'No ejecutado',
+        lastSupabaseError: message,
+      })
+      toast.warning('Prueba no disponible', { description: message })
+      return
+    }
+
+    const testMessage = `Mensaje test persistencia ${new Date().toISOString()}`
+    try {
+      const created = await createAssistantConversation(workspaceId, assistantMode, {
+        clientName: assistantMode === 'copilot' ? 'Test persistencia Copilot' : 'Test persistencia Inbox',
+        clientAvatar: assistantMode === 'copilot' ? 'TC' : 'TI',
+        lastMessage: testMessage,
+        unread: false,
+        metadata: { source: 'assistant_persistence_test', assistant_mode: assistantMode },
+      })
+      updateDiagnostics({ lastCreateConversationStatus: `OK conversation: ${created.id}`, lastSupabaseError: '' })
+
+      const createdMessage = await createMessage(created.id, {
+        content: testMessage,
+        sender: assistantMode === 'copilot' ? 'agent' : 'client',
+        metadata: { source: 'assistant_persistence_test', assistant_mode: assistantMode },
+      }, workspaceId)
+      updateDiagnostics({ lastCreateMessageStatus: `OK message: ${createdMessage.id}`, lastSupabaseError: '' })
+
+      const conversations = await getAssistantConversations(workspaceId, assistantMode)
+      const foundConversation = conversations.some((conversation) => conversation.id === created.id)
+      const messages = await getConversationMessages(created.id, workspaceId)
+      const foundMessage = messages.some((message) => message.id === createdMessage.id || message.content === testMessage)
+
+      updateDiagnostics({
+        lastReadConversationsStatus: foundConversation ? `OK leído: ${conversations.length}` : `ERROR: creada ${created.id}, no leída`,
+        lastReadMessagesStatus: foundMessage ? `OK leído: ${messages.length}` : `ERROR: creado ${createdMessage.id}, no leído`,
+        lastSupabaseError: foundConversation && foundMessage ? '' : 'La escritura funciona parcialmente, pero la lectura no devuelve lo creado. Revisa RLS/filtros por workspace.',
+      })
+
+      setConversationList(conversations)
+      setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
+      setLocalMessages((prev) => ({ ...prev, [created.id]: messages }))
+      toast.success(foundConversation && foundMessage ? 'Persistencia Supabase OK' : 'Prueba incompleta', {
+        description: foundConversation && foundMessage ? 'Conversación y mensaje creados y leídos.' : 'Revisa el panel de diagnóstico.',
+      })
+    } catch (error) {
+      updateDiagnostics({
+        lastSupabaseError: safeErrorMessage(error),
+      })
+      toast.error('Falló la persistencia Supabase', { description: safeErrorMessage(error) })
     }
   }
 
@@ -782,7 +1029,7 @@ export default function AssistantPage() {
       const webhookForTest = assistantWebhookUrl || ASSISTANT_AGENT_WEBHOOK_URL
       const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: selected.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(selected.id, testingMsg)
-      if (isRealMode && workspaceId) await createMessage(selected.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test' } }, workspaceId)
+      if (isRealMode && workspaceId) await createMessage(selected.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
       const result = await triggerN8nWebhook('assistant_message', {
         workspace_id: workspaceId ?? undefined,
         webhook_url: webhookForTest,
@@ -797,14 +1044,15 @@ export default function AssistantPage() {
         },
         message: { content: 'Hola, me interesa saber el precio del Plan Pro y que incluye exactamente.' },
         client: { name: 'Ana Rodriguez', status: 'lead' },
-        metadata: { source: 'assistant_ui_test' },
+        metadata: { source: 'assistant_ui_test', assistant_mode: assistantMode },
+        assistant_mode: assistantMode,
       })
       if (result.status === 'ok') {
         setLastResponseSource('n8n')
         if (result.suggested_response) {
           const n8nMsg: Message = { id: `n8n-${Date.now()}`, conversationId: selected.id, content: result.suggested_response, sender: 'ai', timestamp: nowTime() }
           appendLocalMessage(selected.id, n8nMsg)
-          if (isRealMode && workspaceId) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai', metadata: { source: 'assistant_n8n_test' } }, workspaceId)
+          if (isRealMode && workspaceId) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
         }
         toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
       } else {
@@ -814,7 +1062,7 @@ export default function AssistantPage() {
       return
     }
 
-    const selectedPrompt = quickPrompts.find((item) => item.label === action)
+    const selectedPrompt = activeQuickPrompts.find((item) => item.label === action)
     if (!selectedPrompt) return
 
     const safeToolsByIntent: Partial<Record<string, AgentToolName>> = {
@@ -823,9 +1071,10 @@ export default function AssistantPage() {
       slot_search: 'list_calendar_events',
       billing: 'list_invoices',
       client_search: 'search_clients',
+      calendar: 'list_calendar_events',
     }
     const tool = safeToolsByIntent[selectedPrompt.intent]
-    if (tool && workspaceId) {
+    if (assistantMode === 'copilot' && tool && workspaceId) {
       const toolInput =
         tool === 'get_client_summary' ? { name: selected.clientName } :
         tool === 'search_clients' ? { query: selected.clientName } :
@@ -841,7 +1090,7 @@ export default function AssistantPage() {
         return
       }
     }
-    await sendMessage(selectedPrompt.prompt)
+    await sendMessage(selectedPrompt.prompt, { sender: selectedPrompt.sender || 'agent' })
   }
 
   const resolveConversation = async () => {
@@ -909,7 +1158,7 @@ export default function AssistantPage() {
             <Badge variant="warning" dot>WhatsApp siguiente fase</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
-              {isRealMode ? 'Crear conversación' : 'Crear conversación demo'}
+              {assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear inbox demo') : (isRealMode ? 'Crear consulta' : 'Crear consulta demo')}
             </Button>
           </div>
         }
@@ -922,7 +1171,11 @@ export default function AssistantPage() {
             <button
               key={mode.id}
               type="button"
-              onClick={() => setAssistantMode(mode.id)}
+              onClick={() => {
+                setAssistantMode(mode.id)
+                setPreparedAction(null)
+                setDetectedIntent('')
+              }}
               className={cn(
                 'rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md',
                 isActive
@@ -974,10 +1227,10 @@ export default function AssistantPage() {
           <ul className="flex-1 overflow-y-auto">
             {loadingConversations && [1, 2, 3].map((item) => <li key={item} className="m-3 h-20 animate-pulse rounded-xl bg-gray-100" />)}
             {!loadingConversations && filteredConvs.map((conv) => {
-              const isActive = conv.id === selectedId
+              const isActive = conv.id === activeSelectedId
               return (
                 <li key={conv.id}>
-                  <button onClick={() => setSelectedId(conv.id)} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50/80' : 'hover:bg-gray-50')}>
+                  <button onClick={() => setSelectedIds((prev) => ({ ...prev, [assistantMode]: conv.id }))} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50/80' : 'hover:bg-gray-50')}>
                     <div className="relative shrink-0">
                       <div className={cn('flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold', isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
                         {conv.clientAvatar || getInitials(conv.clientName)}
@@ -993,6 +1246,7 @@ export default function AssistantPage() {
                       <div className="mt-1 flex items-center gap-1">
                         <Badge variant={channelVariant[conv.channel]} className="px-1.5 py-0 text-[10px]">{conv.channel}</Badge>
                         <Badge variant={sentimentConfig[conv.sentiment].variant} className="px-1.5 py-0 text-[10px]">{sentimentConfig[conv.sentiment].label}</Badge>
+                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'Copilot' : 'Inbox'}</Badge>
                       </div>
                     </div>
                   </button>
@@ -1004,8 +1258,12 @@ export default function AssistantPage() {
                 <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                   <MessageSquare className="h-5 w-5" />
                 </div>
-                <p className="text-sm font-semibold text-gray-800">Sin conversaciones</p>
-                <p className="mt-1 text-xs text-gray-400">{isRealMode ? 'Crea una conversación real para probar n8n/OpenAI.' : 'Crea una conversación demo para probar la IA.'}</p>
+                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones Inbox' : 'Sin consultas Copilot'}</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  {assistantMode === 'inbox'
+                    ? 'Crea una conversación para simular mensajes de clientes. WhatsApp/Whapi traerá aquí mensajes reales.'
+                    : 'Crea una consulta para que Copilot opere clientes, facturas, calendario y cobros.'}
+                </p>
               </li>
             )}
           </ul>
@@ -1026,8 +1284,8 @@ export default function AssistantPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Crear cita')} aria-label="Crear cita"><Phone className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Preparar propuesta')} aria-label="Preparar propuesta"><Mail className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction(assistantMode === 'inbox' ? 'Preparar cita' : 'Crear cita')} aria-label="Preparar cita"><Phone className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Preparar propuesta')} aria-label={assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Preparar propuesta'}><Mail className="h-3.5 w-3.5" /></Button>
                   <Button variant="secondary" size="sm" onClick={resolveConversation}>
                     <CheckCircle className="h-3.5 w-3.5" />
                     Resolver
@@ -1070,10 +1328,10 @@ export default function AssistantPage() {
                           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm shadow-violet-600/20">
                             {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                           </div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-950">Acción preparada: {preparedAction.type === 'booking' ? 'crear cita' : 'crear factura'}</p>
-                            <p className="text-[11px] text-gray-500">{preparedAction.title}</p>
-                          </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-950">Acción preparada: {preparedAction.type === 'booking' ? 'crear cita' : 'crear factura'}</p>
+                          <p className="text-[11px] text-gray-500">{preparedAction.title} · {preparedAction.assistantMode === 'inbox' ? 'Inbox Assistant' : 'Copilot CRM'}</p>
+                        </div>
                         </div>
                         <Badge variant="warning" dot>Requiere confirmación</Badge>
                       </div>
@@ -1155,14 +1413,14 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Pide al Assistant que prepare citas, facture, busque clientes o proponga la siguiente acción..." rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe o simula un mensaje de cliente...' : 'Pide a Copilot que busque clientes, facture, agende o revise cobros...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="text-[10px] text-gray-400">Acciones rápidas:</span>
-                  {quickPrompts.map(({ label }) => (
+                  {activeQuickPrompts.map(({ label }) => (
                     <button key={label} onClick={() => void handleQuickAction(label)} disabled={isTyping} className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-50">
                       {label}
                     </button>
@@ -1176,14 +1434,20 @@ export default function AssistantPage() {
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                   <Bot className="h-5 w-5" />
                 </div>
-                <p className="text-sm font-semibold text-gray-900">{isRealMode ? 'No hay conversaciones todavía' : 'Assistant listo'}</p>
-                <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">{isRealMode ? 'Crea una conversación interna para pedirle al Assistant que prepare citas, facturas, cobros o próximas acciones.' : 'Crea una conversación para probar el Assistant interno en modo demo.'}</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {assistantMode === 'inbox' ? 'No hay conversaciones todavía' : 'No hay consultas internas todavía'}
+                </p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
+                  {assistantMode === 'inbox'
+                    ? 'Crea una conversación para simular cómo entrarían mensajes de clientes. Cuando conectes WhatsApp/Whapi, los mensajes reales aparecerán aquí.'
+                    : 'Abre una consulta interna para que Copilot opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
+                </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
                   {capabilityExamples.slice(0, 4).map((example) => (
                     <span key={example} className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">{example}</span>
                   ))}
                 </div>
-                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{isRealMode ? 'Crear conversación' : 'Crear conversación demo'}</Button>
+                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear inbox demo') : (isRealMode ? 'Crear consulta' : 'Crear consulta demo')}</Button>
               </div>
             </div>
           )}
@@ -1204,9 +1468,13 @@ export default function AssistantPage() {
                 </div>
 
                 <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-indigo-50 p-3.5 shadow-sm shadow-emerald-950/[0.035]">
-                  <div className="mb-2 flex items-center justify-between"><span className="text-xs font-medium text-gray-600">Lead Score</span><Target className="h-3.5 w-3.5 text-gray-400" /></div>
-                  <div className="flex items-end gap-1"><span className={cn('text-2xl font-bold', leadScoreColor(score))}>{score}</span><span className="mb-0.5 text-xs text-gray-400">/100</span></div>
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className={cn('h-full rounded-full', score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${score}%` }} /></div>
+                  <div className="mb-2 flex items-center justify-between"><span className="text-xs font-medium text-gray-600">{assistantMode === 'inbox' ? 'Lead Score' : 'Estado operativo'}</span><Target className="h-3.5 w-3.5 text-gray-400" /></div>
+                  <div className="flex items-end gap-1"><span className={cn('text-2xl font-bold', assistantMode === 'inbox' ? leadScoreColor(score) : 'text-emerald-600')}>{assistantMode === 'inbox' ? score : preparedAction ? 'Listo' : 'OK'}</span>{assistantMode === 'inbox' && <span className="mb-0.5 text-xs text-gray-400">/100</span>}</div>
+                  {assistantMode === 'inbox' ? (
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className={cn('h-full rounded-full', score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${score}%` }} /></div>
+                  ) : (
+                    <p className="mt-2 text-[10px] leading-4 text-emerald-700">Tools y confirmaciones preparadas para operar Supabase sin ejecutar escrituras peligrosas.</p>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-gray-100 bg-white/85 p-3 shadow-sm shadow-gray-950/[0.025]">
@@ -1259,9 +1527,11 @@ export default function AssistantPage() {
               <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Recomendación IA</p>
               <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3">
                 <p className="text-xs leading-relaxed text-indigo-800">
-                  {selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y agenda demo breve.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Envía contexto comercial y programa seguimiento en 48 horas.' : 'Crea una conversación para que el Assistant pueda operar con contexto real del CRM.'}
+                  {assistantMode === 'inbox'
+                    ? selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y prepara cita o seguimiento.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Responde con contexto y pide el dato mínimo para avanzar.' : 'Crea una conversación para simular mensajes entrantes de clientes.'
+                    : selected ? 'Usa Copilot para consultar datos reales, preparar acciones y confirmar antes de escribir en Supabase.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
                 </p>
-                <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction('Próxima acción') : toast.info('Crea una conversación primero')}>
+                <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Próxima acción') : toast.info('Crea una conversación primero')}>
                   Aplicar <ArrowRight className="h-3 w-3" />
                 </button>
               </div>
@@ -1271,15 +1541,31 @@ export default function AssistantPage() {
       </div>
 
       {SHOW_ASSISTANT_DEBUG && process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 left-4 z-50 max-w-xs rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] shadow-lg shadow-amber-950/10">
+        <div className="fixed bottom-4 left-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] shadow-lg shadow-amber-950/10">
           <p className="mb-1.5 font-bold text-amber-900">Debug (dev only)</p>
           <p className="text-amber-700">email: {currentUser.email}</p>
           <p className="text-amber-700">workspaceId: {workspaceId ?? 'null'}</p>
           <p className="text-amber-700">isDemo: {String(currentUser.isDemo)}</p>
           <p className="text-amber-700">isRealMode: {String(isRealMode)}</p>
+          <p className="text-amber-700">activeAssistantMode: {assistantMode}</p>
+          <p className="text-amber-700">selectedConversationId: {activeSelectedId || 'null'}</p>
+          <p className="text-amber-700">conversations count: {modeConversations.length}</p>
+          <p className="text-amber-700">messages count: {msgs.length}</p>
           <p className="text-amber-700">assistantFlow found: {assistantFlowFound ? 'true' : 'false'}</p>
           <p className="text-amber-700">assistantFlow status: {assistantFlowStatus}</p>
           <p className="text-amber-700">webhookUrl exists: {assistantWebhookUrl ? 'true' : 'false'}</p>
+          <p className="mt-1 text-amber-700">createConversation: {diagnostics.lastCreateConversationStatus}</p>
+          <p className="text-amber-700">createMessage: {diagnostics.lastCreateMessageStatus}</p>
+          <p className="text-amber-700">readConversations: {diagnostics.lastReadConversationsStatus}</p>
+          <p className="text-amber-700">readMessages: {diagnostics.lastReadMessagesStatus}</p>
+          {diagnostics.lastSupabaseError && <p className="mt-1 break-words rounded-lg bg-white/70 p-2 text-amber-900">Supabase: {diagnostics.lastSupabaseError}</p>}
+          <button
+            type="button"
+            onClick={() => void runPersistenceTest()}
+            className="mt-2 rounded-lg bg-amber-600 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-amber-700"
+          >
+            Probar persistencia Supabase
+          </button>
         </div>
       )}
     </motion.div>

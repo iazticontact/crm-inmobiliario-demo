@@ -397,13 +397,17 @@ export async function POST(request: Request) {
       const conversationId = str(input.conversation_id)
       const content = str(input.content)
       if (!conversationId || !content) return fail(tool, 'conversation_id y content son obligatorios.', 400)
-      const row = { conversation_id: conversationId, content, sender: sender(input.sender), role: sender(input.sender) === 'ai' ? 'assistant' : sender(input.sender) }
-      let result = await supabase.from('messages').insert(row).select('*').single()
-      if (result.error && result.error.message.toLowerCase().includes('role')) {
-        result = await supabase.from('messages').insert({ conversation_id: row.conversation_id, content: row.content, sender: row.sender }).select('*').single()
-      }
-      if (result.error) throw result.error
-      return ok(tool, result.data, 'Mensaje guardado.')
+      const normalizedSender = sender(input.sender)
+      const { data, error } = await supabase.from('messages').insert({
+        workspace_id: workspaceId,
+        conversation_id: conversationId,
+        sender: normalizedSender === 'ai' ? 'assistant' : normalizedSender === 'agent' ? 'user' : 'client',
+        body: content,
+        is_ai: normalizedSender === 'ai',
+        created_at: new Date().toISOString(),
+      }).select('*').single()
+      if (error) throw error
+      return ok(tool, data, 'Mensaje guardado.')
     }
 
     if (tool === 'create_activity') {

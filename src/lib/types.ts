@@ -2,6 +2,7 @@ export type Channel = 'WhatsApp' | 'Instagram' | 'Web' | 'Email'
 export type ClientStatus = 'active' | 'lead' | 'inactive' | 'churned'
 export type ConversationSentiment = 'positive' | 'neutral' | 'negative'
 export type MessageSender = 'client' | 'agent' | 'ai'
+export type AssistantMode = 'inbox' | 'copilot'
 export type AutomationStatus = 'active' | 'paused' | 'draft'
 export type EventType = 'call' | 'demo' | 'meeting' | 'follow-up'
 export type InvoiceStatus = 'paid' | 'pending' | 'overdue'
@@ -28,6 +29,7 @@ export type Client = {
 
 export type Conversation = {
   id: string
+  workspaceId?: string
   clientId: string
   clientName: string
   clientAvatar: string
@@ -37,14 +39,22 @@ export type Conversation = {
   sentiment: ConversationSentiment
   channel: Channel
   intent?: string
+  assistantMode?: AssistantMode
+  status?: string
+  metadata?: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type Message = {
   id: string
   conversationId: string
+  workspaceId?: string
   content: string
   sender: MessageSender
   timestamp: string
+  metadata?: Record<string, unknown>
+  createdAt?: string
 }
 
 export type Automation = {

@@ -49,7 +49,17 @@
 - Cargar `/assistant`.
 - Verificar que no aparece flash demo con usuario real.
 - Verificar badges: `Mensajes reales`, `n8n/OpenAI activo`, `Workspace real`.
-- Crear conversacion real.
+- Seleccionar `Conversaciones / Inbox Assistant`.
+- Crear conversacion real Inbox.
+- Enviar `Hola, quiero saber precios`.
+- Ir a `/dashboard`, volver a `/assistant` y confirmar que la conversacion Inbox sigue.
+- Recargar `/assistant` y confirmar que los mensajes Inbox siguen.
+- Seleccionar `Copilot CRM / Asistente interno`.
+- Crear consulta real Copilot.
+- Enviar `Qué puedes hacer?`.
+- Ir a `/settings`, volver a `/assistant` y confirmar que la consulta Copilot sigue.
+- Recargar `/assistant` y confirmar que los mensajes Copilot siguen.
+- Confirmar que Inbox y Copilot no comparten conversacion activa ni lista filtrada.
 - Enviar `Hola buenas, ¿con quién hablo?`.
 - Enviar `Soy una peluquería y quiero que la IA gestione reservas`.
 - Verificar respuesta corta y operativa sobre reservas.
@@ -69,6 +79,7 @@
 - Probar quick action `Buscar cliente`.
 - Probar quick action `Probar n8n`.
 - Recargar y verificar mensajes persistentes con usuario real.
+- Confirmar que modo demo no escribe en Supabase.
 - Marcar conversacion como resuelta.
 
 ## AI Agent Tools

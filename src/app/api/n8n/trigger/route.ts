@@ -18,6 +18,8 @@ type N8nTriggerBody = {
   calendar_event?: Record<string, unknown>
   activity?: Record<string, unknown>
   metadata?: Record<string, unknown>
+  assistant_mode?: string
+  recent_history?: string
 }
 
 type RouteResponseExtra = {
@@ -65,6 +67,8 @@ function buildPayload(body: N8nTriggerBody, eventType: N8nEventType, mode: N8nTr
   const metadata = {
     ...readRecord(merged.metadata),
     ...readRecord(body.metadata),
+    ...(body.assistant_mode ? { assistant_mode: body.assistant_mode } : {}),
+    ...(body.recent_history ? { recent_history: body.recent_history } : {}),
     triggered_at: new Date().toISOString(),
   }
 

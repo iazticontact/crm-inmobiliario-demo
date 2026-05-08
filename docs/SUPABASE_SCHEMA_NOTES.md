@@ -2,6 +2,46 @@
 
 Estas notas documentan las columnas que el codigo espera para la fase real actual. Si tu schema difiere, ajusta helpers o anade columnas equivalentes.
 
+## Assistant persistence: schema real actual
+
+La persistencia del chat no usa Storage ni Realtime. Storage sera para PDFs/adjuntos y Realtime servira mas adelante para actualizaciones en vivo. El historial del Assistant se guarda con tablas normales: `conversations` y `messages`.
+
+Schema real actual de `conversations` usado por el codigo:
+
+- `id`
+- `workspace_id`
+- `client_id`
+- `channel`
+- `status`
+- `sentiment`
+- `intent`
+- `ai_summary`
+- `created_at`
+- `updated_at`
+
+Schema real actual de `messages` usado por el codigo:
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `sender`
+- `body`
+- `is_ai`
+- `created_at`
+
+Separacion Inbox/Copilot sin `conversation_type`:
+
+- Inbox Assistant: `intent = 'assistant_inbox'`, `channel = 'web'`.
+- CRM Copilot: `intent = 'assistant_copilot'`, `channel = 'crm'`.
+
+Mapeo de mensajes:
+
+- Usuario interno/Copilot: `sender = 'user'`, `is_ai = false`, `body = contenido`.
+- Cliente/Inbox: `sender = 'client'`, `is_ai = false`, `body = contenido`.
+- Assistant: `sender = 'assistant'`, `is_ai = true`, `body = contenido`.
+
+Columnas opcionales futuras si se quiere enriquecer la UI: `conversations.title`, `conversations.last_message`, `conversations.conversation_type`, `conversations.metadata`, `messages.content`, `messages.role`, `messages.metadata`.
+
 ## `invoices`
 
 Columnas usadas:
@@ -39,41 +79,41 @@ Tipos normalizados: `call`, `meeting`, `demo`, `follow-up`.
 
 ## `conversations`
 
-Columnas usadas:
+Columnas reales usadas:
 
 - `id`
 - `workspace_id`
 - `client_id`
-- `client_name`
-- `client_avatar`
-- `last_message`
-- `unread`
-- `sentiment`
 - `channel`
-- `intent`
 - `status`
+- `sentiment`
+- `intent`
+- `ai_summary`
 - `created_at`
 - `updated_at`
 
+NowCRM separa Inbox/Copilot con `intent` y `channel`, no con `conversation_type`.
+
 ## `messages`
 
-Columnas usadas:
+Columnas reales usadas:
 
 - `id`
 - `workspace_id`
 - `conversation_id`
-- `content`
 - `sender`
-- `role`
-- `metadata`
+- `body`
+- `is_ai`
 - `created_at`
 
-El helper inserta `workspace_id`, `sender`, `role` y `metadata` cuando existen. Si tu tabla todavia no tiene `workspace_id`, `role` o `metadata`, el fallback elimina esas columnas y mantiene la escritura basica por `conversation_id`.
+NowCRM guarda el contenido del chat en `body`. No depende de `content`, `role` ni `metadata`.
 
 Recomendacion para persistencia robusta del Assistant:
 
 - Mantener `workspace_id` en `messages`.
 - Filtrar lecturas por `conversation_id` y `workspace_id`.
+- Filtrar conversaciones por modo usando `intent` y `channel`.
+- Crear indice `(workspace_id, intent, updated_at)`.
 - Crear indice `(workspace_id, conversation_id, created_at)`.
 - RLS: permitir select/insert si el usuario pertenece al workspace.
 

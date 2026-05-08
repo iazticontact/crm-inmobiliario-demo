@@ -1,4 +1,4 @@
-import type { Conversation, Message } from '@/lib/types'
+import type { AssistantMode, Conversation, Message } from '@/lib/types'
 import { triggerN8nWebhook, type N8nTriggerResult } from '@/lib/integrations'
 
 export type AssistantIntentName =
@@ -7,10 +7,12 @@ export type AssistantIntentName =
   | 'booking_strategy'
   | 'invoice'
   | 'invoice_concrete'
+  | 'invoice_general'
   | 'client_search'
   | 'client_summary'
   | 'next_action'
   | 'proposal'
+  | 'document_request'
   | 'collection'
   | 'pricing'
   | 'capabilities'
@@ -41,6 +43,7 @@ export type MockAIContext = {
   isDemo?: boolean
   workspaceId?: string | null
   webhookUrl?: string
+  assistantMode?: AssistantMode
 }
 
 function hasAny(text: string, words: string[]) {
@@ -213,6 +216,10 @@ export function detectAssistantIntent(message: string, context: { defaultClientN
     }
   }
 
+  if (hasAny(text, ['documento', 'pdf', 'propuesta pdf', 'adjunto', 'contrato'])) {
+    return { intent: 'document_request', confidence: 0.72, extracted, missingFields: [] }
+  }
+
   if (isOperationalBookingCommand(text, extracted)) {
     extracted.service = extractService(raw, text)
     const missingFields = [
@@ -237,6 +244,11 @@ export function detectAssistantIntent(message: string, context: { defaultClientN
 
   const bareInvoiceSignal = /\b\d+(?:[,.]\d+)?\b/.test(text) && /\bplan\b/.test(text)
   if (hasAny(text, invoiceWords) || bareInvoiceSignal) {
+    const hasConcreteInvoiceSignal = /\b\d+(?:[,.]\d+)?\b/.test(text) || hasAny(text, ['crea factura', 'crear factura', 'factura a', 'facturar a'])
+    if (!hasConcreteInvoiceSignal && hasAny(text, ['como funciona', 'preparar facturas', 'facturacion', 'facturación'])) {
+      return { intent: 'invoice_general', confidence: 0.68, extracted, missingFields: [] }
+    }
+
     extracted.amount = extractAmount(raw, text)
     extracted.concept = extractConcept(raw)
     extracted.dueDate = extractDate(text)
@@ -278,10 +290,14 @@ function formatRecentHistory(messages: Message[] = []) {
     .join('\n')
 }
 
-function buildOperationalPrompt(input: string, messages: Message[] = [], conversation?: Conversation | null) {
+function buildOperationalPrompt(input: string, messages: Message[] = [], conversation?: Conversation | null, assistantMode: AssistantMode = 'copilot') {
+  const modeDescription = assistantMode === 'inbox'
+    ? 'Modo Inbox Assistant: trabajas sobre conversaciones con clientes/leads. Responde como capa de conversación del negocio y prepara acciones con confirmación. WhatsApp/Whapi es siguiente fase, no está conectado todavía.'
+    : 'Modo CRM Copilot: eres empleado interno del CRM. Ayudas al usuario del CRM a consultar Supabase, preparar citas, facturas, cobros, propuestas y próximas acciones.'
+
   return [
-    'Eres el Assistant Agent interno de NowCRM, no el bot final de WhatsApp del negocio.',
-    'Ayudas al usuario del CRM a gestionar clientes, citas, facturas, cobros, proximas acciones y respuestas comerciales.',
+    'Eres Assistant Agent de NowCRM y debes respetar el modo activo.',
+    modeDescription,
     'Si el usuario pregunta de forma consultiva, responde humano, concreto y adaptado a su negocio; no contestes como menu.',
     'Si detectas reserva/cita, pide solo datos mínimos o prepara la cita; no propongas llamadas comerciales genéricas.',
     'Si detectas factura, pide cliente, importe, concepto y vencimiento si faltan datos.',
@@ -290,6 +306,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
     'Responde en español, maximo 3 frases, con tono operativo.',
     'No confirmes acciones críticas como creadas si el usuario no las ha confirmado en NowCRM.',
     `Conversacion actual: ${conversation?.clientName ?? 'consulta interna'} · ${conversation?.intent ?? 'sin intencion asignada'}.`,
+    `assistant_mode: ${assistantMode}.`,
     `Historial reciente:\n${formatRecentHistory(messages)}`,
     `Mensaje del usuario: ${input}`,
   ].join('\n')
@@ -302,9 +319,12 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   const workspace = workspaceName || 'tu workspace'
   const contextSize = messages.length > 3 ? 'Ya hay contexto suficiente en la conversacion.' : 'Aun conviene hacer una pregunta de cualificacion.'
   const modeLabel = isDemo ? 'modo demo' : 'workspace real'
+  const isInbox = conversation?.assistantMode === 'inbox'
 
   if (isCapabilityQuestion(normalized)) {
-    return 'Soy tu Assistant Agent interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. También puedo preparar respuestas o propuestas para clientes.'
+    return isInbox
+      ? 'Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. WhatsApp/Whapi será la siguiente fase para que esos mensajes entren solos.'
+      : 'Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. También puedo preparar respuestas o propuestas para clientes.'
   }
 
   if (isPricingQuestion(normalized)) {
@@ -344,6 +364,7 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
 }
 
 export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N8nTriggerResult> {
+  const assistantMode = context.assistantMode || context.conversation?.assistantMode || 'copilot'
   return triggerN8nWebhook('assistant_message', {
     workspace_id: context.workspaceId || undefined,
     mode: context.workspaceId && !context.isDemo ? 'real' : 'demo',
@@ -361,18 +382,22 @@ export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N
       status: 'lead',
     } : {},
     message: {
-      content: buildOperationalPrompt(context.input, context.messages, context.conversation),
+      content: buildOperationalPrompt(context.input, context.messages, context.conversation, assistantMode),
       original_content: context.input,
       role: 'user',
     },
     metadata: {
       source: 'assistant_ui',
       requested_action: 'generate_response',
+      assistant_mode: assistantMode,
+      mode_description: assistantMode === 'inbox' ? 'Inbox Assistant / Conversaciones' : 'CRM Copilot / Asistente interno',
       previous_messages: context.messages?.length ?? 0,
       recent_context: formatRecentHistory(context.messages),
       max_tokens_hint: 260,
       response_style: 'short_operational',
     },
+    assistant_mode: assistantMode,
+    recent_history: formatRecentHistory(context.messages),
   })
 }
 

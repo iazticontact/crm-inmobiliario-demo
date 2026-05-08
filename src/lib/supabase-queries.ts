@@ -2,6 +2,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase'
 import type {
   Activity,
   ActivityType,
+  AssistantMode,
   CalendarEvent,
   Channel,
   Client,
@@ -81,6 +82,9 @@ export type ConversationPayload = {
   intent?: string
   lastMessage?: string
   unread?: boolean
+  assistantMode?: AssistantMode
+  metadata?: Record<string, unknown>
+  status?: string
 }
 
 export type MessagePayload = {
@@ -144,6 +148,66 @@ function asBoolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback
 }
 
+function asUnread(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  if (typeof value === 'string') return value === 'true' || value === '1'
+  return fallback
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function normalizeAssistantMode(value: unknown): AssistantMode | undefined {
+  if (value === 'inbox' || value === 'copilot') return value
+  return undefined
+}
+
+function inferAssistantMode(row: DataRecord): AssistantMode {
+  const metadata = asRecord(row.metadata)
+  const explicit =
+    normalizeAssistantMode(row.conversation_type) ||
+    normalizeAssistantMode(row.assistant_mode) ||
+    normalizeAssistantMode(metadata.assistant_mode) ||
+    normalizeAssistantMode(metadata.mode)
+  if (explicit) return explicit
+
+  const marker = [
+    asString(row.intent ?? row.intention),
+    asString(row.channel),
+    asString(row.client_name ?? row.title ?? row.name),
+    asString(row.last_message ?? row.ai_summary),
+  ].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+  if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
+    return 'copilot'
+  }
+
+  return 'inbox'
+}
+
+function assistantIntentForMode(mode?: AssistantMode) {
+  return mode === 'copilot' ? 'assistant_copilot' : 'assistant_inbox'
+}
+
+function assistantChannelForMode(mode?: AssistantMode) {
+  return mode === 'copilot' ? 'crm' : 'web'
+}
+
+function isMissingColumn(error: unknown, column: string) {
+  const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as { message?: unknown }).message) : String(error ?? '')
+  return message.toLowerCase().includes(column.toLowerCase())
+}
+
+function compactRow(row: DataRecord): DataRecord {
+  const next = { ...row }
+  Object.keys(next).forEach((key) => {
+    if (next[key] === undefined) delete next[key]
+  })
+  return next
+}
+
 function getInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
@@ -152,6 +216,13 @@ function getInitials(name: string) {
 
 function normalizeChannel(value: unknown): Channel {
   if (value === 'WhatsApp' || value === 'Instagram' || value === 'Web' || value === 'Email') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'whatsapp') return 'WhatsApp'
+    if (normalized === 'instagram') return 'Instagram'
+    if (normalized === 'email') return 'Email'
+    if (normalized === 'web' || normalized === 'crm') return 'Web'
+  }
   return 'WhatsApp'
 }
 
@@ -664,48 +735,68 @@ export async function deleteCalendarEvent(id: string) {
 }
 
 export function mapSupabaseConversation(row: DataRecord): Conversation {
-  const clientName = asString(row.client_name ?? row.title ?? row.name, 'Conversacion')
+  const metadata = asRecord(row.metadata)
+  const assistantMode = inferAssistantMode(row)
+  const clientName = asString(row.client_name ?? row.title ?? row.name, assistantMode === 'copilot' ? 'Consulta CRM' : 'Conversacion cliente')
   return {
     id: asString(row.id),
+    workspaceId: asString(row.workspace_id) || undefined,
     clientId: asString(row.client_id),
     clientName,
     clientAvatar: asString(row.client_avatar ?? row.avatar, getInitials(clientName)),
-    lastMessage: asString(row.last_message ?? row.summary, 'Sin mensajes todavia'),
+    lastMessage: asString(row.last_message ?? row.ai_summary ?? row.summary, 'Sin mensajes todavia'),
     timestamp: displayTime(row.updated_at ?? row.created_at),
-    unread: asBoolean(row.unread, false),
+    unread: asUnread(row.unread, false),
     sentiment: normalizeSentiment(row.sentiment),
     channel: normalizeChannel(row.channel),
     intent: asString(row.intent ?? row.intention) || undefined,
+    assistantMode,
+    status: asString(row.status) || undefined,
+    metadata,
+    createdAt: asString(row.created_at) || undefined,
+    updatedAt: asString(row.updated_at) || undefined,
   }
 }
 
 function toConversationRow(workspaceId: string, payload: ConversationPayload): DataRecord {
+  const assistantMode = payload.assistantMode
   return {
     workspace_id: workspaceId,
     client_id: payload.clientId || null,
-    client_name: payload.clientName.trim(),
-    client_avatar: payload.clientAvatar || getInitials(payload.clientName),
-    last_message: payload.lastMessage || 'Conversacion iniciada',
-    unread: payload.unread ?? false,
+    channel: assistantChannelForMode(assistantMode),
+    status: payload.status || 'open',
     sentiment: payload.sentiment || 'neutral',
-    channel: payload.channel,
-    intent: payload.intent?.trim() || null,
-    status: 'open',
+    intent: assistantIntentForMode(assistantMode),
+    ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta Copilot CRM' : 'Conversacion Inbox Assistant'),
+    updated_at: new Date().toISOString(),
   }
 }
 
 export async function getConversations(workspaceId: string) {
+  return getAssistantConversations(workspaceId)
+}
+
+export async function getAssistantConversations(workspaceId: string, mode?: AssistantMode) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
 
-  const { data, error } = await supabase
+  let result = await supabase
     .from('conversations')
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('updated_at', { ascending: false })
 
-  if (error) throw error
-  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseConversation)
+  if (result.error && isMissingColumn(result.error, 'updated_at')) {
+    result = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+  }
+
+  if (result.error) throw result.error
+  const conversations = ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseConversation)
+  return mode ? conversations.filter((conversation) => (conversation.assistantMode ?? 'inbox') === mode) : conversations
 }
 
 export async function createConversation(workspaceId: string, payload: ConversationPayload) {
@@ -722,19 +813,38 @@ export async function createConversation(workspaceId: string, payload: Conversat
   return mapSupabaseConversation(data as DataRecord)
 }
 
+export async function createAssistantConversation(workspaceId: string, mode: AssistantMode, input: Partial<ConversationPayload> = {}) {
+  const isCopilot = mode === 'copilot'
+  return createConversation(workspaceId, {
+    clientName: input.clientName || (isCopilot ? 'Consulta CRM' : 'Nueva conversacion'),
+    clientAvatar: input.clientAvatar || (isCopilot ? 'CRM' : 'IN'),
+    channel: input.channel || 'Web',
+    sentiment: input.sentiment || 'neutral',
+    intent: input.intent || assistantIntentForMode(mode),
+    lastMessage: input.lastMessage || (isCopilot ? 'Consulta Copilot CRM' : 'Conversacion Inbox Assistant'),
+    unread: input.unread ?? false,
+    assistantMode: mode,
+    metadata: {
+      ...input.metadata,
+      assistant_mode: mode,
+      source: input.metadata?.source || 'assistant_ui',
+    },
+    status: input.status || 'open',
+  })
+}
+
 export async function updateConversation(id: string, payload: Partial<ConversationPayload>) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const row: DataRecord = {
-    last_message: payload.lastMessage,
-    unread: payload.unread,
+  const baseRow: DataRecord = {
     sentiment: payload.sentiment,
-    intent: payload.intent,
+    intent: payload.assistantMode ? assistantIntentForMode(payload.assistantMode) : payload.intent,
+    ai_summary: payload.lastMessage,
+    status: payload.status,
+    updated_at: new Date().toISOString(),
   }
-  Object.keys(row).forEach((key) => {
-    if (row[key] === undefined) delete row[key]
-  })
+  const row = compactRow(baseRow)
 
   const { data, error } = await supabase
     .from('conversations')
@@ -751,18 +861,16 @@ export async function updateConversationScoped(id: string, workspaceId: string, 
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const row: DataRecord = {
-    last_message: payload.lastMessage,
-    unread: payload.unread,
+  const baseRow: DataRecord = {
     sentiment: payload.sentiment,
-    intent: payload.intent,
+    intent: payload.assistantMode ? assistantIntentForMode(payload.assistantMode) : payload.intent,
+    ai_summary: payload.lastMessage,
+    status: payload.status,
     updated_at: new Date().toISOString(),
   }
-  Object.keys(row).forEach((key) => {
-    if (row[key] === undefined) delete row[key]
-  })
+  const row = compactRow(baseRow)
 
-  let result = await supabase
+  const { data, error } = await supabase
     .from('conversations')
     .update(row)
     .eq('id', id)
@@ -770,20 +878,8 @@ export async function updateConversationScoped(id: string, workspaceId: string, 
     .select('*')
     .single()
 
-  if (result.error && result.error.message.toLowerCase().includes('updated_at')) {
-    const fallbackRow = { ...row }
-    delete fallbackRow.updated_at
-    result = await supabase
-      .from('conversations')
-      .update(fallbackRow)
-      .eq('id', id)
-      .eq('workspace_id', workspaceId)
-      .select('*')
-      .single()
-  }
-
-  if (result.error) throw result.error
-  return mapSupabaseConversation(result.data as DataRecord)
+  if (error) throw error
+  return mapSupabaseConversation(data as DataRecord)
 }
 
 export async function markConversationResolved(id: string) {
@@ -792,7 +888,7 @@ export async function markConversationResolved(id: string) {
 
   const { data, error } = await supabase
     .from('conversations')
-    .update({ status: 'resolved', unread: false })
+    .update({ status: 'resolved', updated_at: new Date().toISOString() })
     .eq('id', id)
     .select('*')
     .single()
@@ -802,12 +898,16 @@ export async function markConversationResolved(id: string) {
 }
 
 export function mapSupabaseMessage(row: DataRecord): Message {
+  const sender = asBoolean(row.is_ai) ? 'ai' : normalizeSender(row.sender ?? row.role)
   return {
     id: asString(row.id),
     conversationId: asString(row.conversation_id),
+    workspaceId: asString(row.workspace_id) || undefined,
     content: asString(row.content ?? row.body ?? row.message),
-    sender: normalizeSender(row.sender ?? row.role),
+    sender,
     timestamp: displayTime(row.created_at ?? row.timestamp),
+    metadata: asRecord(row.metadata),
+    createdAt: asString(row.created_at) || undefined,
   }
 }
 
@@ -834,72 +934,53 @@ export async function getConversationMessages(conversationId: string, workspaceI
     error = retry.error
   }
 
+  if (!error && workspaceId && (!data || data.length === 0)) {
+    const retry = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+    if (!retry.error && retry.data?.length) data = retry.data
+  }
+
   if (error) throw error
   return ((data as DataRecord[] | null) ?? []).map(mapSupabaseMessage)
 }
 
-export async function createMessage(conversationId: string, payload: MessagePayload, workspaceId?: string) {
+export async function createMessage(conversationId: string, payloadOrWorkspaceId: MessagePayload | string, workspaceIdOrPayload?: string | MessagePayload) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const baseRow: DataRecord = {
+  const payload = typeof payloadOrWorkspaceId === 'string' ? workspaceIdOrPayload as MessagePayload : payloadOrWorkspaceId
+  const workspaceId = typeof payloadOrWorkspaceId === 'string' ? payloadOrWorkspaceId : typeof workspaceIdOrPayload === 'string' ? workspaceIdOrPayload : undefined
+  if (!payload?.content?.trim()) throw new Error('content es obligatorio para guardar mensaje')
+  if (!workspaceId) throw new Error('workspace_id es obligatorio para guardar mensajes del Assistant')
+
+  const dbSender = payload.sender === 'ai' ? 'assistant' : payload.sender === 'agent' ? 'user' : 'client'
+  const row: DataRecord = {
     conversation_id: conversationId,
-    workspace_id: workspaceId || undefined,
-    content: payload.content.trim(),
-    sender: payload.sender,
-    role: payload.sender === 'ai' ? 'assistant' : payload.sender,
-    metadata: payload.metadata,
-  }
-  Object.keys(baseRow).forEach((key) => {
-    if (baseRow[key] === undefined) delete baseRow[key]
-  })
-
-  const variants: DataRecord[] = [
-    baseRow,
-    { ...baseRow, role: undefined },
-    { ...baseRow, metadata: undefined },
-    { ...baseRow, workspace_id: undefined },
-    {
-      conversation_id: conversationId,
-      content: payload.content.trim(),
-      sender: payload.sender,
-    },
-  ].map((row) => {
-    const next = { ...row }
-    Object.keys(next).forEach((key) => {
-      if (next[key] === undefined) delete next[key]
-    })
-    return next
-  })
-
-  let lastError: unknown = null
-  for (const row of variants) {
-    const result = await supabase
-      .from('messages')
-      .insert(row)
-      .select('*')
-      .single()
-
-    if (!result.error) return mapSupabaseMessage(result.data as DataRecord)
-    lastError = result.error
+    workspace_id: workspaceId,
+    sender: dbSender,
+    body: payload.content.trim(),
+    is_ai: payload.sender === 'ai',
+    created_at: new Date().toISOString(),
   }
 
-  throw lastError
+  const result = await supabase
+    .from('messages')
+    .insert(row)
+    .select('*')
+    .single()
+
+  if (result.error) throw result.error
+  return mapSupabaseMessage(result.data as DataRecord)
 }
 
-export async function ensureAssistantConversation(workspaceId: string) {
-  const conversations = await getConversations(workspaceId)
+export async function ensureAssistantConversation(workspaceId: string, mode: AssistantMode = 'copilot') {
+  const conversations = await getAssistantConversations(workspaceId, mode)
   if (conversations.length) return conversations[0]
 
-  return createConversation(workspaceId, {
-    clientName: 'Consulta CRM',
-    clientAvatar: 'CRM',
-    channel: 'Web',
-    sentiment: 'neutral',
-    intent: 'Operación comercial',
-    lastMessage: 'Conversacion interna iniciada.',
-    unread: true,
-  })
+  return createAssistantConversation(workspaceId, mode)
 }
 
 export function mapSupabaseActivity(row: DataRecord): Activity {

@@ -4,16 +4,17 @@
 
 1. Pasar QA manual completo con `docs/QA_CHECKLIST.md`.
 2. Ensayar el guion comercial de `docs/DEMO_SCRIPT.md`.
-3. Probar `/assistant` con reservas: pedir datos, completar duracion, confirmar y verificar `/calendar`.
-4. Probar `/assistant` con facturas: preparar factura, pedir vencimiento y confirmar si procede.
-5. Probar en Settings el workflow real `NowCRM - Assistant Agent`.
-6. Configurar secreto server-only para Agent Tools cuando n8n empiece a ejecutar acciones CRM desde workflows externos.
-7. Conectar WhatsApp/Whapi como siguiente canal real.
-8. Crear buckets de Supabase Storage y tabla `documents` para PDFs, propuestas y adjuntos.
-9. Conectar nuevos workflows n8n: `new_lead`, `invoice_overdue`, `daily_summary`.
-10. Deploy en Vercel/Hostinger.
-11. Configurar Resend cuando haya dominio.
-12. Conectar Stripe/pagos si la demo pasa a piloto.
+3. Probar `/assistant` en Inbox y Copilot: crear conversaciones separadas, recargar y verificar persistencia.
+4. Probar `/assistant` con reservas: pedir datos, completar duracion, confirmar y verificar `/calendar`.
+5. Probar `/assistant` con facturas: preparar factura, pedir vencimiento y confirmar si procede.
+6. Probar en Settings el workflow real `NowCRM - Assistant Agent`.
+7. Configurar secreto server-only para Agent Tools cuando n8n empiece a ejecutar acciones CRM desde workflows externos.
+8. Conectar WhatsApp/Whapi como siguiente canal real.
+9. Crear buckets de Supabase Storage y tabla `documents` para PDFs, propuestas y adjuntos.
+10. Conectar nuevos workflows n8n: `new_lead`, `invoice_overdue`, `daily_summary`.
+11. Deploy en Vercel/Hostinger.
+12. Configurar Resend cuando haya dominio.
+13. Conectar Stripe/pagos si la demo pasa a piloto.
 
 ## Fase IA real
 

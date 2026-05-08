@@ -2,6 +2,150 @@
 -- Optional: execute only if you want persistent webhook execution logs.
 -- Review names/RLS before running in production.
 
+-- Assistant persistence baseline for the current real schema.
+-- Chat persistence uses normal tables: conversations + messages.
+-- Storage is only for PDFs/attachments. Realtime is optional for live updates later.
+
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  client_id uuid references public.clients(id) on delete set null,
+  channel text not null default 'web',
+  status text not null default 'open',
+  sentiment text not null default 'neutral',
+  intent text,
+  ai_summary text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  sender text not null,
+  body text not null,
+  is_ai boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+alter table if exists public.conversations
+  add column if not exists workspace_id uuid references public.workspaces(id) on delete cascade,
+  add column if not exists client_id uuid references public.clients(id) on delete set null,
+  add column if not exists channel text default 'web',
+  add column if not exists status text default 'open',
+  add column if not exists sentiment text default 'neutral',
+  add column if not exists intent text,
+  add column if not exists ai_summary text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+alter table if exists public.messages
+  add column if not exists workspace_id uuid references public.workspaces(id) on delete cascade,
+  add column if not exists conversation_id uuid references public.conversations(id) on delete cascade,
+  add column if not exists sender text,
+  add column if not exists body text,
+  add column if not exists is_ai boolean default false,
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists idx_conversations_workspace_intent_updated
+on public.conversations (workspace_id, intent, updated_at desc);
+
+create index if not exists idx_messages_workspace_conversation_created
+on public.messages (workspace_id, conversation_id, created_at asc);
+
+alter table public.conversations enable row level security;
+alter table public.messages enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'conversations'
+      and policyname = 'conversations are visible to workspace members'
+  ) then
+    create policy "conversations are visible to workspace members"
+    on public.conversations
+    for select
+    using (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = conversations.workspace_id
+          and p.user_id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'conversations'
+      and policyname = 'conversations can be inserted by workspace members'
+  ) then
+    create policy "conversations can be inserted by workspace members"
+    on public.conversations
+    for insert
+    with check (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = conversations.workspace_id
+          and p.user_id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'conversations'
+      and policyname = 'conversations can be updated by workspace members'
+  ) then
+    create policy "conversations can be updated by workspace members"
+    on public.conversations
+    for update
+    using (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = conversations.workspace_id
+          and p.user_id = auth.uid()
+      )
+    )
+    with check (
+      exists (
+        select 1
+        from public.profiles p
+        where p.workspace_id = conversations.workspace_id
+          and p.user_id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
+-- Optional future columns for richer UI. The app does not require these now.
+alter table if exists public.conversations
+  add column if not exists conversation_type text,
+  add column if not exists metadata jsonb,
+  add column if not exists title text,
+  add column if not exists last_message text;
+
+alter table if exists public.messages
+  add column if not exists role text,
+  add column if not exists content text,
+  add column if not exists metadata jsonb;
+
+-- Optional Realtime: enable public.conversations and public.messages in the Supabase dashboard
+-- if you want new messages to appear without refreshing. Realtime does not replace persistence.
+
 alter table if exists public.n8n_flows
   add column if not exists last_test_at timestamptz,
   add column if not exists last_status text,
@@ -100,6 +244,30 @@ on public.invoices (workspace_id, due_date);
 
 create index if not exists idx_calendar_events_workspace_date
 on public.calendar_events (workspace_id, date);
+
+alter table if exists public.conversations
+  add column if not exists conversation_type text check (conversation_type in ('inbox', 'copilot')),
+  add column if not exists metadata jsonb default '{}'::jsonb;
+
+create index if not exists idx_conversations_workspace_type_updated
+on public.conversations (workspace_id, conversation_type, updated_at desc);
+
+create index if not exists idx_conversations_workspace_updated
+on public.conversations (workspace_id, updated_at desc);
+
+-- Optional backfill for existing conversations created before Inbox/Copilot separation.
+update public.conversations
+set conversation_type = case
+  when lower(coalesce(intent, '') || ' ' || coalesce(channel, '') || ' ' || coalesce(ai_summary, '')) like any (array['%assistant_copilot%', '%copilot%', '%crm%', '%consulta crm%', '%operacion comercial%', '%asistente interno%'])
+    then 'copilot'
+  else 'inbox'
+end
+where conversation_type is null;
+
+update public.conversations
+set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('assistant_mode', conversation_type)
+where conversation_type is not null
+  and coalesce(metadata ->> 'assistant_mode', '') = '';
 
 alter table if exists public.messages
   add column if not exists workspace_id uuid references public.workspaces(id) on delete cascade,

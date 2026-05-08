@@ -105,6 +105,8 @@ Acepta:
 - `calendar_event`
 - `activity`
 - `metadata`
+- `assistant_mode`: `inbox` o `copilot`
+- `recent_history`: ultimos mensajes resumidos para contexto corto
 
 Devuelve `status`: `ok`, `simulated`, `skipped` o `error`.
 
@@ -153,6 +155,11 @@ NowCRM ya hace deteccion local de intenciones para ahorrar tokens. Si detecta un
 
 - **Inbox Assistant / Conversaciones**: trabaja sobre conversaciones, mensajes, intención y sentimiento. Es la zona que recibira WhatsApp/Whapi en la siguiente fase.
 - **CRM Copilot / Asistente interno**: opera el CRM para clientes, citas, facturas, cobros, propuestas y documentos. Las escrituras criticas requieren confirmacion.
+
+NowCRM envia `assistant_mode` en cada payload `assistant_message`:
+
+- `inbox`: responder como capa de conversacion con cliente/lead y preparar acciones desde mensajes.
+- `copilot`: responder como empleado interno del CRM y priorizar tools/datos de Supabase.
 
 Flujo futuro recomendado:
 
