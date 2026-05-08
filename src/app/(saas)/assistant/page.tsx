@@ -13,6 +13,7 @@ import { ASSISTANT_AGENT_WEBHOOK_URL, callAgentTool, getAssistantAgentFlow, trig
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import {
+  archiveConversationScoped,
   createActivity,
   createCalendarEvent,
   createAssistantConversation,
@@ -23,7 +24,6 @@ import {
   getConversationMessages,
   getN8nFlows,
   getResolvedWorkspaceContext,
-  markConversationResolved,
   updateConversationScoped,
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
@@ -134,6 +134,12 @@ type PreparedAction =
     }
 
 type PersistenceDiagnostics = {
+  sessionUserId: string
+  sessionEmail: string
+  profileId: string
+  profileWorkspaceId: string
+  workspaceDebugId: string
+  resolvedWorkspaceId: string
   lastCreateConversationStatus: string
   lastCreateMessageStatus: string
   lastReadConversationsStatus: string
@@ -147,6 +153,12 @@ type PersistenceDiagnostics = {
 }
 
 const initialDiagnostics: PersistenceDiagnostics = {
+  sessionUserId: '',
+  sessionEmail: '',
+  profileId: '',
+  profileWorkspaceId: '',
+  workspaceDebugId: '',
+  resolvedWorkspaceId: '',
   lastCreateConversationStatus: 'Sin probar',
   lastCreateMessageStatus: 'Sin probar',
   lastReadConversationsStatus: 'Sin probar',
@@ -161,6 +173,10 @@ const initialDiagnostics: PersistenceDiagnostics = {
 
 function nowTime() {
   return new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+}
+
+function isUuid(value?: string | null) {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
 }
 
 function getInitials(name: string) {
@@ -433,7 +449,7 @@ export default function AssistantPage() {
     try {
       const context = await getResolvedWorkspaceContext()
       const hasRealSession = Boolean(context?.user)
-      const resolvedWorkspaceId = userWorkspaceId || context?.workspace?.id || context?.profile?.workspace_id
+      const resolvedWorkspaceId = context?.profile?.workspace_id || context?.workspace?.id || userWorkspaceId
       if (!hasRealSession) {
         const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
         const demoConversations = mockConversations.map((conversation, index) => ({
@@ -456,6 +472,12 @@ export default function AssistantPage() {
           lastReadConversationsStatus: 'Sin sesión real',
           lastReadMessagesStatus: 'Sin sesión real',
           lastSupabaseError: isDemoMode ? '' : 'No se ha encontrado sesión real.',
+          sessionUserId: '',
+          sessionEmail: '',
+          profileId: '',
+          profileWorkspaceId: '',
+          workspaceDebugId: '',
+          resolvedWorkspaceId: '',
           totalConversationsForWorkspace: 0,
           filteredConversationsForMode: 0,
           queryMode: isDemoMode ? 'demo' : 'no-session',
@@ -474,6 +496,12 @@ export default function AssistantPage() {
           updateDiagnostics({
             lastReadConversationsStatus: `OK workspace: ${realConversations.length} conversación(es)`,
             lastSupabaseError: '',
+            sessionUserId: context?.user?.id ?? '',
+            sessionEmail: context?.user?.email ?? '',
+            profileId: context?.profile?.id ?? '',
+            profileWorkspaceId: context?.profile?.workspace_id ?? '',
+            workspaceDebugId: context?.workspace?.id ?? '',
+            resolvedWorkspaceId,
             totalConversationsForWorkspace: realConversations.length,
             queryMode: `workspace_id=${resolvedWorkspaceId}`,
           })
@@ -481,6 +509,12 @@ export default function AssistantPage() {
           updateDiagnostics({
             lastReadConversationsStatus: 'ERROR leyendo conversations',
             lastSupabaseError: safeErrorMessage(error),
+            sessionUserId: context?.user?.id ?? '',
+            sessionEmail: context?.user?.email ?? '',
+            profileId: context?.profile?.id ?? '',
+            profileWorkspaceId: context?.profile?.workspace_id ?? '',
+            workspaceDebugId: context?.workspace?.id ?? '',
+            resolvedWorkspaceId,
             totalConversationsForWorkspace: 0,
             queryMode: `workspace_id=${resolvedWorkspaceId}`,
           })
@@ -490,6 +524,12 @@ export default function AssistantPage() {
         updateDiagnostics({
           lastReadConversationsStatus: 'ERROR: workspaceId null',
           lastSupabaseError: 'Usuario real sin workspaceId resuelto.',
+          sessionUserId: context?.user?.id ?? '',
+          sessionEmail: context?.user?.email ?? '',
+          profileId: context?.profile?.id ?? '',
+          profileWorkspaceId: context?.profile?.workspace_id ?? '',
+          workspaceDebugId: context?.workspace?.id ?? '',
+          resolvedWorkspaceId: '',
           totalConversationsForWorkspace: 0,
           filteredConversationsForMode: 0,
           queryMode: 'workspaceId=null',
@@ -502,8 +542,8 @@ export default function AssistantPage() {
       })
       setLocalMessages({})
       setWorkspaceId(resolvedWorkspaceId ?? null)
-      setIsRealMode(true)
-      setAssistantWebhookUrl(assistantFlow.webhookUrl || ASSISTANT_AGENT_WEBHOOK_URL)
+      setIsRealMode(Boolean(resolvedWorkspaceId))
+      setAssistantWebhookUrl(resolvedWorkspaceId ? assistantFlow.webhookUrl || ASSISTANT_AGENT_WEBHOOK_URL : '')
       setAssistantFlowFound(assistantFlow.isActive)
       setAssistantFlowStatus(assistantFlow.status)
     } catch (error) {
@@ -534,6 +574,12 @@ export default function AssistantPage() {
         lastReadConversationsStatus: isDemoMode ? 'Modo demo' : 'ERROR contexto workspace',
         lastReadMessagesStatus: isDemoMode ? 'Modo demo' : 'No intentado',
         lastSupabaseError: isDemoMode ? '' : safeErrorMessage(error),
+        sessionUserId: '',
+        sessionEmail: '',
+        profileId: '',
+        profileWorkspaceId: '',
+        workspaceDebugId: '',
+        resolvedWorkspaceId: '',
         totalConversationsForWorkspace: 0,
         filteredConversationsForMode: 0,
         queryMode: isDemoMode ? 'demo' : 'context-error',
@@ -559,10 +605,22 @@ export default function AssistantPage() {
   const selectedId = selectedIds[assistantMode]
   const selected = modeConversations.find((conversation) => conversation.id === selectedId) ?? modeConversations[0] ?? null
   const activeSelectedId = selected?.id ?? ''
+  const selectedConversationIsUuid = isUuid(activeSelectedId)
 
   useEffect(() => {
     if (!selected) return
     if (!isRealMode) return
+    if (!workspaceId || !isUuid(selected.id)) {
+      const timeout = window.setTimeout(() => {
+        updateDiagnostics({
+          lastReadMessagesStatus: `Bloqueado: selectedConversationId no válido (${selected.id})`,
+          lastSupabaseError: !workspaceId
+            ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+            : 'Conversación temporal detectada en modo real. No se consulta Supabase con IDs conv-*.',
+        })
+      }, 0)
+      return () => window.clearTimeout(timeout)
+    }
 
     const loadMessages = async () => {
       setLoadingMessages(true)
@@ -611,7 +669,42 @@ export default function AssistantPage() {
     setLocalMessages((prev) => ({ ...prev, [conversationId]: [...(prev[conversationId] ?? []), message] }))
   }
 
+  const ensureRealConversation = async () => {
+    if (!isRealMode) return selected
+
+    if (!workspaceId) {
+      const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+      updateDiagnostics({ lastSupabaseError: message })
+      toast.error('Workspace no resuelto', { description: message })
+      return null
+    }
+
+    if (selected && isUuid(selected.id)) return selected
+
+    const created = await createAssistantConversation(workspaceId, assistantMode, {
+      clientName: assistantMode === 'copilot' ? 'Consulta CRM' : 'Nueva conversación',
+      lastMessage: assistantMode === 'copilot' ? 'Consulta Copilot CRM' : 'Conversación Inbox Assistant',
+      metadata: { source: 'assistant_auto_create', assistant_mode: assistantMode },
+    })
+    setConversationList((prev) => [created, ...prev.filter((conversation) => conversation.id !== selected?.id)])
+    setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
+    setLocalMessages((prev) => ({ ...prev, [created.id]: [] }))
+    updateDiagnostics({
+      lastCreateConversationStatus: `OK auto conversation: ${created.id}`,
+      lastCreatedConversationId: created.id,
+      lastSupabaseError: '',
+    })
+    return created
+  }
+
   const appendAssistantMessage = async (conversationId: string, content: string, clientName?: string) => {
+    if (isRealMode && (!workspaceId || !isUuid(conversationId))) {
+      const message = !workspaceId
+        ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+        : `Bloqueado intento de guardar Assistant message con conversation_id temporal: ${conversationId}`
+      updateDiagnostics({ lastCreateMessageStatus: 'Bloqueado', lastSupabaseError: message })
+      throw new Error(message)
+    }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
     if (isRealMode && workspaceId) {
@@ -640,11 +733,21 @@ export default function AssistantPage() {
 
   const sendMessage = async (overrideContent?: string, options: { sender?: MessageSender } = {}) => {
     const content = (overrideContent ?? input).trim()
-    if (!content || !selected || isTyping) return
-    const conversationId = selected.id
+    if (!content || isTyping) return
+    const activeConversation = isRealMode ? await ensureRealConversation() : selected
+    if (!activeConversation) return
+    const conversationId = activeConversation.id
+    if (isRealMode && (!workspaceId || !isUuid(conversationId))) {
+      const message = !workspaceId
+        ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+        : `Bloqueado intento de enviar mensaje con conversation_id temporal: ${conversationId}`
+      updateDiagnostics({ lastCreateMessageStatus: 'Bloqueado', lastSupabaseError: message })
+      toast.error('No se pudo enviar', { description: message })
+      return
+    }
     const userSender: MessageSender = options.sender || (assistantMode === 'inbox' ? 'client' : 'agent')
     const userMsg: Message = { id: `${userSender}-${Date.now()}`, conversationId, content, sender: userSender, timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }
-    const defaultClientName = isGenericConversationName(selected.clientName) ? undefined : selected.clientName
+    const defaultClientName = isGenericConversationName(activeConversation.clientName) ? undefined : activeConversation.clientName
     const operationalIntent = detectAssistantIntent(content, { defaultClientName })
     const localIntentLabel = intentLabel(operationalIntent)
 
@@ -673,23 +776,23 @@ export default function AssistantPage() {
           intent: operationalIntent.intent,
           metadata: { assistant_mode: assistantMode, last_source: 'assistant_ui', detected_intent: operationalIntent.intent },
         }).catch(() => null)
-        await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${selected.clientName}`, clientName: selected.clientName })
+        await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${activeConversation.clientName}`, clientName: activeConversation.clientName })
       }
 
       if (!assistantN8nActive && isCapabilityQuestion(content)) {
-        await appendAssistantMessage(conversationId, internalAssistantIntro(assistantMode), selected.clientName)
+        await appendAssistantMessage(conversationId, internalAssistantIntro(assistantMode), activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
 
       if (!assistantN8nActive && isPricingQuestion(content)) {
-        await appendAssistantMessage(conversationId, pricingGuidance(), selected.clientName)
+        await appendAssistantMessage(conversationId, pricingGuidance(), activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
 
       if (!assistantN8nActive && /no entiendo|no sé|no se|ayuda/i.test(content)) {
-        await appendAssistantMessage(conversationId, 'Claro. Dime si quieres crear una cita, buscar un cliente, preparar una factura o ver la próxima acción comercial.', selected.clientName)
+        await appendAssistantMessage(conversationId, 'Claro. Dime si quieres crear una cita, buscar un cliente, preparar una factura o ver la próxima acción comercial.', activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
@@ -704,7 +807,7 @@ export default function AssistantPage() {
             mergedAction.missingFields.length
               ? `Perfecto, he actualizado la acción. Todavía falta: ${missingText(mergedAction.missingFields)}.`
               : 'Perfecto, ya tengo todos los datos. Revisa la card y pulsa Confirmar para ejecutarla.',
-            selected.clientName
+            activeConversation.clientName
           )
           setLastResponseSource(null)
           return
@@ -717,7 +820,7 @@ export default function AssistantPage() {
       if (localResponse && shouldUseLocalResponse) {
         const action = buildPreparedAction(operationalIntent, assistantMode)
         await new Promise((resolve) => setTimeout(resolve, 350))
-        await appendAssistantMessage(conversationId, localResponse, selected.clientName)
+        await appendAssistantMessage(conversationId, localResponse, activeConversation.clientName)
         setPreparedAction(action)
         if (action) setLastActionStatus(`Última acción preparada: ${action.type === 'booking' ? 'cita' : 'factura'}`)
         setLastResponseSource(null)
@@ -734,16 +837,16 @@ export default function AssistantPage() {
       if (assistantMode === 'copilot' && safeTool && workspaceId) {
         const toolInput =
           safeTool === 'search_clients' ? { query: operationalIntent.extracted.clientName || content } :
-          safeTool === 'get_client_summary' ? { name: operationalIntent.extracted.clientName || selected.clientName } :
+          safeTool === 'get_client_summary' ? { name: operationalIntent.extracted.clientName || activeConversation.clientName } :
           safeTool === 'list_invoices' ? { status: 'pending' } :
           {}
         const toolResult = await callAgentTool(safeTool, workspaceId, toolInput, {
           source: 'assistant_local_intent',
-          conversation_id: selected.id,
+          conversation_id: activeConversation.id,
           user_intent: operationalIntent.intent,
         }).catch(() => null)
         if (toolResult?.ok) {
-          await appendAssistantMessage(conversationId, formatToolResult(safeTool, toolResult.result), selected.clientName)
+          await appendAssistantMessage(conversationId, formatToolResult(safeTool, toolResult.result), activeConversation.clientName)
           setLastResponseSource(null)
           return
         }
@@ -753,8 +856,8 @@ export default function AssistantPage() {
         input: content,
         workspaceId,
         workspaceName: currentUser.workspaceName,
-        conversation: selected,
-        messages: [...msgs, userMsg],
+        conversation: activeConversation,
+        messages: [...(localMessages[conversationId] ?? []), userMsg],
         isDemo: !isRealMode,
         webhookUrl: assistantN8nActive ? assistantWebhookUrl : undefined,
         assistantMode,
@@ -762,7 +865,7 @@ export default function AssistantPage() {
 
       await new Promise((resolve) => setTimeout(resolve, 900))
 
-      await appendAssistantMessage(conversationId, assistantResult.response, selected.clientName)
+      await appendAssistantMessage(conversationId, assistantResult.response, activeConversation.clientName)
 
       if (assistantResult.source === 'n8n') {
         setLastResponseSource('n8n')
@@ -776,10 +879,10 @@ export default function AssistantPage() {
 
       const lower = content.toLowerCase()
       if (lower.includes('pago') || lower.includes('factura') || lower.includes('cobro')) {
-        await triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
+        await triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
       if (lower.includes('llamada') || lower.includes('reun') || lower.includes('agenda')) {
-        await triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: selected.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
+        await triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
     } catch (error) {
       toast.error('No se pudo guardar el mensaje', { description: error instanceof Error ? error.message : 'Se mantiene en pantalla como fallback local.' })
@@ -794,6 +897,12 @@ export default function AssistantPage() {
 
     setConfirmingAction(true)
     try {
+      const activeConversation = isRealMode ? await ensureRealConversation() : selected
+      if (!activeConversation) return
+      if (isRealMode && (!workspaceId || !isUuid(activeConversation.id))) {
+        throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede confirmar una acción usando una conversación temporal.')
+      }
+
       if (preparedAction.type === 'booking') {
         if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.service || !preparedAction.date || !preparedAction.time || !preparedAction.duration) {
           toast.warning('Faltan datos para crear la cita', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
@@ -812,7 +921,7 @@ export default function AssistantPage() {
         const toolResult = workspaceId
           ? await callAgentTool('create_calendar_event', workspaceId, toolInput, {
               source: 'assistant_confirmation',
-              conversation_id: selected.id,
+              conversation_id: activeConversation.id,
               user_intent: 'booking',
             }).catch(() => null)
           : null
@@ -842,7 +951,7 @@ export default function AssistantPage() {
           })
         }
 
-        await appendAssistantMessage(selected.id, `Cita creada en Calendario: ${preparedAction.clientName}, ${preparedAction.service}, ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName)
+        await appendAssistantMessage(activeConversation.id, `Cita creada en Calendario: ${preparedAction.clientName}, ${preparedAction.service}, ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName)
         toast.success('Cita creada en Calendario')
         setLastActionStatus('Última acción confirmada: cita creada')
       }
@@ -863,7 +972,7 @@ export default function AssistantPage() {
         const toolResult = workspaceId
           ? await callAgentTool('create_invoice', workspaceId, toolInput, {
               source: 'assistant_confirmation',
-              conversation_id: selected.id,
+              conversation_id: activeConversation.id,
               user_intent: 'invoice',
             }).catch(() => null)
           : null
@@ -891,7 +1000,7 @@ export default function AssistantPage() {
           })
         }
 
-        await appendAssistantMessage(selected.id, `Factura creada: ${preparedAction.clientName}, ${preparedAction.concept}, ${preparedAction.amount} EUR.`, preparedAction.clientName)
+        await appendAssistantMessage(activeConversation.id, `Factura creada: ${preparedAction.clientName}, ${preparedAction.concept}, ${preparedAction.amount} EUR.`, preparedAction.clientName)
         toast.success('Factura creada')
         setLastActionStatus('Última acción confirmada: factura creada')
       }
@@ -926,7 +1035,13 @@ export default function AssistantPage() {
     }
 
     try {
-      if (isRealMode && workspaceId) {
+      if (isRealMode) {
+        if (!workspaceId) {
+          const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+          updateDiagnostics({ lastCreateConversationStatus: 'Bloqueado', lastSupabaseError: message })
+          toast.error('Workspace no resuelto', { description: message })
+          return
+        }
         let created: Conversation
         try {
           created = await createAssistantConversation(workspaceId, assistantMode, {
@@ -968,6 +1083,13 @@ export default function AssistantPage() {
         await loadConversations()
         setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
         toast.success('Conversación real creada')
+        return
+      }
+
+      if (!currentUser.isDemo && window.localStorage.getItem(DEMO_MODE_KEY) !== 'true') {
+        const message = 'No se crea conversación local porque hay sesión real sin workspace resuelto.'
+        updateDiagnostics({ lastCreateConversationStatus: 'Bloqueado', lastSupabaseError: message })
+        toast.error('Workspace no resuelto', { description: message })
         return
       }
 
@@ -1068,13 +1190,25 @@ export default function AssistantPage() {
   }
 
   const handleQuickAction = async (action: string) => {
-    if (!selected) return
+    const activeConversation = isRealMode ? await ensureRealConversation() : selected
+    if (!activeConversation) {
+      toast.info('Crea una conversación primero')
+      return
+    }
+    if (isRealMode && (!workspaceId || !isUuid(activeConversation.id))) {
+      const message = !workspaceId
+        ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+        : `Bloqueado quick action con conversation_id temporal: ${activeConversation.id}`
+      updateDiagnostics({ lastCreateMessageStatus: 'Bloqueado', lastSupabaseError: message })
+      toast.error('No se pudo ejecutar la acción', { description: message })
+      return
+    }
 
     if (action === 'Probar n8n') {
       const webhookForTest = assistantWebhookUrl || ASSISTANT_AGENT_WEBHOOK_URL
-      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: selected.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
-      appendLocalMessage(selected.id, testingMsg)
-      if (isRealMode && workspaceId) await createMessage(selected.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
+      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
+      appendLocalMessage(activeConversation.id, testingMsg)
+      if (isRealMode && workspaceId) await createMessage(activeConversation.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
       const result = await triggerN8nWebhook('assistant_message', {
         workspace_id: workspaceId ?? undefined,
         webhook_url: webhookForTest,
@@ -1095,9 +1229,9 @@ export default function AssistantPage() {
       if (result.status === 'ok') {
         setLastResponseSource('n8n')
         if (result.suggested_response) {
-          const n8nMsg: Message = { id: `n8n-${Date.now()}`, conversationId: selected.id, content: result.suggested_response, sender: 'ai', timestamp: nowTime() }
-          appendLocalMessage(selected.id, n8nMsg)
-          if (isRealMode && workspaceId) await createMessage(selected.id, { content: result.suggested_response, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
+          const n8nMsg: Message = { id: `n8n-${Date.now()}`, conversationId: activeConversation.id, content: result.suggested_response, sender: 'ai', timestamp: nowTime() }
+          appendLocalMessage(activeConversation.id, n8nMsg)
+          if (isRealMode && workspaceId) await createMessage(activeConversation.id, { content: result.suggested_response, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
         }
         toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
       } else {
@@ -1121,16 +1255,16 @@ export default function AssistantPage() {
     const tool = safeToolsByIntent[selectedPrompt.intent]
     if (assistantMode === 'copilot' && tool && workspaceId) {
       const toolInput =
-        tool === 'get_client_summary' ? { name: selected.clientName } :
-        tool === 'search_clients' ? { query: selected.clientName } :
+        tool === 'get_client_summary' ? { name: activeConversation.clientName } :
+        tool === 'search_clients' ? { query: activeConversation.clientName } :
         {}
       const result = await callAgentTool(tool, workspaceId, toolInput, {
         source: 'assistant_quick_action',
-        conversation_id: selected.id,
+        conversation_id: activeConversation.id,
         user_intent: selectedPrompt.intent,
       }).catch(() => null)
       if (result?.ok) {
-        await appendAssistantMessage(selected.id, formatToolResult(tool, result.result), selected.clientName)
+        await appendAssistantMessage(activeConversation.id, formatToolResult(tool, result.result), activeConversation.clientName)
         toast.success('Tool consultada', { description: result.message })
         return
       }
@@ -1142,7 +1276,10 @@ export default function AssistantPage() {
     if (!selected) return
     try {
       if (isRealMode) {
-        await markConversationResolved(selected.id)
+        if (!workspaceId || !isUuid(selected.id)) {
+          throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede resolver una conversación temporal en modo real.')
+        }
+        await updateConversationScoped(selected.id, workspaceId, { status: 'resolved' })
         if (workspaceId) await createActivity(workspaceId, { type: 'message', description: `Conversación resuelta: ${selected.clientName}`, clientName: selected.clientName })
         await loadConversations()
       } else {
@@ -1151,6 +1288,37 @@ export default function AssistantPage() {
       toast.success('Conversación resuelta')
     } catch (error) {
       toast.error('No se pudo resolver', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+    }
+  }
+
+  const archiveConversation = async () => {
+    if (!selected) return
+    const confirmed = window.confirm('¿Eliminar esta conversación de la lista? Se archivará de forma segura y no afectará a otros workspaces.')
+    if (!confirmed) return
+
+    try {
+      if (isRealMode) {
+        if (!workspaceId || !isUuid(selected.id)) {
+          throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede archivar una conversación temporal en modo real.')
+        }
+        await archiveConversationScoped(selected.id, workspaceId)
+        setConversationList((prev) => prev.filter((conversation) => conversation.id !== selected.id))
+        setSelectedIds((prev) => ({ ...prev, [assistantMode]: '' }))
+        setLocalMessages((prev) => {
+          const next = { ...prev }
+          delete next[selected.id]
+          return next
+        })
+        toast.success('Conversación archivada')
+        return
+      }
+
+      setConversationList((prev) => prev.filter((conversation) => conversation.id !== selected.id))
+      setSelectedIds((prev) => ({ ...prev, [assistantMode]: '' }))
+      toast.success('Conversación eliminada de la demo')
+    } catch (error) {
+      toast.error('No se pudo archivar', { description: safeErrorMessage(error) })
+      updateDiagnostics({ lastSupabaseError: safeErrorMessage(error) })
     }
   }
 
@@ -1334,6 +1502,10 @@ export default function AssistantPage() {
                   <Button variant="secondary" size="sm" onClick={resolveConversation}>
                     <CheckCircle className="h-3.5 w-3.5" />
                     Resolver
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={archiveConversation} aria-label="Eliminar conversación">
+                    <X className="h-3.5 w-3.5" />
+                    Eliminar
                   </Button>
                 </div>
               </div>
@@ -1589,15 +1761,22 @@ export default function AssistantPage() {
         <div className="fixed bottom-4 left-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] shadow-lg shadow-amber-950/10">
           <p className="mb-1.5 font-bold text-amber-900">Debug (dev only)</p>
           <p className="text-amber-700">email: {currentUser.email}</p>
+          <p className="text-amber-700">session.user.id: {diagnostics.sessionUserId || 'null'}</p>
+          <p className="text-amber-700">session.user.email: {diagnostics.sessionEmail || 'null'}</p>
+          <p className="text-amber-700">profile.id: {diagnostics.profileId || 'null'}</p>
+          <p className="text-amber-700">profile.workspace_id: {diagnostics.profileWorkspaceId || 'null'}</p>
+          <p className="text-amber-700">workspace.id: {diagnostics.workspaceDebugId || 'null'}</p>
+          <p className="text-amber-700">resolvedWorkspaceId: {diagnostics.resolvedWorkspaceId || 'null'}</p>
           <p className="text-amber-700">workspaceId: {workspaceId ?? 'null'}</p>
           <p className="text-amber-700">isDemo: {String(currentUser.isDemo)}</p>
           <p className="text-amber-700">isRealMode: {String(isRealMode)}</p>
           <p className="text-amber-700">activeAssistantMode: {assistantMode}</p>
           <p className="text-amber-700">selectedConversationId: {activeSelectedId || 'null'}</p>
-          <p className="text-amber-700">totalConversationsForWorkspace: {conversationList.length}</p>
+          <p className="text-amber-700">selectedConversationIsUuid: {String(selectedConversationIsUuid)}</p>
+          <p className="text-amber-700">totalConversationsForWorkspace: {diagnostics.totalConversationsForWorkspace || conversationList.length}</p>
           <p className="text-amber-700">filteredConversationsForMode: {modeConversations.length}</p>
           <p className="text-amber-700">messages count: {msgs.length}</p>
-          <p className="text-amber-700">queryMode: {isRealMode ? `workspace_id=${workspaceId ?? 'null'} mode=${assistantMode}` : (currentUser.isDemo ? 'demo' : 'not-real')}</p>
+          <p className="text-amber-700">queryMode: {isRealMode ? `workspace_id=${(workspaceId ?? diagnostics.resolvedWorkspaceId) || 'null'} mode=${assistantMode}` : (diagnostics.queryMode || (currentUser.isDemo ? 'demo' : 'not-real'))}</p>
           <p className="text-amber-700">lastCreatedConversationId: {diagnostics.lastCreatedConversationId || 'none'}</p>
           <p className="text-amber-700">lastCreatedMessageId: {diagnostics.lastCreatedMessageId || 'none'}</p>
           <p className="text-amber-700">assistantFlow found: {assistantFlowFound ? 'true' : 'false'}</p>

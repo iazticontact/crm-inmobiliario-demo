@@ -301,21 +301,50 @@ export async function getCurrentUser() {
 }
 
 export async function getCurrentProfile(userId?: string) {
-  const user = userId ? null : await getCurrentUser()
-  const id = userId ?? user?.id
-  if (!id) return null
-
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return null
 
-  const byId = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle()
+  let id = userId
+  let email: string | null | undefined = null
 
-  if (byId.data) return byId.data as ProfileRecord
-  if (byId.error) throw byId.error
+  if (!id) {
+    const sessionResult = await supabase.auth.getSession()
+    if (sessionResult.error) throw sessionResult.error
+    const session = sessionResult.data.session
+    if (!session?.user) return null
+    id = session.user.id
+    email = session.user.email
+  }
+
+  if (id) {
+    const byId = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (byId.error) throw byId.error
+    if (byId.data) return byId.data as ProfileRecord
+  }
+
+  if (!email) {
+    const sessionResult = await supabase.auth.getSession()
+    if (sessionResult.error) throw sessionResult.error
+    const session = sessionResult.data.session
+    email = session?.user?.email
+  }
+
+  if (email) {
+    const byEmail = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (byEmail.error) throw byEmail.error
+    if (byEmail.data) return byEmail.data as ProfileRecord
+  }
+
   return null
 }
 
@@ -324,25 +353,13 @@ async function getCurrentProfileByEmail(email?: string | null) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return null
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('email', email)
     .maybeSingle()
 
-  return data as ProfileRecord | null
-}
-
-async function getFirstAccessibleProfile() {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) return null
-
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
-
+  if (error) throw error
   return data as ProfileRecord | null
 }
 
@@ -381,19 +398,6 @@ async function getWorkspaceById(workspaceId?: string | null) {
   return data as WorkspaceRecord | null
 }
 
-async function getFirstAccessibleWorkspace() {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) return null
-
-  const { data } = await supabase
-    .from('workspaces')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
-
-  return data as WorkspaceRecord | null
-}
-
 export async function getWorkspaceContext() {
   const user = await getCurrentUser()
   if (!user) return null
@@ -425,22 +429,16 @@ export async function getResolvedWorkspaceContext() {
     profile = await getCurrentProfileByEmail(user.email).catch(() => null)
   }
 
-  if (!profile) {
-    profile = await getFirstAccessibleProfile().catch(() => null)
+  if (profile?.workspace_id) {
+    try {
+      workspace = await getWorkspaceById(profile.workspace_id)
+    } catch {
+      workspace = null
+    }
   }
 
-  try {
-    workspace = await getCurrentWorkspace(profile)
-  } catch {
-    workspace = null
-  }
-
-  if (!workspace) {
-    workspace = await getWorkspaceById(profile?.workspace_id || metadataWorkspaceId).catch(() => null)
-  }
-
-  if (!workspace) {
-    workspace = await getFirstAccessibleWorkspace().catch(() => null)
+  if (!workspace && metadataWorkspaceId) {
+    workspace = await getWorkspaceById(metadataWorkspaceId).catch(() => null)
   }
 
   return { user, profile, workspace }
@@ -779,7 +777,9 @@ export async function getAssistantConversations(workspaceId: string, mode?: Assi
   }
 
   if (result.error) throw result.error
-  const conversations = ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseConversation)
+  const conversations = ((result.data as DataRecord[] | null) ?? [])
+    .map(mapSupabaseConversation)
+    .filter((conversation) => conversation.status !== 'deleted')
   return mode ? conversations.filter((conversation) => (conversation.assistantMode ?? 'inbox') === mode) : conversations
 }
 
@@ -889,6 +889,22 @@ export async function markConversationResolved(id: string) {
     .from('conversations')
     .update({ status: 'resolved', updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return mapSupabaseConversation(data as DataRecord)
+}
+
+export async function archiveConversationScoped(id: string, workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .update({ status: 'deleted', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
     .select('*')
     .single()
 
