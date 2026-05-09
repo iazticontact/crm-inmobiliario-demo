@@ -1563,7 +1563,7 @@ export default function AssistantPage() {
             <Badge variant="warning" dot>WhatsApp siguiente fase</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
-              {assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear inbox demo') : (isRealMode ? 'Crear consulta' : 'Crear consulta demo')}
+              {assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear conversación de ejemplo') : (isRealMode ? 'Crear consulta' : 'Crear consulta de ejemplo')}
             </Button>
           </div>
         }
@@ -1663,11 +1663,11 @@ export default function AssistantPage() {
                 <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                   <MessageSquare className="h-5 w-5" />
                 </div>
-                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones Inbox' : 'Sin consultas Copilot'}</p>
+                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones' : 'Sin consultas'}</p>
                 <p className="mt-1 text-xs text-gray-400">
                   {assistantMode === 'inbox'
-                    ? 'Crea una conversación para simular mensajes de clientes. WhatsApp/Whapi traerá aquí mensajes reales.'
-                    : 'Crea una consulta para que Copilot opere clientes, facturas, calendario y cobros.'}
+                    ? 'Crea una conversación para empezar.'
+                    : 'Abre una consulta para operar tu CRM.'}
                 </p>
               </li>
             )}
@@ -1702,29 +1702,27 @@ export default function AssistantPage() {
                 </div>
               </div>
 
-              <div className="flex-1 space-y-5 overflow-y-auto p-5 pb-8">
+              <div className="flex-1 space-y-6 overflow-y-auto p-5 pb-8">
                 {loadingMessages && <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin text-indigo-500" />Cargando mensajes...</div>}
                 {!loadingMessages && msgs.map((msg) => {
-                  const isClient = msg.sender === 'client'
+                  const isUser = msg.sender !== 'ai'
                   const isAI = msg.sender === 'ai'
-                  const isAgent = msg.sender === 'agent'
-                  const label = isAI ? 'Assistant Agent' : isAgent ? 'Tú' : 'Cliente'
+                  const label = isAI ? 'Assistant Agent' : 'Tú'
                   return (
-                    <div key={msg.id} className={cn('flex', isAgent ? 'justify-end' : 'justify-start')}>
-                      <div className={cn('max-w-[72%]', isAgent ? 'items-end' : 'items-start')}>
-                        <div className={cn('mb-1 flex items-center gap-1.5', isAgent ? 'justify-end text-slate-500' : isAI ? 'text-indigo-600' : 'text-gray-500')}>
+                    <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+                      <div className={cn('max-w-[80%]', isUser ? 'items-end' : 'items-start')}>
+                        <div className={cn('mb-1 flex items-center gap-1.5', isUser ? 'justify-end text-slate-500' : isAI ? 'text-indigo-600' : 'text-gray-500')}>
                           {isAI && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-50"><Bot className="h-2.5 w-2.5" /></span>}
                           <span className="text-[10px] font-semibold">{label}</span>
                         </div>
                         <div className={cn(
-                          'whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm',
-                          isClient && 'rounded-tl-sm border border-gray-200 bg-white text-gray-800 shadow-gray-950/[0.025]',
-                          isAI && 'rounded-tl-sm border border-indigo-100 bg-gradient-to-br from-white via-indigo-50 to-violet-50 text-gray-900 shadow-indigo-950/[0.045]',
-                          isAgent && 'rounded-tr-sm bg-slate-900 text-white shadow-slate-950/15'
+                          'whitespace-pre-wrap rounded-2xl px-4 py-3.5 text-sm leading-6 shadow-sm',
+                          isUser && 'rounded-tr-sm bg-slate-900 text-white shadow-slate-950/15',
+                          isAI && 'rounded-tl-sm border border-indigo-100 bg-gradient-to-br from-white via-indigo-50 to-violet-50 text-gray-900 shadow-indigo-950/[0.045]'
                         )}>
                           {msg.content}
                         </div>
-                        <p className={cn('mt-1 text-[10px] text-gray-400', isAgent ? 'text-right' : 'text-left')}>{msg.timestamp}</p>
+                        <p className={cn('mt-1 text-[9px] text-gray-400', isUser ? 'text-right' : 'text-left')}>{msg.timestamp}</p>
                       </div>
                     </div>
                   )
@@ -1822,7 +1820,7 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe o simula un mensaje de cliente...' : 'Pide a Copilot que busque clientes, facture, agende o revise cobros...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pide a Copilot que opere tu CRM...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
@@ -1848,7 +1846,7 @@ export default function AssistantPage() {
                 </p>
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
-                    ? 'Crea una conversación para simular cómo entrarían mensajes de clientes. Cuando conectes WhatsApp/Whapi, los mensajes reales aparecerán aquí.'
+                    ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp/Whapi, los mensajes reales aparecerán aquí.'
                     : 'Abre una consulta interna para que Copilot opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
@@ -1856,7 +1854,7 @@ export default function AssistantPage() {
                     <span key={example} className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">{example}</span>
                   ))}
                 </div>
-                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear inbox demo') : (isRealMode ? 'Crear consulta' : 'Crear consulta demo')}</Button>
+                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear conversación de ejemplo') : (isRealMode ? 'Crear consulta' : 'Crear consulta de ejemplo')}</Button>
               </div>
             </div>
           )}
