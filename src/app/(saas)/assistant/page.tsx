@@ -29,6 +29,94 @@ import {
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NODE_ENV === 'development'
+const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
+const OFFLINE_WORKSPACE_ID = '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
+const OFFLINE_USER_ID = '91b65a40-222d-4f97-870c-8e4119278c2c'
+const OFFLINE_USER_EMAIL = 'oier.dunabeitia@opendeusto.es'
+const OFFLINE_STORAGE_KEY_CONVERSATIONS = 'nowcrm-offline-conversations'
+const OFFLINE_STORAGE_KEY_MESSAGES = 'nowcrm-offline-messages'
+
+function createUuid() {
+  const bytes = new Uint8Array(16)
+  window.crypto.getRandomValues(bytes)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  return Array.from(bytes)
+    .map((byte, index) => {
+      const hex = byte.toString(16).padStart(2, '0')
+      return [4, 6, 8, 10].includes(index) ? `-${hex}` : hex
+    })
+    .join('')
+}
+
+function loadOfflineConversations(): Conversation[] {
+  try {
+    const stored = window.localStorage.getItem(OFFLINE_STORAGE_KEY_CONVERSATIONS)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) return parsed as Conversation[]
+    }
+  } catch {
+    // ignore
+  }
+
+  return mockConversations.map((conversation, index) => ({
+    ...conversation,
+    id: createUuid(),
+    workspaceId: OFFLINE_WORKSPACE_ID,
+    assistantMode: conversation.assistantMode ?? (index === 0 ? 'copilot' : 'inbox'),
+    metadata: { ...(conversation.metadata ?? {}), source: 'offline' },
+  }))
+}
+
+function loadOfflineMessages(): Record<string, Message[]> {
+  try {
+    const stored = window.localStorage.getItem(OFFLINE_STORAGE_KEY_MESSAGES)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, Message[]>
+    }
+  } catch {
+    // ignore
+  }
+  return {}
+}
+
+function persistOfflineConversations(conversations: Conversation[]) {
+  if (!OFFLINE_FORCE_DEV) return
+  try {
+    window.localStorage.setItem(OFFLINE_STORAGE_KEY_CONVERSATIONS, JSON.stringify(conversations))
+  } catch {
+    // ignore
+  }
+}
+
+function persistOfflineMessages(messages: Record<string, Message[]>) {
+  if (!OFFLINE_FORCE_DEV) return
+  try {
+    window.localStorage.setItem(OFFLINE_STORAGE_KEY_MESSAGES, JSON.stringify(messages))
+  } catch {
+    // ignore
+  }
+}
+
+function createOfflineConversation(mode: AssistantMode): Conversation {
+  const id = createUuid()
+  return {
+    id,
+    workspaceId: OFFLINE_WORKSPACE_ID,
+    clientId: `offline-${id}`,
+    clientName: mode === 'copilot' ? 'Consulta CRM' : 'Nuevo cliente',
+    clientAvatar: '',
+    lastMessage: mode === 'copilot' ? 'Nueva consulta interna' : 'Nuevo mensaje de cliente',
+    timestamp: new Date().toISOString(),
+    unread: true,
+    sentiment: 'neutral',
+    channel: mode === 'inbox' ? 'WhatsApp' : 'Web',
+    assistantMode: mode,
+    metadata: { source: 'offline' },
+  }
+}
 
 const sentimentConfig: Record<ConversationSentiment, { label: string; variant: 'success' | 'warning' | 'danger' }> = {
   positive: { label: 'Positivo', variant: 'success' },
@@ -447,6 +535,38 @@ export default function AssistantPage() {
     setLoadingConversations(true)
     setAssistantReady(false)
     try {
+      if (OFFLINE_FORCE_DEV) {
+        const offlineConversations = loadOfflineConversations()
+        const offlineMessages = loadOfflineMessages()
+        const offlineSelectedIds = {
+          inbox: offlineConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
+          copilot: offlineConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
+        }
+        setConversationList(offlineConversations)
+        setSelectedIds(offlineSelectedIds)
+        setWorkspaceId(OFFLINE_WORKSPACE_ID)
+        setIsRealMode(true)
+        setAssistantWebhookUrl('')
+        setAssistantFlowFound(false)
+        setAssistantFlowStatus('active')
+        setLocalMessages(offlineMessages)
+        updateDiagnostics({
+          lastReadConversationsStatus: `Offline local cargado: ${offlineConversations.length} conversación(es)`,
+          lastReadMessagesStatus: 'Offline local cargado',
+          lastSupabaseError: 'Modo offline local: Supabase bloqueado por red',
+          sessionUserId: OFFLINE_USER_ID,
+          sessionEmail: OFFLINE_USER_EMAIL,
+          profileId: OFFLINE_USER_ID,
+          profileWorkspaceId: OFFLINE_WORKSPACE_ID,
+          workspaceDebugId: OFFLINE_WORKSPACE_ID,
+          resolvedWorkspaceId: OFFLINE_WORKSPACE_ID,
+          totalConversationsForWorkspace: offlineConversations.length,
+          filteredConversationsForMode: offlineConversations.length,
+          queryMode: 'offline-local',
+        })
+        return
+      }
+
       const context = await getResolvedWorkspaceContext()
       const hasRealSession = Boolean(context?.user)
       const resolvedWorkspaceId = context?.profile?.workspace_id || context?.workspace?.id || userWorkspaceId
@@ -657,20 +777,47 @@ export default function AssistantPage() {
   const filteredConvs = modeConversations.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
   const averageLeadScore = Math.round((modeConversations.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(modeConversations.length, 1)))
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
-  const assistantN8nActive = isRealMode && Boolean(assistantWebhookUrl)
+  const isOfflineMode = OFFLINE_FORCE_DEV
+  const assistantN8nActive = !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
+  const assistantSourceLabel = isOfflineMode ? 'Offline local' : assistantN8nActive ? 'n8n/OpenAI' : 'Demo'
+  const assistantSourceDetail = isOfflineMode ? 'Supabase bloqueado por red' : assistantN8nActive ? 'workflow activo' : 'fallback mock'
 
   const assistantStats = [
     { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas Copilot', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
-    { label: 'IA en modo', value: assistantN8nActive ? 'n8n/OpenAI' : 'Demo', detail: assistantN8nActive ? 'workflow activo' : 'fallback mock', icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
+    { label: 'IA en modo', value: assistantSourceLabel, detail: assistantSourceDetail, icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
     { label: assistantMode === 'inbox' ? 'Lead score medio' : 'Acciones preparadas', value: assistantMode === 'inbox' ? String(averageLeadScore) : (preparedAction ? '1' : '0'), detail: assistantMode === 'inbox' ? 'estimado' : 'requieren confirmación', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
 
   const appendLocalMessage = (conversationId: string, message: Message) => {
-    setLocalMessages((prev) => ({ ...prev, [conversationId]: [...(prev[conversationId] ?? []), message] }))
+    setLocalMessages((prev) => {
+      const next = { ...prev, [conversationId]: [...(prev[conversationId] ?? []), message] }
+      if (OFFLINE_FORCE_DEV) persistOfflineMessages(next)
+      return next
+    })
   }
 
   const ensureRealConversation = async () => {
     if (!isRealMode) return selected
+    if (OFFLINE_FORCE_DEV) {
+      const created = createOfflineConversation(assistantMode)
+      setConversationList((prev) => {
+        const next = [created, ...prev.filter((conversation) => conversation.id !== selected?.id)]
+        persistOfflineConversations(next)
+        return next
+      })
+      setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
+      setLocalMessages((prev) => {
+        const next = { ...prev, [created.id]: [] }
+        persistOfflineMessages(next)
+        return next
+      })
+      updateDiagnostics({
+        lastCreateConversationStatus: `OK offline conversation: ${created.id}`,
+        lastCreatedConversationId: created.id,
+        lastSupabaseError: 'Offline local: conversación creada sin Supabase',
+      })
+      return created
+    }
 
     if (!workspaceId) {
       const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
@@ -698,7 +845,7 @@ export default function AssistantPage() {
   }
 
   const appendAssistantMessage = async (conversationId: string, content: string, clientName?: string) => {
-    if (isRealMode && (!workspaceId || !isUuid(conversationId))) {
+    if (!OFFLINE_FORCE_DEV && isRealMode && (!workspaceId || !isUuid(conversationId))) {
       const message = !workspaceId
         ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
         : `Bloqueado intento de guardar Assistant message con conversation_id temporal: ${conversationId}`
@@ -707,7 +854,7 @@ export default function AssistantPage() {
     }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
-    if (isRealMode && workspaceId) {
+    if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId) {
       let saved: Message
       try {
         saved = await createMessage(conversationId, { content, sender: 'ai', metadata: { source: 'assistant_agent', assistant_mode: assistantMode } }, workspaceId)
@@ -737,7 +884,7 @@ export default function AssistantPage() {
     const activeConversation = isRealMode ? await ensureRealConversation() : selected
     if (!activeConversation) return
     const conversationId = activeConversation.id
-    if (isRealMode && (!workspaceId || !isUuid(conversationId))) {
+    if (!OFFLINE_FORCE_DEV && isRealMode && (!workspaceId || !isUuid(conversationId))) {
       const message = !workspaceId
         ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
         : `Bloqueado intento de enviar mensaje con conversation_id temporal: ${conversationId}`
@@ -750,6 +897,7 @@ export default function AssistantPage() {
     const defaultClientName = isGenericConversationName(activeConversation.clientName) ? undefined : activeConversation.clientName
     const operationalIntent = detectAssistantIntent(content, { defaultClientName })
     const localIntentLabel = intentLabel(operationalIntent)
+    const localResponse = buildLocalOperationalResponse(operationalIntent, assistantMode)
 
     appendLocalMessage(conversationId, userMsg)
     setInput('')
@@ -757,7 +905,7 @@ export default function AssistantPage() {
     setIsTyping(true)
 
     try {
-      if (isRealMode && workspaceId) {
+      if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId) {
         let saved: Message
         try {
           saved = await createMessage(conversationId, { content, sender: userSender, metadata: { source: 'assistant_ui', assistant_mode: assistantMode, detected_intent: operationalIntent.intent } }, workspaceId)
@@ -777,6 +925,13 @@ export default function AssistantPage() {
           metadata: { assistant_mode: assistantMode, last_source: 'assistant_ui', detected_intent: operationalIntent.intent },
         }).catch(() => null)
         await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${activeConversation.clientName}`, clientName: activeConversation.clientName })
+      }
+
+      if (OFFLINE_FORCE_DEV) {
+        const offlineResponse = localResponse || `Gracias, he registrado tu mensaje en modo offline local. Si quieres, dime el siguiente paso o pide una acción comercial.`
+        await appendAssistantMessage(conversationId, offlineResponse, activeConversation.clientName)
+        setLastResponseSource('fallback')
+        return
       }
 
       if (!assistantN8nActive && isCapabilityQuestion(content)) {
@@ -816,7 +971,6 @@ export default function AssistantPage() {
 
       const concreteActionIntents: AssistantIntent['intent'][] = ['booking', 'booking_concrete', 'invoice', 'invoice_concrete']
       const shouldUseLocalResponse = concreteActionIntents.includes(operationalIntent.intent) || !assistantN8nActive
-      const localResponse = buildLocalOperationalResponse(operationalIntent, assistantMode)
       if (localResponse && shouldUseLocalResponse) {
         const action = buildPreparedAction(operationalIntent, assistantMode)
         await new Promise((resolve) => setTimeout(resolve, 350))
@@ -834,7 +988,7 @@ export default function AssistantPage() {
         collection: 'list_invoices',
       }
       const safeTool = safeToolByIntent[operationalIntent.intent]
-      if (assistantMode === 'copilot' && safeTool && workspaceId) {
+      if (!OFFLINE_FORCE_DEV && assistantMode === 'copilot' && safeTool && workspaceId) {
         const toolInput =
           safeTool === 'search_clients' ? { query: operationalIntent.extracted.clientName || content } :
           safeTool === 'get_client_summary' ? { name: operationalIntent.extracted.clientName || activeConversation.clientName } :
@@ -878,10 +1032,10 @@ export default function AssistantPage() {
       }
 
       const lower = content.toLowerCase()
-      if (lower.includes('pago') || lower.includes('factura') || lower.includes('cobro')) {
+      if (!OFFLINE_FORCE_DEV && (lower.includes('pago') || lower.includes('factura') || lower.includes('cobro'))) {
         await triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
-      if (lower.includes('llamada') || lower.includes('reun') || lower.includes('agenda')) {
+      if (!OFFLINE_FORCE_DEV && (lower.includes('llamada') || lower.includes('reun') || lower.includes('agenda'))) {
         await triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
       }
     } catch (error) {
@@ -918,7 +1072,7 @@ export default function AssistantPage() {
           type: 'meeting',
           notes: preparedAction.notes,
         }
-        const toolResult = workspaceId
+        const toolResult = !OFFLINE_FORCE_DEV && workspaceId
           ? await callAgentTool('create_calendar_event', workspaceId, toolInput, {
               source: 'assistant_confirmation',
               conversation_id: activeConversation.id,
@@ -942,13 +1096,15 @@ export default function AssistantPage() {
 
         if (workspaceId) {
           await createActivity(workspaceId, { type: 'call', description: `Cita creada desde Assistant: ${preparedAction.service}`, clientName: preparedAction.clientName })
-          await triggerN8nWebhook('calendar_event_created', {
-            workspace_id: workspaceId,
-            mode: 'real',
-            calendar_event: toolInput,
-            client: { name: preparedAction.clientName },
-            metadata: { source: 'assistant_confirmation' },
-          })
+          if (!OFFLINE_FORCE_DEV) {
+            await triggerN8nWebhook('calendar_event_created', {
+              workspace_id: workspaceId,
+              mode: 'real',
+              calendar_event: toolInput,
+              client: { name: preparedAction.clientName },
+              metadata: { source: 'assistant_confirmation' },
+            })
+          }
         }
 
         await appendAssistantMessage(activeConversation.id, `Cita creada en Calendario: ${preparedAction.clientName}, ${preparedAction.service}, ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName)
@@ -969,7 +1125,7 @@ export default function AssistantPage() {
           due_date: preparedAction.dueDate,
           notes: preparedAction.notes,
         }
-        const toolResult = workspaceId
+        const toolResult = !OFFLINE_FORCE_DEV && workspaceId
           ? await callAgentTool('create_invoice', workspaceId, toolInput, {
               source: 'assistant_confirmation',
               conversation_id: activeConversation.id,
@@ -991,13 +1147,15 @@ export default function AssistantPage() {
 
         if (workspaceId) {
           await createActivity(workspaceId, { type: 'deal', description: `Factura creada desde Assistant: ${preparedAction.concept}`, clientName: preparedAction.clientName })
-          await triggerN8nWebhook('invoice_created', {
-            workspace_id: workspaceId,
-            mode: 'real',
-            invoice: toolInput,
-            client: { name: preparedAction.clientName },
-            metadata: { source: 'assistant_confirmation' },
-          })
+          if (!OFFLINE_FORCE_DEV) {
+            await triggerN8nWebhook('invoice_created', {
+              workspace_id: workspaceId,
+              mode: 'real',
+              invoice: toolInput,
+              client: { name: preparedAction.clientName },
+              metadata: { source: 'assistant_confirmation' },
+            })
+          }
         }
 
         await appendAssistantMessage(activeConversation.id, `Factura creada: ${preparedAction.clientName}, ${preparedAction.concept}, ${preparedAction.amount} EUR.`, preparedAction.clientName)
@@ -1035,7 +1193,7 @@ export default function AssistantPage() {
     }
 
     try {
-      if (isRealMode) {
+      if (isRealMode && !OFFLINE_FORCE_DEV) {
         if (!workspaceId) {
           const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
           updateDiagnostics({ lastCreateConversationStatus: 'Bloqueado', lastSupabaseError: message })
@@ -1083,6 +1241,35 @@ export default function AssistantPage() {
         await loadConversations()
         setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
         toast.success('Conversación real creada')
+        return
+      }
+
+      if (isRealMode && OFFLINE_FORCE_DEV) {
+        const localConversation: Conversation = {
+          id: createUuid(),
+          clientId: `offline-${Date.now()}`,
+          clientName: payload.clientName,
+          clientAvatar: payload.clientAvatar,
+          lastMessage: payload.lastMessage,
+          timestamp: new Date().toISOString(),
+          unread: true,
+          sentiment: payload.sentiment,
+          channel: payload.channel,
+          intent: payload.intent,
+          assistantMode,
+          metadata: { ...payload, source: 'offline' },
+        }
+        setConversationList((prev) => {
+          const next = [localConversation, ...prev]
+          persistOfflineConversations(next)
+          return next
+        })
+        setLocalMessages((prev) => ({
+          ...prev,
+          [localConversation.id]: [{ id: `msg-${Date.now()}`, conversationId: localConversation.id, content: payload.lastMessage, sender: isCopilot ? 'ai' : 'client', timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }],
+        }))
+        setSelectedIds((prev) => ({ ...prev, [assistantMode]: localConversation.id }))
+        toast.success('Conversación offline creada')
         return
       }
 
@@ -1208,7 +1395,12 @@ export default function AssistantPage() {
       const webhookForTest = assistantWebhookUrl || ASSISTANT_AGENT_WEBHOOK_URL
       const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(activeConversation.id, testingMsg)
-      if (isRealMode && workspaceId) await createMessage(activeConversation.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
+      if (isRealMode && workspaceId && !OFFLINE_FORCE_DEV) await createMessage(activeConversation.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
+      if (OFFLINE_FORCE_DEV) {
+        setLastResponseSource('fallback')
+        toast.warning('Modo offline: n8n no disponible', { description: 'Prueba de webhook ignorada en modo off-line local.' })
+        return
+      }
       const result = await triggerN8nWebhook('assistant_message', {
         workspace_id: workspaceId ?? undefined,
         webhook_url: webhookForTest,
@@ -1253,7 +1445,7 @@ export default function AssistantPage() {
       calendar: 'list_calendar_events',
     }
     const tool = safeToolsByIntent[selectedPrompt.intent]
-    if (assistantMode === 'copilot' && tool && workspaceId) {
+    if (!OFFLINE_FORCE_DEV && assistantMode === 'copilot' && tool && workspaceId) {
       const toolInput =
         tool === 'get_client_summary' ? { name: activeConversation.clientName } :
         tool === 'search_clients' ? { query: activeConversation.clientName } :

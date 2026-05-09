@@ -15,6 +15,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     let mounted = true
 
     const checkAccess = async () => {
+      const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
+      if (OFFLINE_FORCE_DEV && mounted) {
+        setAllowed(true)
+        return
+      }
+
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
         const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'

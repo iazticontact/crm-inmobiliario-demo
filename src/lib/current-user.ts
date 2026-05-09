@@ -15,6 +15,7 @@ export type CurrentUser = {
 }
 
 export const DEMO_MODE_KEY = 'nowcrm-demo-mode'
+const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 
 const demoUser: CurrentUser = {
   name: 'NowCRM Demo',
@@ -23,6 +24,16 @@ const demoUser: CurrentUser = {
   initials: 'N',
   isDemo: true,
   trialLabel: 'Modo demo',
+}
+
+const offlineCurrentUser: CurrentUser = {
+  name: 'Oier Duñabeitia',
+  email: 'oier.dunabeitia@opendeusto.es',
+  workspaceId: '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b',
+  workspaceName: 'Arturito',
+  initials: 'OD',
+  isDemo: false,
+  trialLabel: 'Trial activo',
 }
 
 function getInitials(value: string) {
@@ -57,9 +68,13 @@ function getMetadataString(metadata: Record<string, unknown>, key: string) {
 }
 
 export function useCurrentUser() {
-  const [currentUser, setCurrentUser] = useState<CurrentUser>(demoUser)
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(OFFLINE_FORCE_DEV ? offlineCurrentUser : demoUser)
 
   useEffect(() => {
+    if (OFFLINE_FORCE_DEV) {
+      return
+    }
+
     let mounted = true
     const supabase = getSupabaseBrowserClient()
 

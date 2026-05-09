@@ -1,0 +1,1084 @@
+﻿
+  src\lib\supabase-queries.ts:359:
+  src\lib\supabase-queries.ts:360:export async function getCurrentProfile(userId?: string, 
+email?: string) {
+  src\lib\supabase-queries.ts:361:  const result = await resolveCurrentProfile(userId, email)
+  src\lib\supabase-queries.ts:362:  return result.profile
+  src\lib\supabase-queries.ts:363:}
+  src\lib\supabase-queries.ts:364:
+  src\lib\supabase-queries.ts:365:export async function getCurrentWorkspace(profile?: 
+ProfileRecord | null) {
+  src\lib\supabase-queries.ts:366:  const resolvedProfile = profile ?? (await 
+getCurrentProfile())
+> src\lib\supabase-queries.ts:367:  const workspaceId = resolvedProfile?.workspace_id
+  src\lib\supabase-queries.ts:368:
+  src\lib\supabase-queries.ts:369:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:370:  if (!supabase) return null
+  src\lib\supabase-queries.ts:371:
+> src\lib\supabase-queries.ts:372:  if (workspaceId) {
+  src\lib\supabase-queries.ts:373:    const { data, error } = await supabase
+  src\lib\supabase-queries.ts:374:      .from('workspaces')
+  src\lib\supabase-queries.ts:375:      .select('*')
+> src\lib\supabase-queries.ts:376:      .eq('id', workspaceId)
+  src\lib\supabase-queries.ts:377:      .maybeSingle()
+  src\lib\supabase-queries.ts:378:
+  src\lib\supabase-queries.ts:379:    if (error) throw error
+  src\lib\supabase-queries.ts:380:    if (data) return data as WorkspaceRecord
+  src\lib\supabase-queries.ts:381:  }
+  src\lib\supabase-queries.ts:382:
+  src\lib\supabase-queries.ts:383:  return null
+  src\lib\supabase-queries.ts:384:}
+  src\lib\supabase-queries.ts:385:
+> src\lib\supabase-queries.ts:386:export async function getWorkspaceContext() {
+  src\lib\supabase-queries.ts:387:  const user = await getCurrentUser()
+  src\lib\supabase-queries.ts:388:  if (!user) return null
+  src\lib\supabase-queries.ts:389:
+  src\lib\supabase-queries.ts:390:  const profile = await getCurrentProfile(user.id, 
+user.email ?? undefined)
+  src\lib\supabase-queries.ts:391:  const workspace = await getCurrentWorkspace(profile)
+  src\lib\supabase-queries.ts:392:  return { user, profile, workspace }
+  src\lib\supabase-queries.ts:393:}
+  src\lib\supabase-queries.ts:394:
+> src\lib\supabase-queries.ts:395:export async function getResolvedWorkspaceContext() {
+  src\lib\supabase-queries.ts:396:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:397:  if (!supabase) {
+  src\lib\supabase-queries.ts:398:    return {
+  src\lib\supabase-queries.ts:399:      user: null,
+  src\lib\supabase-queries.ts:400:      profile: null,
+  src\lib\supabase-queries.ts:401:      workspace: null,
+> src\lib\supabase-queries.ts:402:      workspaceId: null,
+> src\lib\supabase-queries.ts:403:      resolvedWorkspaceId: null,
+  src\lib\supabase-queries.ts:404:      error: 'Supabase client no configurado',
+  src\lib\supabase-queries.ts:405:      profileLookupMethod: 'none',
+  src\lib\supabase-queries.ts:406:      profileByIdError: null,
+  src\lib\supabase-queries.ts:407:      profileByEmailError: null,
+  src\lib\supabase-queries.ts:408:    }
+  src\lib\supabase-queries.ts:409:  }
+  src\lib\supabase-queries.ts:410:
+  src\lib\supabase-queries.ts:411:  const { data: userData, error: userError } = await 
+supabase.auth.getUser()
+  src\lib\supabase-queries.ts:412:  const user = userData?.user ?? null
+  src\lib\supabase-queries.ts:413:  if (userError || !user) {
+  src\lib\supabase-queries.ts:414:    return {
+  src\lib\supabase-queries.ts:415:      user: null,
+  src\lib\supabase-queries.ts:416:      profile: null,
+  src\lib\supabase-queries.ts:417:      workspace: null,
+> src\lib\supabase-queries.ts:418:      workspaceId: null,
+> src\lib\supabase-queries.ts:419:      resolvedWorkspaceId: null,
+  src\lib\supabase-queries.ts:420:      error: userError?.message ?? 'No se ha obtenido 
+usuario autenticado',
+  src\lib\supabase-queries.ts:421:      profileLookupMethod: 'none',
+  src\lib\supabase-queries.ts:422:      profileByIdError: null,
+  src\lib\supabase-queries.ts:423:      profileByEmailError: null,
+  src\lib\supabase-queries.ts:424:    }
+  src\lib\supabase-queries.ts:425:  }
+  src\lib\supabase-queries.ts:426:
+  src\lib\supabase-queries.ts:427:  const profileResult = await resolveCurrentProfile(user.id, 
+user.email ?? undefined)
+  src\lib\supabase-queries.ts:428:  const profile = profileResult.profile
+  src\lib\supabase-queries.ts:429:
+  src\lib\supabase-queries.ts:430:  if (!profile) {
+  src\lib\supabase-queries.ts:431:    return {
+  src\lib\supabase-queries.ts:432:      user,
+  src\lib\supabase-queries.ts:433:      profile: null,
+  src\lib\supabase-queries.ts:434:      workspace: null,
+> src\lib\supabase-queries.ts:435:      workspaceId: null,
+> src\lib\supabase-queries.ts:436:      resolvedWorkspaceId: null,
+  src\lib\supabase-queries.ts:437:      error:
+  src\lib\supabase-queries.ts:438:        profileResult.profileByIdError ||
+  src\lib\supabase-queries.ts:439:        profileResult.profileByEmailError ||
+  src\lib\supabase-queries.ts:440:        'Authenticated user but profile not found',
+  src\lib\supabase-queries.ts:441:      profileLookupMethod: profileResult.profileLookupMethod,
+  src\lib\supabase-queries.ts:442:      profileByIdError: profileResult.profileByIdError ?? 
+null,
+  src\lib\supabase-queries.ts:443:      profileByEmailError: profileResult.profileByEmailError 
+?? null,
+  src\lib\supabase-queries.ts:444:    }
+  src\lib\supabase-queries.ts:445:  }
+  src\lib\supabase-queries.ts:446:
+> src\lib\supabase-queries.ts:447:  const workspaceId = profile.workspace_id ?? null
+> src\lib\supabase-queries.ts:448:  if (!workspaceId) {
+  src\lib\supabase-queries.ts:449:    return {
+  src\lib\supabase-queries.ts:450:      user,
+  src\lib\supabase-queries.ts:451:      profile,
+  src\lib\supabase-queries.ts:452:      workspace: null,
+> src\lib\supabase-queries.ts:453:      workspaceId: null,
+> src\lib\supabase-queries.ts:454:      resolvedWorkspaceId: null,
+  src\lib\supabase-queries.ts:455:      error: 'Profile has no workspace_id',
+  src\lib\supabase-queries.ts:456:      profileLookupMethod: profileResult.profileLookupMethod,
+  src\lib\supabase-queries.ts:457:      profileByIdError: profileResult.profileByIdError ?? 
+null,
+  src\lib\supabase-queries.ts:458:      profileByEmailError: profileResult.profileByEmailError 
+?? null,
+  src\lib\supabase-queries.ts:459:    }
+  src\lib\supabase-queries.ts:460:  }
+  src\lib\supabase-queries.ts:461:
+  src\lib\supabase-queries.ts:462:  const { data: workspace, error: workspaceError } = await 
+supabase
+  src\lib\supabase-queries.ts:463:    .from('workspaces')
+  src\lib\supabase-queries.ts:464:    .select('*')
+> src\lib\supabase-queries.ts:465:    .eq('id', workspaceId)
+  src\lib\supabase-queries.ts:466:    .maybeSingle()
+  src\lib\supabase-queries.ts:467:
+  src\lib\supabase-queries.ts:468:  // Emergency local fallback for demo owner while Supabase 
+profile resolver is being verified.
+  src\lib\supabase-queries.ts:469:  if (
+  src\lib\supabase-queries.ts:470:    !workspace &&
+  src\lib\supabase-queries.ts:471:    (user.id === '91b65a40-222d-4f97-870c-8e4119278c2c' ||
+  src\lib\supabase-queries.ts:472:     user.email === 'oier.dunabeitia@opendeusto.es')
+  src\lib\supabase-queries.ts:473:  ) {
+> src\lib\supabase-queries.ts:474:    const fallbackWorkspaceId = 
+'7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
+  src\lib\supabase-queries.ts:475:    const fallbackProfile: ProfileRecord = {
+  src\lib\supabase-queries.ts:476:      id: '91b65a40-222d-4f97-870c-8e4119278c2c',
+> src\lib\supabase-queries.ts:477:      workspace_id: fallbackWorkspaceId,
+  src\lib\supabase-queries.ts:478:      full_name: 'Oier Duñabeitia',
+  src\lib\supabase-queries.ts:479:      email: 'oier.dunabeitia@opendeusto.es',
+  src\lib\supabase-queries.ts:480:      role: 'owner',
+  src\lib\supabase-queries.ts:481:    }
+  src\lib\supabase-queries.ts:482:    const fallbackWorkspace: WorkspaceRecord = {
+> src\lib\supabase-queries.ts:483:      id: fallbackWorkspaceId,
+  src\lib\supabase-queries.ts:484:      name: 'Arturito',
+  src\lib\supabase-queries.ts:485:      plan: 'demo',
+  src\lib\supabase-queries.ts:486:      status: 'active',
+  src\lib\supabase-queries.ts:487:    }
+  src\lib\supabase-queries.ts:488:    return {
+  src\lib\supabase-queries.ts:489:      user,
+  src\lib\supabase-queries.ts:490:      profile: fallbackProfile,
+  src\lib\supabase-queries.ts:491:      workspace: fallbackWorkspace,
+> src\lib\supabase-queries.ts:492:      workspaceId: fallbackWorkspaceId,
+> src\lib\supabase-queries.ts:493:      resolvedWorkspaceId: fallbackWorkspaceId,
+  src\lib\supabase-queries.ts:494:      error: null,
+  src\lib\supabase-queries.ts:495:      profileLookupMethod: 'emergency-fallback',
+  src\lib\supabase-queries.ts:496:      profileByIdError: null,
+  src\lib\supabase-queries.ts:497:      profileByEmailError: null,
+  src\lib\supabase-queries.ts:498:    }
+  src\lib\supabase-queries.ts:499:  }
+  src\lib\supabase-queries.ts:500:
+  src\lib\supabase-queries.ts:501:  return {
+  src\lib\supabase-queries.ts:502:    user,
+  src\lib\supabase-queries.ts:503:    profile,
+  src\lib\supabase-queries.ts:504:    workspace: workspace ? (workspace as WorkspaceRecord) : 
+null,
+> src\lib\supabase-queries.ts:505:    workspaceId,
+> src\lib\supabase-queries.ts:506:    resolvedWorkspaceId: workspaceId,
+  src\lib\supabase-queries.ts:507:    error: workspaceError?.message ?? null,
+  src\lib\supabase-queries.ts:508:    profileLookupMethod: profileResult.profileLookupMethod,
+  src\lib\supabase-queries.ts:509:    profileByIdError: profileResult.profileByIdError ?? null,
+  src\lib\supabase-queries.ts:510:    profileByEmailError: profileResult.profileByEmailError 
+?? null,
+  src\lib\supabase-queries.ts:511:  }
+  src\lib\supabase-queries.ts:512:}
+  src\lib\supabase-queries.ts:513:
+  src\lib\supabase-queries.ts:514:export function mapSupabaseClient(row: DataRecord): Client {
+  src\lib\supabase-queries.ts:523:    status: normalizeStatus(row.status),
+  src\lib\supabase-queries.ts:524:    leadScore: asNumber(row.lead_score, 50),
+  src\lib\supabase-queries.ts:525:    lastInteraction: asString(row.last_interaction, 'Ahora 
+mismo'),
+  src\lib\supabase-queries.ts:526:    avatar: asString(row.avatar, getInitials(name)),
+  src\lib\supabase-queries.ts:527:    notes: asString(row.notes),
+  src\lib\supabase-queries.ts:528:  }
+  src\lib\supabase-queries.ts:529:}
+  src\lib\supabase-queries.ts:530:
+> src\lib\supabase-queries.ts:531:function toClientRow(workspaceId: string, payload: 
+ClientPayload): DataRecord {
+  src\lib\supabase-queries.ts:532:  return {
+> src\lib\supabase-queries.ts:533:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:534:    name: payload.name.trim(),
+  src\lib\supabase-queries.ts:535:    company: payload.company?.trim() || null,
+  src\lib\supabase-queries.ts:536:    email: payload.email.trim(),
+  src\lib\supabase-queries.ts:537:    phone: payload.phone?.trim() || null,
+  src\lib\supabase-queries.ts:538:    channel: payload.channel,
+  src\lib\supabase-queries.ts:539:    status: payload.status,
+  src\lib\supabase-queries.ts:540:    lead_score: payload.leadScore ?? 50,
+  src\lib\supabase-queries.ts:541:    notes: payload.notes?.trim() || null,
+  src\lib\supabase-queries.ts:542:    last_interaction: 'Ahora mismo',
+  src\lib\supabase-queries.ts:543:  }
+  src\lib\supabase-queries.ts:544:}
+  src\lib\supabase-queries.ts:545:
+> src\lib\supabase-queries.ts:546:export async function getClients(workspaceId: string) {
+  src\lib\supabase-queries.ts:547:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:548:  if (!supabase) return []
+  src\lib\supabase-queries.ts:549:
+  src\lib\supabase-queries.ts:550:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:551:    .from('clients')
+  src\lib\supabase-queries.ts:552:    .select('*')
+> src\lib\supabase-queries.ts:553:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:554:    .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:555:
+  src\lib\supabase-queries.ts:556:  if (error) throw error
+  src\lib\supabase-queries.ts:557:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseClient)
+  src\lib\supabase-queries.ts:558:}
+  src\lib\supabase-queries.ts:559:
+> src\lib\supabase-queries.ts:560:export async function createClientLead(workspaceId: string, 
+payload: ClientPayload) {
+  src\lib\supabase-queries.ts:561:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:562:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:563:
+  src\lib\supabase-queries.ts:564:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:565:    .from('clients')
+> src\lib\supabase-queries.ts:566:    .insert(toClientRow(workspaceId, payload))
+  src\lib\supabase-queries.ts:567:    .select('*')
+  src\lib\supabase-queries.ts:568:    .single()
+  src\lib\supabase-queries.ts:569:
+  src\lib\supabase-queries.ts:570:  if (error) throw error
+  src\lib\supabase-queries.ts:571:  return mapSupabaseClient(data as DataRecord)
+  src\lib\supabase-queries.ts:572:}
+  src\lib\supabase-queries.ts:573:
+  src\lib\supabase-queries.ts:574:export async function updateClient(id: string, payload: 
+ClientPayload) {
+  src\lib\supabase-queries.ts:608:    status: normalizeInvoiceStatus(row.status),
+  src\lib\supabase-queries.ts:609:    date: asString(row.date ?? row.issued_at ?? 
+row.created_at, todayIso()).slice(0, 10),
+  src\lib\supabase-queries.ts:610:    dueDate: asString(row.due_date ?? row.dueDate, 
+todayIso()).slice(0, 10),
+  src\lib\supabase-queries.ts:611:    plan: asString(row.plan ?? row.concept ?? 
+row.description, 'Pro'),
+  src\lib\supabase-queries.ts:612:    notes: asString(row.notes),
+  src\lib\supabase-queries.ts:613:  }
+  src\lib\supabase-queries.ts:614:}
+  src\lib\supabase-queries.ts:615:
+> src\lib\supabase-queries.ts:616:function toInvoiceRow(workspaceId: string, payload: 
+InvoicePayload): DataRecord {
+  src\lib\supabase-queries.ts:617:  return {
+> src\lib\supabase-queries.ts:618:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:619:    client_name: payload.clientName.trim(),
+  src\lib\supabase-queries.ts:620:    amount: payload.amount,
+  src\lib\supabase-queries.ts:621:    status: payload.status,
+  src\lib\supabase-queries.ts:622:    date: payload.date || todayIso(),
+  src\lib\supabase-queries.ts:623:    due_date: payload.dueDate,
+  src\lib\supabase-queries.ts:624:    plan: payload.plan.trim() || 'Pro',
+  src\lib\supabase-queries.ts:625:    notes: payload.notes?.trim() || null,
+  src\lib\supabase-queries.ts:626:  }
+  src\lib\supabase-queries.ts:627:}
+  src\lib\supabase-queries.ts:628:
+> src\lib\supabase-queries.ts:629:export async function getInvoices(workspaceId: string) {
+  src\lib\supabase-queries.ts:630:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:631:  if (!supabase) return []
+  src\lib\supabase-queries.ts:632:
+  src\lib\supabase-queries.ts:633:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:634:    .from('invoices')
+  src\lib\supabase-queries.ts:635:    .select('*')
+> src\lib\supabase-queries.ts:636:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:637:    .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:638:
+  src\lib\supabase-queries.ts:639:  if (error) throw error
+  src\lib\supabase-queries.ts:640:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseInvoice)
+  src\lib\supabase-queries.ts:641:}
+  src\lib\supabase-queries.ts:642:
+> src\lib\supabase-queries.ts:643:export async function createInvoice(workspaceId: string, 
+payload: InvoicePayload) {
+  src\lib\supabase-queries.ts:644:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:645:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:646:
+  src\lib\supabase-queries.ts:647:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:648:    .from('invoices')
+> src\lib\supabase-queries.ts:649:    .insert(toInvoiceRow(workspaceId, payload))
+  src\lib\supabase-queries.ts:650:    .select('*')
+  src\lib\supabase-queries.ts:651:    .single()
+  src\lib\supabase-queries.ts:652:
+  src\lib\supabase-queries.ts:653:  if (error) throw error
+  src\lib\supabase-queries.ts:654:  return mapSupabaseInvoice(data as DataRecord)
+  src\lib\supabase-queries.ts:655:}
+  src\lib\supabase-queries.ts:656:
+  src\lib\supabase-queries.ts:657:export async function updateInvoice(id: string, payload: 
+InvoicePayload) {
+  src\lib\supabase-queries.ts:707:    startMinute: asNumber(row.start_minute, 0),
+  src\lib\supabase-queries.ts:708:    duration: asNumber(row.duration, 60),
+  src\lib\supabase-queries.ts:709:    type: normalizeEventType(row.type),
+  src\lib\supabase-queries.ts:710:    clientName: asString(row.client_name ?? row.clientName) 
+|| undefined,
+  src\lib\supabase-queries.ts:711:    description: asString(row.description ?? row.notes) || 
+undefined,
+  src\lib\supabase-queries.ts:712:  }
+  src\lib\supabase-queries.ts:713:}
+  src\lib\supabase-queries.ts:714:
+> src\lib\supabase-queries.ts:715:function toCalendarEventRow(workspaceId: string, payload: 
+CalendarEventPayload): DataRecord {
+  src\lib\supabase-queries.ts:716:  return {
+> src\lib\supabase-queries.ts:717:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:718:    title: payload.title.trim(),
+  src\lib\supabase-queries.ts:719:    date: payload.date,
+  src\lib\supabase-queries.ts:720:    start_hour: payload.startHour,
+  src\lib\supabase-queries.ts:721:    start_minute: payload.startMinute,
+  src\lib\supabase-queries.ts:722:    duration: payload.duration,
+  src\lib\supabase-queries.ts:723:    type: payload.type,
+  src\lib\supabase-queries.ts:724:    client_name: payload.clientName?.trim() || null,
+  src\lib\supabase-queries.ts:725:    description: payload.description?.trim() || null,
+  src\lib\supabase-queries.ts:726:  }
+  src\lib\supabase-queries.ts:727:}
+  src\lib\supabase-queries.ts:728:
+> src\lib\supabase-queries.ts:729:export async function getCalendarEvents(workspaceId: string) 
+{
+  src\lib\supabase-queries.ts:730:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:731:  if (!supabase) return []
+  src\lib\supabase-queries.ts:732:
+  src\lib\supabase-queries.ts:733:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:734:    .from('calendar_events')
+  src\lib\supabase-queries.ts:735:    .select('*')
+> src\lib\supabase-queries.ts:736:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:737:    .order('date', { ascending: true })
+  src\lib\supabase-queries.ts:738:
+  src\lib\supabase-queries.ts:739:  if (error) throw error
+  src\lib\supabase-queries.ts:740:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseCalendarEvent)
+  src\lib\supabase-queries.ts:741:}
+  src\lib\supabase-queries.ts:742:
+> src\lib\supabase-queries.ts:743:export async function createCalendarEvent(workspaceId: 
+string, payload: CalendarEventPayload) {
+  src\lib\supabase-queries.ts:744:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:745:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:746:
+  src\lib\supabase-queries.ts:747:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:748:    .from('calendar_events')
+> src\lib\supabase-queries.ts:749:    .insert(toCalendarEventRow(workspaceId, payload))
+  src\lib\supabase-queries.ts:750:    .select('*')
+  src\lib\supabase-queries.ts:751:    .single()
+  src\lib\supabase-queries.ts:752:
+  src\lib\supabase-queries.ts:753:  if (error) throw error
+  src\lib\supabase-queries.ts:754:  return mapSupabaseCalendarEvent(data as DataRecord)
+  src\lib\supabase-queries.ts:755:}
+  src\lib\supabase-queries.ts:756:
+  src\lib\supabase-queries.ts:757:export async function updateCalendarEvent(id: string, 
+payload: CalendarEventPayload) {
+  src\lib\supabase-queries.ts:784:}
+  src\lib\supabase-queries.ts:785:
+  src\lib\supabase-queries.ts:786:export function mapSupabaseConversation(row: DataRecord): 
+Conversation {
+  src\lib\supabase-queries.ts:787:  const metadata = asRecord(row.metadata)
+  src\lib\supabase-queries.ts:788:  const assistantMode = inferAssistantMode(row)
+  src\lib\supabase-queries.ts:789:  const clientName = asString(row.client_name, assistantMode 
+=== 'copilot' ? 'Consulta CRM' : 'Conversacion cliente')
+  src\lib\supabase-queries.ts:790:  return {
+  src\lib\supabase-queries.ts:791:    id: asString(row.id),
+> src\lib\supabase-queries.ts:792:    workspaceId: asString(row.workspace_id) || undefined,
+  src\lib\supabase-queries.ts:793:    clientId: asString(row.client_id),
+  src\lib\supabase-queries.ts:794:    clientName,
+  src\lib\supabase-queries.ts:795:    clientAvatar: asString(row.client_avatar ?? row.avatar, 
+getInitials(clientName)),
+  src\lib\supabase-queries.ts:796:    lastMessage: asString(row.ai_summary ?? row.summary, 
+'Sin mensajes todavia'),
+  src\lib\supabase-queries.ts:797:    timestamp: displayTime(row.updated_at ?? row.created_at),
+  src\lib\supabase-queries.ts:798:    unread: asUnread(row.unread, false),
+  src\lib\supabase-queries.ts:799:    sentiment: normalizeSentiment(row.sentiment),
+  src\lib\supabase-queries.ts:800:    channel: normalizeChannel(row.channel),
+  src\lib\supabase-queries.ts:802:    assistantMode,
+  src\lib\supabase-queries.ts:803:    status: asString(row.status) || undefined,
+  src\lib\supabase-queries.ts:804:    metadata,
+  src\lib\supabase-queries.ts:805:    createdAt: asString(row.created_at) || undefined,
+  src\lib\supabase-queries.ts:806:    updatedAt: asString(row.updated_at) || undefined,
+  src\lib\supabase-queries.ts:807:  }
+  src\lib\supabase-queries.ts:808:}
+  src\lib\supabase-queries.ts:809:
+> src\lib\supabase-queries.ts:810:function toConversationRow(workspaceId: string, payload: 
+ConversationPayload): DataRecord {
+  src\lib\supabase-queries.ts:811:  const assistantMode = payload.assistantMode
+  src\lib\supabase-queries.ts:812:  return {
+> src\lib\supabase-queries.ts:813:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:814:    client_id: payload.clientId || null,
+  src\lib\supabase-queries.ts:815:    channel: assistantChannelForPayload(assistantMode, 
+payload.channel),
+  src\lib\supabase-queries.ts:816:    status: payload.status || 'open',
+  src\lib\supabase-queries.ts:817:    sentiment: payload.sentiment || 'neutral',
+  src\lib\supabase-queries.ts:818:    intent: assistantIntentForMode(assistantMode),
+  src\lib\supabase-queries.ts:819:    ai_summary: payload.lastMessage || (assistantMode === 
+'copilot' ? 'Consulta Copilot CRM' : 'Conversacion Inbox Assistant'),
+  src\lib\supabase-queries.ts:820:    updated_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:821:  }
+  src\lib\supabase-queries.ts:822:}
+  src\lib\supabase-queries.ts:823:
+> src\lib\supabase-queries.ts:824:export async function getConversations(workspaceId: string) {
+> src\lib\supabase-queries.ts:825:  return getAssistantConversations(workspaceId)
+  src\lib\supabase-queries.ts:826:}
+  src\lib\supabase-queries.ts:827:
+> src\lib\supabase-queries.ts:828:export async function getAssistantConversations(workspaceId: 
+string, mode?: AssistantMode) {
+  src\lib\supabase-queries.ts:829:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:830:  if (!supabase) return []
+  src\lib\supabase-queries.ts:831:
+  src\lib\supabase-queries.ts:832:  let result = await supabase
+  src\lib\supabase-queries.ts:833:    .from('conversations')
+  src\lib\supabase-queries.ts:834:    .select('*')
+> src\lib\supabase-queries.ts:835:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:836:    .order('updated_at', { ascending: false })
+  src\lib\supabase-queries.ts:837:
+  src\lib\supabase-queries.ts:838:  if (result.error && isMissingColumn(result.error, 
+'updated_at')) {
+  src\lib\supabase-queries.ts:839:    result = await supabase
+  src\lib\supabase-queries.ts:840:      .from('conversations')
+  src\lib\supabase-queries.ts:841:      .select('*')
+> src\lib\supabase-queries.ts:842:      .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:843:      .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:844:  }
+  src\lib\supabase-queries.ts:845:
+  src\lib\supabase-queries.ts:846:  if (result.error) throw result.error
+  src\lib\supabase-queries.ts:847:  const conversations = ((result.data as DataRecord[] | 
+null) ?? [])
+  src\lib\supabase-queries.ts:848:    .map(mapSupabaseConversation)
+  src\lib\supabase-queries.ts:849:    .filter((conversation) => conversation.status !== 
+'deleted')
+  src\lib\supabase-queries.ts:850:  return mode ? conversations.filter((conversation) => 
+(conversation.assistantMode ?? 'inbox') === mode) : conversations
+  src\lib\supabase-queries.ts:851:}
+  src\lib\supabase-queries.ts:852:
+> src\lib\supabase-queries.ts:853:export async function 
+getAssistantConversationById(conversationId: string, workspaceId: string) {
+  src\lib\supabase-queries.ts:854:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:855:  if (!supabase) return null
+  src\lib\supabase-queries.ts:856:
+  src\lib\supabase-queries.ts:857:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:858:    .from('conversations')
+  src\lib\supabase-queries.ts:859:    .select('*')
+  src\lib\supabase-queries.ts:860:    .eq('id', conversationId)
+> src\lib\supabase-queries.ts:861:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:862:    .maybeSingle()
+  src\lib\supabase-queries.ts:863:
+  src\lib\supabase-queries.ts:864:  if (error) throw error
+  src\lib\supabase-queries.ts:865:  return data ? mapSupabaseConversation(data as DataRecord) 
+: null
+  src\lib\supabase-queries.ts:866:}
+  src\lib\supabase-queries.ts:867:
+> src\lib\supabase-queries.ts:868:export async function createConversation(workspaceId: 
+string, payload: ConversationPayload) {
+  src\lib\supabase-queries.ts:869:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:870:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:871:
+  src\lib\supabase-queries.ts:872:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:873:    .from('conversations')
+> src\lib\supabase-queries.ts:874:    .insert(toConversationRow(workspaceId, payload))
+  src\lib\supabase-queries.ts:875:    .select('*')
+  src\lib\supabase-queries.ts:876:    .single()
+  src\lib\supabase-queries.ts:877:
+  src\lib\supabase-queries.ts:878:  if (error) throw error
+  src\lib\supabase-queries.ts:879:  return mapSupabaseConversation(data as DataRecord)
+  src\lib\supabase-queries.ts:880:}
+  src\lib\supabase-queries.ts:881:
+> src\lib\supabase-queries.ts:882:export async function 
+createAssistantConversation(workspaceId: string, mode: AssistantMode, input: 
+Partial<ConversationPayload> = {}) {
+  src\lib\supabase-queries.ts:883:  const isCopilot = mode === 'copilot'
+> src\lib\supabase-queries.ts:884:  return createConversation(workspaceId, {
+  src\lib\supabase-queries.ts:885:    clientName: input.clientName || (isCopilot ? 'Consulta 
+CRM' : 'Nueva conversacion'),
+  src\lib\supabase-queries.ts:886:    clientAvatar: input.clientAvatar || (isCopilot ? 'CRM' : 
+'IN'),
+  src\lib\supabase-queries.ts:887:    channel: input.channel || 'Web',
+  src\lib\supabase-queries.ts:888:    sentiment: input.sentiment || 'neutral',
+  src\lib\supabase-queries.ts:889:    intent: input.intent || assistantIntentForMode(mode),
+  src\lib\supabase-queries.ts:890:    lastMessage: input.lastMessage || (isCopilot ? 'Consulta 
+Copilot CRM' : 'Conversacion Inbox Assistant'),
+  src\lib\supabase-queries.ts:891:    unread: input.unread ?? false,
+  src\lib\supabase-queries.ts:892:    assistantMode: mode,
+  src\lib\supabase-queries.ts:918:    .eq('id', id)
+  src\lib\supabase-queries.ts:919:    .select('*')
+  src\lib\supabase-queries.ts:920:    .single()
+  src\lib\supabase-queries.ts:921:
+  src\lib\supabase-queries.ts:922:  if (error) throw error
+  src\lib\supabase-queries.ts:923:  return mapSupabaseConversation(data as DataRecord)
+  src\lib\supabase-queries.ts:924:}
+  src\lib\supabase-queries.ts:925:
+> src\lib\supabase-queries.ts:926:export async function updateConversationScoped(id: string, 
+workspaceId: string, payload: Partial<ConversationPayload>) {
+  src\lib\supabase-queries.ts:927:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:928:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:929:
+  src\lib\supabase-queries.ts:930:  const baseRow: DataRecord = {
+  src\lib\supabase-queries.ts:931:    sentiment: payload.sentiment,
+  src\lib\supabase-queries.ts:932:    intent: payload.intent,
+  src\lib\supabase-queries.ts:933:    ai_summary: payload.lastMessage,
+  src\lib\supabase-queries.ts:934:    status: payload.status,
+  src\lib\supabase-queries.ts:935:    updated_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:936:  }
+  src\lib\supabase-queries.ts:937:  const row = compactRow(baseRow)
+  src\lib\supabase-queries.ts:938:
+  src\lib\supabase-queries.ts:939:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:940:    .from('conversations')
+  src\lib\supabase-queries.ts:941:    .update(row)
+  src\lib\supabase-queries.ts:942:    .eq('id', id)
+> src\lib\supabase-queries.ts:943:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:944:    .select('*')
+  src\lib\supabase-queries.ts:945:    .single()
+  src\lib\supabase-queries.ts:946:
+  src\lib\supabase-queries.ts:947:  if (error) throw error
+  src\lib\supabase-queries.ts:948:  return mapSupabaseConversation(data as DataRecord)
+  src\lib\supabase-queries.ts:949:}
+  src\lib\supabase-queries.ts:950:
+  src\lib\supabase-queries.ts:951:export async function markConversationResolved(id: string) {
+  src\lib\supabase-queries.ts:958:    .eq('id', id)
+  src\lib\supabase-queries.ts:959:    .select('*')
+  src\lib\supabase-queries.ts:960:    .single()
+  src\lib\supabase-queries.ts:961:
+  src\lib\supabase-queries.ts:962:  if (error) throw error
+  src\lib\supabase-queries.ts:963:  return mapSupabaseConversation(data as DataRecord)
+  src\lib\supabase-queries.ts:964:}
+  src\lib\supabase-queries.ts:965:
+> src\lib\supabase-queries.ts:966:export async function archiveConversationScoped(id: string, 
+workspaceId: string) {
+  src\lib\supabase-queries.ts:967:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:968:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:969:
+  src\lib\supabase-queries.ts:970:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:971:    .from('conversations')
+  src\lib\supabase-queries.ts:972:    .update({ status: 'deleted', updated_at: new 
+Date().toISOString() })
+  src\lib\supabase-queries.ts:973:    .eq('id', id)
+> src\lib\supabase-queries.ts:974:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:975:    .select('*')
+  src\lib\supabase-queries.ts:976:    .single()
+  src\lib\supabase-queries.ts:977:
+  src\lib\supabase-queries.ts:978:  if (error) throw error
+  src\lib\supabase-queries.ts:979:  return mapSupabaseConversation(data as DataRecord)
+  src\lib\supabase-queries.ts:980:}
+  src\lib\supabase-queries.ts:981:
+  src\lib\supabase-queries.ts:982:export function mapSupabaseMessage(row: DataRecord): Message 
+{
+  src\lib\supabase-queries.ts:983:  const sender = asBoolean(row.is_ai) ? 'ai' : 
+normalizeSender(row.sender)
+  src\lib\supabase-queries.ts:984:  return {
+  src\lib\supabase-queries.ts:985:    id: asString(row.id),
+  src\lib\supabase-queries.ts:986:    conversationId: asString(row.conversation_id),
+> src\lib\supabase-queries.ts:987:    workspaceId: asString(row.workspace_id) || undefined,
+  src\lib\supabase-queries.ts:988:    content: asString(row.body ?? row.message),
+  src\lib\supabase-queries.ts:989:    sender,
+  src\lib\supabase-queries.ts:990:    timestamp: displayTime(row.created_at ?? row.timestamp),
+  src\lib\supabase-queries.ts:991:    metadata: asRecord(row.metadata),
+  src\lib\supabase-queries.ts:992:    createdAt: asString(row.created_at) || undefined,
+  src\lib\supabase-queries.ts:993:  }
+  src\lib\supabase-queries.ts:994:}
+  src\lib\supabase-queries.ts:995:
+> src\lib\supabase-queries.ts:996:export async function 
+getConversationMessages(conversationId: string, workspaceId?: string) {
+  src\lib\supabase-queries.ts:997:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:998:  if (!supabase) return []
+  src\lib\supabase-queries.ts:999:
+  src\lib\supabase-queries.ts:1000:  let query = supabase
+  src\lib\supabase-queries.ts:1001:    .from('messages')
+  src\lib\supabase-queries.ts:1002:    .select('*')
+  src\lib\supabase-queries.ts:1003:    .eq('conversation_id', conversationId)
+  src\lib\supabase-queries.ts:1004:    .order('created_at', { ascending: true })
+  src\lib\supabase-queries.ts:1005:
+> src\lib\supabase-queries.ts:1006:  if (workspaceId) query = query.eq('workspace_id', 
+workspaceId)
+  src\lib\supabase-queries.ts:1007:  const { data, error } = await query
+  src\lib\supabase-queries.ts:1008:
+  src\lib\supabase-queries.ts:1009:  if (error) throw error
+  src\lib\supabase-queries.ts:1010:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseMessage)
+  src\lib\supabase-queries.ts:1011:}
+  src\lib\supabase-queries.ts:1012:
+> src\lib\supabase-queries.ts:1013:export async function createMessage(conversationId: string, 
+payloadOrWorkspaceId: MessagePayload | string, workspaceIdOrPayload?: string | MessagePayload) 
+{
+  src\lib\supabase-queries.ts:1014:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1015:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1016:
+> src\lib\supabase-queries.ts:1017:  const payload = typeof payloadOrWorkspaceId === 'string' 
+? workspaceIdOrPayload as MessagePayload : payloadOrWorkspaceId
+> src\lib\supabase-queries.ts:1018:  const workspaceId = typeof payloadOrWorkspaceId === 
+'string' ? payloadOrWorkspaceId : typeof workspaceIdOrPayload === 'string' ? 
+workspaceIdOrPayload : undefined
+  src\lib\supabase-queries.ts:1019:  if (!payload?.content?.trim()) throw new Error('content 
+es obligatorio para guardar mensaje')
+> src\lib\supabase-queries.ts:1020:  if (!workspaceId) throw new Error('workspace_id es 
+obligatorio para guardar mensajes del Assistant')
+  src\lib\supabase-queries.ts:1021:
+  src\lib\supabase-queries.ts:1022:  const dbSender = payload.sender === 'ai' ? 'ai' : 
+payload.sender === 'agent' ? 'user' : 'client'
+  src\lib\supabase-queries.ts:1023:  const row: DataRecord = {
+  src\lib\supabase-queries.ts:1024:    conversation_id: conversationId,
+> src\lib\supabase-queries.ts:1025:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1026:    sender: dbSender,
+  src\lib\supabase-queries.ts:1027:    body: payload.content.trim(),
+  src\lib\supabase-queries.ts:1028:    is_ai: payload.sender === 'ai',
+  src\lib\supabase-queries.ts:1029:    created_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:1030:  }
+  src\lib\supabase-queries.ts:1031:
+  src\lib\supabase-queries.ts:1032:  const result = await supabase
+  src\lib\supabase-queries.ts:1033:    .from('messages')
+  src\lib\supabase-queries.ts:1034:    .insert(row)
+  src\lib\supabase-queries.ts:1035:    .select('*')
+  src\lib\supabase-queries.ts:1036:    .single()
+  src\lib\supabase-queries.ts:1037:
+  src\lib\supabase-queries.ts:1038:  if (result.error) throw result.error
+  src\lib\supabase-queries.ts:1039:  return mapSupabaseMessage(result.data as DataRecord)
+  src\lib\supabase-queries.ts:1040:}
+  src\lib\supabase-queries.ts:1041:
+> src\lib\supabase-queries.ts:1042:export async function 
+ensureAssistantConversation(workspaceId: string, mode: AssistantMode = 'copilot') {
+> src\lib\supabase-queries.ts:1043:  const conversations = await 
+getAssistantConversations(workspaceId, mode)
+  src\lib\supabase-queries.ts:1044:  if (conversations.length) return conversations[0]
+  src\lib\supabase-queries.ts:1045:
+> src\lib\supabase-queries.ts:1046:  return createAssistantConversation(workspaceId, mode)
+  src\lib\supabase-queries.ts:1047:}
+  src\lib\supabase-queries.ts:1048:
+  src\lib\supabase-queries.ts:1049:export function mapSupabaseActivity(row: DataRecord): 
+Activity {
+  src\lib\supabase-queries.ts:1050:  return {
+  src\lib\supabase-queries.ts:1051:    id: asString(row.id),
+  src\lib\supabase-queries.ts:1052:    type: normalizeActivityType(row.type),
+  src\lib\supabase-queries.ts:1053:    description: asString(row.description, 'Actividad 
+registrada'),
+  src\lib\supabase-queries.ts:1054:    timestamp: displayTime(row.created_at ?? row.timestamp),
+  src\lib\supabase-queries.ts:1055:    clientName: asString(row.client_name) || undefined,
+  src\lib\supabase-queries.ts:1056:  }
+  src\lib\supabase-queries.ts:1057:}
+  src\lib\supabase-queries.ts:1058:
+> src\lib\supabase-queries.ts:1059:export async function getActivities(workspaceId: string) {
+  src\lib\supabase-queries.ts:1060:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1061:  if (!supabase) return []
+  src\lib\supabase-queries.ts:1062:
+  src\lib\supabase-queries.ts:1063:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1064:    .from('activities')
+  src\lib\supabase-queries.ts:1065:    .select('*')
+> src\lib\supabase-queries.ts:1066:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1067:    .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:1068:    .limit(12)
+  src\lib\supabase-queries.ts:1069:
+  src\lib\supabase-queries.ts:1070:  if (error) throw error
+  src\lib\supabase-queries.ts:1071:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseActivity)
+  src\lib\supabase-queries.ts:1072:}
+  src\lib\supabase-queries.ts:1073:
+> src\lib\supabase-queries.ts:1074:export async function createActivity(workspaceId: string, 
+payload: ActivityPayload) {
+  src\lib\supabase-queries.ts:1075:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1076:  if (!supabase) return null
+  src\lib\supabase-queries.ts:1077:
+  src\lib\supabase-queries.ts:1078:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1079:    .from('activities')
+  src\lib\supabase-queries.ts:1080:    .insert({
+> src\lib\supabase-queries.ts:1081:      workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1082:      type: payload.type,
+  src\lib\supabase-queries.ts:1083:      description: payload.description,
+  src\lib\supabase-queries.ts:1084:      client_name: payload.clientName || null,
+  src\lib\supabase-queries.ts:1085:    })
+  src\lib\supabase-queries.ts:1086:    .select('*')
+  src\lib\supabase-queries.ts:1087:    .single()
+  src\lib\supabase-queries.ts:1088:
+  src\lib\supabase-queries.ts:1089:  if (error) return null
+  src\lib\supabase-queries.ts:1090:  return mapSupabaseActivity(data as DataRecord)
+  src\lib\supabase-queries.ts:1091:}
+  src\lib\supabase-queries.ts:1092:
+  src\lib\supabase-queries.ts:1093:export function mapSupabaseDocument(row: DataRecord): 
+WorkspaceDocument {
+  src\lib\supabase-queries.ts:1094:  return {
+  src\lib\supabase-queries.ts:1095:    id: asString(row.id),
+> src\lib\supabase-queries.ts:1096:    workspaceId: asString(row.workspace_id),
+  src\lib\supabase-queries.ts:1097:    clientId: asString(row.client_id) || undefined,
+  src\lib\supabase-queries.ts:1098:    title: asString(row.title, 'Documento'),
+  src\lib\supabase-queries.ts:1099:    type: normalizeDocumentType(row.type),
+  src\lib\supabase-queries.ts:1100:    storageBucket: asString(row.storage_bucket),
+  src\lib\supabase-queries.ts:1101:    storagePath: asString(row.storage_path),
+  src\lib\supabase-queries.ts:1102:    mimeType: asString(row.mime_type) || undefined,
+  src\lib\supabase-queries.ts:1103:    size: asNumber(row.size, 0) || undefined,
+  src\lib\supabase-queries.ts:1104:    createdBy: asString(row.created_by) || undefined,
+  src\lib\supabase-queries.ts:1106:  }
+  src\lib\supabase-queries.ts:1107:}
+  src\lib\supabase-queries.ts:1108:
+  src\lib\supabase-queries.ts:1109:function normalizeDocumentType(value: unknown): 
+WorkspaceDocument['type'] {
+  src\lib\supabase-queries.ts:1110:  if (value === 'client_file' || value === 'invoice_pdf' || 
+value === 'proposal_pdf' || value === 'conversation_attachment' || value === 
+'workspace_asset') return value
+  src\lib\supabase-queries.ts:1111:  return 'client_file'
+  src\lib\supabase-queries.ts:1112:}
+  src\lib\supabase-queries.ts:1113:
+> src\lib\supabase-queries.ts:1114:function toDocumentRow(workspaceId: string, payload: 
+DocumentPayload): DataRecord {
+  src\lib\supabase-queries.ts:1115:  return {
+> src\lib\supabase-queries.ts:1116:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1117:    client_id: payload.clientId || null,
+  src\lib\supabase-queries.ts:1118:    title: payload.title.trim(),
+  src\lib\supabase-queries.ts:1119:    type: payload.type,
+  src\lib\supabase-queries.ts:1120:    storage_bucket: payload.storageBucket,
+  src\lib\supabase-queries.ts:1121:    storage_path: payload.storagePath,
+  src\lib\supabase-queries.ts:1122:    mime_type: payload.mimeType || null,
+  src\lib\supabase-queries.ts:1123:    size: payload.size ?? null,
+  src\lib\supabase-queries.ts:1124:    created_by: payload.createdBy || null,
+  src\lib\supabase-queries.ts:1125:  }
+  src\lib\supabase-queries.ts:1126:}
+  src\lib\supabase-queries.ts:1127:
+> src\lib\supabase-queries.ts:1128:export async function listDocuments(workspaceId: string, 
+clientId?: string) {
+  src\lib\supabase-queries.ts:1129:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1130:  if (!supabase) return []
+  src\lib\supabase-queries.ts:1131:
+  src\lib\supabase-queries.ts:1132:  let query = supabase
+  src\lib\supabase-queries.ts:1133:    .from('documents')
+  src\lib\supabase-queries.ts:1134:    .select('*')
+> src\lib\supabase-queries.ts:1135:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1136:    .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:1137:
+  src\lib\supabase-queries.ts:1138:  if (clientId) query = query.eq('client_id', clientId)
+  src\lib\supabase-queries.ts:1139:  const { data, error } = await query
+  src\lib\supabase-queries.ts:1140:  if (error) throw error
+  src\lib\supabase-queries.ts:1141:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseDocument)
+  src\lib\supabase-queries.ts:1142:}
+  src\lib\supabase-queries.ts:1143:
+> src\lib\supabase-queries.ts:1144:export async function createDocumentRecord(workspaceId: 
+string, payload: DocumentPayload) {
+  src\lib\supabase-queries.ts:1145:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1146:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1147:
+  src\lib\supabase-queries.ts:1148:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1149:    .from('documents')
+> src\lib\supabase-queries.ts:1150:    .insert(toDocumentRow(workspaceId, payload))
+  src\lib\supabase-queries.ts:1151:    .select('*')
+  src\lib\supabase-queries.ts:1152:    .single()
+  src\lib\supabase-queries.ts:1153:
+  src\lib\supabase-queries.ts:1154:  if (error) throw error
+  src\lib\supabase-queries.ts:1155:  return mapSupabaseDocument(data as DataRecord)
+  src\lib\supabase-queries.ts:1156:}
+  src\lib\supabase-queries.ts:1157:
+  src\lib\supabase-queries.ts:1158:export async function getSignedDocumentUrl(document: 
+Pick<WorkspaceDocument, 'storageBucket' | 'storagePath'>, expiresIn = 60 * 10) {
+  src\lib\supabase-queries.ts:1178:    trigger: asString(row.trigger, 'Evento NowCRM'),
+  src\lib\supabase-queries.ts:1179:    webhookUrl: asString(row.webhook_url ?? row.endpoint ?? 
+row.url),
+  src\lib\supabase-queries.ts:1180:    status: normalizeN8nFlowStatus(row.status ?? 
+(row.enabled === true ? 'active' : undefined)),
+  src\lib\supabase-queries.ts:1181:    requires: asRequirements(row.requires ?? 
+row.requirements),
+  src\lib\supabase-queries.ts:1182:    updatedAt: asString(row.updated_at ?? row.created_at) 
+|| undefined,
+  src\lib\supabase-queries.ts:1183:  }
+  src\lib\supabase-queries.ts:1184:}
+  src\lib\supabase-queries.ts:1185:
+> src\lib\supabase-queries.ts:1186:function toN8nFlowRow(workspaceId: string, payload: 
+N8nFlowPayload): DataRecord {
+  src\lib\supabase-queries.ts:1187:  return {
+> src\lib\supabase-queries.ts:1188:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1189:    event: payload.event,
+  src\lib\supabase-queries.ts:1190:    label: payload.label || payload.event,
+  src\lib\supabase-queries.ts:1191:    description: payload.description || null,
+  src\lib\supabase-queries.ts:1192:    trigger: payload.trigger || null,
+  src\lib\supabase-queries.ts:1193:    webhook_url: payload.webhookUrl || null,
+  src\lib\supabase-queries.ts:1194:    status: normalizeN8nFlowStatus(payload.status),
+  src\lib\supabase-queries.ts:1195:    requires: payload.requires || ['Supabase', 'n8n'],
+  src\lib\supabase-queries.ts:1196:  }
+  src\lib\supabase-queries.ts:1197:}
+  src\lib\supabase-queries.ts:1198:
+> src\lib\supabase-queries.ts:1199:export async function getN8nFlows(workspaceId: string) {
+  src\lib\supabase-queries.ts:1200:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1201:  if (!supabase) return []
+  src\lib\supabase-queries.ts:1202:
+  src\lib\supabase-queries.ts:1203:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1204:    .from('n8n_flows')
+  src\lib\supabase-queries.ts:1205:    .select('*')
+> src\lib\supabase-queries.ts:1206:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1207:    .order('created_at', { ascending: true })
+  src\lib\supabase-queries.ts:1208:
+  src\lib\supabase-queries.ts:1209:  if (error) throw error
+  src\lib\supabase-queries.ts:1210:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseN8nFlow)
+  src\lib\supabase-queries.ts:1211:}
+  src\lib\supabase-queries.ts:1212:
+> src\lib\supabase-queries.ts:1213:export async function upsertN8nFlow(workspaceId: string, 
+payload: N8nFlowPayload) {
+  src\lib\supabase-queries.ts:1214:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1215:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1216:
+  src\lib\supabase-queries.ts:1217:  const existing = await supabase
+  src\lib\supabase-queries.ts:1218:    .from('n8n_flows')
+  src\lib\supabase-queries.ts:1219:    .select('*')
+> src\lib\supabase-queries.ts:1220:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1221:    .eq('event', payload.event)
+  src\lib\supabase-queries.ts:1222:    .maybeSingle()
+  src\lib\supabase-queries.ts:1223:
+> src\lib\supabase-queries.ts:1224:  const row = toN8nFlowRow(workspaceId, payload)
+  src\lib\supabase-queries.ts:1225:
+  src\lib\supabase-queries.ts:1226:  if (existing.data) {
+  src\lib\supabase-queries.ts:1227:    delete row.workspace_id
+  src\lib\supabase-queries.ts:1228:    delete row.event
+  src\lib\supabase-queries.ts:1229:    const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1230:      .from('n8n_flows')
+  src\lib\supabase-queries.ts:1231:      .update(row)
+  src\lib\supabase-queries.ts:1232:      .eq('id', asString((existing.data as DataRecord).id))
+  src\lib\supabase-queries.ts:1269:    .eq('id', id)
+  src\lib\supabase-queries.ts:1270:    .select('*')
+  src\lib\supabase-queries.ts:1271:    .single()
+  src\lib\supabase-queries.ts:1272:
+  src\lib\supabase-queries.ts:1273:  if (error) throw error
+  src\lib\supabase-queries.ts:1274:  return mapSupabaseN8nFlow(data as DataRecord)
+  src\lib\supabase-queries.ts:1275:}
+  src\lib\supabase-queries.ts:1276:
+> src\lib\supabase-queries.ts:1277:export async function seedN8nFlows(workspaceId: string, 
+payloads: N8nFlowPayload[]) {
+  src\lib\supabase-queries.ts:1278:  const seeded: N8nFlow[] = []
+  src\lib\supabase-queries.ts:1279:  for (const payload of payloads) {
+> src\lib\supabase-queries.ts:1280:    seeded.push(await upsertN8nFlow(workspaceId, payload))
+  src\lib\supabase-queries.ts:1281:  }
+  src\lib\supabase-queries.ts:1282:  return seeded
+  src\lib\supabase-queries.ts:1283:}
+  src\lib\supabase-queries.ts:1284:
+  src\lib\supabase-queries.ts:1285:export function mapSupabaseIntegrationSetting(row: 
+DataRecord): IntegrationSetting {
+  src\lib\supabase-queries.ts:1286:  const key = asString(row.key ?? row.provider ?? row.slug 
+?? row.name, 'integration')
+  src\lib\supabase-queries.ts:1287:  return {
+  src\lib\supabase-queries.ts:1288:    id: asString(row.id, key),
+  src\lib\supabase-queries.ts:1290:    name: asString(row.name ?? row.label, key),
+  src\lib\supabase-queries.ts:1291:    description: asString(row.description, 'Integracion 
+preparada para la fase real.'),
+  src\lib\supabase-queries.ts:1292:    status: normalizeIntegrationStatus(row.status),
+  src\lib\supabase-queries.ts:1293:    category: asString(row.category, 'Sistema'),
+  src\lib\supabase-queries.ts:1294:    info: asString(row.info ?? row.public_label) || 
+undefined,
+  src\lib\supabase-queries.ts:1295:  }
+  src\lib\supabase-queries.ts:1296:}
+  src\lib\supabase-queries.ts:1297:
+> src\lib\supabase-queries.ts:1298:function toIntegrationRow(workspaceId: string, payload: 
+IntegrationPayload): DataRecord {
+  src\lib\supabase-queries.ts:1299:  return {
+> src\lib\supabase-queries.ts:1300:    workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1301:    key: payload.key,
+  src\lib\supabase-queries.ts:1302:    name: payload.name,
+  src\lib\supabase-queries.ts:1303:    description: payload.description || null,
+  src\lib\supabase-queries.ts:1304:    status: normalizeIntegrationStatus(payload.status),
+  src\lib\supabase-queries.ts:1305:    category: payload.category || 'Sistema',
+  src\lib\supabase-queries.ts:1306:    info: payload.info || null,
+  src\lib\supabase-queries.ts:1307:  }
+  src\lib\supabase-queries.ts:1308:}
+  src\lib\supabase-queries.ts:1309:
+> src\lib\supabase-queries.ts:1310:export async function getIntegrationSettings(workspaceId: 
+string) {
+  src\lib\supabase-queries.ts:1311:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1312:  if (!supabase) return []
+  src\lib\supabase-queries.ts:1313:
+  src\lib\supabase-queries.ts:1314:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1315:    .from('integrations')
+  src\lib\supabase-queries.ts:1316:    .select('*')
+> src\lib\supabase-queries.ts:1317:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1318:    .order('created_at', { ascending: true })
+  src\lib\supabase-queries.ts:1319:
+  src\lib\supabase-queries.ts:1320:  if (error) throw error
+  src\lib\supabase-queries.ts:1321:  return ((data as DataRecord[] | null) ?? 
+[]).map(mapSupabaseIntegrationSetting)
+  src\lib\supabase-queries.ts:1322:}
+  src\lib\supabase-queries.ts:1323:
+> src\lib\supabase-queries.ts:1324:export async function upsertIntegrationSetting(workspaceId: 
+string, payload: IntegrationPayload) {
+  src\lib\supabase-queries.ts:1325:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1326:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1327:
+  src\lib\supabase-queries.ts:1328:  const existing = await supabase
+  src\lib\supabase-queries.ts:1329:    .from('integrations')
+  src\lib\supabase-queries.ts:1330:    .select('*')
+> src\lib\supabase-queries.ts:1331:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1332:    .eq('key', payload.key)
+  src\lib\supabase-queries.ts:1333:    .maybeSingle()
+  src\lib\supabase-queries.ts:1334:
+> src\lib\supabase-queries.ts:1335:  const row = toIntegrationRow(workspaceId, payload)
+  src\lib\supabase-queries.ts:1336:
+  src\lib\supabase-queries.ts:1337:  if (existing.data) {
+  src\lib\supabase-queries.ts:1338:    delete row.workspace_id
+  src\lib\supabase-queries.ts:1339:    delete row.key
+  src\lib\supabase-queries.ts:1340:    const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1341:      .from('integrations')
+  src\lib\supabase-queries.ts:1342:      .update(row)
+  src\lib\supabase-queries.ts:1343:      .eq('id', asString((existing.data as DataRecord).id))
+  src\lib\supabase-queries.ts:1380:    .select('*')
+  src\lib\supabase-queries.ts:1381:    .single()
+  src\lib\supabase-queries.ts:1382:
+  src\lib\supabase-queries.ts:1383:  if (error) throw error
+  src\lib\supabase-queries.ts:1384:  return mapSupabaseIntegrationSetting(data as DataRecord)
+  src\lib\supabase-queries.ts:1385:}
+  src\lib\supabase-queries.ts:1386:
+  src\lib\supabase-queries.ts:1387:// Tasks helpers
+> src\lib\supabase-queries.ts:1388:export async function listTasks(workspaceId: string) {
+  src\lib\supabase-queries.ts:1389:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1390:  if (!supabase) return []
+  src\lib\supabase-queries.ts:1391:
+  src\lib\supabase-queries.ts:1392:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1393:    .from('tasks')
+  src\lib\supabase-queries.ts:1394:    .select('*')
+> src\lib\supabase-queries.ts:1395:    .eq('workspace_id', workspaceId)
+  src\lib\supabase-queries.ts:1396:    .order('created_at', { ascending: false })
+  src\lib\supabase-queries.ts:1397:
+  src\lib\supabase-queries.ts:1398:  if (error) throw error
+  src\lib\supabase-queries.ts:1399:  return (data as DataRecord[]).map(mapSupabaseTask)
+  src\lib\supabase-queries.ts:1400:}
+  src\lib\supabase-queries.ts:1401:
+> src\lib\supabase-queries.ts:1402:export async function createTask(workspaceId: string, 
+payload: { title: string; description?: string; assigned_to?: string; due_date?: string }) {
+  src\lib\supabase-queries.ts:1403:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1404:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1405:
+  src\lib\supabase-queries.ts:1406:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1407:    .from('tasks')
+  src\lib\supabase-queries.ts:1408:    .insert({
+> src\lib\supabase-queries.ts:1409:      workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1410:      title: payload.title,
+  src\lib\supabase-queries.ts:1411:      description: payload.description || null,
+  src\lib\supabase-queries.ts:1412:      assigned_to: payload.assigned_to || null,
+  src\lib\supabase-queries.ts:1413:      due_date: payload.due_date || null,
+  src\lib\supabase-queries.ts:1414:      status: 'pending',
+  src\lib\supabase-queries.ts:1415:      created_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:1416:    })
+  src\lib\supabase-queries.ts:1417:    .select('*')
+  src\lib\supabase-queries.ts:1447:    .select('*')
+  src\lib\supabase-queries.ts:1448:    .single()
+  src\lib\supabase-queries.ts:1449:
+  src\lib\supabase-queries.ts:1450:  if (error) throw error
+  src\lib\supabase-queries.ts:1451:  return mapSupabaseNotification(data as DataRecord)
+  src\lib\supabase-queries.ts:1452:}
+  src\lib\supabase-queries.ts:1453:
+  src\lib\supabase-queries.ts:1454:// Agent action logs helpers
+> src\lib\supabase-queries.ts:1455:export async function createAgentActionLog(workspaceId: 
+string, payload: { action: string; details?: Record<string, unknown> }) {
+  src\lib\supabase-queries.ts:1456:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1457:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1458:
+  src\lib\supabase-queries.ts:1459:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1460:    .from('agent_action_logs')
+  src\lib\supabase-queries.ts:1461:    .insert({
+> src\lib\supabase-queries.ts:1462:      workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1463:      action: payload.action,
+  src\lib\supabase-queries.ts:1464:      details: payload.details || {},
+  src\lib\supabase-queries.ts:1465:      created_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:1466:    })
+  src\lib\supabase-queries.ts:1467:    .select('*')
+  src\lib\supabase-queries.ts:1468:    .single()
+  src\lib\supabase-queries.ts:1469:
+  src\lib\supabase-queries.ts:1470:  if (error) throw error
+  src\lib\supabase-queries.ts:1471:  return data
+  src\lib\supabase-queries.ts:1472:}
+  src\lib\supabase-queries.ts:1473:
+  src\lib\supabase-queries.ts:1474:// N8n trigger logs helpers
+> src\lib\supabase-queries.ts:1475:export async function createN8nTriggerLog(workspaceId: 
+string, payload: { trigger: string; details?: Record<string, unknown> }) {
+  src\lib\supabase-queries.ts:1476:  const supabase = getSupabaseBrowserClient()
+  src\lib\supabase-queries.ts:1477:  if (!supabase) throw new Error('Supabase no esta 
+configurado')
+  src\lib\supabase-queries.ts:1478:
+  src\lib\supabase-queries.ts:1479:  const { data, error } = await supabase
+  src\lib\supabase-queries.ts:1480:    .from('n8n_trigger_logs')
+  src\lib\supabase-queries.ts:1481:    .insert({
+> src\lib\supabase-queries.ts:1482:      workspace_id: workspaceId,
+  src\lib\supabase-queries.ts:1483:      trigger: payload.trigger,
+  src\lib\supabase-queries.ts:1484:      details: payload.details || {},
+  src\lib\supabase-queries.ts:1485:      created_at: new Date().toISOString(),
+  src\lib\supabase-queries.ts:1486:    })
+  src\lib\supabase-queries.ts:1487:    .select('*')
+  src\lib\supabase-queries.ts:1488:    .single()
+  src\lib\supabase-queries.ts:1489:
+  src\lib\supabase-queries.ts:1490:  if (error) throw error
+  src\lib\current-user.ts:1:'use client'
+  src\lib\current-user.ts:2:
+  src\lib\current-user.ts:3:import { useEffect, useState } from 'react'
+  src\lib\current-user.ts:4:import { getSupabaseBrowserClient } from '@/lib/supabase'
+> src\lib\current-user.ts:5:import { getResolvedWorkspaceContext, type ProfileRecord, type 
+WorkspaceRecord } from '@/lib/supabase-queries'
+  src\lib\current-user.ts:6:
+  src\lib\current-user.ts:7:export type CurrentUser = {
+  src\lib\current-user.ts:8:  name: string
+  src\lib\current-user.ts:9:  email: string
+> src\lib\current-user.ts:10:  workspaceId?: string
+  src\lib\current-user.ts:11:  workspaceName: string
+  src\lib\current-user.ts:12:  initials: string
+> src\lib\current-user.ts:13:  isDemo: boolean
+  src\lib\current-user.ts:14:  trialLabel: string
+  src\lib\current-user.ts:15:}
+  src\lib\current-user.ts:16:
+> src\lib\current-user.ts:17:export const DEMO_MODE_KEY = 'nowcrm-demo-mode'
+  src\lib\current-user.ts:18:
+  src\lib\current-user.ts:19:const demoUser: CurrentUser = {
+  src\lib\current-user.ts:20:  name: 'NowCRM Demo',
+  src\lib\current-user.ts:21:  email: 'demo@nowcrm.local',
+  src\lib\current-user.ts:22:  workspaceName: 'NowCRM Demo',
+  src\lib\current-user.ts:23:  initials: 'N',
+> src\lib\current-user.ts:24:  isDemo: true,
+> src\lib\current-user.ts:25:  trialLabel: 'Modo demo',
+  src\lib\current-user.ts:26:}
+  src\lib\current-user.ts:27:
+  src\lib\current-user.ts:28:function getInitials(value: string) {
+  src\lib\current-user.ts:29:  const cleanValue = value.trim()
+  src\lib\current-user.ts:30:  if (!cleanValue) return 'N'
+  src\lib\current-user.ts:31:
+  src\lib\current-user.ts:32:  const parts = cleanValue.split(/\s+/).filter(Boolean)
+  src\lib\current-user.ts:33:  if (parts.length >= 2) return 
+`${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  src\lib\current-user.ts:51:    .join(' ')
+  src\lib\current-user.ts:52:}
+  src\lib\current-user.ts:53:
+  src\lib\current-user.ts:54:function getMetadataString(metadata: Record<string, unknown>, 
+key: string) {
+  src\lib\current-user.ts:55:  const value = metadata[key]
+  src\lib\current-user.ts:56:  return typeof value === 'string' ? value : ''
+  src\lib\current-user.ts:57:}
+  src\lib\current-user.ts:58:
+> src\lib\current-user.ts:59:export function useCurrentUser() {
+  src\lib\current-user.ts:60:  const [currentUser, setCurrentUser] = 
+useState<CurrentUser>(demoUser)
+  src\lib\current-user.ts:61:
+  src\lib\current-user.ts:62:  useEffect(() => {
+  src\lib\current-user.ts:63:    let mounted = true
+  src\lib\current-user.ts:64:    const supabase = getSupabaseBrowserClient()
+  src\lib\current-user.ts:65:
+  src\lib\current-user.ts:66:    if (!supabase) {
+  src\lib\current-user.ts:67:      return
+  src\lib\current-user.ts:71:      const { data, error } = await supabase.auth.getUser()
+  src\lib\current-user.ts:72:      if (!mounted) return
+  src\lib\current-user.ts:73:
+  src\lib\current-user.ts:74:      if (error || !data.user) {
+  src\lib\current-user.ts:75:        setCurrentUser(demoUser)
+  src\lib\current-user.ts:76:        return
+  src\lib\current-user.ts:77:      }
+  src\lib\current-user.ts:78:
+> src\lib\current-user.ts:79:      window.localStorage.removeItem(DEMO_MODE_KEY)
+  src\lib\current-user.ts:80:
+  src\lib\current-user.ts:81:      let profile: ProfileRecord | null = null
+  src\lib\current-user.ts:82:      let workspace: WorkspaceRecord | null = null
+  src\lib\current-user.ts:83:      try {
+> src\lib\current-user.ts:84:        const context = await getResolvedWorkspaceContext()
+  src\lib\current-user.ts:85:        profile = context?.profile ?? null
+  src\lib\current-user.ts:86:        workspace = context?.workspace ?? null
+  src\lib\current-user.ts:87:      } catch {
+  src\lib\current-user.ts:88:        profile = null
+  src\lib\current-user.ts:89:        workspace = null
+  src\lib\current-user.ts:90:      }
+  src\lib\current-user.ts:91:
+  src\lib\current-user.ts:92:      const metadata = (data.user.user_metadata ?? {}) as 
+Record<string, unknown>
+  src\lib\current-user.ts:104:        getMetadataString(metadata, 'company_name') ||
+  src\lib\current-user.ts:105:        'Workspace'
+  src\lib\current-user.ts:106:      )
+  src\lib\current-user.ts:107:      const trialStatus = workspace?.trial_status || 
+profile?.trial_status || getMetadataString(metadata, 'trial_status')
+  src\lib\current-user.ts:108:
+  src\lib\current-user.ts:109:      setCurrentUser({
+  src\lib\current-user.ts:110:        name,
+  src\lib\current-user.ts:111:        email,
+> src\lib\current-user.ts:112:        workspaceId: workspace?.id || profile?.workspace_id || 
+undefined,
+  src\lib\current-user.ts:113:        workspaceName,
+  src\lib\current-user.ts:114:        initials: getInitials(name || workspaceName || email),
+> src\lib\current-user.ts:115:        isDemo: false,
+  src\lib\current-user.ts:116:        trialLabel: String(trialStatus) === 'active' ? 'Trial 
+activo' : 'Cuenta real',
+  src\lib\current-user.ts:117:      })
+  src\lib\current-user.ts:118:    }
+  src\lib\current-user.ts:119:
+  src\lib\current-user.ts:120:    void loadUser()
+  src\lib\current-user.ts:121:
+  src\lib\current-user.ts:122:    const { data: listener } = 
+supabase.auth.onAuthStateChange(() => {
+  src\lib\current-user.ts:123:      void loadUser()
+
+
