@@ -44,6 +44,15 @@ export type MockAIContext = {
   workspaceId?: string | null
   webhookUrl?: string
   assistantMode?: AssistantMode
+  workspaceSummary?: {
+    total_clients: number
+    leads: number
+    pending_invoices: number
+    overdue_invoices: number
+    upcoming_events: number
+    open_conversations: number
+    recent_activities: Array<Record<string, unknown>>
+  } | null
 }
 
 function hasAny(text: string, words: string[]) {
@@ -312,7 +321,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
   ].join('\n')
 }
 
-export function generateMockAIResponse({ input, workspaceName, conversation, messages = [], isDemo }: MockAIContext) {
+export function generateMockAIResponse({ input, workspaceName, conversation, messages = [], isDemo, workspaceSummary }: MockAIContext) {
   const text = input.toLowerCase()
   const normalized = normalizeText(input)
   const client = conversation?.clientName || 'el cliente'
@@ -322,45 +331,46 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   const isInbox = conversation?.assistantMode === 'inbox'
 
   if (isCapabilityQuestion(normalized)) {
+    const summaryText = workspaceSummary ? `En ${workspaceName || 'tu workspace'}, tienes ${workspaceSummary.total_clients} clientes, ${workspaceSummary.leads} leads, ${workspaceSummary.pending_invoices} facturas pendientes y ${workspaceSummary.overdue_invoices} vencidas.` : ''
     return isInbox
-      ? 'Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. WhatsApp/Whapi será la siguiente fase para que esos mensajes entren solos.'
-      : 'Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. También puedo preparar respuestas o propuestas para clientes.'
+      ? `Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. ${summaryText} WhatsApp/Whapi será la siguiente fase para que esos mensajes entren solos.`
+      : `Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. ${summaryText} También puedo preparar respuestas o propuestas para clientes.`
   }
 
   if (isPricingQuestion(normalized)) {
-    return `Puedo ayudarte a preparar una propuesta para ${client}, pero no voy a inventar precios. Necesito saber tipo de negocio, numero de usuarios y modulos a activar: clientes, calendario, facturacion, IA o WhatsApp. Con eso dejaria una propuesta clara para revisar en ${workspace}.`
+    return `Puedo ayudarte a preparar una propuesta para ${client}, pero necesito información específica sobre el tipo de negocio, número de usuarios y módulos requeridos (clientes, calendario, facturación, IA o WhatsApp). Con esos datos, prepararé una propuesta clara para revisar en ${workspace}.`
   }
 
   if (isConsultativeBusinessQuestion(normalized) || isReservationAutomationQuery(normalized)) {
     const businessLabel = normalized.includes('peluqueria') ? 'una peluquería' : normalized.includes('clinica') ? 'una clínica' : normalized.includes('restaurante') ? 'un restaurante' : 'ese negocio'
-    return `Para ${businessLabel}, NowCRM puede ayudarte a centralizar clientes, preparar reservas en calendario y automatizar seguimientos. La idea sería que el Assistant recoja nombre, servicio, día y hora, y deje la cita lista con confirmación. Si quieres llevarlo a WhatsApp o llamadas reales, esa sería la siguiente fase con Whapi/n8n.`
+    return `Para ${businessLabel}, NowCRM puede centralizar la gestión de clientes, preparar reservas en calendario y automatizar seguimientos. El asistente puede recopilar nombre, servicio, fecha y hora, y crear la cita con confirmación. Si deseas integrar WhatsApp o llamadas reales, esa sería la siguiente fase con Whapi/n8n.`
   }
 
   if (hasAny(text, ['demo', 'reunion', 'reunir', 'llamada', 'agenda', 'cita', 'calendario', 'reserva'])) {
-    return `Si. Para preparar la cita necesito cliente, servicio, fecha y hora. Con esos datos puedo dejar el evento listo para confirmar en Calendario.`
+    return `Sí, para preparar una cita necesito el nombre del cliente, el servicio, la fecha y la hora. Con esos datos, puedo crear el evento en el calendario para confirmación.`
   }
 
   if (hasAny(text, ['factura', 'pago', 'cobro', 'vencida', 'impago', 'stripe'])) {
-    return `Caso de facturacion. Responderia con tono tranquilo: confirmar que revisas el estado, reenviar enlace de pago si procede y registrar actividad. Si la factura esta vencida, conviene activar un flujo n8n de recordatorio con seguimiento humano.`
+    return `En casos de facturación, recomiendo responder con calma: confirmar que se revisará el estado, reenviar el enlace de pago si corresponde y registrar la actividad. Si la factura está vencida, conviene activar un flujo de recordatorio con n8n y seguimiento humano.`
   }
 
   if (hasAny(text, ['problema', 'queja', 'error', 'mal', 'incidencia', 'molesto', 'enfadado'])) {
-    return `Hay friccion potencial. Recomendacion: responder con empatia, asumir seguimiento inmediato y evitar automatizar en frio. Si el sentimiento sigue negativo, marca la conversacion como urgente y escala a una persona.`
+    return `Detecto posible fricción. Recomendación: responder con empatía, asumir seguimiento inmediato y evitar automatizaciones en frío. Si el sentimiento persiste negativo, marcar la conversación como urgente y escalar a una persona.`
   }
 
   if (hasAny(text, ['whatsapp', 'instagram', 'meta', 'canal', 'mensaje'])) {
-    return `Buen caso para vender multicanalidad: centralizar mensajes, detectar intencion y convertir conversaciones en leads accionables. Hoy esta en ${modeLabel}; cuando conectes WhatsApp/Whapi, el mismo flujo podra crear clientes y mensajes reales.`
+    return `Buen caso para destacar la multicanalidad: centralizar mensajes, detectar intención y convertir conversaciones en leads accionables. Actualmente en ${modeLabel}; cuando conectes WhatsApp/Whapi, el flujo podrá crear clientes y mensajes reales.`
   }
 
   if (hasAny(text, ['automatizacion', 'automatizar', 'n8n', 'webhook', 'flujo', 'workflow'])) {
-    return `Recomendaria plantearlo como flujo n8n: trigger claro, payload desde NowCRM, validacion de requisitos y activity final. Para empezar, usaria "Nuevo lead" o "Factura vencida", porque ya tienen datos reales en Supabase.`
+    return `Recomiendo plantearlo como flujo n8n: trigger claro, payload desde NowCRM, validación de requisitos y actividad final. Para empezar, usar "Nuevo lead" o "Factura vencida", ya que tienen datos reales en Supabase.`
   }
 
   if (hasAny(text, ['funciona', 'caracteristica', 'feature', 'ia', 'crm'])) {
-    return `Explicaria NowCRM como un CRM con datos reales, assistant persistente e integraciones preparadas. El mensaje clave: menos tareas manuales, mas seguimiento comercial y una base lista para IA/n8n reales.`
+    return `NowCRM es un CRM con datos reales, asistente persistente e integraciones preparadas. El mensaje clave: menos tareas manuales, más seguimiento comercial y una base lista para IA/n8n reales.`
   }
 
-  return `Mensaje registrado para ${client}. Mi siguiente paso recomendado: resumir el contexto, confirmar necesidad y proponer una accion concreta en las proximas 24 horas. ${contextSize}`
+  return `Mensaje registrado para ${client}. Próximo paso recomendado: resumir el contexto, confirmar necesidad y proponer una acción concreta en las próximas 24 horas. ${contextSize}`
 }
 
 export async function triggerAssistantN8nFlow(context: MockAIContext): Promise<N8nTriggerResult> {
@@ -411,8 +421,31 @@ export async function respondWithAssistant(context: MockAIContext) {
     }
   }
 
+  let workspaceSummary = context.workspaceSummary
+  if (!workspaceSummary && context.workspaceId && !context.isDemo) {
+    try {
+      const response = await fetch('/api/agent/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tool: 'get_workspace_summary',
+          workspace_id: context.workspaceId,
+          input: {},
+        }),
+      })
+      if (response.ok) {
+        const result = await response.json()
+        if (result.ok) {
+          workspaceSummary = result.result
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch workspace summary:', error)
+    }
+  }
+
   return {
-    response: generateMockAIResponse(context),
+    response: generateMockAIResponse({ ...context, workspaceSummary }),
     source: 'mock' as const,
     trigger: n8nResult,
   }

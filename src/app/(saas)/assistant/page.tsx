@@ -7,24 +7,36 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
+import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
 import { ASSISTANT_AGENT_WEBHOOK_URL, callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import {
-  archiveConversationScoped,
   createActivity,
   createCalendarEvent,
   createAssistantConversation,
   createInvoice,
   createMessage,
+  deleteConversationPermanently,
   getAssistantConversationById,
   getAssistantConversations,
   getConversationMessages,
+  getClientStats,
   getN8nFlows,
+  getPendingInvoices,
   getResolvedWorkspaceContext,
+  getUpcomingCalendarEvents,
+  getWorkspaceSummary,
+  getNextBestActions,
+  mapSupabaseClient,
+  searchClients,
   updateConversationScoped,
+  getClientInvoices,
+  getClientCalendarEvents,
+  getClientConversations,
+  getClientActivities,
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 
@@ -106,7 +118,7 @@ function createOfflineConversation(mode: AssistantMode): Conversation {
     id,
     workspaceId: OFFLINE_WORKSPACE_ID,
     clientId: `offline-${id}`,
-    clientName: mode === 'copilot' ? 'Consulta CRM' : 'Nuevo cliente',
+    clientName: mode === 'copilot' ? 'Consulta NowLabs AI' : 'Nuevo cliente',
     clientAvatar: '',
     lastMessage: mode === 'copilot' ? 'Nueva consulta interna' : 'Nuevo mensaje de cliente',
     timestamp: new Date().toISOString(),
@@ -187,7 +199,7 @@ const assistantModes: Array<{
   },
   {
     id: 'copilot',
-    title: 'Copilot CRM',
+    title: 'NowLabs AI',
     eyebrow: 'Asistente interno',
     description: 'Opera el CRM para buscar clientes, preparar citas, facturas, cobros, propuestas y documentos.',
     badge: 'Tools + Supabase',
@@ -308,7 +320,7 @@ function internalAssistantIntro(mode: AssistantMode = 'copilot') {
     return 'Soy Inbox Assistant, la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. WhatsApp/Whapi será la siguiente fase para que esos mensajes entren automáticamente.'
   }
 
-  return 'Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
+  return 'Soy tu NowLabs AI interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
 }
 
 function pricingGuidance() {
@@ -379,7 +391,7 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
   if (intent.intent === 'consultative') {
     return mode === 'inbox'
       ? 'Como Inbox Assistant, puedo ayudarte a convertir esa conversación en una respuesta clara, detectar intención y preparar una cita o seguimiento con confirmación. Si quieres que los mensajes entren desde WhatsApp real, la siguiente fase es Whapi/n8n.'
-      : 'Como CRM Copilot, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
+      : 'Como NowLabs AI, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
   }
 
   if (intent.intent === 'booking_strategy') {
@@ -483,6 +495,11 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
   }
 
   const record = getRecord(result)
+
+  if (record && 'total_clients' in record) {
+    return `Resumen CRM: ${record.total_clients} clientes, ${record.leads} lead(s), ${record.pending_invoices} factura(s) pendientes, ${record.overdue_invoices} factura(s) vencida(s), ${record.upcoming_events} cita(s) próximas y ${record.open_conversations} conversación(es) abiertas.`
+  }
+
   const client = getRecord(record?.client)
   if (client) {
     const name = String(client.name ?? 'Cliente')
@@ -492,6 +509,173 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
   }
 
   return 'Tool ejecutada. Resultado preparado para el Assistant Agent.'
+}
+
+function normalizeQuery(value: string) {
+  return normalizeInput(value).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function detectCopilotCRMQuery(value: string, lastReferencedClientName?: string) {
+  const text = normalizeInput(value)
+  
+  // Detectar referencias a "sus datos", "ese cliente", etc.
+  if (/\b(sus datos|su correo|su email|su telefono|su empresa|ese cliente|este cliente|resumen de ese|todos los datos|todos sus datos|informe de ese|dame todos sus datos)\b/.test(text) && lastReferencedClientName) {
+    return 'client_report_referenced'
+  }
+  
+  if (/\b(ultimo|ultima) cliente\b/.test(text) && /\b(hora|tiempo|fecha|registrado|registr)\b/.test(text)) return 'latest_client'
+  if (/\b(cuantos clientes|numero de clientes|clientes tengo|total de clientes)\b/.test(text)) return 'client_count'
+  if (/\b(buscar clientes|busca clientes|encuentra clientes|nombres de cliente|clientes con)\b/.test(text)) return 'search_clients'
+  if (/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/.test(text) && /\b(cliente|cliente)\b/.test(text)) return 'client_report'
+  if (/\b(facturas pendientes|pendientes de pago|cobros pendientes|facturas sin pagar|facturas abiertas)\b/.test(text)) return 'pending_invoices'
+  if (/\b(citas proximas|proximas citas|agenda|calendario|reuniones proximas)\b/.test(text)) return 'upcoming_events'
+  if (/\b(resume mi crm|resumen crm|estado crm|como va mi crm|situacion crm)\b/.test(text)) return 'workspace_summary'
+  if (/\b(proxima accion|siguiente accion|que hago|prioridad|siguiente paso|accion comercial)\b/.test(text)) return 'next_action'
+  return null
+}
+
+async function generateClientReport(clientData: Record<string, unknown>, workspaceId: string) {
+  // Mapear el row de Supabase al tipo Client
+  const client = mapSupabaseClient(clientData)
+  const createdAt = String(clientData.created_at || new Date().toISOString())
+  
+  const [invoices, events, conversations, activities] = await Promise.all([
+    getClientInvoices(workspaceId, client.name),
+    getClientCalendarEvents(workspaceId, client.name),
+    getClientConversations(workspaceId, client.id),
+    getClientActivities(workspaceId, client.name),
+  ])
+
+  const sections = [
+    `**INFORME DE CLIENTE: ${client.name?.toUpperCase() || 'CLIENTE'}**\n`,
+    `**1. DATOS BÁSICOS**`,
+    `- Nombre: ${client.name || 'No consta'}`,
+    `- Empresa: ${client.company || 'No consta'}`,
+    `- Email: ${client.email || 'No consta'}`,
+    `- Teléfono: ${client.phone || 'No consta'}`,
+    `- Canal: ${client.channel || 'No consta'}`,
+    `- Fecha de registro: ${createdAt ? new Date(createdAt).toLocaleDateString('es-ES') : 'No consta'}`,
+    `\n**2. ESTADO COMERCIAL**`,
+    `- Estado: ${client.status || 'No consta'}`,
+    `- Lead Score: ${client.leadScore || 'No consta'}`,
+    `- Notas: ${client.notes || 'No consta'}`,
+    `\n**3. FACTURAS**`,
+    invoices.length
+      ? invoices.map((i) => `- ${i.plan || 'Concepto'}: ${i.amount}€ (${i.status}) vence ${i.dueDate}`).join('\n')
+      : '- No hay facturas registradas',
+    `\n**4. CITAS Y CALENDARIO**`,
+    events.length
+      ? events.map((e) => `- ${e.title} el ${e.date} a las ${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')} (${e.duration} min)`).join('\n')
+      : '- No hay citas registradas',
+    `\n**5. CONVERSACIONES**`,
+    conversations.length
+      ? conversations.map((c) => `- ${c.lastMessage} (${c.sentiment})`).join('\n')
+      : '- No hay conversaciones registradas',
+    `\n**6. ACTIVIDAD RECIENTE**`,
+    activities.length
+      ? activities.slice(0, 5).map((a) => `- [${a.type}] ${a.description}`).join('\n')
+      : '- No hay actividades registradas',
+    `\n**7. PRÓXIMA ACCIÓN RECOMENDADA**`,
+    client.status === 'lead' ? '→ Contactar para convertir en cliente activo' : client.status === 'active' ? '→ Revisar facturas pendientes' : '→ Sin acción inmediata recomendada',
+  ]
+
+  return sections.filter(Boolean).join('\n')
+}
+
+async function executeCopilotCRMQuery(text: string, workspaceId: string, lastReferencedClientName?: string) {
+  const queryType = detectCopilotCRMQuery(text, lastReferencedClientName)
+  if (!queryType) return null
+
+  try {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) return null
+
+    if (queryType === 'latest_client') {
+      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1)
+      if (error || !data?.length) return 'No hay clientes registrados todavía en este workspace.'
+      const client = mapSupabaseClient(data[0])
+      const createdAt = data[0].created_at as string
+      if (text.includes('hora') || text.includes('tiempo') || text.includes('fecha') || text.includes('cuándo') || text.includes('cuando')) {
+        if (createdAt) {
+          const date = new Date(createdAt)
+          const formatted = date.toLocaleString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          return `El último cliente registrado es ${client.name}. Se registró el ${formatted}.`
+        } else {
+          return `El último cliente registrado es ${client.name}. No consta la fecha de registro.`
+        }
+      } else {
+        return `El último cliente registrado es ${client.name}.`
+      }
+    }
+
+    if (queryType === 'client_count') {
+      const stats = await getClientStats(workspaceId)
+      return stats.total_clients
+        ? `Tienes ${stats.total_clients} cliente(s) en este workspace, incluyendo ${stats.leads} lead(s), ${stats.active} activo(s), ${stats.inactive} inactivo(s) y ${stats.churned} churned.`
+        : 'No hay clientes registrados todavía en este workspace.'
+    }
+
+    if (queryType === 'search_clients') {
+      const query = normalizeQuery(text)
+      const results = await searchClients(workspaceId, query)
+      return results.length
+        ? `He encontrado ${results.length} cliente(s): ${results.slice(0, 4).map((client) => `${client.name}${client.company ? ` (${client.company})` : ''}${client.email ? ` – ${client.email}` : ''}`).join('; ')}.`
+        : 'No se han encontrado clientes que coincidan con ese criterio.'
+    }
+
+    if (queryType === 'client_report_referenced' && lastReferencedClientName) {
+      const clients = await searchClients(workspaceId, lastReferencedClientName)
+      if (!clients.length) return `No encuentro a ${lastReferencedClientName} en este workspace. ¿Quieres que busque por otro nombre?`
+      const client = clients[0]
+      const fullData = await supabase.from('clients').select('*').eq('id', client.id).maybeSingle()
+      if (fullData.error) throw fullData.error
+      const report = await generateClientReport(fullData.data, workspaceId)
+      return report
+    }
+
+    if (queryType === 'client_report') {
+      const query = normalizeQuery(text).replace(/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/g, '').replace(/\b(cliente|cliente)\b/g, '').trim()
+      const clients = await searchClients(workspaceId, query)
+      if (!clients.length) return 'No encuentro ese cliente en este workspace. ¿Quieres que busque por nombre parecido?'
+      if (clients.length > 1) {
+        return `Encontré varios clientes: ${clients.slice(0, 3).map((client) => `${client.name} (${client.email})`).join(', ')}. ¿Cuál quieres que resuma?`
+      }
+      const fullData = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
+      if (fullData.error) throw fullData.error
+      const report = await generateClientReport(fullData.data, workspaceId)
+      return report
+    }
+
+    if (queryType === 'pending_invoices') {
+      const invoices = await getPendingInvoices(workspaceId)
+      return invoices.length
+        ? `Tienes ${invoices.length} factura(s) pendiente(s): ${invoices.slice(0, 4).map((invoice) => `${invoice.clientName} · ${invoice.amount}€ · vence ${invoice.dueDate}`).join('; ')}.`
+        : 'No hay facturas pendientes en este workspace.'
+    }
+
+    if (queryType === 'upcoming_events') {
+      const events = await getUpcomingCalendarEvents(workspaceId)
+      return events.length
+        ? `Próximas citas: ${events.slice(0, 4).map((event) => `${event.title} con ${event.clientName ?? 'cliente'} el ${event.date}${event.startHour !== undefined ? ` a las ${String(event.startHour).padStart(2, '0')}:${String(event.startMinute).padStart(2, '0')}` : ''}`).join('; ')}.`
+        : 'No hay citas próximas en el calendario del workspace.'
+    }
+
+    if (queryType === 'workspace_summary') {
+      const summary = await getWorkspaceSummary(workspaceId)
+      return `Resumen CRM: ${summary.total_clients} clientes, ${summary.leads} lead(s), ${summary.pending_invoices} factura(s) pendientes, ${summary.overdue_invoices} factura(s) vencida(s), ${summary.upcoming_events} cita(s) próximas y ${summary.open_conversations} conversación(es) abiertas.`
+    }
+
+    if (queryType === 'next_action') {
+      const actions = await getNextBestActions(workspaceId)
+      return actions.length
+        ? `Próxima(s) acción(es): ${actions.join(' ')}`
+        : 'No hay acciones comerciales urgentes detectadas en este momento.'
+    }
+  } catch {
+    return null
+  }
+
+  return null
 }
 
 function safeErrorMessage(error: unknown) {
@@ -517,9 +701,10 @@ export default function AssistantPage() {
   const [assistantWebhookUrl, setAssistantWebhookUrl] = useState('')
   const [assistantFlowFound, setAssistantFlowFound] = useState(false)
   const [assistantFlowStatus, setAssistantFlowStatus] = useState<N8nFlowStatus>('demo')
-  const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | null>(null)
+  const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | 'supabase' | null>(null)
   const [lastActionStatus, setLastActionStatus] = useState('')
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
+  const [lastReferencedClientName, setLastReferencedClientName] = useState<string | undefined>()
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
   const [confirmingAction, setConfirmingAction] = useState(false)
@@ -829,8 +1014,8 @@ export default function AssistantPage() {
     if (selected && isUuid(selected.id)) return selected
 
     const created = await createAssistantConversation(workspaceId, assistantMode, {
-      clientName: assistantMode === 'copilot' ? 'Consulta CRM' : 'Nueva conversación',
-      lastMessage: assistantMode === 'copilot' ? 'Consulta Copilot CRM' : 'Conversación Inbox Assistant',
+      clientName: assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Nueva conversación',
+      lastMessage: assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversación Inbox Assistant',
       metadata: { source: 'assistant_auto_create', assistant_mode: assistantMode },
     })
     setConversationList((prev) => [created, ...prev.filter((conversation) => conversation.id !== selected?.id)])
@@ -965,6 +1150,23 @@ export default function AssistantPage() {
             activeConversation.clientName
           )
           setLastResponseSource(null)
+          return
+        }
+      }
+
+      if (assistantMode === 'copilot' && isRealMode && workspaceId) {
+        const crmResponse = await executeCopilotCRMQuery(content, workspaceId, lastReferencedClientName)
+        if (crmResponse) {
+          // Actualizar el cliente referenciado si es una consulta CRM
+          const queryType = detectCopilotCRMQuery(content, lastReferencedClientName)
+          if (queryType === 'latest_client' || queryType === 'client_report' || queryType === 'client_report_referenced') {
+            const clients = await searchClients(workspaceId, normalizeQuery(content))
+            if (clients.length > 0) {
+              setLastReferencedClientName(clients[0].name)
+            }
+          }
+          await appendAssistantMessage(conversationId, crmResponse, activeConversation.clientName)
+          setLastResponseSource('supabase')
           return
         }
       }
@@ -1180,7 +1382,7 @@ export default function AssistantPage() {
   const createDemoConversation = async () => {
     const isCopilot = assistantMode === 'copilot'
     const payload = {
-      clientName: isCopilot ? (isRealMode ? 'Consulta CRM' : 'Consulta CRM demo') : (isRealMode ? 'Nueva conversación' : 'Lead demo'),
+      clientName: isCopilot ? (isRealMode ? 'Consulta NowLabs AI' : 'Consulta NowLabs AI demo') : (isRealMode ? 'Nueva conversación' : 'Lead demo'),
       clientAvatar: isCopilot ? 'CRM' : 'IN',
       channel: 'Web' as Channel,
       sentiment: 'neutral' as ConversationSentiment,
@@ -1485,23 +1687,27 @@ export default function AssistantPage() {
 
   const archiveConversation = async () => {
     if (!selected) return
-    const confirmed = window.confirm('¿Eliminar esta conversación de la lista? Se archivará de forma segura y no afectará a otros workspaces.')
+    const confirmed = window.confirm('¿Eliminar permanentemente esta conversación y todos sus mensajes? Esta acción no se puede deshacer.')
     if (!confirmed) return
 
     try {
       if (isRealMode) {
         if (!workspaceId || !isUuid(selected.id)) {
-          throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede archivar una conversación temporal en modo real.')
+          throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede eliminar una conversación temporal en modo real.')
         }
-        await archiveConversationScoped(selected.id, workspaceId)
-        setConversationList((prev) => prev.filter((conversation) => conversation.id !== selected.id))
-        setSelectedIds((prev) => ({ ...prev, [assistantMode]: '' }))
+        await deleteConversationPermanently(selected.id, workspaceId)
+        setConversationList((prev) => {
+          const next = prev.filter((conversation) => conversation.id !== selected.id)
+          const nextSelected = next.find((conversation) => conversation.assistantMode === assistantMode)
+          setSelectedIds((current) => ({ ...current, [assistantMode]: nextSelected?.id ?? '' }))
+          return next
+        })
         setLocalMessages((prev) => {
           const next = { ...prev }
           delete next[selected.id]
           return next
         })
-        toast.success('Conversación archivada')
+        toast.success('Conversación eliminada definitivamente')
         return
       }
 
@@ -1509,7 +1715,7 @@ export default function AssistantPage() {
       setSelectedIds((prev) => ({ ...prev, [assistantMode]: '' }))
       toast.success('Conversación eliminada de la demo')
     } catch (error) {
-      toast.error('No se pudo archivar', { description: safeErrorMessage(error) })
+      toast.error('No se pudo eliminar', { description: safeErrorMessage(error) })
       updateDiagnostics({ lastSupabaseError: safeErrorMessage(error) })
     }
   }
@@ -1901,10 +2107,11 @@ export default function AssistantPage() {
               {lastResponseSource === 'n8n' && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">Última respuesta por n8n/OpenAI</p>}
               {lastActionStatus && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">{lastActionStatus}</p>}
               {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta por fallback</p>}
+              {lastResponseSource === 'supabase' && <p className="mt-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">Última respuesta por Supabase</p>}
             </div>
 
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'Copilot CRM' : 'Inbox Assistant'}</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</p>
               <div className="flex flex-wrap gap-1.5">
                 {(assistantMode === 'copilot' ? capabilities : inboxCapabilities).map((capability) => (
                   <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>

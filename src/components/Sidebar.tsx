@@ -25,7 +25,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { currentUser } = useCurrentUser()
+  const { currentUser, isLoading } = useCurrentUser()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutComplete, setLogoutComplete] = useState(false)
@@ -164,17 +164,27 @@ export function Sidebar() {
           </div>
         )}
 
-        <button
-          onClick={() => setUserMenuOpen((v) => !v)}
-          className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 text-left shadow-lg shadow-black/10 ring-1 ring-white/[0.02] transition-colors hover:border-violet-200/20 hover:bg-white/[0.11]"
-        >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">{currentUser.initials}</div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-xs font-semibold text-white">{currentUser.workspaceName}</p>
-            <p className="truncate text-[10px] text-slate-500">{currentUser.email}</p>
+        {isLoading ? (
+          <div className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 shadow-lg shadow-black/10 ring-1 ring-white/[0.02]">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <div className="h-3 w-24 rounded-full bg-white/10 animate-pulse" />
+              <div className="mt-1.5 h-2 w-32 rounded-full bg-white/5 animate-pulse" />
+            </div>
           </div>
-          <ChevronUp className={cn('h-3.5 w-3.5 text-slate-500 transition-transform', userMenuOpen ? 'rotate-180' : '')} />
-        </button>
+        ) : (
+          <button
+            onClick={() => setUserMenuOpen((v) => !v)}
+            className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 text-left shadow-lg shadow-black/10 ring-1 ring-white/[0.02] transition-colors hover:border-violet-200/20 hover:bg-white/[0.11]"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">{currentUser.initials}</div>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="truncate text-xs font-semibold text-white">{currentUser.workspaceName}</p>
+              <p className="truncate text-[10px] text-slate-500">{currentUser.email}</p>
+            </div>
+            <ChevronUp className={cn('h-3.5 w-3.5 text-slate-500 transition-transform', userMenuOpen ? 'rotate-180' : '')} />
+          </button>
+        )}
       </div>
     </aside>
     {loggingOut && (

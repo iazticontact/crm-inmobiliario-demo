@@ -228,7 +228,11 @@ export default function ClientsPage() {
       setModalOpen(false)
       setForm(emptyForm)
     } catch (error) {
-      toast.error('No se pudo guardar el cliente', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      const errorDetails = error && typeof error === 'object' ? JSON.stringify(error, null, 2) : ''
+      console.error('[DEBUG] Error al guardar cliente:', { payload, workspaceId, isRealMode, error, errorDetails })
+      const displayMessage = isRealMode ? `No se pudo guardar el cliente: ${errorMessage}` : `Error: ${errorMessage}`
+      toast.error(displayMessage)
     } finally {
       setSaving(false)
     }
@@ -280,6 +284,14 @@ export default function ClientsPage() {
         <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {loadError}
+        </div>
+      )}
+
+      {process.env.NODE_ENV === 'development' && isRealMode && workspaceId && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 font-mono">
+          <div>✓ workspaceId: {workspaceId.slice(0, 8)}...</div>
+          <div>✓ Clientes: {clientList.length}</div>
+          <div>✓ isRealMode: true</div>
         </div>
       )}
 

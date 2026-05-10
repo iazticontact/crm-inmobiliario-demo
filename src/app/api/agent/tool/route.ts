@@ -232,13 +232,13 @@ export async function POST(request: Request) {
     }
 
     if (tool === 'search_clients') {
-      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).limit(100)
+      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(100)
       if (error) throw error
       const query = str(input.query).toLowerCase()
       const status = str(input.status)
       const channelValue = str(input.channel)
       const result = (data ?? []).filter((client) => {
-        const matchesQuery = !query || [client.name, client.company, client.email].some((value) => String(value ?? '').toLowerCase().includes(query))
+        const matchesQuery = !query || [client.name, client.company, client.email, client.phone].some((value) => String(value ?? '').toLowerCase().includes(query))
         const matchesStatus = !status || client.status === status
         const matchesChannel = !channelValue || client.channel === channelValue
         return matchesQuery && matchesStatus && matchesChannel

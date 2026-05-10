@@ -68,74 +68,91 @@ function getMetadataString(metadata: Record<string, unknown>, key: string) {
 }
 
 export function useCurrentUser() {
-  const [currentUser, setCurrentUser] = useState<CurrentUser>(OFFLINE_FORCE_DEV ? offlineCurrentUser : demoUser)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    if (OFFLINE_FORCE_DEV) {
-      return
-    }
-
     let mounted = true
-    const supabase = getSupabaseBrowserClient()
 
-    if (!supabase) {
-      return
-    }
-
-    const loadUser = async () => {
-      const { data, error } = await supabase.auth.getUser()
-      if (!mounted) return
-
-      if (error || !data.user) {
-        setCurrentUser(demoUser)
+    const initializeUser = async () => {
+      if (OFFLINE_FORCE_DEV) {
+        if (mounted) {
+          setCurrentUser(offlineCurrentUser)
+          setIsLoading(false)
+        }
         return
       }
 
-      window.localStorage.removeItem(DEMO_MODE_KEY)
-
-      let profile: ProfileRecord | null = null
-      let workspace: WorkspaceRecord | null = null
-      try {
-        const context = await getResolvedWorkspaceContext()
-        profile = context?.profile ?? null
-        workspace = context?.workspace ?? null
-      } catch {
-        profile = null
-        workspace = null
+      const supabase = getSupabaseBrowserClient()
+      if (!supabase) {
+        if (mounted) setIsLoading(false)
+        return
       }
 
-      const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>
-      const email = data.user.email ?? ''
-      const name = cleanDisplayName(
-        profile?.full_name ||
-        getMetadataString(metadata, 'full_name') ||
-        getMetadataString(metadata, 'name') ||
-        getMetadataString(metadata, 'display_name') ||
-        email
-      ) || 'Usuario'
-      const workspaceName = String(
-        workspace?.name ||
-        getMetadataString(metadata, 'workspace_name') ||
-        getMetadataString(metadata, 'company_name') ||
-        'Workspace'
-      )
-      const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
+      try {
+        const { data, error } = await supabase.auth.getUser()
+        if (!mounted) return
 
-      setCurrentUser({
-        name,
-        email,
-        workspaceId: workspace?.id || profile?.workspace_id || undefined,
-        workspaceName,
-        initials: getInitials(name || workspaceName || email),
-        isDemo: false,
-        trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
-      })
+        if (error || !data.user) {
+          setCurrentUser(demoUser)
+          setIsLoading(false)
+          return
+        }
+
+        window.localStorage.removeItem(DEMO_MODE_KEY)
+
+        let profile: ProfileRecord | null = null
+        let workspace: WorkspaceRecord | null = null
+        try {
+          const context = await getResolvedWorkspaceContext()
+          profile = context?.profile ?? null
+          workspace = context?.workspace ?? null
+        } catch {
+          profile = null
+          workspace = null
+        }
+
+        const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>
+        const email = data.user.email ?? ''
+        const name = cleanDisplayName(
+          profile?.full_name ||
+          getMetadataString(metadata, 'full_name') ||
+          getMetadataString(metadata, 'name') ||
+          getMetadataString(metadata, 'display_name') ||
+          email
+        ) || 'Usuario'
+        const workspaceName = String(
+          workspace?.name ||
+          getMetadataString(metadata, 'workspace_name') ||
+          getMetadataString(metadata, 'company_name') ||
+          'Workspace'
+        )
+        const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
+
+        if (mounted) {
+          setCurrentUser({
+            name,
+            email,
+            workspaceId: workspace?.id || profile?.workspace_id || undefined,
+            workspaceName,
+            initials: getInitials(name || workspaceName || email),
+            isDemo: false,
+            trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
+          })
+          setIsLoading(false)
+        }
+      } catch {
+        if (mounted) setIsLoading(false)
+      }
     }
 
-    void loadUser()
+    void initializeUser()
+
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) return
 
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      void loadUser()
+      void initializeUser()
     })
 
     return () => {
@@ -144,5 +161,5 @@ export function useCurrentUser() {
     }
   }, [])
 
-  return { currentUser, loading: false }
+  return { currentUser: currentUser || demoUser, isLoading }
 }

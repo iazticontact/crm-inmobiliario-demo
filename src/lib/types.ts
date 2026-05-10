@@ -25,6 +25,7 @@ export type Client = {
   company: string
   avatar: string
   notes?: string
+  createdAt?: string
 }
 
 export type Conversation = {

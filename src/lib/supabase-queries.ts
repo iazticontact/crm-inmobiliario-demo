@@ -176,7 +176,7 @@ function inferAssistantMode(row: DataRecord): AssistantMode {
     asString(row.ai_summary),
   ].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
-  if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
+  if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('consulta nowlabs ai') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
     return 'copilot'
   }
 
@@ -546,19 +546,20 @@ export async function getResolvedWorkspaceContext() {
 }
 
 export function mapSupabaseClient(row: DataRecord): Client {
-  const name = asString(row.name, 'Cliente')
+  const name = asString(row.name, 'No consta')
   return {
     id: asString(row.id),
     name,
-    company: asString(row.company, 'Sin empresa'),
-    email: asString(row.email),
-    phone: asString(row.phone, '-'),
+    company: asString(row.company, 'No consta'),
+    email: asString(row.email, 'No consta'),
+    phone: asString(row.phone, 'No consta'),
     channel: normalizeChannel(row.channel),
     status: normalizeStatus(row.status),
     leadScore: asNumber(row.lead_score, 50),
     lastInteraction: asString(row.last_interaction, 'Ahora mismo'),
-    avatar: asString(row.avatar, getInitials(name)),
-    notes: asString(row.notes),
+    avatar: asString(row.avatar, getInitials(name === 'No consta' ? 'C' : name)),
+    notes: asString(row.notes, 'No consta'),
+    createdAt: asString(row.created_at, 'No consta'),
   }
 }
 
@@ -573,7 +574,6 @@ function toClientRow(workspaceId: string, payload: ClientPayload): DataRecord {
     status: payload.status,
     lead_score: payload.leadScore ?? 50,
     notes: payload.notes?.trim() || null,
-    last_interaction: 'Ahora mismo',
   }
 }
 
@@ -595,13 +595,20 @@ export async function createClientLead(workspaceId: string, payload: ClientPaylo
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
+  if (!workspaceId) throw new Error('workspaceId es requerido para crear un cliente')
+
+  const row = toClientRow(workspaceId, payload)
   const { data, error } = await supabase
     .from('clients')
-    .insert(toClientRow(workspaceId, payload))
+    .insert(row)
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    const errorMsg = `[Supabase Error] ${error.message || error.code || 'Error desconocido'} ${error.details ? `- ${error.details}` : ''} ${error.hint ? `- Hint: ${error.hint}` : ''}`
+    console.error('[DEBUG] createClientLead error:', { workspaceId, row, error, fullErrorMsg: errorMsg })
+    throw new Error(errorMsg)
+  }
   return mapSupabaseClient(data as DataRecord)
 }
 
@@ -774,6 +781,195 @@ export async function getCalendarEvents(workspaceId: string) {
   return ((data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
 }
 
+export async function deleteConversationPermanently(conversationId: string, workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { error: deleteMessagesError } = await supabase
+    .from('messages')
+    .delete()
+    .eq('conversation_id', conversationId)
+    .eq('workspace_id', workspaceId)
+
+  if (deleteMessagesError) throw deleteMessagesError
+
+  const { error: deleteConversationError } = await supabase
+    .from('conversations')
+    .delete()
+    .eq('id', conversationId)
+    .eq('workspace_id', workspaceId)
+
+  if (deleteConversationError) throw deleteConversationError
+}
+
+export async function getLatestClient(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return data ? mapSupabaseClient(data as DataRecord) : null
+}
+
+export async function getClientStats(workspaceId: string) {
+  const clients = await getClients(workspaceId)
+  const totalClients = clients.length
+  return {
+    total_clients: totalClients,
+    leads: clients.filter((client) => client.status === 'lead').length,
+    active: clients.filter((client) => client.status === 'active').length,
+    inactive: clients.filter((client) => client.status === 'inactive').length,
+    churned: clients.filter((client) => client.status === 'churned').length,
+  }
+}
+
+export async function searchClients(workspaceId: string, query = '') {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const normalized = query.trim().toLowerCase()
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) throw error
+  const clients = ((data as DataRecord[] | null) ?? []).map(mapSupabaseClient)
+  if (!normalized) return clients
+
+  return clients.filter((client) =>
+    [client.name, client.company, client.email, client.phone]
+      .map((value) => String(value ?? '').toLowerCase())
+      .some((value) => value.includes(normalized))
+  )
+}
+
+export async function getClientDetail(workspaceId: string, clientId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('id', clientId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data ? mapSupabaseClient(data as DataRecord) : null
+}
+
+export async function getClientByNameOrEmail(workspaceId: string, query: string) {
+  const clients = await searchClients(workspaceId, query)
+  return clients.length === 1 ? clients[0] : null
+}
+
+export async function getClientConversations(workspaceId: string, clientIdOrName: string) {
+  const conversations = await getAssistantConversations(workspaceId)
+  return conversations.filter(c => c.clientId === clientIdOrName || c.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+}
+
+export async function getClientInvoices(workspaceId: string, clientIdOrName: string) {
+  const invoices = await getInvoices(workspaceId)
+  return invoices.filter(i => i.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+}
+
+export async function getClientCalendarEvents(workspaceId: string, clientIdOrName: string) {
+  const events = await getCalendarEvents(workspaceId)
+  return events.filter(e => e.clientName && e.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+}
+
+export async function getRecentActivities(workspaceId: string) {
+  return getActivities(workspaceId)
+}
+
+export async function getClientActivities(workspaceId: string, clientIdOrName: string) {
+  const activities = await getActivities(workspaceId)
+  return activities.filter(a => a.clientName && a.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+}
+
+export async function getPendingInvoices(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'pending')
+    .order('due_date', { ascending: true })
+    .limit(50)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseInvoice)
+}
+
+export async function getUpcomingCalendarEvents(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('calendar_events')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .gte('date', today)
+    .order('date', { ascending: true })
+    .limit(20)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
+}
+
+export async function getWorkspaceSummary(workspaceId: string) {
+  const [clients, invoices, events, conversations] = await Promise.all([
+    getClients(workspaceId),
+    getInvoices(workspaceId),
+    getCalendarEvents(workspaceId),
+    getAssistantConversations(workspaceId),
+  ])
+
+  return {
+    total_clients: clients.length,
+    leads: clients.filter((client) => client.status === 'lead').length,
+    pending_invoices: invoices.filter((invoice) => invoice.status === 'pending').length,
+    overdue_invoices: invoices.filter((invoice) => invoice.status === 'overdue').length,
+    upcoming_events: events.length,
+    open_conversations: conversations.filter((conversation) => conversation.status !== 'resolved').length,
+    recent_activities: [],
+  }
+}
+
+export async function getNextBestActions(workspaceId: string) {
+  const [invoices, clients, conversations, events] = await Promise.all([
+    getInvoices(workspaceId),
+    getClients(workspaceId),
+    getAssistantConversations(workspaceId),
+    getUpcomingCalendarEvents(workspaceId),
+  ])
+
+  const overdueInvoices = invoices.filter((invoice) => invoice.status === 'overdue')
+  const hotLeads = clients.filter((client) => client.status === 'lead' && client.leadScore >= 75)
+  const openConversations = conversations.filter((conversation) => conversation.status !== 'resolved')
+  const upcomingEvents = events.slice(0, 3)
+
+  return [
+    overdueInvoices.length ? `Prioriza ${overdueInvoices.length} factura(s) vencida(s) y haz seguimiento.` : '',
+    hotLeads.length ? `Contacta ${hotLeads.length} lead(s) con score alto.` : '',
+    openConversations.length ? `Resuelve ${openConversations.length} conversación(es) abiertas.` : '',
+    upcomingEvents.length ? `Prepara ${upcomingEvents.length} cita(s) próximas.` : '',
+  ].filter(Boolean)
+}
+
 export async function createCalendarEvent(workspaceId: string, payload: CalendarEventPayload) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
@@ -820,11 +1016,11 @@ export async function deleteCalendarEvent(id: string) {
 export function mapSupabaseConversation(row: DataRecord): Conversation {
   const metadata = asRecord(row.metadata)
   const assistantMode = inferAssistantMode(row)
-  const clientName = asString(row.client_name, assistantMode === 'copilot' ? 'Consulta CRM' : 'Conversacion cliente')
+  const clientName = asString(row.client_name, assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente')
   return {
     id: asString(row.id),
     workspaceId: asString(row.workspace_id) || undefined,
-    clientId: asString(row.client_id),
+    clientId: asString(row.client_id || metadata.last_client_id || metadata.clientId),
     clientName,
     clientAvatar: asString(row.client_avatar ?? row.avatar, getInitials(clientName)),
     lastMessage: asString(row.ai_summary ?? row.summary, 'Sin mensajes todavia'),
@@ -850,7 +1046,7 @@ function toConversationRow(workspaceId: string, payload: ConversationPayload): D
     status: payload.status || 'open',
     sentiment: payload.sentiment || 'neutral',
     intent: assistantIntentForMode(assistantMode),
-    ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta Copilot CRM' : 'Conversacion Inbox Assistant'),
+    ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
     updated_at: new Date().toISOString(),
   }
 }
@@ -916,12 +1112,12 @@ export async function createConversation(workspaceId: string, payload: Conversat
 export async function createAssistantConversation(workspaceId: string, mode: AssistantMode, input: Partial<ConversationPayload> = {}) {
   const isCopilot = mode === 'copilot'
   return createConversation(workspaceId, {
-    clientName: input.clientName || (isCopilot ? 'Consulta CRM' : 'Nueva conversacion'),
+    clientName: input.clientName || (isCopilot ? 'Consulta NowLabs AI' : 'Nueva conversacion'),
     clientAvatar: input.clientAvatar || (isCopilot ? 'CRM' : 'IN'),
     channel: input.channel || 'Web',
     sentiment: input.sentiment || 'neutral',
     intent: input.intent || assistantIntentForMode(mode),
-    lastMessage: input.lastMessage || (isCopilot ? 'Consulta Copilot CRM' : 'Conversacion Inbox Assistant'),
+    lastMessage: input.lastMessage || (isCopilot ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
     unread: input.unread ?? false,
     assistantMode: mode,
     metadata: {
