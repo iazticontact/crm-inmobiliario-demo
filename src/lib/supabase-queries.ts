@@ -152,6 +152,36 @@ export type DocumentPayload = {
   createdBy?: string
 }
 
+export type GoogleCalendarConnectionPayload = {
+  calendarId?: string
+  syncEnabled?: boolean
+  lastSyncAt?: string | null
+  status?: string
+}
+
+export type WhatsappConnectionPayload = {
+  provider?: string
+  phoneNumber?: string
+  status?: string
+  webhookUrl?: string | null
+  syncEnabled?: boolean
+}
+
+export type InboxAgentSettingsPayload = {
+  autoReplyEnabled?: boolean
+  mode?: string
+  status?: string
+}
+
+export type AutomationWorkflowPayload = {
+  name: string
+  description?: string
+  trigger?: string
+  enabledInApp?: boolean
+  n8nEvent?: string
+  status?: string
+}
+
 type DataRecord = Record<string, unknown>
 
 function asString(value: unknown, fallback = '') {
@@ -1811,6 +1841,242 @@ export async function getInboxAgentSettings(workspaceId: string) {
     throw error
   }
   return data as DataRecord | null
+}
+
+export async function getGoogleCalendarConnection(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data, error } = await supabase
+    .from('google_calendar_connections')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (error) {
+    if (isSchemaError(error)) return null
+    throw error
+  }
+  return data as DataRecord | null
+}
+
+export async function upsertGoogleCalendarConnection(workspaceId: string, payload: GoogleCalendarConnectionPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = compactRow({
+    workspace_id: workspaceId,
+    calendar_id: payload.calendarId ?? null,
+    sync_enabled: payload.syncEnabled ?? false,
+    last_sync_at: payload.lastSyncAt ?? null,
+    status: payload.status ?? 'pending',
+    updated_at: new Date().toISOString(),
+  })
+
+  const existing = await supabase
+    .from('google_calendar_connections')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (existing.data) {
+    const { data, error } = await supabase
+      .from('google_calendar_connections')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+    if (error) { if (isSchemaError(error)) return null; throw error }
+    return data as DataRecord
+  }
+
+  const { data, error } = await supabase
+    .from('google_calendar_connections')
+    .insert(row)
+    .select('*')
+    .single()
+  if (error) { if (isSchemaError(error)) return null; throw error }
+  return data as DataRecord
+}
+
+export async function disconnectGoogleCalendar(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { error } = await supabase
+    .from('google_calendar_connections')
+    .update({ status: 'disconnected', sync_enabled: false, updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+
+  if (error && !isSchemaError(error)) throw error
+}
+
+export async function upsertWhatsappConnection(workspaceId: string, payload: WhatsappConnectionPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = compactRow({
+    workspace_id: workspaceId,
+    provider: payload.provider ?? 'whapi',
+    phone_number: payload.phoneNumber ?? null,
+    status: payload.status ?? 'pending',
+    webhook_url: payload.webhookUrl ?? null,
+    sync_enabled: payload.syncEnabled ?? false,
+    updated_at: new Date().toISOString(),
+  })
+
+  const existing = await supabase
+    .from('whatsapp_connections')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (existing.data) {
+    const { data, error } = await supabase
+      .from('whatsapp_connections')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+    if (error) { if (isSchemaError(error)) return null; throw error }
+    return data as DataRecord
+  }
+
+  const { data, error } = await supabase
+    .from('whatsapp_connections')
+    .insert(row)
+    .select('*')
+    .single()
+  if (error) { if (isSchemaError(error)) return null; throw error }
+  return data as DataRecord
+}
+
+export async function disconnectWhatsapp(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { error } = await supabase
+    .from('whatsapp_connections')
+    .update({ status: 'disconnected', sync_enabled: false, updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+
+  if (error && !isSchemaError(error)) throw error
+}
+
+export async function upsertInboxAgentSettings(workspaceId: string, payload: InboxAgentSettingsPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = compactRow({
+    workspace_id: workspaceId,
+    auto_reply_enabled: payload.autoReplyEnabled ?? false,
+    mode: payload.mode ?? 'manual',
+    status: payload.status ?? 'active',
+    updated_at: new Date().toISOString(),
+  })
+
+  const existing = await supabase
+    .from('inbox_agent_settings')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (existing.data) {
+    const { data, error } = await supabase
+      .from('inbox_agent_settings')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+    if (error) { if (isSchemaError(error)) return null; throw error }
+    return data as DataRecord
+  }
+
+  const { data, error } = await supabase
+    .from('inbox_agent_settings')
+    .insert(row)
+    .select('*')
+    .single()
+  if (error) { if (isSchemaError(error)) return null; throw error }
+  return data as DataRecord
+}
+
+export async function getAutomationWorkflows(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('automation_workflows')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    if (isSchemaError(error)) return []
+    throw error
+  }
+  return (data as DataRecord[] | null) ?? []
+}
+
+export async function upsertAutomationWorkflow(workspaceId: string, payload: AutomationWorkflowPayload) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const row: DataRecord = compactRow({
+    workspace_id: workspaceId,
+    name: payload.name,
+    description: payload.description ?? null,
+    trigger: payload.trigger ?? null,
+    enabled_in_app: payload.enabledInApp ?? false,
+    n8n_event: payload.n8nEvent ?? null,
+    status: payload.status ?? 'active',
+    updated_at: new Date().toISOString(),
+  })
+
+  const existing = await supabase
+    .from('automation_workflows')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('name', payload.name)
+    .maybeSingle()
+
+  if (existing.data) {
+    const { data, error } = await supabase
+      .from('automation_workflows')
+      .update(row)
+      .eq('id', asString((existing.data as DataRecord).id))
+      .select('*')
+      .single()
+    if (error) { if (isSchemaError(error)) return null; throw error }
+    return data as DataRecord
+  }
+
+  const { data, error } = await supabase
+    .from('automation_workflows')
+    .insert(row)
+    .select('*')
+    .single()
+  if (error) { if (isSchemaError(error)) return null; throw error }
+  return data as DataRecord
+}
+
+export async function toggleAutomationWorkflow(workspaceId: string, id: string, enabled: boolean) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  const { data, error } = await supabase
+    .from('automation_workflows')
+    .update({ enabled_in_app: enabled, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+
+  if (error) {
+    if (isSchemaError(error)) return null
+    throw error
+  }
+  return data as DataRecord
 }
 
 export async function upsertIntegrationSetting(workspaceId: string, payload: IntegrationPayload) {

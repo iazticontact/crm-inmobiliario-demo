@@ -12,7 +12,7 @@ import { automations, automationEmails } from '@/lib/mock-data'
 import { n8nWebhookConfigs, triggerN8nWebhook, type N8nEventType } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
-import { createActivity, getN8nFlows, getWorkspaceContext, updateN8nFlow } from '@/lib/supabase-queries'
+import { createActivity, getAutomationWorkflows, getN8nFlows, getWorkspaceContext, toggleAutomationWorkflow, updateN8nFlow, upsertAutomationWorkflow } from '@/lib/supabase-queries'
 import type { AutomationStatus, AutomationEmailStatus, N8nFlowStatus } from '@/lib/types'
 
 const statusConfig: Record<AutomationStatus, { label: string; variant: 'success' | 'warning' | 'default' }> = {
@@ -71,6 +71,8 @@ export default function AutomationsPage() {
   const [isRealMode, setIsRealMode] = useState(false)
   const [runningAction, setRunningAction] = useState<string | null>(null)
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+  const [workflowIds, setWorkflowIds] = useState<Record<string, string>>({})
+  const [workflowSeeded, setWorkflowSeeded] = useState(false)
 
   const linkedFlows = useMemo(() => n8nWebhookConfigs.filter((flow) => ['new_lead', 'invoice_overdue', 'reengagement_needed', 'assistant_message', 'test_flow'].includes(flow.event)), [])
 
@@ -86,11 +88,45 @@ export default function AutomationsPage() {
       if (!resolvedWorkspaceId) return
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
-      const flows = await getN8nFlows(resolvedWorkspaceId).catch(() => [])
-      if (!flows.length) return
-      setFlowIds((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.id])) }))
-      setFlowStatuses((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.status])) }))
-      setFlowUrls((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.webhookUrl || defaultFlowUrl(flow.event as N8nEventType)])) }))
+      const [flows, workflows] = await Promise.all([
+        getN8nFlows(resolvedWorkspaceId).catch(() => []),
+        getAutomationWorkflows(resolvedWorkspaceId).catch(() => []),
+      ])
+      if (flows.length) {
+        setFlowIds((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.id])) }))
+        setFlowStatuses((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.status])) }))
+        setFlowUrls((prev) => ({ ...prev, ...Object.fromEntries(flows.map((flow) => [flow.event, flow.webhookUrl || defaultFlowUrl(flow.event as N8nEventType)])) }))
+      }
+      if (workflows.length) {
+        const ids: Record<string, string> = {}
+        const statuses: Record<string, AutomationStatus> = {}
+        for (const wf of workflows) {
+          const automation = automations.find((a) => a.name === String(wf.name ?? ''))
+          if (automation) {
+            ids[automation.id] = String(wf.id ?? '')
+            statuses[automation.id] = Boolean(wf.enabled_in_app) ? 'active' : 'paused'
+          }
+        }
+        setWorkflowIds((prev) => ({ ...prev, ...ids }))
+        setActiveStatuses((prev) => ({ ...prev, ...statuses }))
+        setWorkflowSeeded(true)
+      } else if (resolvedWorkspaceId) {
+        for (const automation of automations) {
+          const event = automationFlowMap[automation.id]
+          const result = await upsertAutomationWorkflow(resolvedWorkspaceId, {
+            name: automation.name,
+            description: automation.description,
+            trigger: automation.trigger,
+            enabledInApp: automation.status === 'active',
+            n8nEvent: event ?? undefined,
+            status: automation.status === 'active' ? 'active' : 'inactive',
+          }).catch(() => null)
+          if (result && typeof result === 'object' && 'id' in result) {
+            setWorkflowIds((prev) => ({ ...prev, [automation.id]: String(result.id ?? '') }))
+          }
+        }
+        setWorkflowSeeded(true)
+      }
     } catch {
       setIsRealMode(false)
     }
@@ -105,16 +141,21 @@ export default function AutomationsPage() {
 
   const toggle = async (id: string) => {
     const event = automationFlowMap[id]
-    setActiveStatuses((prev) => {
-      const next = prev[id] === 'active' ? 'paused' : 'active'
-      toast.success(next === 'active' ? 'Automatizacion activada' : 'Automatizacion pausada', {
-        description: automations.find((a) => a.id === id)?.name,
-      })
-      return { ...prev, [id]: next }
-    })
+    const isCurrentlyActive = activeStatuses[id] === 'active'
+    const nextAppStatus: AutomationStatus = isCurrentlyActive ? 'paused' : 'active'
+    setActiveStatuses((prev) => ({ ...prev, [id]: nextAppStatus }))
+    toast.success(
+      nextAppStatus === 'active' ? 'Activada en NowCRM. Sincronizacion n8n pendiente.' : 'Desactivada en NowCRM.',
+      { description: automations.find((a) => a.id === id)?.name }
+    )
+
+    const workflowId = workflowIds[id]
+    if (isRealMode && workspaceId && workflowId) {
+      await toggleAutomationWorkflow(workspaceId, workflowId, nextAppStatus === 'active').catch(() => null)
+    }
 
     if (event) {
-      const nextFlowStatus: N8nFlowStatus = activeStatuses[id] === 'active' ? 'inactive' : isRealMode ? 'active' : 'demo'
+      const nextFlowStatus: N8nFlowStatus = isCurrentlyActive ? 'inactive' : isRealMode ? 'active' : 'demo'
       setFlowStatuses((prev) => ({ ...prev, [event]: nextFlowStatus }))
       if (isRealMode && flowIds[event]) {
         await updateN8nFlow(flowIds[event], { event, status: nextFlowStatus }).catch(() => null)
@@ -171,7 +212,7 @@ export default function AutomationsPage() {
         description="Flujos comerciales alineados con n8n y preparados para webhooks reales"
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'n8n flows reales' : 'Modo demo'}</Badge>
+            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? (workflowSeeded ? 'Workflows sincronizados' : 'n8n flows reales') : 'Modo demo'}</Badge>
             <Button size="sm" onClick={() => toast.success('Editor de automatizaciones', { description: 'Siguiente fase: crear workflows visuales conectados a n8n_flows.' })}>
               <Plus className="h-3.5 w-3.5" />
               Nueva automatizacion

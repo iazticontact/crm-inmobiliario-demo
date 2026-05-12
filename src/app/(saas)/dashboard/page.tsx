@@ -91,7 +91,7 @@ export default function DashboardPage() {
           averageScore,
           revenue: invoices.reduce((sum, invoice) => sum + invoice.amount, 0),
           pending: invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + invoice.amount, 0),
-          events: events.filter((event) => event.date >= '2026-05-05').length,
+          events: events.filter((event) => event.date >= new Date().toISOString().slice(0, 10)).length,
           conversations: conversations.length,
         })
         if (activities.length) setActivity(activities)
@@ -115,25 +115,35 @@ export default function DashboardPage() {
   }, [realStats])
 
   const handleInsightAction = async (action: string, insightId: string) => {
-    if (insightId === '1') {
-      setLoadingAction(insightId)
-      await triggerN8nWebhook('reengagement_needed', { metadata: { trigger: 'reengagement', count: 34 } })
+    try {
+      if (insightId === '1') {
+        setLoadingAction(insightId)
+        await triggerN8nWebhook('reengagement_needed', { metadata: { trigger: 'reengagement', count: 34 } })
+        setLoadingAction(null)
+        setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'email', description: 'Secuencia de re-engagement activada para 34 leads', timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
+        toast.success(`${action} activada`, { description: '34 leads entrarán en la secuencia de re-engagement.' })
+      } else if (insightId === '2') {
+        router.push('/billing')
+      } else {
+        toast.info(action, { description: 'Análisis disponible en la sección de analítica.' })
+      }
+    } catch {
       setLoadingAction(null)
-      setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'email', description: 'Secuencia de re-engagement activada para 34 leads', timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
-      toast.success(`${action} activada`, { description: '34 leads entrarán en la secuencia de re-engagement.' })
-    } else if (insightId === '2') {
-      router.push('/billing')
-    } else {
-      toast.info(action, { description: 'Análisis disponible en la sección de analítica.' })
+      toast.error('No se pudo ejecutar la acción', { description: 'Revisa la conexión con n8n.' })
     }
   }
 
   const handleAIAction = async (action: typeof aiActions[0]) => {
-    setLoadingAction(action.event)
-    await triggerN8nWebhook(action.event, { metadata: { source: 'dashboard', action: action.title } })
-    setLoadingAction(null)
-    setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'note', description: `IA ejecutó: ${action.title}`, timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
-    toast.success(`Acción completada: ${action.cta}`, { description: action.title })
+    try {
+      setLoadingAction(action.event)
+      await triggerN8nWebhook(action.event, { metadata: { source: 'dashboard', action: action.title } })
+      setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'note', description: `IA ejecutó: ${action.title}`, timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
+      toast.success(`Acción completada: ${action.cta}`, { description: action.title })
+    } catch {
+      toast.error('No se pudo ejecutar la acción', { description: 'Revisa la conexión con n8n.' })
+    } finally {
+      setLoadingAction(null)
+    }
   }
 
   const handleNewClient = () => {
@@ -150,10 +160,6 @@ export default function DashboardPage() {
     >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="hidden">
-          <h2 className="text-2xl font-bold text-gray-950">Buenos días, NowCRM</h2>
-          <p className="text-sm text-gray-500">Martes, 5 de mayo de 2026 · Todo marcha bien</p>
-        </div>
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-2xl font-bold text-gray-950">Buenos días, {currentUser.name || currentUser.workspaceName}</h2>
@@ -161,8 +167,14 @@ export default function DashboardPage() {
           </div>
           {realStats && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {['Clientes reales', 'Facturación real', 'Calendario real', 'Assistant n8n/OpenAI', 'n8n preparado'].map((label) => (
-                <span key={label} className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{label}</span>
+              {[
+                { label: 'NowLabs AI activo', pending: false },
+                { label: 'Calendar activo', pending: false },
+                { label: 'Google Calendar pendiente', pending: true },
+                { label: 'WhatsApp pendiente', pending: true },
+                { label: 'n8n pendiente', pending: true },
+              ].map(({ label, pending }) => (
+                <span key={label} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', pending ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-indigo-100 bg-indigo-50 text-indigo-700')}>{label}</span>
               ))}
             </div>
           )}

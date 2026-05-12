@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Bot, Check, CheckCircle, Clock, DollarSign, Download, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle, Clock, DollarSign, Download, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -224,7 +224,7 @@ export default function BillingPage() {
           void triggerN8nWebhook('invoice_created', { workspace_id: workspaceId, mode: 'real', invoice: payload }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[billing/n8n:create]', error)
           })
-          toast.success(`Factura creada en Supabase: ${payload.clientName}`)
+          toast.success(`Factura guardada: ${payload.clientName}`)
         }
         await loadInvoices()
       } else {
@@ -273,7 +273,7 @@ export default function BillingPage() {
     { label: 'Total facturado', value: euro(metrics.total), icon: <DollarSign className="h-5 w-5" />, color: 'bg-indigo-50 text-indigo-600' },
     { label: 'Pendiente de cobro', value: euro(metrics.pending), icon: <Clock className="h-5 w-5" />, color: 'bg-amber-50 text-amber-600' },
     { label: 'Cobrado este mes', value: euro(metrics.paid), icon: <CheckCircle className="h-5 w-5" />, color: 'bg-emerald-50 text-emerald-600' },
-    { label: 'Facturas vencidas', value: String(metrics.overdue), icon: <Bot className="h-5 w-5" />, color: 'bg-violet-50 text-violet-600' },
+    { label: 'Facturas vencidas', value: String(metrics.overdue), icon: <AlertCircle className="h-5 w-5" />, color: 'bg-red-50 text-red-600' },
   ]
 
   return (
@@ -289,7 +289,7 @@ export default function BillingPage() {
         action={
           <div className="flex items-center gap-2">
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Datos reales' : 'Modo demo'}</Badge>
-            <Button variant="secondary" size="sm" onClick={() => toast.success('Exportación preparada', { description: 'El CSV real se añadirá en la siguiente fase.' })}>
+            <Button variant="secondary" size="sm" onClick={() => toast.info('Exportar', { description: 'La exportación CSV estará disponible próximamente.' })}>
               <Download className="h-3.5 w-3.5" />
               Exportar
             </Button>
@@ -384,7 +384,7 @@ export default function BillingPage() {
                           {inv.status !== 'paid' && (
                             <button disabled={isMarkingThis} onClick={() => handleMarkPaid(inv)} className="flex items-center gap-1 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50">
                               {isMarkingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                              Pagar
+                              Marcar pagada
                             </button>
                           )}
                           <button onClick={() => openEditModal(inv)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"><Pencil className="h-3.5 w-3.5" /></button>
@@ -451,7 +451,7 @@ export default function BillingPage() {
               {[
                 { label: 'Recordatorios listos', value: metrics.overdue, sub: 'facturas vencidas', color: 'text-amber-600' },
                 { label: 'Cobros recuperables', value: euro(metrics.pending), sub: 'pendiente total', color: 'text-emerald-600' },
-                { label: 'Modo IA', value: 'Demo', sub: 'sin proveedor real', color: 'text-violet-600' },
+                { label: 'Automatización n8n', value: 'Pendiente', sub: 'conexión n8n no activa', color: 'text-violet-600' },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="flex items-center justify-between border-b border-gray-50 py-2 last:border-0">
                   <p className="text-xs text-gray-600">{label}</p>

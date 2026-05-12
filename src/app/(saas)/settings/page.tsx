@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Bell,
   Building2,
+  Calendar,
   CheckCircle,
   ChevronRight,
   Copy,
@@ -32,14 +33,22 @@ import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
   createActivity,
+  disconnectGoogleCalendar,
+  disconnectWhatsapp,
+  getGoogleCalendarConnection,
+  getInboxAgentSettings,
   getIntegrationSettings,
   getN8nFlows,
   getResolvedWorkspaceContext,
+  getWhatsappConnection,
   seedN8nFlows,
   updateIntegrationSetting,
   updateN8nFlow,
+  upsertGoogleCalendarConnection,
+  upsertInboxAgentSettings,
   upsertIntegrationSetting,
   upsertN8nFlow,
+  upsertWhatsappConnection,
 } from '@/lib/supabase-queries'
 import type { IntegrationSetting, IntegrationStatus, N8nFlow, N8nFlowStatus } from '@/lib/types'
 
@@ -167,6 +176,16 @@ export default function SettingsPage() {
   const [flowPaths, setFlowPaths] = useState<Record<string, string>>(
     Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, defaultPath(wh)]))
   )
+  const [gcalConnection, setGcalConnection] = useState<Record<string, unknown> | null>(null)
+  const [gcalCalendarId, setGcalCalendarId] = useState('')
+  const [gcalSyncEnabled, setGcalSyncEnabled] = useState(false)
+  const [gcalLoading, setGcalLoading] = useState(false)
+  const [waConnection, setWaConnection] = useState<Record<string, unknown> | null>(null)
+  const [waPhoneNumber, setWaPhoneNumber] = useState('')
+  const [waWebhookUrl, setWaWebhookUrl] = useState('')
+  const [waLoading, setWaLoading] = useState(false)
+  const [inboxSettings, setInboxSettings] = useState<Record<string, unknown> | null>(null)
+  const [inboxAutoReply, setInboxAutoReply] = useState(false)
 
   const flowConfigByEvent = useMemo(() => new Map<string, WebhookConfig>(n8nWebhookConfigs.map((flow) => [flow.event, flow])), [])
 
@@ -242,12 +261,29 @@ export default function SettingsPage() {
       }
 
       setWorkspaceId(resolvedWorkspaceId)
-      const [flows, remoteIntegrations] = await Promise.all([
+      const [flows, remoteIntegrations, gcal, wa, inbox] = await Promise.all([
         getN8nFlows(resolvedWorkspaceId).catch(() => []),
         getIntegrationSettings(resolvedWorkspaceId).catch(() => []),
+        getGoogleCalendarConnection(resolvedWorkspaceId).catch(() => null),
+        getWhatsappConnection(resolvedWorkspaceId).catch(() => null),
+        getInboxAgentSettings(resolvedWorkspaceId).catch(() => null),
       ])
       applyRemoteFlows(flows)
       applyRemoteIntegrations(remoteIntegrations)
+      if (gcal) {
+        setGcalConnection(gcal)
+        setGcalCalendarId(String(gcal.calendar_id ?? ''))
+        setGcalSyncEnabled(Boolean(gcal.sync_enabled))
+      }
+      if (wa) {
+        setWaConnection(wa)
+        setWaPhoneNumber(String(wa.phone_number ?? ''))
+        setWaWebhookUrl(String(wa.webhook_url ?? ''))
+      }
+      if (inbox) {
+        setInboxSettings(inbox)
+        setInboxAutoReply(Boolean(inbox.auto_reply_enabled))
+      }
       setSettingsPersisted(Boolean(flows.length || remoteIntegrations.length))
     } catch {
       setSettingsPersisted(false)
@@ -487,6 +523,96 @@ export default function SettingsPage() {
     toast.success(nextStatus === 'connected' ? `${integration.name} conectado` : `${integration.name} pendiente`, {
       description: currentUser.isDemo ? 'Cambio aplicado en modo demo.' : 'Estado guardado para este workspace.',
     })
+  }
+
+  const handleGCalPrepare = async () => {
+    setGcalLoading(true)
+    try {
+      if (!currentUser.isDemo && workspaceId) {
+        const result = await upsertGoogleCalendarConnection(workspaceId, {
+          calendarId: gcalCalendarId || undefined,
+          syncEnabled: gcalSyncEnabled,
+          status: 'pending',
+        })
+        if (result) {
+          setGcalConnection(result)
+          setGcalCalendarId(String(result.calendar_id ?? ''))
+          setGcalSyncEnabled(Boolean(result.sync_enabled))
+        }
+      }
+      toast.info('Google Calendar preparado', { description: 'OAuth se activara en la siguiente fase.' })
+    } catch {
+      toast.error('No se pudo preparar Google Calendar', { description: 'Revisa la tabla google_calendar_connections y RLS.' })
+    } finally {
+      setGcalLoading(false)
+    }
+  }
+
+  const handleGCalDisconnect = async () => {
+    try {
+      if (!currentUser.isDemo && workspaceId) {
+        await disconnectGoogleCalendar(workspaceId)
+      }
+      setGcalConnection(null)
+      setGcalCalendarId('')
+      setGcalSyncEnabled(false)
+      toast.success('Google Calendar desconectado')
+    } catch {
+      toast.error('No se pudo desconectar Google Calendar')
+    }
+  }
+
+  const handleWAPrepare = async () => {
+    setWaLoading(true)
+    try {
+      if (!currentUser.isDemo && workspaceId) {
+        const result = await upsertWhatsappConnection(workspaceId, {
+          phoneNumber: waPhoneNumber || undefined,
+          webhookUrl: waWebhookUrl || null,
+          status: 'pending',
+          syncEnabled: false,
+        })
+        if (result) {
+          setWaConnection(result)
+          setWaPhoneNumber(String(result.phone_number ?? ''))
+          setWaWebhookUrl(String(result.webhook_url ?? ''))
+        }
+      }
+      toast.info('WhatsApp preparado', { description: 'QR y webhook Whapi se activaran en la siguiente fase.' })
+    } catch {
+      toast.error('No se pudo preparar WhatsApp', { description: 'Revisa la tabla whatsapp_connections y RLS.' })
+    } finally {
+      setWaLoading(false)
+    }
+  }
+
+  const handleWADisconnect = async () => {
+    try {
+      if (!currentUser.isDemo && workspaceId) {
+        await disconnectWhatsapp(workspaceId)
+      }
+      setWaConnection(null)
+      setWaPhoneNumber('')
+      setWaWebhookUrl('')
+      toast.success('WhatsApp desconectado')
+    } catch {
+      toast.error('No se pudo desconectar WhatsApp')
+    }
+  }
+
+  const handleInboxSettingsSave = async () => {
+    try {
+      if (!currentUser.isDemo && workspaceId) {
+        const result = await upsertInboxAgentSettings(workspaceId, {
+          autoReplyEnabled: inboxAutoReply,
+          mode: inboxAutoReply ? 'auto' : 'manual',
+        })
+        if (result) setInboxSettings(result)
+      }
+      toast.success('Configuracion Inbox guardada', { description: inboxAutoReply ? 'Modo automatico activo (requiere WhatsApp conectado).' : 'Modo manual activo.' })
+    } catch {
+      toast.error('No se pudo guardar configuracion Inbox')
+    }
   }
 
   const settingsMode = currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Fallback demo'
@@ -769,7 +895,152 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="WhatsApp / Whapi" description="Siguiente fase para leads entrantes y reservas por chat">
+          <SectionCard
+            title="Google Calendar"
+            description="Sincronizacion preparada para la siguiente fase OAuth"
+            action={
+              gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
+                ? <button onClick={() => void handleGCalDisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
+                : null
+            }
+          >
+            <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
+              <div>
+                <div className="mb-4 flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 ring-1 ring-blue-100">
+                    <Calendar className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900">Google Calendar</p>
+                      <Badge variant={gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? 'success' : 'warning'} dot>
+                        {gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? 'Conectado' : 'Pendiente conectar'}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {gcalConnection ? `Ultima sync: ${String(gcalConnection.last_sync_at ?? '') || 'Nunca'}` : 'Sin conexion configurada'}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">
+                      Configura el Calendar ID para que NowCRM pueda sincronizar eventos. OAuth se activara en la siguiente fase.
+                    </p>
+                  </div>
+                </div>
+                <div className="mb-4 space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Calendar ID</label>
+                    <input
+                      type="text"
+                      value={gcalCalendarId}
+                      onChange={(e) => setGcalCalendarId(e.target.value)}
+                      placeholder="nombre@gmail.com o primary"
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Sincronizacion activa</p>
+                      <p className="text-xs text-gray-500">Cuando OAuth este listo</p>
+                    </div>
+                    <button
+                      onClick={() => setGcalSyncEnabled((v) => !v)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                        gcalSyncEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      )}
+                    >
+                      <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', gcalSyncEnabled ? 'translate-x-4' : 'translate-x-0')} />
+                    </button>
+                  </div>
+                </div>
+                <Button size="sm" loading={gcalLoading} onClick={() => void handleGCalPrepare()}>
+                  Preparar conexion
+                </Button>
+                <p className="mt-2 text-xs text-gray-400">OAuth se activara en la siguiente fase.</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                <p className="text-xs font-semibold text-blue-900">Flujo objetivo</p>
+                <div className="mt-3 space-y-2">
+                  {['OAuth Google', 'Token seguro n8n', 'Sync bidireccional', 'NowCRM Calendar'].map((step, i) => (
+                    <div key={step} className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700">{i + 1}</span>
+                      <span className="text-xs text-blue-800">{step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Inbox Assistant"
+            description="Modo de respuesta del agente en conversaciones cliente"
+          >
+            <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+              <div>
+                <div className="mb-4 flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 ring-1 ring-violet-100">
+                    <MessageSquare className="h-5 w-5 text-violet-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900">Inbox Agent</p>
+                      <Badge variant={inboxSettings && inboxAutoReply ? 'indigo' : 'default'} dot>
+                        {inboxSettings ? (inboxAutoReply ? 'Modo auto' : 'Modo manual') : 'Sin configurar'}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {inboxSettings ? `Configurado — modo ${inboxAutoReply ? 'automatico' : 'manual'}` : 'Usando valores por defecto (manual)'}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">
+                      En modo automatico el agente responde directamente (requiere WhatsApp conectado). En modo manual el agente sugiere y el operador confirma.
+                    </p>
+                  </div>
+                </div>
+                <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Respuesta automatica</p>
+                    <p className="text-xs text-gray-500">Requiere WhatsApp/Whapi conectado</p>
+                  </div>
+                  <button
+                    onClick={() => setInboxAutoReply((v) => !v)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                      inboxAutoReply ? 'bg-indigo-600' : 'bg-gray-200'
+                    )}
+                  >
+                    <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', inboxAutoReply ? 'translate-x-4' : 'translate-x-0')} />
+                  </button>
+                </div>
+                <Button size="sm" onClick={() => void handleInboxSettingsSave()}>
+                  Guardar configuracion
+                </Button>
+              </div>
+              <div className="rounded-xl border border-violet-100 bg-violet-50 p-4">
+                <p className="text-xs font-semibold text-violet-900">Modos disponibles</p>
+                <div className="mt-3 space-y-3">
+                  {[
+                    { label: 'Manual', desc: 'El agente sugiere, operador confirma', active: !inboxAutoReply },
+                    { label: 'Automatico', desc: 'El agente responde directamente', active: inboxAutoReply },
+                  ].map((m) => (
+                    <div key={m.label} className={cn('rounded-lg p-2', m.active ? 'bg-white ring-1 ring-violet-200' : '')}>
+                      <p className={cn('text-xs font-semibold', m.active ? 'text-violet-900' : 'text-violet-700')}>{m.label}</p>
+                      <p className="text-[10px] text-violet-600">{m.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="WhatsApp / Whapi"
+            description="Siguiente fase para leads entrantes y reservas por chat"
+            action={
+              waConnection && String(waConnection.status ?? '') !== 'disconnected'
+                ? <button onClick={() => void handleWADisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
+                : null
+            }
+          >
             <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
               <div>
                 <div className="mb-4 flex items-start gap-4">
@@ -779,19 +1050,49 @@ export default function SettingsPage() {
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-gray-900">Whapi por QR</p>
-                      <Badge variant="warning" dot>Pendiente conectar</Badge>
+                      <Badge variant={waConnection && String(waConnection.status ?? '') === 'connected' ? 'success' : 'warning'} dot>
+                        {waConnection && String(waConnection.status ?? '') === 'connected' ? 'Conectado' : 'Pendiente conectar'}
+                      </Badge>
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500">Sin QR ni webhook WhatsApp real todavia</p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {waConnection ? `${String(waConnection.provider ?? 'whapi')}${waConnection.phone_number ? ` · ${String(waConnection.phone_number)}` : ''}` : 'Sin QR ni webhook WhatsApp real todavia'}
+                    </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      Conecta un canal Whapi por QR para recibir mensajes de WhatsApp en NowCRM. El boton actual simula un lead y valida el flujo que luego pasara por n8n.
+                      Conecta un canal Whapi por QR para recibir mensajes de WhatsApp en NowCRM. El boton de simulacion valida el flujo que luego pasara por n8n.
                     </p>
                   </div>
                 </div>
-
-                <Button size="sm" loading={simulatingWA} onClick={handleSimulateWA}>
-                  <Play className="h-3.5 w-3.5" />
-                  {simulatingWA ? 'Simulando...' : 'Simular lead de WhatsApp'}
-                </Button>
+                <div className="mb-4 space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Numero de telefono</label>
+                    <input
+                      type="text"
+                      value={waPhoneNumber}
+                      onChange={(e) => setWaPhoneNumber(e.target.value)}
+                      placeholder="+34 600 000 000"
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Webhook URL (Whapi)</label>
+                    <input
+                      type="text"
+                      value={waWebhookUrl}
+                      onChange={(e) => setWaWebhookUrl(e.target.value)}
+                      placeholder="https://tu-n8n.com/webhook/whatsapp"
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" loading={waLoading} onClick={() => void handleWAPrepare()}>
+                    Preparar conexion
+                  </Button>
+                  <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
+                    <Play className="h-3.5 w-3.5" />
+                    {simulatingWA ? 'Simulando...' : 'Simular lead'}
+                  </Button>
+                </div>
               </div>
 
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">

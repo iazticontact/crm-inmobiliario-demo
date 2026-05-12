@@ -28,11 +28,13 @@ import {
   getAssistantConversations,
   getConversationMessages,
   getClientStats,
+  getInboxAgentSettings,
   getN8nFlows,
   getPendingInvoices,
   getResolvedWorkspaceContext,
   getSignedDocumentUrl,
   getUpcomingCalendarEvents,
+  getWhatsappConnection,
   getWorkspaceSummary,
   getNextBestActions,
   mapSupabaseClient,
@@ -1330,6 +1332,8 @@ export default function AssistantPage() {
     signedUrl: string | null
     createdAt: string
   } | null>(null)
+  const [inboxSettings, setInboxSettings] = useState<Record<string, unknown> | null>(null)
+  const [waConnected, setWaConnected] = useState(false)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
   const [referencedClients, setReferencedClients] = useState<Record<string, { id?: string; name?: string }>>({})
   const [editingTitle, setEditingTitle] = useState(false)
@@ -1596,6 +1600,17 @@ export default function AssistantPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, isTyping])
+
+  useEffect(() => {
+    if (!workspaceId) return
+    void Promise.all([
+      getInboxAgentSettings(workspaceId).catch(() => null),
+      getWhatsappConnection(workspaceId).catch(() => null),
+    ]).then(([settings, wa]) => {
+      setInboxSettings(settings)
+      setWaConnected(Boolean(wa && String(wa.status ?? '') === 'connected'))
+    })
+  }, [workspaceId])
 
   const filteredConvs = modeConversations.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
   const averageLeadScore = Math.round((modeConversations.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(modeConversations.length, 1)))
@@ -2740,7 +2755,7 @@ export default function AssistantPage() {
             <Badge variant={assistantMode === 'inbox' ? 'warning' : assistantN8nActive ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
             <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
-            <Badge variant="warning" dot>{assistantMode === 'inbox' ? 'Whapi/n8n pendiente' : 'WhatsApp siguiente fase'}</Badge>
+            <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>{assistantMode === 'inbox' ? (waConnected ? 'WhatsApp conectado' : 'WhatsApp pendiente') : 'WhatsApp siguiente fase'}</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
               {assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}
@@ -2778,9 +2793,21 @@ export default function AssistantPage() {
                     <p className="text-sm font-bold text-gray-950">{mode.title}</p>
                   </div>
                 </div>
-                <Badge variant={isActive ? 'indigo' : 'default'}>{mode.id === 'inbox' ? 'Modo manual' : mode.badge}</Badge>
+                <Badge variant={isActive ? 'indigo' : 'default'}>
+                  {mode.id === 'inbox'
+                    ? (inboxSettings && Boolean(inboxSettings.auto_reply_enabled) ? 'Modo auto' : 'Modo manual')
+                    : mode.badge}
+                </Badge>
               </div>
-              <p className="text-xs leading-5 text-gray-600">{mode.id === 'inbox' ? 'Conversaciones cliente/WhatsApp en modo manual, pendiente de conectar Whapi/n8n propio.' : mode.description}</p>
+              <p className="text-xs leading-5 text-gray-600">
+                {mode.id === 'inbox'
+                  ? (inboxSettings
+                      ? (Boolean(inboxSettings.auto_reply_enabled)
+                          ? (!waConnected ? 'Modo automatico activo pero WhatsApp no conectado. Activa la conexion en Settings.' : 'Modo automatico activo. El agente responde directamente via Whapi/n8n.')
+                          : 'Modo manual activo. El agente sugiere y el operador confirma.')
+                      : 'Conversaciones cliente/WhatsApp en modo manual, pendiente de conectar Whapi/n8n propio.')
+                  : mode.description}
+              </p>
             </button>
           )
         })}

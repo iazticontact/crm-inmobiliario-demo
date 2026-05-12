@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { Bell, Search, HelpCircle, Settings, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
+import { Bell, Search, HelpCircle, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { clients } from '@/lib/mock-data'
@@ -163,20 +163,12 @@ export function Topbar() {
         </div>
 
         <button
-          onClick={() => toast.info('NowCRM Demo v2.0', { description: 'Prototipo funcional con IA y datos de ejemplo.' })}
+          onClick={() => toast.info('Ayuda', { description: 'Para soporte, contacta con el equipo de NowLabs.' })}
           aria-label="Ayuda"
           className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
         >
           <HelpCircle className="h-4 w-4" />
         </button>
-
-        <Link
-          href="/settings"
-          aria-label="Configuración"
-          className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
-        >
-          <Settings className="h-4 w-4" />
-        </Link>
 
         <Link
           href="/settings"

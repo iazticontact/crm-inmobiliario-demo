@@ -49,8 +49,8 @@ function wrapText(text: string, fontSize: number, maxW: number): string[] {
       if (cur) lines.push(cur)
       if (measureStr(word, fontSize) > maxW) {
         let rem = word
-        while (measureStr(rem, fontSize) > maxW) {
-          let cut = rem.length - 1
+        while (rem.length > 0 && measureStr(rem, fontSize) > maxW) {
+          let cut = Math.max(1, rem.length - 1)
           while (cut > 1 && measureStr(rem.slice(0, cut), fontSize) > maxW) cut--
           lines.push(rem.slice(0, cut))
           rem = rem.slice(cut)
@@ -65,9 +65,18 @@ function wrapText(text: string, fontSize: number, maxW: number): string[] {
   return lines.length ? lines : ['']
 }
 
-// Replace non-latin chars with safe ASCII equivalents for Helvetica/WinAnsi
+// Normalize to ASCII-safe content for Helvetica/WinAnsi via TextEncoder (UTF-8 stream).
+// Accented chars encoded as UTF-8 would produce garbled output in a Latin-1 font stream,
+// so we strip diacritics to their ASCII base.
 function sanitize(s: string): string {
   return s
+    .replace(/[áàäâã]/g, 'a').replace(/[ÁÀÄÂÃ]/g, 'A')
+    .replace(/[éèëê]/g, 'e').replace(/[ÉÈËÊ]/g, 'E')
+    .replace(/[íìïî]/g, 'i').replace(/[ÍÌÏÎ]/g, 'I')
+    .replace(/[óòöôõ]/g, 'o').replace(/[ÓÒÖÔÕ]/g, 'O')
+    .replace(/[úùüû]/g, 'u').replace(/[ÚÙÜÛ]/g, 'U')
+    .replace(/[ñ]/g, 'n').replace(/[Ñ]/g, 'N')
+    .replace(/[ç]/g, 'c').replace(/[Ç]/g, 'C')
     .replace(/[─━═╌╍]/g, '-')
     .replace(/[→←↑↓⇒⇐]/g, '>')
     .replace(/[""«»]/g, '"')
@@ -75,7 +84,7 @@ function sanitize(s: string): string {
     .replace(/[…]/g, '...')
     .replace(/[–—]/g, '-')
     .replace(/[•·]/g, '-')
-    .replace(/[^\x00-\xFF]/g, '?')
+    .replace(/[^\x00-\x7F]/g, '?')
 }
 
 function pdfEscape(s: string): string {

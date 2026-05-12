@@ -38,7 +38,8 @@ const eventVariant: Record<EventType, 'indigo' | 'success' | 'info' | 'warning'>
 
 const WEEK_DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const TODAY = toDateInput(new Date())
-const HOURS = Array.from({ length: 11 }, (_, i) => i + 8)
+const HOURS = Array.from({ length: 15 }, (_, i) => i + 7)  // 7:00 – 21:00
+const GRID_START_HOUR = HOURS[0]
 
 type EventForm = {
   id?: string
@@ -203,6 +204,10 @@ export default function CalendarPage() {
       toast.error('El título es obligatorio')
       return
     }
+    if (!form.date) {
+      toast.error('La fecha es obligatoria')
+      return
+    }
 
     const payload = {
       title: form.title.trim(),
@@ -234,7 +239,7 @@ export default function CalendarPage() {
           void triggerN8nWebhook('calendar_event_created', { workspace_id: workspaceId, mode: 'real', calendar_event: { ...payload, id: created.id } }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[calendar/n8n:create]', error)
           })
-          toast.success(`Evento creado en Supabase: ${payload.title}`)
+          toast.success(`Evento guardado: ${payload.title}`)
         }
         await loadEvents()
       } else {
@@ -415,7 +420,7 @@ export default function CalendarPage() {
                     {HOURS.map((h) => <div key={h} className="h-14 border-b border-gray-50" />)}
                     {dayEvents.map((ev) => {
                       const cfg = eventTypeConfig[ev.type]
-                      const topOffset = (ev.startHour - 8) * 56 + (ev.startMinute / 60) * 56
+                      const topOffset = (ev.startHour - GRID_START_HOUR) * 56 + (ev.startMinute / 60) * 56
                       const height = Math.max((ev.duration / 60) * 56, 28)
                       return (
                         <div key={ev.id} onClick={() => openEditModal(ev)} style={{ top: topOffset, height }} className={cn('absolute left-0.5 right-0.5 cursor-pointer overflow-hidden rounded-lg border px-1.5 py-1 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md', cfg.bg, cfg.border)}>

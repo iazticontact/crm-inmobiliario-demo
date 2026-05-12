@@ -126,7 +126,7 @@ export function Sidebar() {
         {/* Divider + quick links */}
         <div className="mt-4 space-y-0.5 border-t border-white/10 pt-4">
           <button
-            onClick={() => toast.info('NowCRM Demo v2.0', { description: 'Prototipo funcional con IA y datos de ejemplo.' })}
+            onClick={() => toast.info('Ayuda', { description: 'Para soporte, contacta con el equipo de NowLabs.' })}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <HelpCircle className="h-4 w-4 shrink-0 text-slate-500" />
