@@ -13,6 +13,7 @@ import { conversations as mockConversations, messages as mockMessages } from '@/
 import { ASSISTANT_AGENT_WEBHOOK_URL, callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
+import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
   createActivity,
@@ -30,10 +31,12 @@ import {
   getN8nFlows,
   getPendingInvoices,
   getResolvedWorkspaceContext,
+  getSignedDocumentUrl,
   getUpcomingCalendarEvents,
   getWorkspaceSummary,
   getNextBestActions,
   mapSupabaseClient,
+  saveGeneratedDocument,
   searchClients,
   updateConversationScoped,
   updateConversationTitle,
@@ -262,6 +265,19 @@ type PreparedAction =
       clientName?: string
       clientId?: string
       reportText?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'generate_invoice_pdf'
+      title: string
+      assistantMode: AssistantMode
+      invoiceId?: string
+      invoiceNumber?: string
+      clientName?: string
+      amount?: number
+      currency?: string
+      invoiceText?: string
       missingFields: string[]
     }
 
@@ -758,7 +774,12 @@ function detectCopilotCRMQuery(value: string, lastReferencedClientName?: string,
   if (/\b(resume mi crm|resumen crm|estado crm|como va mi crm|situacion crm)\b/.test(text)) return 'workspace_summary'
   if (/\b(proxima accion|siguiente accion|que hago|prioridad|siguiente paso|accion comercial)\b/.test(text)) return 'next_action'
 
-  // PDF export
+  // Invoice PDF — check before general PDF
+  if (/\b(pdf de (la |esta |una )?factura|factura (en |a |como )?pdf|genera(r)? (el |un )?pdf (de|para) (la|esta|una) factura|crea(r)? pdf (de|para) (la|esta|una) factura|pasa(me)? (la )?factura (a|en) pdf|descarga(r)? (la )?factura)\b/.test(text)) {
+    return 'generate_invoice_pdf'
+  }
+
+  // Client report PDF export
   if (/\b(pdf|genera pdf|generar pdf|pasalo a pdf|pasa(me)? a pdf|informe pdf|descarga|exportar informe)\b/.test(text)) {
     return hasRef ? 'prepare_pdf' : 'no_client_referenced'
   }
@@ -852,7 +873,8 @@ async function executeCopilotCRMQuery(
   lastReferencedClientName?: string,
   lastReferencedClientId?: string,
   onClientReferenced?: (client: { id: string; name: string }) => void,
-  onPreparedAction?: (action: PreparedAction) => void
+  onPreparedAction?: (action: PreparedAction) => void,
+  lastCreatedInvoiceId?: string
 ) {
   const queryType = detectCopilotCRMQuery(text, lastReferencedClientName, lastReferencedClientId)
   if (!queryType) return null
@@ -1118,6 +1140,63 @@ async function executeCopilotCRMQuery(
       return `Tarea preparada: "${taskTitle}"${clientPart}${duePart}. Revísala en el panel y confirma.`
     }
 
+    if (queryType === 'generate_invoice_pdf') {
+      if (!lastCreatedInvoiceId) {
+        return 'Para generar el PDF de una factura, primero crea una. Por ejemplo: "crea una factura para X de 300€" y confírmala. Después podrás pedir el PDF.'
+      }
+      const { data: invData, error: invError } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .eq('id', lastCreatedInvoiceId)
+        .maybeSingle()
+      if (invError || !invData) {
+        return 'No encuentro la factura referenciada. Crea una nueva y confirma antes de pedir el PDF.'
+      }
+      const inv = invData as Record<string, unknown>
+      const invId = String(inv.id || '')
+      const invNumber = String(inv.invoice_number ?? inv.number ?? `FAC-${invId.slice(0, 8).toUpperCase()}`)
+      const invClientName = String(inv.client_name ?? 'Cliente')
+      const invAmount = typeof inv.amount === 'number' ? inv.amount : Number(inv.amount ?? 0)
+      const invCurrency = String(inv.currency ?? 'EUR')
+      const invConcept = String(inv.concept ?? inv.plan ?? 'Servicio')
+      const invIssueDate = String(inv.issue_date ?? inv.date ?? new Date().toISOString().slice(0, 10))
+      const invDueDate = String(inv.due_date ?? invIssueDate)
+      const invStatus = String(inv.status ?? 'pending')
+      const invStatusLabel = invStatus === 'paid' ? 'Pagada' : invStatus === 'overdue' ? 'Vencida' : 'Pendiente'
+      const invNotes = String(inv.notes ?? '')
+      const invoiceText = [
+        `FACTURA — ${invNumber}\n`,
+        `Generada: ${new Date().toLocaleDateString('es-ES')}`,
+        `\n1. DATOS DE FACTURA`,
+        `- Número: ${invNumber}`,
+        `- Fecha de emisión: ${invIssueDate}`,
+        `- Vencimiento: ${invDueDate}`,
+        `- Estado: ${invStatusLabel}`,
+        `\n2. CLIENTE`,
+        `- Nombre: ${invClientName}`,
+        `\n3. CONCEPTO E IMPORTE`,
+        `- Concepto: ${invConcept}`,
+        `- Importe: ${invAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${invCurrency}`,
+        invNotes ? `\n4. NOTAS\n- ${invNotes}` : '',
+        `\n---\nDocumento generado por NowCRM.`,
+      ].filter(Boolean).join('\n')
+      onPreparedAction?.({
+        id: `invoice-pdf-${Date.now()}`,
+        type: 'generate_invoice_pdf',
+        title: `PDF — Factura ${invNumber}`,
+        assistantMode: 'copilot',
+        invoiceId: lastCreatedInvoiceId,
+        invoiceNumber: invNumber,
+        clientName: invClientName,
+        amount: invAmount,
+        currency: invCurrency,
+        invoiceText,
+        missingFields: [],
+      })
+      return `Factura ${invNumber} para ${invClientName} preparada como PDF. Revísala en el panel y confirma para guardarla.`
+    }
+
     if (queryType === 'prepare_pdf') {
       let rawRow: Record<string, unknown> | null = null
       if (lastReferencedClientId) {
@@ -1224,6 +1303,7 @@ export default function AssistantPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
+  const [lastCreatedInvoiceId, setLastCreatedInvoiceId] = useState<string | null>(null)
   const [confirmingAction, setConfirmingAction] = useState(false)
   const [editingAction, setEditingAction] = useState(false)
   const [editDraft, setEditDraft] = useState<Record<string, string>>({})
@@ -1738,7 +1818,8 @@ export default function AssistantPage() {
         const crmResponse = await executeCopilotCRMQuery(
           content, workspaceId, lastReferencedClientName, lastReferencedClientId,
           (client) => { newReferencedClient = client },
-          (action) => { newPreparedAction = action }
+          (action) => { newPreparedAction = action },
+          lastCreatedInvoiceId ?? undefined
         )
         if (crmResponse) {
           if (newReferencedClient) setConversationClient(conversationId, newReferencedClient)
@@ -1932,7 +2013,8 @@ export default function AssistantPage() {
           }
         }
 
-        await appendAssistantMessage(activeConversation.id, `Factura creada correctamente para ${preparedAction.clientName}: ${concept}, ${preparedAction.amount} EUR, vence ${dueDate}.`, preparedAction.clientName).catch((error) => {
+        setLastCreatedInvoiceId(createdInvoice.id)
+        await appendAssistantMessage(activeConversation.id, `Factura creada correctamente para ${preparedAction.clientName}: ${concept}, ${preparedAction.amount} EUR, vence ${dueDate}.\n\nSi quieres el PDF, escribe: "genera PDF de la factura".`, preparedAction.clientName).catch((error) => {
           if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
         })
         toast.success('Factura creada')
@@ -1968,22 +2050,124 @@ export default function AssistantPage() {
       }
 
       if (preparedAction.type === 'prepare_pdf') {
-        // TODO Future PDF/Storage: generate a real PDF, upload it to "informes-pdf",
-        // create a documents row, and return a signed URL for chat/email/WhatsApp.
+        const content = preparedAction.reportText
+        if (!content) {
+          await appendAssistantMessage(activeConversation.id, `No hay contenido de informe para ${preparedAction.clientName ?? 'el cliente'}. Genera primero el informe y vuelve a intentarlo.`, preparedAction.clientName)
+          return
+        }
         if (workspaceId) {
           void createAgentActionLog(workspaceId, {
-            action: 'prepare_pdf',
+            action: 'generate_client_report',
             details: { clientName: preparedAction.clientName, clientId: preparedAction.clientId, title: preparedAction.title },
           }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/actionLog:pdf]', error)
           })
         }
-        const displayText = preparedAction.reportText
-          ? `Informe registrado para ${preparedAction.clientName ?? 'cliente'}.\n\n${preparedAction.reportText}\n\nCuando Supabase Storage esté activado, podrás descargarlo como PDF.`
-          : `Acción PDF registrada para ${preparedAction.clientName ?? 'cliente'}. Falta el contenido del informe.`
+        const clientSafe = (preparedAction.clientName || 'cliente').replace(/[^a-z0-9]/gi, '-').toLowerCase()
+        const filename = `${clientSafe}-${Date.now()}.pdf`
+        const storagePath = `${workspaceId}/reports/${filename}`
+        const pdfBytes = generateReportPdfBytes(
+          preparedAction.title || `Informe de ${preparedAction.clientName ?? 'cliente'}`,
+          content,
+        )
+        let signedUrl: string | null = null
+        let storageOk = false
+        let docId: string | null = null
+        if (workspaceId) {
+          try {
+            const { doc } = await saveGeneratedDocument(workspaceId, {
+              clientId: preparedAction.clientId,
+              title: preparedAction.title || `Informe de ${preparedAction.clientName ?? 'cliente'}`,
+              type: 'client_file',
+              storageBucket: 'informes-pdf',
+              storagePath,
+              mimeType: 'application/pdf',
+              size: pdfBytes.length,
+            }, pdfBytes)
+            docId = doc.id
+            storageOk = true
+            try {
+              signedUrl = await getSignedDocumentUrl({ storageBucket: 'informes-pdf', storagePath }, 600)
+            } catch {
+              // signed URL is optional — fails silently
+            }
+          } catch (storageError) {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/prepare_pdf:storage]', storageError)
+          }
+        }
+        let displayText: string
+        if (storageOk && signedUrl) {
+          displayText = `Informe PDF de ${preparedAction.clientName ?? 'cliente'} generado y guardado en Storage.\n\nAbrir documento (válido 10 min):\n${signedUrl}`
+        } else if (storageOk) {
+          displayText = `Informe PDF de ${preparedAction.clientName ?? 'cliente'} guardado en Storage (informes-pdf/${storagePath}).${docId ? ` ID: ${docId}.` : ''} El enlace de descarga no está disponible ahora.`
+        } else {
+          displayText = `PDF de informe generado para ${preparedAction.clientName ?? 'cliente'} (${(pdfBytes.length / 1024).toFixed(1)} KB). Storage no disponible ahora. Verifica las políticas RLS del bucket informes-pdf en Supabase.\n\nContenido:\n\n${content}`
+        }
         await appendAssistantMessage(activeConversation.id, displayText, preparedAction.clientName)
-        toast.success('PDF registrado')
-        setLastActionStatus('Última acción: PDF registrado')
+        if (storageOk) {
+          toast.success('Informe PDF guardado en Storage', { description: docId ? `Documento ${docId}` : 'Archivo subido.' })
+        } else {
+          toast.info('PDF generado', { description: 'Storage no disponible. Verifica RLS del bucket informes-pdf.' })
+        }
+        setLastActionStatus('Última acción: informe de cliente generado')
+      }
+
+      if (preparedAction.type === 'generate_invoice_pdf') {
+        const content = preparedAction.invoiceText
+        if (!content || !preparedAction.invoiceId) {
+          await appendAssistantMessage(activeConversation.id, 'No hay datos de factura para generar el PDF. Crea primero una factura y confírmala.', preparedAction.clientName)
+          return
+        }
+        if (workspaceId) {
+          void createAgentActionLog(workspaceId, {
+            action: 'generate_invoice_pdf',
+            details: { invoiceId: preparedAction.invoiceId, invoiceNumber: preparedAction.invoiceNumber, clientName: preparedAction.clientName },
+          }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/actionLog:invoice_pdf]', error)
+          })
+        }
+        const safeNum = (preparedAction.invoiceNumber || 'factura').replace(/[^a-z0-9]/gi, '-').toLowerCase()
+        const storagePath = `${workspaceId}/invoices/${safeNum}-${Date.now()}.pdf`
+        const invoiceTitle = preparedAction.title || `Factura ${preparedAction.invoiceNumber ?? ''}`
+        const pdfBytes = generateInvoicePdfBytes(invoiceTitle, content)
+        let signedUrl: string | null = null
+        let storageOk = false
+        if (workspaceId) {
+          try {
+            await saveGeneratedDocument(workspaceId, {
+              title: invoiceTitle,
+              type: 'invoice_pdf',
+              storageBucket: 'facturas-pdf',
+              storagePath,
+              mimeType: 'application/pdf',
+              size: pdfBytes.length,
+            }, pdfBytes)
+            storageOk = true
+            try {
+              signedUrl = await getSignedDocumentUrl({ storageBucket: 'facturas-pdf', storagePath }, 600)
+            } catch {
+              // optional
+            }
+          } catch (storageError) {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/invoice_pdf:storage]', storageError)
+          }
+        }
+        const invLabel = preparedAction.invoiceNumber ? `Factura ${preparedAction.invoiceNumber}` : 'Factura'
+        let displayText: string
+        if (storageOk && signedUrl) {
+          displayText = `${invLabel} para ${preparedAction.clientName ?? 'cliente'} generada como PDF y guardada en Storage.\n\nAbrir documento (válido 10 min):\n${signedUrl}`
+        } else if (storageOk) {
+          displayText = `${invLabel} PDF guardada en Storage (facturas-pdf/${storagePath}). El enlace de descarga no está disponible ahora.`
+        } else {
+          displayText = `${invLabel} generada como PDF (${(pdfBytes.length / 1024).toFixed(1)} KB). Storage no disponible ahora. Verifica las políticas RLS del bucket facturas-pdf en Supabase.\n\nContenido:\n\n${content}`
+        }
+        await appendAssistantMessage(activeConversation.id, displayText, preparedAction.clientName)
+        if (storageOk) {
+          toast.success('Factura PDF guardada en Storage')
+        } else {
+          toast.info('PDF de factura generado', { description: 'Storage no disponible. Verifica RLS del bucket facturas-pdf.' })
+        }
+        setLastActionStatus('Última acción: factura PDF generada')
       }
 
       setPreparedAction(null)
@@ -2713,13 +2897,13 @@ export default function AssistantPage() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-950">
-                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : 'PDF de informe'}
+                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
                             </p>
                             <p className="text-[11px] text-gray-500">{preparedAction.title} · NowLabs AI</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {preparedAction.type !== 'prepare_pdf' && !editingAction && (
+                          {preparedAction.type !== 'prepare_pdf' && preparedAction.type !== 'generate_invoice_pdf' && !editingAction && (
                             <button onClick={startEditingAction} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-500 transition-colors hover:bg-white/70 hover:text-indigo-600">
                               <Pencil className="h-3 w-3" />
                               Editar
@@ -2862,6 +3046,28 @@ export default function AssistantPage() {
                               <pre className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-gray-600">{preparedAction.reportText.slice(0, 600)}{preparedAction.reportText.length > 600 ? '\n…' : ''}</pre>
                             </div>
                           )}
+                          {preparedAction.type === 'generate_invoice_pdf' && (
+                            <>
+                              {preparedAction.invoiceNumber && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Factura</span>
+                                  {preparedAction.invoiceNumber}
+                                </div>
+                              )}
+                              {preparedAction.amount !== undefined && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Importe</span>
+                                  {`${preparedAction.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${preparedAction.currency ?? 'EUR'}`}
+                                </div>
+                              )}
+                              {preparedAction.invoiceText && (
+                                <div className="col-span-2 max-h-32 overflow-y-auto rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Vista previa de factura</span>
+                                  <pre className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-gray-600">{preparedAction.invoiceText.slice(0, 400)}{preparedAction.invoiceText.length > 400 ? '\n…' : ''}</pre>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       )}
 
@@ -2885,7 +3091,8 @@ export default function AssistantPage() {
                             preparedAction.type === 'booking' ? 'Confirmar cita' :
                             preparedAction.type === 'invoice' ? 'Confirmar factura' :
                             preparedAction.type === 'task' ? 'Crear tarea' :
-                            'Registrar PDF'}
+                            preparedAction.type === 'generate_invoice_pdf' ? 'Guardar factura PDF' :
+                            'Guardar informe'}
                         </Button>
                       </div>
                     </div>

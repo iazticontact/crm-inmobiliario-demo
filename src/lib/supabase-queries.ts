@@ -1599,6 +1599,33 @@ export async function getSignedDocumentUrl(document: Pick<WorkspaceDocument, 'st
   return data.signedUrl
 }
 
+export async function uploadDocumentToStorage(
+  bucket: string,
+  path: string,
+  content: string | Uint8Array | Blob,
+  contentType = 'text/plain; charset=utf-8'
+) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+  let body: Blob
+  if (typeof content === 'string') {
+    body = new Blob([content], { type: contentType })
+  } else if (content instanceof Uint8Array) {
+    body = new Blob([content.slice(0).buffer], { type: contentType })
+  } else {
+    body = content
+  }
+  const { data, error } = await supabase.storage.from(bucket).upload(path, body, { contentType, upsert: true })
+  if (error) throw error
+  return data
+}
+
+export async function saveGeneratedDocument(workspaceId: string, payload: DocumentPayload, content: string | Uint8Array | Blob) {
+  const uploaded = await uploadDocumentToStorage(payload.storageBucket, payload.storagePath, content, payload.mimeType)
+  const doc = await createDocumentRecord(workspaceId, payload)
+  return { uploaded, doc }
+}
+
 export function mapSupabaseN8nFlow(row: DataRecord): N8nFlow {
   const event = asString(row.event ?? row.event_type ?? row.name, 'custom_flow')
   return {
