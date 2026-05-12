@@ -212,7 +212,7 @@ export default function AutomationsPage() {
         description="Flujos comerciales alineados con n8n y preparados para webhooks reales"
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? (workflowSeeded ? 'Workflows sincronizados' : 'n8n flows reales') : 'Modo demo'}</Badge>
+            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? (workflowSeeded ? 'Control NowCRM activo' : 'Automatizaciones preparadas') : 'Modo demo'}</Badge>
             <Button size="sm" onClick={() => toast.success('Editor de automatizaciones', { description: 'Siguiente fase: crear workflows visuales conectados a n8n_flows.' })}>
               <Plus className="h-3.5 w-3.5" />
               Nueva automatizacion
@@ -285,6 +285,7 @@ export default function AutomationsPage() {
                   <div key={label} className="rounded-lg bg-gray-50 p-2.5">
                     <p className="text-[10px] text-gray-400">{label}</p>
                     <p className="mt-0.5 text-sm font-bold text-gray-900">{value}</p>
+                    <p className="text-[9px] text-gray-300">ejemplo</p>
                   </div>
                 ))}
               </div>

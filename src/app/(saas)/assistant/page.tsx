@@ -1334,6 +1334,7 @@ export default function AssistantPage() {
   } | null>(null)
   const [inboxSettings, setInboxSettings] = useState<Record<string, unknown> | null>(null)
   const [waConnected, setWaConnected] = useState(false)
+  const [waStatus, setWaStatus] = useState<string | null>(null)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
   const [referencedClients, setReferencedClients] = useState<Record<string, { id?: string; name?: string }>>({})
   const [editingTitle, setEditingTitle] = useState(false)
@@ -1608,7 +1609,9 @@ export default function AssistantPage() {
       getWhatsappConnection(workspaceId).catch(() => null),
     ]).then(([settings, wa]) => {
       setInboxSettings(settings)
-      setWaConnected(Boolean(wa && String(wa.status ?? '') === 'connected'))
+      const resolvedWaStatus = wa ? String(wa.status ?? '') : null
+      setWaStatus(resolvedWaStatus)
+      setWaConnected(resolvedWaStatus === 'connected')
     })
   }, [workspaceId])
 
@@ -2755,7 +2758,15 @@ export default function AssistantPage() {
             <Badge variant={assistantMode === 'inbox' ? 'warning' : assistantN8nActive ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
             <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
-            <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>{assistantMode === 'inbox' ? (waConnected ? 'WhatsApp conectado' : 'WhatsApp pendiente') : 'WhatsApp siguiente fase'}</Badge>
+            <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
+              {assistantMode === 'inbox'
+                ? (waConnected
+                    ? 'WhatsApp conectado'
+                    : waStatus === 'verification_required' || waStatus === 'prepared'
+                      ? 'WhatsApp preparado · pendiente verificacion'
+                      : 'WhatsApp pendiente')
+                : 'WhatsApp siguiente fase'}
+            </Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
               {assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}
@@ -2801,11 +2812,13 @@ export default function AssistantPage() {
               </div>
               <p className="text-xs leading-5 text-gray-600">
                 {mode.id === 'inbox'
-                  ? (inboxSettings
-                      ? (Boolean(inboxSettings.auto_reply_enabled)
-                          ? (!waConnected ? 'Modo automatico activo pero WhatsApp no conectado. Activa la conexion en Settings.' : 'Modo automatico activo. El agente responde directamente via Whapi/n8n.')
-                          : 'Modo manual activo. El agente sugiere y el operador confirma.')
-                      : 'Conversaciones cliente/WhatsApp en modo manual, pendiente de conectar Whapi/n8n propio.')
+                  ? (waConnected
+                      ? (inboxSettings && Boolean(inboxSettings.auto_reply_enabled)
+                          ? 'Modo automatico activo. El agente responde directamente via Whapi/n8n.'
+                          : 'Modo manual activo. WhatsApp conectado. El agente sugiere y el operador confirma.')
+                      : waStatus === 'verification_required' || waStatus === 'prepared'
+                        ? 'Inbox Assistant en modo manual. WhatsApp preparado pero pendiente de verificacion. Conecta y verifica el numero en Settings para recibir mensajes reales.'
+                        : 'Inbox Assistant en modo manual. Conecta y verifica WhatsApp en Settings para recibir mensajes reales.')
                   : mode.description}
               </p>
             </button>

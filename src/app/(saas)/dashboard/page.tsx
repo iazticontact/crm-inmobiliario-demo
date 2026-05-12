@@ -169,10 +169,10 @@ export default function DashboardPage() {
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[
                 { label: 'NowLabs AI activo', pending: false },
-                { label: 'Calendar activo', pending: false },
-                { label: 'Google Calendar pendiente', pending: true },
-                { label: 'WhatsApp pendiente', pending: true },
-                { label: 'n8n pendiente', pending: true },
+                { label: 'Calendario interno activo', pending: false },
+                { label: 'Google Calendar · pendiente OAuth', pending: true },
+                { label: 'WhatsApp · pendiente verificacion', pending: true },
+                { label: 'n8n · pendiente configurar', pending: true },
               ].map(({ label, pending }) => (
                 <span key={label} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', pending ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-indigo-100 bg-indigo-50 text-indigo-700')}>{label}</span>
               ))}
