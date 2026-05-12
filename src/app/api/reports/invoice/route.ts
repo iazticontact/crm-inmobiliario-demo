@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 
 type DataRow = Record<string, unknown>
 
@@ -12,6 +13,7 @@ function getClient() {
 
 function s(v: unknown, fb = '') { return typeof v === 'string' && v.trim() ? v.trim() : fb }
 function n(v: unknown, fb = 0) { const p = Number(v); return Number.isFinite(p) ? p : fb }
+function money(v: unknown) { return n(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 function buildInvoiceText(invoice: DataRow): string {
   const id = s(invoice.id)
@@ -31,17 +33,17 @@ function buildInvoiceText(invoice: DataRow): string {
     `FACTURA — ${number}\n`,
     `Generada: ${generatedAt}`,
     `\n1. DATOS DE FACTURA`,
-    `- Número: ${number}`,
-    `- Fecha de emisión: ${issueDate}`,
+    `- Numero: ${number}`,
+    `- Fecha de emision: ${issueDate}`,
     `- Vencimiento: ${dueDate}`,
     `- Estado: ${statusLabel}`,
     `\n2. CLIENTE`,
     `- Nombre: ${clientName}`,
     `\n3. CONCEPTO E IMPORTE`,
     `- Concepto: ${concept}`,
-    `- Importe: ${amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`,
+    `- Importe: ${money(amount)} ${currency}`,
     notes ? `\n4. NOTAS\n- ${notes}` : '',
-    `\n---\nDocumento generado por NowCRM. Pendiente de firma electrónica real.`,
+    `\n---\nDocumento generado por NowCRM. Pendiente de firma electronica real.`,
   ].filter(Boolean).join('\n')
 }
 
@@ -50,11 +52,13 @@ export async function POST(request: Request) {
   try {
     body = await request.json() as DataRow
   } catch {
-    return NextResponse.json({ ok: false, error: 'Payload JSON inválido' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'Payload JSON invalido' }, { status: 400 })
   }
 
   const invoiceId = s(body.invoiceId)
   const workspaceId = s(body.workspaceId)
+  const format = s(body.format, 'text') === 'pdf' ? 'pdf' : 'text'
+
   if (!invoiceId || !workspaceId) {
     return NextResponse.json({ ok: false, error: 'invoiceId y workspaceId son obligatorios' }, { status: 400 })
   }
@@ -82,6 +86,18 @@ export async function POST(request: Request) {
     const clientName = s(inv.client_name, 'Cliente')
     const safeNumber = number.replace(/[^a-z0-9]/gi, '-').toLowerCase()
     const title = `Factura ${number} — ${clientName}`
+    const filename = `factura-${safeNumber}-${Date.now()}.pdf`
+
+    if (format === 'pdf') {
+      const pdfBytes = generateInvoicePdfBytes(title, invoiceText)
+      return new Response(pdfBytes.buffer as ArrayBuffer, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Length': String(pdfBytes.length),
+        },
+      })
+    }
 
     return NextResponse.json({
       ok: true,
@@ -91,7 +107,7 @@ export async function POST(request: Request) {
       invoiceText,
       title,
       storageBucket: 'facturas-pdf',
-      storagePath: `${workspaceId}/invoices/${safeNumber}-${Date.now()}.txt`,
+      storagePath: `${workspaceId}/invoices/${filename}`,
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {

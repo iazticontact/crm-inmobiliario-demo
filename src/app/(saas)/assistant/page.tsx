@@ -820,37 +820,62 @@ type ClientReportContext = {
 
 function buildClientReportText(ctx: ClientReportContext): string {
   const { client, createdAt, invoices, events, conversations, activities } = ctx
+  const fechaRegistro = createdAt
+    ? (() => { try { return new Date(createdAt).toLocaleDateString('es-ES') } catch { return 'No consta' } })()
+    : 'No consta'
+  const generatedAt = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
+  const totalFacturado = invoices.reduce((sum, i) => sum + i.amount, 0)
+  const facturasPendientes = invoices.filter((i) => i.status === 'pending' || i.status === 'overdue').length
+  const facturasPagadas = invoices.filter((i) => i.status === 'paid').length
+  const ultimaActividad = activities.length > 0 ? (activities[0].description || 'Sin registros') : 'Sin registros'
   const sections = [
-    `INFORME DE CLIENTE — ${client.name?.toUpperCase() || 'CLIENTE'}\n`,
-    `1. DATOS BÁSICOS`,
+    `INFORME DE CLIENTE — ${(client.name || 'CLIENTE').toUpperCase()}\n`,
+    `Generado: ${generatedAt}`,
+    `\n1. RESUMEN EJECUTIVO`,
+    `- Cliente: ${client.name || 'No consta'} (${client.status || 'No consta'})`,
+    `- Total facturado: ${totalFacturado.toLocaleString('es-ES', { minimumFractionDigits: 2 })} EUR`,
+    `- Facturas pendientes: ${facturasPendientes}`,
+    `- Facturas pagadas: ${facturasPagadas}`,
+    `- Citas registradas: ${events.length}`,
+    `- Ultima actividad: ${ultimaActividad}`,
+    `\n2. DATOS BASICOS`,
     `- Nombre: ${client.name || 'No consta'}`,
     `- Empresa: ${client.company || 'No consta'}`,
+    `- Fecha de registro: ${fechaRegistro}`,
+    `\n3. CONTACTO`,
     `- Email: ${client.email || 'No consta'}`,
-    `- Teléfono: ${client.phone || 'No consta'}`,
-    `- Canal: ${client.channel || 'No consta'}`,
-    `- Fecha de registro: ${createdAt ? new Date(createdAt).toLocaleDateString('es-ES') : 'No consta'}`,
-    `\n2. ESTADO COMERCIAL`,
+    `- Telefono: ${client.phone || 'No consta'}`,
+    `- Canal principal: ${client.channel || 'No consta'}`,
+    `\n4. ESTADO COMERCIAL`,
     `- Estado: ${client.status || 'No consta'}`,
     `- Lead Score: ${client.leadScore || 'No consta'}`,
     `- Notas: ${client.notes || 'No consta'}`,
-    `\n3. FACTURAS`,
+    `\n5. FACTURACION`,
     invoices.length
-      ? invoices.map((i) => `- ${i.plan || 'Concepto'}: ${i.amount}€ (${i.status}) vence ${i.dueDate}`).join('\n')
-      : '- No hay facturas registradas',
-    `\n4. CITAS Y CALENDARIO`,
+      ? invoices.map((i) => `- ${i.plan || 'Concepto'}: ${i.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })} EUR (${i.status}) vence ${i.dueDate}`).join('\n')
+      : '- No hay datos registrados.',
+    `\n6. CALENDARIO`,
     events.length
       ? events.map((e) => `- ${e.title} el ${e.date} a las ${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')} (${e.duration} min)`).join('\n')
-      : '- No hay citas registradas',
-    `\n5. CONVERSACIONES`,
+      : '- No hay datos registrados.',
+    `\n7. CONVERSACIONES`,
     conversations.length
       ? conversations.map((c) => `- ${c.lastMessage} (${c.sentiment})`).join('\n')
-      : '- No hay conversaciones registradas',
-    `\n6. ACTIVIDAD RECIENTE`,
+      : '- No hay datos registrados.',
+    `\n8. ACTIVIDAD RECIENTE`,
     activities.length
       ? activities.slice(0, 5).map((a) => `- [${a.type}] ${a.description}`).join('\n')
-      : '- No hay actividades registradas',
-    `\n7. PRÓXIMA ACCIÓN RECOMENDADA`,
-    client.status === 'lead' ? '→ Contactar para convertir en cliente activo' : client.status === 'active' ? '→ Revisar facturas pendientes' : '→ Sin acción inmediata recomendada',
+      : '- No hay datos registrados.',
+    `\n9. PROXIMA ACCION RECOMENDADA`,
+    client.status === 'lead'
+      ? '→ Contactar para convertir en cliente activo. Revisar canal preferido y preparar propuesta.'
+      : client.status === 'active'
+        ? facturasPendientes > 0
+          ? `→ Gestionar ${facturasPendientes} factura(s) pendiente(s) de cobro. Preparar seguimiento.`
+          : '→ Mantener seguimiento activo. Proponer nuevo servicio o renovacion.'
+        : client.status === 'inactive'
+          ? '→ Campana de reactivacion. Revisar motivo de inactividad y proponer oferta.'
+          : '→ Sin accion inmediata recomendada.',
   ]
   return sections.filter(Boolean).join('\n')
 }
@@ -1297,6 +1322,14 @@ export default function AssistantPage() {
   const [assistantFlowStatus, setAssistantFlowStatus] = useState<N8nFlowStatus>('demo')
   const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | 'supabase' | null>(null)
   const [lastActionStatus, setLastActionStatus] = useState('')
+  const [lastGeneratedDocument, setLastGeneratedDocument] = useState<{
+    title: string
+    type: 'client_file' | 'invoice_pdf'
+    bucket: string
+    path: string
+    signedUrl: string | null
+    createdAt: string
+  } | null>(null)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
   const [referencedClients, setReferencedClients] = useState<Record<string, { id?: string; name?: string }>>({})
   const [editingTitle, setEditingTitle] = useState(false)
@@ -2095,19 +2128,28 @@ export default function AssistantPage() {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/prepare_pdf:storage]', storageError)
           }
         }
+        const docTitle = preparedAction.title || `Informe de ${preparedAction.clientName ?? 'cliente'}`
+        setLastGeneratedDocument({
+          title: docTitle,
+          type: 'client_file',
+          bucket: 'informes-pdf',
+          path: storagePath,
+          signedUrl,
+          createdAt: new Date().toISOString(),
+        })
         let displayText: string
         if (storageOk && signedUrl) {
-          displayText = `Informe PDF de ${preparedAction.clientName ?? 'cliente'} generado y guardado en Storage.\n\nAbrir documento (válido 10 min):\n${signedUrl}`
+          displayText = `PDF generado correctamente. Puedes abrirlo aqui:\n${signedUrl}`
         } else if (storageOk) {
-          displayText = `Informe PDF de ${preparedAction.clientName ?? 'cliente'} guardado en Storage (informes-pdf/${storagePath}).${docId ? ` ID: ${docId}.` : ''} El enlace de descarga no está disponible ahora.`
+          displayText = `PDF generado y guardado. No se pudo obtener enlace firmado.${docId ? ` ID: ${docId}.` : ''}`
         } else {
-          displayText = `PDF de informe generado para ${preparedAction.clientName ?? 'cliente'} (${(pdfBytes.length / 1024).toFixed(1)} KB). Storage no disponible ahora. Verifica las políticas RLS del bucket informes-pdf en Supabase.\n\nContenido:\n\n${content}`
+          displayText = `El PDF se genero, pero no se pudo guardar en Storage. Revisa conexion/RLS del bucket informes-pdf.\n\nContenido del informe:\n\n${content}`
         }
         await appendAssistantMessage(activeConversation.id, displayText, preparedAction.clientName)
         if (storageOk) {
-          toast.success('Informe PDF guardado en Storage', { description: docId ? `Documento ${docId}` : 'Archivo subido.' })
+          toast.success('Informe PDF guardado', { description: signedUrl ? 'Enlace disponible en el chat.' : 'Sin enlace firmado.' })
         } else {
-          toast.info('PDF generado', { description: 'Storage no disponible. Verifica RLS del bucket informes-pdf.' })
+          toast.info('PDF generado sin Storage', { description: 'Verifica RLS del bucket informes-pdf.' })
         }
         setLastActionStatus('Última acción: informe de cliente generado')
       }
@@ -2152,20 +2194,27 @@ export default function AssistantPage() {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/invoice_pdf:storage]', storageError)
           }
         }
-        const invLabel = preparedAction.invoiceNumber ? `Factura ${preparedAction.invoiceNumber}` : 'Factura'
+        setLastGeneratedDocument({
+          title: invoiceTitle,
+          type: 'invoice_pdf',
+          bucket: 'facturas-pdf',
+          path: storagePath,
+          signedUrl,
+          createdAt: new Date().toISOString(),
+        })
         let displayText: string
         if (storageOk && signedUrl) {
-          displayText = `${invLabel} para ${preparedAction.clientName ?? 'cliente'} generada como PDF y guardada en Storage.\n\nAbrir documento (válido 10 min):\n${signedUrl}`
+          displayText = `PDF generado correctamente. Puedes abrirlo aqui:\n${signedUrl}`
         } else if (storageOk) {
-          displayText = `${invLabel} PDF guardada en Storage (facturas-pdf/${storagePath}). El enlace de descarga no está disponible ahora.`
+          displayText = `PDF generado y guardado. No se pudo obtener enlace firmado.`
         } else {
-          displayText = `${invLabel} generada como PDF (${(pdfBytes.length / 1024).toFixed(1)} KB). Storage no disponible ahora. Verifica las políticas RLS del bucket facturas-pdf en Supabase.\n\nContenido:\n\n${content}`
+          displayText = `El PDF se genero, pero no se pudo guardar en Storage. Revisa conexion/RLS del bucket facturas-pdf.\n\nContenido:\n\n${content}`
         }
         await appendAssistantMessage(activeConversation.id, displayText, preparedAction.clientName)
         if (storageOk) {
-          toast.success('Factura PDF guardada en Storage')
+          toast.success('Factura PDF guardada', { description: signedUrl ? 'Enlace disponible en el chat.' : 'Sin enlace firmado.' })
         } else {
-          toast.info('PDF de factura generado', { description: 'Storage no disponible. Verifica RLS del bucket facturas-pdf.' })
+          toast.info('PDF generado sin Storage', { description: 'Verifica RLS del bucket facturas-pdf.' })
         }
         setLastActionStatus('Última acción: factura PDF generada')
       }
@@ -3210,6 +3259,28 @@ export default function AssistantPage() {
               {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta por fallback</p>}
               {lastResponseSource === 'supabase' && <p className="mt-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">Última respuesta por Supabase</p>}
             </div>
+
+            {assistantMode === 'copilot' && lastGeneratedDocument && (
+              <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
+                <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Último documento generado</p>
+                <p className="truncate text-xs font-semibold text-gray-800">{lastGeneratedDocument.title}</p>
+                <p className="mt-0.5 text-[10px] text-gray-500">{lastGeneratedDocument.type === 'invoice_pdf' ? 'Factura PDF' : 'Informe de cliente'}</p>
+                <p className="mt-0.5 text-[10px] text-gray-400">{(() => { try { return new Date(lastGeneratedDocument.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return lastGeneratedDocument.createdAt } })()}</p>
+                {lastGeneratedDocument.signedUrl ? (
+                  <a
+                    href={lastGeneratedDocument.signedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100 transition-colors hover:bg-indigo-100"
+                  >
+                    <FileText className="h-3 w-3 shrink-0" />
+                    Abrir documento
+                  </a>
+                ) : (
+                  <p className="mt-2 rounded-lg bg-gray-50 px-2 py-1 text-[10px] text-gray-400 ring-1 ring-gray-100">Guardado · enlace no disponible (RLS)</p>
+                )}
+              </div>
+            )}
 
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
               <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</p>

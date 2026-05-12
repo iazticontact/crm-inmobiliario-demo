@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { generateReportPdfBytes } from '@/lib/pdf/simple-pdf'
 
 type DataRow = Record<string, unknown>
 
@@ -12,6 +13,7 @@ function getClient() {
 
 function s(v: unknown, fb = '') { return typeof v === 'string' && v.trim() ? v.trim() : fb }
 function n(v: unknown, fb = 0) { const p = Number(v); return Number.isFinite(p) ? p : fb }
+function money(v: unknown) { return n(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 function buildReportText(
   client: DataRow,
@@ -25,44 +27,61 @@ function buildReportText(
   const fechaRegistro = createdAt
     ? (() => { try { return new Date(createdAt).toLocaleDateString('es-ES') } catch { return 'No consta' } })()
     : 'No consta'
-  const generatedAt = new Date().toLocaleString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const generatedAt = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  const totalFacturado = invoices.reduce((sum, i) => sum + n(i.amount), 0)
+  const facturasPendientes = invoices.filter((i) => s(i.status) === 'pending' || s(i.status) === 'overdue').length
+  const facturasPagadas = invoices.filter((i) => s(i.status) === 'paid').length
+  const ultimaActividad = activities.length > 0 ? s(activities[0].description, 'Sin registros') : 'Sin registros'
 
   return [
     `INFORME DE CLIENTE — ${name.toUpperCase()}\n`,
     `Generado: ${generatedAt}`,
-    `\n1. DATOS BÁSICOS`,
+    `\n1. RESUMEN EJECUTIVO`,
+    `- Cliente: ${s(client.name, 'No consta')} (${s(client.status, 'No consta')})`,
+    `- Total facturado: ${money(totalFacturado)} EUR`,
+    `- Facturas pendientes: ${facturasPendientes}`,
+    `- Facturas pagadas: ${facturasPagadas}`,
+    `- Citas registradas: ${events.length}`,
+    `- Ultima actividad: ${ultimaActividad}`,
+    `\n2. DATOS BASICOS`,
     `- Nombre: ${s(client.name, 'No consta')}`,
     `- Empresa: ${s(client.company, 'No consta')}`,
-    `- Email: ${s(client.email, 'No consta')}`,
-    `- Teléfono: ${s(client.phone, 'No consta')}`,
-    `- Canal: ${s(client.channel, 'No consta')}`,
     `- Fecha de registro: ${fechaRegistro}`,
-    `\n2. ESTADO COMERCIAL`,
+    `\n3. CONTACTO`,
+    `- Email: ${s(client.email, 'No consta')}`,
+    `- Telefono: ${s(client.phone, 'No consta')}`,
+    `- Canal principal: ${s(client.channel, 'No consta')}`,
+    `\n4. ESTADO COMERCIAL`,
     `- Estado: ${s(client.status, 'No consta')}`,
     `- Lead Score: ${n(client.lead_score) || 'No consta'}`,
     `- Notas: ${s(client.notes, 'No consta')}`,
-    `\n3. FACTURAS`,
+    `\n5. FACTURACION`,
     invoices.length
-      ? invoices.map((i) => `- ${s(i.concept ?? i.plan, 'Concepto')}: ${n(i.amount)}€ (${s(i.status)}) vence ${s(i.due_date)}`).join('\n')
-      : '- No hay facturas registradas',
-    `\n4. CITAS Y CALENDARIO`,
+      ? invoices.map((i) => `- ${s(i.concept ?? i.plan, 'Concepto')}: ${money(i.amount)} EUR (${s(i.status)}) vence ${s(i.due_date)}`).join('\n')
+      : '- No hay datos registrados.',
+    `\n6. CALENDARIO`,
     events.length
       ? events.map((e) => `- ${s(e.title, 'Evento')} el ${s(e.date)} a las ${String(n(e.start_hour, 10)).padStart(2, '0')}:${String(n(e.start_minute, 0)).padStart(2, '0')} (${n(e.duration, 60)} min)`).join('\n')
-      : '- No hay citas registradas',
-    `\n5. CONVERSACIONES`,
+      : '- No hay datos registrados.',
+    `\n7. CONVERSACIONES`,
     conversations.length
       ? conversations.map((c) => `- ${s(c.ai_summary ?? c.last_message, 'Sin mensaje')} (${s(c.sentiment, 'neutral')})`).join('\n')
-      : '- No hay conversaciones registradas',
-    `\n6. ACTIVIDAD RECIENTE`,
+      : '- No hay datos registrados.',
+    `\n8. ACTIVIDAD RECIENTE`,
     activities.length
       ? activities.slice(0, 5).map((a) => `- [${s(a.type)}] ${s(a.description)}`).join('\n')
-      : '- No hay actividades registradas',
-    `\n7. PRÓXIMA ACCIÓN RECOMENDADA`,
+      : '- No hay datos registrados.',
+    `\n9. PROXIMA ACCION RECOMENDADA`,
     s(client.status) === 'lead'
-      ? '→ Contactar para convertir en cliente activo'
+      ? '→ Contactar para convertir en cliente activo. Revisar canal preferido y preparar propuesta.'
       : s(client.status) === 'active'
-        ? '→ Revisar facturas pendientes y próximas citas'
-        : '→ Sin acción inmediata recomendada',
+        ? facturasPendientes > 0
+          ? `→ Gestionar ${facturasPendientes} factura(s) pendiente(s) de cobro. Preparar seguimiento.`
+          : '→ Mantener seguimiento activo. Proponer nuevo servicio o renovacion.'
+        : s(client.status) === 'inactive'
+          ? '→ Campana de reactivacion. Revisar motivo de inactividad y proponer oferta.'
+          : '→ Sin accion inmediata recomendada.',
   ].filter(Boolean).join('\n')
 }
 
@@ -71,11 +90,13 @@ export async function POST(request: Request) {
   try {
     body = await request.json() as DataRow
   } catch {
-    return NextResponse.json({ ok: false, error: 'Payload JSON inválido' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'Payload JSON invalido' }, { status: 400 })
   }
 
   const clientId = s(body.clientId)
   const workspaceId = s(body.workspaceId)
+  const format = s(body.format, 'text') === 'pdf' ? 'pdf' : 'text'
+
   if (!clientId || !workspaceId) {
     return NextResponse.json({ ok: false, error: 'clientId y workspaceId son obligatorios' }, { status: 400 })
   }
@@ -118,6 +139,20 @@ export async function POST(request: Request) {
     )
 
     const title = `Informe de ${clientName}`
+    const safeClient = clientName.replace(/[^a-z0-9]/gi, '-').toLowerCase()
+    const filename = `informe-${safeClient}-${Date.now()}.pdf`
+
+    if (format === 'pdf') {
+      const pdfBytes = generateReportPdfBytes(title, reportText)
+      return new Response(pdfBytes.buffer as ArrayBuffer, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Length': String(pdfBytes.length),
+        },
+      })
+    }
+
     return NextResponse.json({
       ok: true,
       clientId,
@@ -125,7 +160,7 @@ export async function POST(request: Request) {
       reportText,
       title,
       storageBucket: 'informes-pdf',
-      storagePath: `${workspaceId}/reports/${clientId}-${Date.now()}.txt`,
+      storagePath: `${workspaceId}/reports/${filename}`,
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
