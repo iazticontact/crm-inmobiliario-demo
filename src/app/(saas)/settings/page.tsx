@@ -92,26 +92,26 @@ const notifDefaults = [
 
 const supabaseReadiness = [
   { label: 'Auth', value: 'Real', status: 'Login, registro, callback, reset y logout' },
-  { label: 'Clients', value: 'Real', status: 'CRUD Supabase con notas y fallback demo' },
-  { label: 'Billing', value: 'Real', status: 'Facturas persistentes y metricas basicas' },
-  { label: 'Calendar', value: 'Real', status: 'Eventos persistentes por workspace' },
-  { label: 'Assistant', value: 'Real + n8n', status: 'Mensajes reales y Assistant Agent conectado a n8n/OpenAI' },
-  { label: 'AI Agent Tools', value: 'Preparado', status: 'POST /api/agent/tool con allowlist' },
-  { label: 'OpenAI', value: 'Via n8n', status: 'Key solo en n8n Credentials' },
-  { label: 'n8n Agent', value: 'Activo', status: 'assistant_message real conectado' },
-  { label: 'Storage', value: 'Preparado', status: 'Buckets/documentos definidos para siguiente fase' },
-  { label: 'Dashboard', value: 'Mixto', status: 'KPIs reales con widgets demo' },
-  { label: 'n8n', value: 'Preparado', status: 'API route interna y flows configurables' },
-  { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend y deploy' },
+  { label: 'Clientes', value: 'Real', status: 'CRUD completo con notas y filtros por workspace' },
+  { label: 'Facturacion', value: 'Real', status: 'Facturas persistentes y metricas por workspace' },
+  { label: 'Calendario', value: 'Real', status: 'Eventos persistentes con citas desde IA' },
+  { label: 'Assistant', value: 'Real + n8n', status: 'Mensajes reales y NowLabs AI conectado' },
+  { label: 'Agent Tools', value: 'Preparado', status: 'Endpoint seguro con allowlist de acciones' },
+  { label: 'OpenAI', value: 'Via n8n', status: 'Clave solo en credenciales n8n, no en frontend' },
+  { label: 'n8n Agent', value: 'Activo', status: 'Webhook assistant_message conectado' },
+  { label: 'Documentos', value: 'Preparado', status: 'PDFs de informes y facturas generados' },
+  { label: 'Dashboard', value: 'Real', status: 'KPIs de clientes, facturas y calendario reales' },
+  { label: 'n8n Flows', value: 'Configurable', status: 'Endpoints y estados por flujo configurables' },
+  { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend y deploy en siguiente fase' },
 ]
 
 const productStatusCards = [
-  { label: 'Core CRM', value: 'Real', detail: 'Auth, workspace, clients, billing y calendar', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { label: 'Assistant', value: 'n8n/OpenAI', detail: 'Conversaciones reales con fallback seguro', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
-  { label: 'Agent Tools', value: 'Ready', detail: 'Tools allowlist para n8n/OpenAI', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-  { label: 'Documents', value: 'Preparado', detail: 'Storage/PDFs como siguiente fase', tone: 'border-blue-100 bg-blue-50 text-blue-700' },
-  { label: 'n8n', value: 'Configurable', detail: 'Endpoints y estados por flujo', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-  { label: 'Canales', value: 'Pendiente', detail: 'Whapi/Email/Stripe por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+  { label: 'Core CRM', value: 'Operativo', detail: 'Auth, workspace, clientes, facturacion y calendario', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+  { label: 'NowLabs AI', value: 'Activo', detail: 'Conversaciones reales con NowLabs AI', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'Agent Tools', value: 'Preparado', detail: 'Acciones CRM seguras via API interna', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+  { label: 'Documentos', value: 'Activo', detail: 'PDFs de informes y facturas generados', tone: 'border-blue-100 bg-blue-50 text-blue-700' },
+  { label: 'n8n Flows', value: 'Configurable', detail: 'Endpoints y estados de automatizacion', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+  { label: 'Canales', value: 'Proxima fase', detail: 'WhatsApp, Email y pagos por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
 const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
@@ -256,7 +256,7 @@ export default function SettingsPage() {
       const resolvedWorkspaceId = currentUser.workspaceId || context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
         setSettingsPersisted(false)
-        setSettingsError('No se ha encontrado workspace real. Settings queda en fallback demo.')
+        setSettingsError('Conecta tu cuenta para acceder a la configuracion completa de integraciones.')
         return
       }
 
@@ -287,7 +287,7 @@ export default function SettingsPage() {
       setSettingsPersisted(Boolean(flows.length || remoteIntegrations.length))
     } catch {
       setSettingsPersisted(false)
-      setSettingsError('No se pudo leer n8n_flows o integrations. Se mantiene fallback demo.')
+      setSettingsError('No se pudo sincronizar la configuracion. Comprueba la conexion e intentalo de nuevo.')
     } finally {
       setSettingsLoading(false)
     }
@@ -1011,6 +1011,14 @@ export default function SettingsPage() {
                     <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', inboxAutoReply ? 'translate-x-4' : 'translate-x-0')} />
                   </button>
                 </div>
+                {inboxAutoReply && (!waConnection || String(waConnection.status ?? '') === 'disconnected') && (
+                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <p className="text-xs leading-5 text-amber-800">
+                      El modo automatico requiere WhatsApp conectado. Conecta primero un numero en la seccion de abajo.
+                    </p>
+                  </div>
+                )}
                 <Button size="sm" onClick={() => void handleInboxSettingsSave()}>
                   Guardar configuracion
                 </Button>
@@ -1162,26 +1170,26 @@ export default function SettingsPage() {
         </div>
 
         <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
-          <SectionCard title="Modo demo" description="Fallback seguro para mostrar el producto">
+          <SectionCard title="Estado del sistema" description="Resumen de servicios conectados y proximas integraciones">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
                   <Wifi className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-blue-900">Demo estable activa</p>
+                  <p className="text-sm font-semibold text-blue-900">Sistema operativo</p>
                   <p className="mt-1 text-xs leading-5 text-blue-700">
-                    Si Supabase o una tabla fallan, las pantallas mantienen fallback demo sin romper la presentacion.
+                    Auth, CRM y Assistant activos. Conecta Google Calendar y WhatsApp para activar automatizaciones.
                   </p>
                 </div>
               </div>
             </div>
             <div className="mt-3 grid gap-2">
               {[
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM reales' },
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Fallback demo disponible' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM activos' },
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Assistant n8n/OpenAI activo' },
-                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Whapi/Stripe/Resend pendientes' },
+                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Google Calendar pendiente' },
+                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'WhatsApp/Stripe/Resend pendientes' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   {item.icon}
@@ -1190,11 +1198,8 @@ export default function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <Button variant="secondary" size="sm" onClick={() => toast.info('Datos demo listos', { description: 'El fallback local se mantiene sin tocar Supabase.' })}>
-                Revisar fallback
-              </Button>
-              <Button size="sm" onClick={() => toast.success('Siguiente fase clara', { description: 'Conectar IA real, n8n real, Resend y deploy.' })}>
-                Ver siguiente fase
+              <Button size="sm" onClick={() => toast.success('Proximas integraciones', { description: 'Conectar Google Calendar, WhatsApp, Resend y n8n real.' })}>
+                Ver proximas integraciones
               </Button>
             </div>
           </SectionCard>

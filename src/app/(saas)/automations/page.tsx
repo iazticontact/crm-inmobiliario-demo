@@ -223,18 +223,26 @@ export default function AutomationsPage() {
 
       <div className="grid gap-4 md:grid-cols-3">
         {[
-          { label: 'Emails enviados este mes', value: '2.614', icon: <Mail className="h-4 w-4" />, color: 'text-indigo-600 bg-indigo-50' },
-          { label: 'Tasa apertura media', value: '63,5%', icon: <BarChart2 className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' },
-          { label: 'Flows n8n preparados', value: String(linkedFlows.length), icon: <Zap className="h-4 w-4" />, color: 'text-violet-600 bg-violet-50' },
-        ].map(({ label, value, icon, color }) => (
+          { label: 'Emails enviados este mes', value: '2.614', demo: true, icon: <Mail className="h-4 w-4" />, color: 'text-indigo-600 bg-indigo-50' },
+          { label: 'Tasa apertura media', value: '63,5%', demo: true, icon: <BarChart2 className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' },
+          { label: 'Flows n8n preparados', value: String(linkedFlows.length), demo: false, icon: <Zap className="h-4 w-4" />, color: 'text-violet-600 bg-violet-50' },
+        ].map(({ label, value, demo, icon, color }) => (
           <div key={label} className="flex items-center gap-4 rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
             <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', color)}>{icon}</div>
             <div>
               <p className="text-xs text-gray-500">{label}</p>
               <p className="mt-0.5 text-xl font-bold text-gray-900">{value}</p>
+              {demo && <p className="text-[10px] text-gray-400">dato de ejemplo</p>}
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+        <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+        <p className="text-xs leading-5 text-amber-800">
+          Cuando conectes la API segura de n8n, estos toggles activaran y desactivaran los workflows reales automaticamente.
+        </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

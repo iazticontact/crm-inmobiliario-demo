@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { Bell, Search, HelpCircle, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
-import { clients } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
+import { searchClients } from '@/lib/supabase-queries'
+import type { Client } from '@/lib/types'
 
 const pageLabels: Record<string, { title: string; description: string }> = {
   '/dashboard': { title: 'Dashboard', description: 'Vista general de tu negocio' },
@@ -35,6 +36,7 @@ export function Topbar() {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [readNotifs, setReadNotifs] = useState<Set<string>>(new Set())
+  const [suggestions, setSuggestions] = useState<Client[]>([])
 
   const notifRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLDivElement>(null)
@@ -48,9 +50,20 @@ export function Topbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const suggestions = query.length >= 2
-    ? clients.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()) || c.company.toLowerCase().includes(query.toLowerCase())).slice(0, 4)
-    : []
+  const runSearch = useCallback(async (q: string) => {
+    if (!currentUser.workspaceId || q.length < 2) { setSuggestions([]); return }
+    try {
+      const results = await searchClients(currentUser.workspaceId, q)
+      setSuggestions(results.slice(0, 4))
+    } catch {
+      setSuggestions([])
+    }
+  }, [currentUser.workspaceId])
+
+  useEffect(() => {
+    const t = setTimeout(() => runSearch(query), 300)
+    return () => clearTimeout(t)
+  }, [query, runSearch])
 
   const unreadCount = mockNotifications.filter((n) => n.unread && !readNotifs.has(n.id)).length
 

@@ -49,7 +49,7 @@ import {
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 
-const SHOW_ASSISTANT_DEBUG = process.env.NODE_ENV === 'development'
+const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 const OFFLINE_WORKSPACE_ID = '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
 const OFFLINE_USER_ID = '91b65a40-222d-4f97-870c-8e4119278c2c'
