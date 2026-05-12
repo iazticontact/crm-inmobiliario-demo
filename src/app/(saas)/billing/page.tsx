@@ -106,11 +106,13 @@ export default function BillingPage() {
       setInvoiceList(realInvoices)
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
-    } catch {
+    } catch (error) {
       setInvoiceList(initialInvoices)
       setWorkspaceId(null)
       setIsRealMode(false)
-      setLoadError('No se pudieron cargar facturas reales. Revisa RLS o columnas de invoices.')
+      const message = error instanceof Error ? error.message : 'Revisa RLS o columnas de invoices.'
+      setLoadError(process.env.NODE_ENV === 'development' ? `No se pudieron cargar facturas reales: ${message}` : 'No se pudieron cargar facturas reales. Revisa RLS o columnas de invoices.')
+      if (process.env.NODE_ENV === 'development') console.error('[billing/loadInvoices]', error)
     } finally {
       setLoading(false)
     }
@@ -171,8 +173,12 @@ export default function BillingPage() {
     try {
       if (isRealMode && workspaceId) {
         await markInvoicePaid(inv.id)
-        await createActivity(workspaceId, { type: 'deal', description: `Factura marcada como pagada: ${inv.clientName}`, clientName: inv.clientName })
-        await triggerN8nWebhook('invoice_paid', { workspace_id: workspaceId, mode: 'real', invoice: { id: inv.id, client_name: inv.clientName, amount: inv.amount } })
+        void createActivity(workspaceId, { type: 'deal', description: `Factura marcada como pagada: ${inv.clientName}`, clientName: inv.clientName }).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[billing/createActivity:paid]', error)
+        })
+        void triggerN8nWebhook('invoice_paid', { workspace_id: workspaceId, mode: 'real', invoice: { id: inv.id, client_name: inv.clientName, amount: inv.amount } }).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[billing/n8n:paid]', error)
+        })
         await loadInvoices()
       } else {
         setInvoiceList((prev) => prev.map((item) => item.id === inv.id ? { ...item, status: 'paid' } : item))
@@ -206,12 +212,18 @@ export default function BillingPage() {
       if (isRealMode && workspaceId) {
         if (form.id) {
           await updateInvoice(form.id, payload)
-          await createActivity(workspaceId, { type: 'note', description: `Factura actualizada: ${payload.clientName}`, clientName: payload.clientName })
+          void createActivity(workspaceId, { type: 'note', description: `Factura actualizada: ${payload.clientName}`, clientName: payload.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[billing/createActivity:update]', error)
+          })
           toast.success(`Factura actualizada: ${payload.clientName}`)
         } else {
           await createInvoice(workspaceId, payload)
-          await createActivity(workspaceId, { type: 'deal', description: `Factura creada: ${payload.clientName}`, clientName: payload.clientName })
-          await triggerN8nWebhook('invoice_created', { workspace_id: workspaceId, mode: 'real', invoice: payload })
+          void createActivity(workspaceId, { type: 'deal', description: `Factura creada: ${payload.clientName}`, clientName: payload.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[billing/createActivity:create]', error)
+          })
+          void triggerN8nWebhook('invoice_created', { workspace_id: workspaceId, mode: 'real', invoice: payload }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[billing/n8n:create]', error)
+          })
           toast.success(`Factura creada en Supabase: ${payload.clientName}`)
         }
         await loadInvoices()

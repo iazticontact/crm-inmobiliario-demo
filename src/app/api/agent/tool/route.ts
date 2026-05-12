@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import type { ActivityType, Channel, ClientStatus, EventType, InvoiceStatus, MessageSender } from '@/lib/types'
 
 type AgentTool =
@@ -137,25 +138,11 @@ function sender(value: unknown): MessageSender {
   return value === 'client' || value === 'agent' || value === 'ai' ? value : 'ai'
 }
 
-function toTimeParts(startTime: string, endTime?: string) {
-  const [hourRaw, minuteRaw] = startTime.split(':')
-  const startHour = Math.max(0, Math.min(23, Number(hourRaw) || 10))
-  const startMinute = Math.max(0, Math.min(59, Number(minuteRaw) || 0))
-  let duration = 60
-  if (endTime?.includes(':')) {
-    const [endHourRaw, endMinuteRaw] = endTime.split(':')
-    const endMinutes = (Number(endHourRaw) || startHour + 1) * 60 + (Number(endMinuteRaw) || 0)
-    const startMinutes = startHour * 60 + startMinute
-    duration = Math.max(15, endMinutes - startMinutes)
-  }
-  return { startHour, startMinute, duration }
-}
-
 async function selectWorkspaceData(supabase: NonNullable<ReturnType<typeof getServerClient>['supabase']>, workspaceId: string) {
   const [clients, invoices, events, conversations, activities] = await Promise.all([
     supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
     supabase.from('invoices').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
-    supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('date', { ascending: true }),
+    supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('start_at', { ascending: true }),
     supabase.from('conversations').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
     supabase.from('activities').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(8),
   ])
@@ -319,15 +306,25 @@ export async function POST(request: Request) {
       const clientName = str(input.client_name) || str(input.clientName) || str(linkedClient?.name) || 'Cliente'
       const amount = num(input.amount)
       if (!amount) return fail(tool, 'amount es obligatorio.', 400)
+      const concept = str(input.concept) || str(input.plan) || 'Servicio'
+      const issueDate = str(input.issue_date) || str(input.date) || new Date().toISOString().slice(0, 10)
+      const dueDate = str(input.due_date) || str(input.dueDate) || issueDate
       const { data, error } = await supabase.from('invoices').insert({
         workspace_id: workspaceId,
+        client_id: str(input.client_id) || null,
         client_name: clientName,
+        invoice_number: str(input.invoice_number) || str(input.number) || null,
+        number: str(input.number) || str(input.invoice_number) || null,
+        concept,
+        plan: concept,
         amount,
+        currency: str(input.currency, 'EUR'),
         status: invoiceStatus(input.status),
-        date: new Date().toISOString().slice(0, 10),
-        due_date: str(input.due_date) || str(input.dueDate) || new Date().toISOString().slice(0, 10),
-        plan: str(input.concept) || str(input.plan) || 'Servicio',
+        issue_date: issueDate,
+        due_date: dueDate,
+        paid_at: str(input.paid_at) || null,
         notes: str(input.notes) || null,
+        metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
       }).select('*').single()
       if (error) throw error
       await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'deal', description: `Agente creo factura: ${clientName}`, client_name: clientName })
@@ -359,17 +356,32 @@ export async function POST(request: Request) {
       const title = str(input.title)
       const date = str(input.date)
       if (!title || !date) return fail(tool, 'title y date son obligatorios.', 400)
-      const time = toTimeParts(str(input.start_time, '10:00'), str(input.end_time))
+      const time = buildCalendarEventTimes({
+        date,
+        time: str(input.time) || str(input.start_time, '10:00'),
+        endTime: str(input.end_time),
+        duration: input.duration as number | string | null | undefined,
+        startAt: str(input.start_at) || str(input.startAt) || undefined,
+        endAt: str(input.end_at) || str(input.endAt) || undefined,
+      })
+      const clientName = str(input.client_name) || str((await findClientById(supabase, workspaceId, str(input.client_id)))?.name) || null
       const { data, error } = await supabase.from('calendar_events').insert({
         workspace_id: workspaceId,
         title,
-        date,
+        date: time.date,
+        start_at: time.startAtIso,
+        end_at: time.endAtIso,
         start_hour: time.startHour,
         start_minute: time.startMinute,
         duration: time.duration,
         type: eventType(input.type),
-        client_name: str(input.client_name) || str((await findClientById(supabase, workspaceId, str(input.client_id)))?.name) || null,
+        client_id: str(input.client_id) || null,
+        client_name: clientName,
+        status: str(input.status, 'scheduled'),
+        location: str(input.location) || null,
+        notes: str(input.notes) || null,
         description: str(input.notes) || str(input.description) || null,
+        metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
       }).select('*').single()
       if (error) throw error
       await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'call', description: `Agente creo evento: ${title}`, client_name: data.client_name ?? null })
@@ -377,13 +389,16 @@ export async function POST(request: Request) {
     }
 
     if (tool === 'list_calendar_events') {
-      const { data, error } = await supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('date', { ascending: true }).limit(80)
+      const { data, error } = await supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('start_at', { ascending: true }).limit(80)
       if (error) throw error
       const from = str(input.from)
       const to = str(input.to)
       const linkedClient = await findClientById(supabase, workspaceId, str(input.client_id))
       const clientName = str(input.client_name) || str(linkedClient?.name)
-      const filtered = (data ?? []).filter((event) => (!from || String(event.date) >= from) && (!to || String(event.date) <= to) && (!clientName || event.client_name === clientName))
+      const filtered = (data ?? []).filter((event) => {
+        const eventDate = String(event.date ?? event.start_at ?? '').slice(0, 10)
+        return (!from || eventDate >= from) && (!to || eventDate <= to) && (!clientName || event.client_name === clientName)
+      })
       return ok(tool, filtered, 'Eventos consultados.')
     }
 

@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { buildCalendarEventTimes, type CalendarTimeInput } from '@/lib/calendar-time'
 import type {
   Activity,
   ActivityType,
@@ -21,6 +22,8 @@ import type {
   N8nRequirement,
   WorkspaceDocument,
 } from '@/lib/types'
+
+export { buildCalendarEventTimes } from '@/lib/calendar-time'
 
 export type ProfileRecord = {
   id: string
@@ -51,24 +54,46 @@ export type ClientPayload = {
 }
 
 export type InvoicePayload = {
+  clientId?: string
   clientName: string
+  invoiceNumber?: string
+  number?: string
   amount: number
+  currency?: string
   status: InvoiceStatus
   date?: string
-  dueDate: string
-  plan: string
+  issueDate?: string
+  dueDate?: string
+  paidAt?: string
+  concept?: string
+  plan?: string
   notes?: string
+  metadata?: Record<string, unknown>
 }
 
-export type CalendarEventPayload = {
+export type CalendarEventPayload = CalendarTimeInput & {
+  clientId?: string
   title: string
-  date: string
-  startHour: number
-  startMinute: number
-  duration: number
-  type: EventType
+  type?: EventType
   clientName?: string
+  location?: string
+  notes?: string
   description?: string
+  status?: string
+  metadata?: Record<string, unknown>
+}
+
+export type TaskPayload = {
+  clientId?: string
+  clientName?: string
+  title: string
+  description?: string
+  assigned_to?: string
+  status?: string
+  priority?: string
+  due_date?: string
+  dueDate?: string
+  metadata?: Record<string, unknown>
 }
 
 export type ConversationPayload = {
@@ -201,12 +226,41 @@ function isMissingColumn(error: unknown, column: string) {
   return message.toLowerCase().includes(column.toLowerCase())
 }
 
+function isSchemaError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const e = error as Record<string, unknown>
+  const code = String(e.code ?? '')
+  if (code === 'PGRST204' || code === '42703') return true
+  const msg = String(e.message ?? '').toLowerCase()
+  return msg.includes('column') || msg.includes('could not find') || msg.includes('schema cache')
+}
+
 function compactRow(row: DataRecord): DataRecord {
   const next = { ...row }
   Object.keys(next).forEach((key) => {
     if (next[key] === undefined) delete next[key]
   })
   return next
+}
+
+function removeMissingSchemaColumn(row: DataRecord, error: unknown, optionalColumns: string[]) {
+  if (!isSchemaError(error)) return null
+  const missing = optionalColumns.find((column) => Object.prototype.hasOwnProperty.call(row, column) && isMissingColumn(error, column))
+  if (!missing) return null
+  const next = { ...row }
+  delete next[missing]
+  return next
+}
+
+function warnBestEffort(label: string, error: unknown) {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(`[best-effort:${label}]`, error)
+  }
+}
+
+function dateOnly(value: unknown, fallback = todayIso()) {
+  const raw = asString(value, fallback)
+  return raw ? raw.slice(0, 10) : fallback
 }
 
 function getInitials(name: string) {
@@ -234,6 +288,12 @@ function normalizeStatus(value: unknown): ClientStatus {
 
 function normalizeInvoiceStatus(value: unknown): InvoiceStatus {
   if (value === 'paid' || value === 'pending' || value === 'overdue') return value
+  if (typeof value === 'string') {
+    const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    if (normalized === 'pagada' || normalized === 'pagado' || normalized === 'paid') return 'paid'
+    if (normalized === 'vencida' || normalized === 'vencido' || normalized === 'overdue') return 'overdue'
+    if (normalized === 'pendiente' || normalized === 'pending') return 'pending'
+  }
   return 'pending'
 }
 
@@ -642,28 +702,51 @@ export async function deleteClient(id: string) {
 }
 
 export function mapSupabaseInvoice(row: DataRecord): Invoice {
+  const concept = asString(row.concept ?? row.concepto ?? row.plan ?? row.description, 'Servicio')
+  const issueDate = dateOnly(row.issue_date ?? row.fecha_de_asunto ?? row.fecha_de_emision ?? row.date ?? row.issued_at ?? row.created_at)
+  const dueDate = dateOnly(row.due_date ?? row.fecha_de_vencimiento ?? row.dueDate, todayIso())
   return {
     id: asString(row.id),
-    clientName: asString(row.client_name ?? row.customer_name ?? row.clientName, 'Cliente'),
-    amount: asNumber(row.amount, 0),
-    status: normalizeInvoiceStatus(row.status),
-    date: asString(row.date ?? row.issued_at ?? row.created_at, todayIso()).slice(0, 10),
-    dueDate: asString(row.due_date ?? row.dueDate, todayIso()).slice(0, 10),
-    plan: asString(row.plan ?? row.concept ?? row.description, 'Pro'),
+    workspaceId: asString(row.workspace_id) || undefined,
+    clientId: asString(row.client_id) || undefined,
+    clientName: asString(row.client_name ?? row.customer_name ?? row.clientName ?? row.cliente, 'Cliente'),
+    invoiceNumber: asString(row.invoice_number ?? row.numero_factura) || undefined,
+    number: asString(row.number ?? row.numero) || undefined,
+    amount: asNumber(row.amount ?? row.cantidad, 0),
+    currency: asString(row.currency ?? row.divisa, 'EUR'),
+    status: normalizeInvoiceStatus(row.status ?? row.estado),
+    date: issueDate,
+    issueDate,
+    dueDate,
+    paidAt: asString(row.paid_at ?? row.pagado_en) || undefined,
+    concept,
+    plan: asString(row.plan ?? concept, concept),
     notes: asString(row.notes),
+    metadata: asRecord(row.metadata),
   }
 }
 
 function toInvoiceRow(workspaceId: string, payload: InvoicePayload): DataRecord {
+  const concept = payload.concept?.trim() || payload.plan?.trim() || 'Servicio'
+  const issueDate = payload.issueDate || payload.date || todayIso()
+  const dueDate = payload.dueDate || issueDate
+  const invoiceNumber = payload.invoiceNumber || payload.number || undefined
   return {
     workspace_id: workspaceId,
+    client_id: payload.clientId || null,
     client_name: payload.clientName.trim(),
+    invoice_number: invoiceNumber || null,
+    number: invoiceNumber || null,
+    concept,
+    plan: payload.plan?.trim() || concept,
     amount: payload.amount,
+    currency: payload.currency || 'EUR',
     status: payload.status,
-    date: payload.date || todayIso(),
-    due_date: payload.dueDate,
-    plan: payload.plan.trim() || 'Pro',
+    issue_date: issueDate,
+    due_date: dueDate,
+    paid_at: payload.paidAt || null,
     notes: payload.notes?.trim() || null,
+    metadata: payload.metadata || {},
   }
 }
 
@@ -685,15 +768,20 @@ export async function createInvoice(workspaceId: string, payload: InvoicePayload
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { data, error } = await supabase
-    .from('invoices')
-    .insert(toInvoiceRow(workspaceId, payload))
-    .select('*')
-    .single()
+  let row = compactRow(toInvoiceRow(workspaceId, payload))
+  const optionalColumns = ['client_id', 'invoice_number', 'number', 'concept', 'plan', 'currency', 'issue_date', 'due_date', 'paid_at', 'notes', 'metadata']
 
-  if (error) throw error
-  return mapSupabaseInvoice(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    const result = await supabase.from('invoices').insert(row).select('*').single()
+    if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
+    const nextRow = removeMissingSchemaColumn(row, result.error, optionalColumns)
+    if (!nextRow) throw result.error
+    row = nextRow
+  }
+
+  throw new Error('No se pudo crear la factura con el schema disponible')
 }
+
 
 export async function updateInvoice(id: string, payload: InvoicePayload) {
   const supabase = getSupabaseBrowserClient()
@@ -701,30 +789,34 @@ export async function updateInvoice(id: string, payload: InvoicePayload) {
 
   const row = toInvoiceRow('', payload)
   delete row.workspace_id
-  const { data, error } = await supabase
-    .from('invoices')
-    .update(row)
-    .eq('id', id)
-    .select('*')
-    .single()
+  let patch = compactRow(row)
+  const optionalColumns = ['client_id', 'invoice_number', 'number', 'concept', 'plan', 'currency', 'issue_date', 'due_date', 'paid_at', 'notes', 'metadata']
 
-  if (error) throw error
-  return mapSupabaseInvoice(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    const result = await supabase.from('invoices').update(patch).eq('id', id).select('*').single()
+    if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
+    const nextPatch = removeMissingSchemaColumn(patch, result.error, optionalColumns)
+    if (!nextPatch) throw result.error
+    patch = nextPatch
+  }
+
+  throw new Error('No se pudo actualizar la factura con el schema disponible')
 }
 
 export async function markInvoicePaid(id: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { data, error } = await supabase
-    .from('invoices')
-    .update({ status: 'paid' })
-    .eq('id', id)
-    .select('*')
-    .single()
+  let patch: DataRecord = { status: 'paid', paid_at: new Date().toISOString() }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await supabase.from('invoices').update(patch).eq('id', id).select('*').single()
+    if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
+    const nextPatch = removeMissingSchemaColumn(patch, result.error, ['paid_at'])
+    if (!nextPatch) throw result.error
+    patch = nextPatch
+  }
 
-  if (error) throw error
-  return mapSupabaseInvoice(data as DataRecord)
+  throw new Error('No se pudo marcar la factura como pagada')
 }
 
 export async function deleteInvoice(id: string) {
@@ -740,30 +832,66 @@ export async function deleteInvoice(id: string) {
 }
 
 export function mapSupabaseCalendarEvent(row: DataRecord): CalendarEvent {
+  const hasStartAt = Boolean(row.start_at)
+  const times = hasStartAt
+    ? buildCalendarEventTimes({
+        startAt: asString(row.start_at),
+        endAt: asString(row.end_at) || undefined,
+        duration: asNumber(row.duration, 60),
+      })
+    : buildCalendarEventTimes({
+        date: dateOnly(row.date ?? row.event_date ?? row.start_date),
+        startHour: asNumber(row.start_hour, 10),
+        startMinute: asNumber(row.start_minute, 0),
+        duration: asNumber(row.duration, 60),
+      })
   return {
     id: asString(row.id),
+    workspaceId: asString(row.workspace_id) || undefined,
+    clientId: asString(row.client_id) || undefined,
     title: asString(row.title, 'Evento'),
-    date: asString(row.date ?? row.event_date ?? row.start_date, todayIso()).slice(0, 10),
-    startHour: asNumber(row.start_hour, 10),
-    startMinute: asNumber(row.start_minute, 0),
-    duration: asNumber(row.duration, 60),
+    startAt: times.startAtIso,
+    endAt: times.endAtIso,
+    date: times.date,
+    startHour: times.startHour,
+    startMinute: times.startMinute,
+    duration: times.duration,
     type: normalizeEventType(row.type),
     clientName: asString(row.client_name ?? row.clientName) || undefined,
+    location: asString(row.location) || undefined,
+    notes: asString(row.notes) || undefined,
     description: asString(row.description ?? row.notes) || undefined,
+    status: asString(row.status, 'scheduled'),
+    metadata: asRecord(row.metadata),
+    createdAt: asString(row.created_at) || undefined,
+    updatedAt: asString(row.updated_at) || undefined,
+    googleEventId: asString(row.google_event_id) || undefined,
+    googleCalendarId: asString(row.google_calendar_id) || undefined,
+    syncSource: asString(row.sync_source) || undefined,
+    lastSyncedAt: asString(row.last_synced_at) || undefined,
   }
 }
 
 function toCalendarEventRow(workspaceId: string, payload: CalendarEventPayload): DataRecord {
+  const times = buildCalendarEventTimes(payload)
+  const description = payload.description?.trim() || payload.notes?.trim() || null
   return {
     workspace_id: workspaceId,
-    title: payload.title.trim(),
-    date: payload.date,
-    start_hour: payload.startHour,
-    start_minute: payload.startMinute,
-    duration: payload.duration,
-    type: payload.type,
+    client_id: payload.clientId || null,
     client_name: payload.clientName?.trim() || null,
-    description: payload.description?.trim() || null,
+    title: payload.title.trim(),
+    type: payload.type || 'meeting',
+    start_at: times.startAtIso,
+    end_at: times.endAtIso,
+    date: times.date,
+    start_hour: times.startHour,
+    start_minute: times.startMinute,
+    duration: times.duration,
+    location: payload.location?.trim() || null,
+    notes: payload.notes?.trim() || null,
+    description,
+    status: payload.status || 'scheduled',
+    metadata: payload.metadata || {},
   }
 }
 
@@ -771,14 +899,22 @@ export async function getCalendarEvents(workspaceId: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
 
-  const { data, error } = await supabase
+  let result = await supabase
     .from('calendar_events')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .order('date', { ascending: true })
+    .order('start_at', { ascending: true })
 
-  if (error) throw error
-  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
+  if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'start_at')) {
+    result = await supabase
+      .from('calendar_events')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('date', { ascending: true })
+  }
+
+  if (result.error) throw result.error
+  return ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
 }
 
 export async function deleteConversationPermanently(conversationId: string, workspaceId: string) {
@@ -880,12 +1016,12 @@ export async function getClientConversations(workspaceId: string, clientIdOrName
 
 export async function getClientInvoices(workspaceId: string, clientIdOrName: string) {
   const invoices = await getInvoices(workspaceId)
-  return invoices.filter(i => i.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+  return invoices.filter(i => i.clientId === clientIdOrName || i.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
 }
 
 export async function getClientCalendarEvents(workspaceId: string, clientIdOrName: string) {
   const events = await getCalendarEvents(workspaceId)
-  return events.filter(e => e.clientName && e.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+  return events.filter(e => e.clientId === clientIdOrName || (e.clientName && e.clientName.toLowerCase().includes(clientIdOrName.toLowerCase())))
 }
 
 export async function getRecentActivities(workspaceId: string) {
@@ -895,6 +1031,18 @@ export async function getRecentActivities(workspaceId: string) {
 export async function getClientActivities(workspaceId: string, clientIdOrName: string) {
   const activities = await getActivities(workspaceId)
   return activities.filter(a => a.clientName && a.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
+}
+
+export async function getClientFullContext(workspaceId: string, clientId: string) {
+  const client = await getClientDetail(workspaceId, clientId)
+  if (!client) return null
+  const [invoices, calendarEvents, conversations, activities] = await Promise.all([
+    getClientInvoices(workspaceId, client.name).catch(() => []),
+    getClientCalendarEvents(workspaceId, client.name).catch(() => []),
+    getClientConversations(workspaceId, clientId).catch(() => []),
+    getClientActivities(workspaceId, client.name).catch(() => []),
+  ])
+  return { client, invoices, calendarEvents, conversations, activities }
 }
 
 export async function getPendingInvoices(workspaceId: string) {
@@ -917,17 +1065,28 @@ export async function getUpcomingCalendarEvents(workspaceId: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
 
-  const today = new Date().toISOString().slice(0, 10)
-  const { data, error } = await supabase
+  const nowIso = new Date().toISOString()
+  let result = await supabase
     .from('calendar_events')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .gte('date', today)
-    .order('date', { ascending: true })
+    .gte('start_at', nowIso)
+    .order('start_at', { ascending: true })
     .limit(20)
 
-  if (error) throw error
-  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
+  if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'start_at')) {
+    const today = todayIso()
+    result = await supabase
+      .from('calendar_events')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .gte('date', today)
+      .order('date', { ascending: true })
+      .limit(20)
+  }
+
+  if (result.error) throw result.error
+  return ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
 }
 
 export async function getWorkspaceSummary(workspaceId: string) {
@@ -974,49 +1133,67 @@ export async function createCalendarEvent(workspaceId: string, payload: Calendar
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { data, error } = await supabase
-    .from('calendar_events')
-    .insert(toCalendarEventRow(workspaceId, payload))
-    .select('*')
-    .single()
+  let row = compactRow(toCalendarEventRow(workspaceId, payload))
+  if (!row.start_at || !row.end_at) throw new Error('start_at y end_at son obligatorios para calendar_events')
+  const optionalColumns = ['client_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
 
-  if (error) throw error
-  return mapSupabaseCalendarEvent(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    const result = await supabase.from('calendar_events').insert(row).select('*').single()
+    if (!result.error) return mapSupabaseCalendarEvent(result.data as DataRecord)
+    const nextRow = removeMissingSchemaColumn(row, result.error, optionalColumns)
+    if (!nextRow) throw result.error
+    row = nextRow
+  }
+
+  throw new Error('No se pudo crear el evento con el schema disponible')
 }
 
-export async function updateCalendarEvent(id: string, payload: CalendarEventPayload) {
+
+export async function updateCalendarEvent(id: string, workspaceIdOrPayload: string | CalendarEventPayload, maybePayload?: CalendarEventPayload) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
+  const workspaceId = typeof workspaceIdOrPayload === 'string' ? workspaceIdOrPayload : undefined
+  const payload = typeof workspaceIdOrPayload === 'string' ? maybePayload : workspaceIdOrPayload
+  if (!payload) throw new Error('payload es obligatorio para actualizar calendar_events')
   const row = toCalendarEventRow('', payload)
   delete row.workspace_id
-  const { data, error } = await supabase
-    .from('calendar_events')
-    .update(row)
-    .eq('id', id)
-    .select('*')
-    .single()
+  let patch = compactRow(row)
+  if (!patch.start_at || !patch.end_at) throw new Error('start_at y end_at son obligatorios para calendar_events')
+  const optionalColumns = ['client_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
 
-  if (error) throw error
-  return mapSupabaseCalendarEvent(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    let query = supabase.from('calendar_events').update(patch).eq('id', id)
+    if (workspaceId) query = query.eq('workspace_id', workspaceId)
+    const result = await query.select('*').single()
+    if (!result.error) return mapSupabaseCalendarEvent(result.data as DataRecord)
+    const nextPatch = removeMissingSchemaColumn(patch, result.error, optionalColumns)
+    if (!nextPatch) throw result.error
+    patch = nextPatch
+  }
+
+  throw new Error('No se pudo actualizar el evento con el schema disponible')
 }
 
-export async function deleteCalendarEvent(id: string) {
+export async function deleteCalendarEvent(id: string, workspaceId?: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { error } = await supabase
+  let query = supabase
     .from('calendar_events')
     .delete()
     .eq('id', id)
 
+  if (workspaceId) query = query.eq('workspace_id', workspaceId)
+  const { error } = await query
   if (error) throw error
 }
 
 export function mapSupabaseConversation(row: DataRecord): Conversation {
   const metadata = asRecord(row.metadata)
   const assistantMode = inferAssistantMode(row)
-  const clientName = asString(row.client_name, assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente')
+  const metadataTitle = typeof metadata.title === 'string' && metadata.title ? metadata.title : undefined
+  const clientName = metadataTitle ?? (asString(row.title ?? row.name, '') || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente'))
   return {
     id: asString(row.id),
     workspaceId: asString(row.workspace_id) || undefined,
@@ -1039,6 +1216,7 @@ export function mapSupabaseConversation(row: DataRecord): Conversation {
 
 function toConversationRow(workspaceId: string, payload: ConversationPayload): DataRecord {
   const assistantMode = payload.assistantMode
+  const metadataBase = payload.metadata ?? {}
   return {
     workspace_id: workspaceId,
     client_id: payload.clientId || null,
@@ -1047,6 +1225,7 @@ function toConversationRow(workspaceId: string, payload: ConversationPayload): D
     sentiment: payload.sentiment || 'neutral',
     intent: assistantIntentForMode(assistantMode),
     ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
+    metadata: { ...metadataBase, assistant_mode: assistantMode },
     updated_at: new Date().toISOString(),
   }
 }
@@ -1176,6 +1355,25 @@ export async function updateConversationScoped(id: string, workspaceId: string, 
 
   if (error) throw error
   return mapSupabaseConversation(data as DataRecord)
+}
+
+export async function updateConversationTitle(id: string, workspaceId: string, title: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return
+
+  const { data } = await supabase
+    .from('conversations')
+    .select('metadata')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  const existing = (data?.metadata && typeof data.metadata === 'object') ? data.metadata as Record<string, unknown> : {}
+  await supabase
+    .from('conversations')
+    .update({ metadata: { ...existing, title }, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
 }
 
 export async function markConversationResolved(id: string) {
@@ -1316,7 +1514,10 @@ export async function createActivity(workspaceId: string, payload: ActivityPaylo
     .select('*')
     .single()
 
-  if (error) return null
+  if (error) {
+    warnBestEffort('createActivity', error)
+    return null
+  }
   return mapSupabaseActivity(data as DataRecord)
 }
 
@@ -1551,6 +1752,40 @@ export async function getIntegrationSettings(workspaceId: string) {
   return ((data as DataRecord[] | null) ?? []).map(mapSupabaseIntegrationSetting)
 }
 
+export async function getWhatsappConnection(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data, error } = await supabase
+    .from('whatsapp_connections')
+    .select('id, workspace_id, provider, phone_number, status, created_at, updated_at')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (error) {
+    if (isSchemaError(error)) return null
+    throw error
+  }
+  return data as DataRecord | null
+}
+
+export async function getInboxAgentSettings(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return null
+
+  const { data, error } = await supabase
+    .from('inbox_agent_settings')
+    .select('id, workspace_id, auto_reply_enabled, status, created_at, updated_at')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (error) {
+    if (isSchemaError(error)) return null
+    throw error
+  }
+  return data as DataRecord | null
+}
+
 export async function upsertIntegrationSetting(workspaceId: string, payload: IntegrationPayload) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
@@ -1629,26 +1864,36 @@ export async function listTasks(workspaceId: string) {
   return (data as DataRecord[]).map(mapSupabaseTask)
 }
 
-export async function createTask(workspaceId: string, payload: { title: string; description?: string; assigned_to?: string; due_date?: string }) {
+export async function createTask(workspaceId: string, payload: TaskPayload) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert({
-      workspace_id: workspaceId,
-      title: payload.title,
-      description: payload.description || null,
-      assigned_to: payload.assigned_to || null,
-      due_date: payload.due_date || null,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single()
+  const dueDate = payload.dueDate || payload.due_date
+  const row = compactRow({
+    workspace_id: workspaceId,
+    client_id: payload.clientId || null,
+    client_name: payload.clientName || null,
+    title: payload.title,
+    description: payload.description || null,
+    assigned_to: payload.assigned_to || null,
+    status: payload.status || 'pending',
+    priority: payload.priority || 'normal',
+    due_date: dueDate || null,
+    metadata: payload.metadata || {},
+    created_at: new Date().toISOString(),
+  })
+  let insertRow = row
+  const optionalColumns = ['client_id', 'client_name', 'assigned_to', 'priority', 'due_date', 'metadata', 'created_at']
 
-  if (error) throw error
-  return mapSupabaseTask(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    const result = await supabase.from('tasks').insert(insertRow).select('*').single()
+    if (!result.error) return mapSupabaseTask(result.data as DataRecord)
+    const nextRow = removeMissingSchemaColumn(insertRow, result.error, optionalColumns)
+    if (!nextRow) throw result.error
+    insertRow = nextRow
+  }
+
+  throw new Error('No se pudo crear la tarea con el schema disponible')
 }
 
 // Notifications helpers
@@ -1684,9 +1929,9 @@ export async function markNotificationRead(id: string) {
 // Agent action logs helpers
 export async function createAgentActionLog(workspaceId: string, payload: { action: string; details?: Record<string, unknown> }) {
   const supabase = getSupabaseBrowserClient()
-  if (!supabase) throw new Error('Supabase no esta configurado')
+  if (!supabase) return null
 
-  const { data, error } = await supabase
+  let result = await supabase
     .from('agent_action_logs')
     .insert({
       workspace_id: workspaceId,
@@ -1697,8 +1942,26 @@ export async function createAgentActionLog(workspaceId: string, payload: { actio
     .select('*')
     .single()
 
-  if (error) throw error
-  return data
+  if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'details')) {
+    result = await supabase.from('agent_action_logs').insert({
+      workspace_id: workspaceId,
+      action: payload.action,
+      created_at: new Date().toISOString(),
+    }).select('*').single()
+  }
+
+  if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'created_at')) {
+    result = await supabase.from('agent_action_logs').insert({
+      workspace_id: workspaceId,
+      action: payload.action,
+    }).select('*').single()
+  }
+
+  if (result.error) {
+    warnBestEffort('createAgentActionLog', result.error)
+    return null
+  }
+  return result.data
 }
 
 // N8n trigger logs helpers
@@ -1722,15 +1985,19 @@ export async function createN8nTriggerLog(workspaceId: string, payload: { trigge
 }
 
 // Mappers for new tables
-function mapSupabaseTask(row: DataRecord) {
+export function mapSupabaseTask(row: DataRecord) {
   return {
     id: asString(row.id),
     workspace_id: asString(row.workspace_id),
+    client_id: asString(row.client_id) || undefined,
+    client_name: asString(row.client_name) || undefined,
     title: asString(row.title),
     description: asString(row.description),
     assigned_to: asString(row.assigned_to) || undefined,
     due_date: asString(row.due_date) || undefined,
     status: asString(row.status, 'pending'),
+    priority: asString(row.priority, 'normal'),
+    metadata: asRecord(row.metadata),
     created_at: asString(row.created_at),
     updated_at: asString(row.updated_at),
   }

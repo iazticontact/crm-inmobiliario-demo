@@ -89,11 +89,20 @@ function titleCase(value: string) {
 }
 
 function extractClientName(raw: string) {
-  const match = raw.match(/\b(?:para|a|cliente|nombre de)\s+(\p{Lu}[\p{L}]+(?:\s+\p{Lu}[\p{L}]+)?)/u)
-  if (match?.[1]) return match[1].trim()
+  // "con/para [Name]" — uppercase match first (preserves casing as typed)
+  const upperMatch = raw.match(/\b(?:con|para)\s+(\p{Lu}[\p{L}]+(?:\s+\p{Lu}[\p{L}]+){0,2})/u)
+  if (upperMatch?.[1]) return upperMatch[1].trim()
 
-  const lowerMatch = raw.match(/\b(?:para|a|cliente|nombre de)\s+(\p{L}{3,})(?=\s|$)/iu)
-  return lowerMatch?.[1] ? titleCase(lowerMatch[1]) : undefined
+  // "cliente [Name]" / "nombre de [Name]"
+  const clienteMatch = raw.match(/\b(?:cliente|nombre de)\s+(\p{Lu}[\p{L}]+(?:\s+\p{Lu}[\p{L}]+){0,2})/u)
+  if (clienteMatch?.[1]) return clienteMatch[1].trim()
+
+  // Lowercase fallback for "con/para [name]" — skip time/date words
+  const isStopWord = /^(la|las|el|los|un|una|mañana|manana|hoy|ayer|pasado|proximo|proximo|lunes|martes|miercoles|jueves|viernes|sabado|domingo)$/i
+  const lowerMatch = raw.match(/\b(?:con|para)\s+([a-záéíóúñü]{3,})(?=\s|$)/iu)
+  if (lowerMatch?.[1] && !isStopWord.test(lowerMatch[1])) return titleCase(lowerMatch[1])
+
+  return undefined
 }
 
 function extractDate(text: string) {
@@ -233,10 +242,8 @@ export function detectAssistantIntent(message: string, context: { defaultClientN
     extracted.service = extractService(raw, text)
     const missingFields = [
       !extracted.clientName && 'cliente',
-      !extracted.service && 'servicio',
       !extracted.date && 'fecha',
       !extracted.time && 'hora',
-      !extracted.duration && 'duración',
     ].filter(Boolean) as string[]
 
     return {

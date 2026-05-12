@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Bot, CalendarDays, CheckCircle, FileText, Loader2, Mail, MessageSquare, Phone, Plus, Search, Send, Target, X, Zap } from 'lucide-react'
+import { ArrowRight, Bot, CalendarDays, CheckCircle, FileText, Loader2, Mail, MessageSquare, Pencil, Phone, Plus, Search, Send, Target, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
@@ -13,12 +13,15 @@ import { conversations as mockConversations, messages as mockMessages } from '@/
 import { ASSISTANT_AGENT_WEBHOOK_URL, callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
+import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
   createActivity,
   createCalendarEvent,
   createAssistantConversation,
   createInvoice,
   createMessage,
+  createAgentActionLog,
+  createTask,
   deleteConversationPermanently,
   getAssistantConversationById,
   getAssistantConversations,
@@ -33,6 +36,7 @@ import {
   mapSupabaseClient,
   searchClients,
   updateConversationScoped,
+  updateConversationTitle,
   getClientInvoices,
   getClientCalendarEvents,
   getClientConversations,
@@ -173,6 +177,13 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
 
 const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'n8n preparado']
 const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp/Whapi futuro']
+const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }> = [
+  { label: 'Estado conexion', prompt: 'Estado de conexion Inbox Assistant', intent: 'manual_status', sender: 'agent' },
+  { label: 'Modo manual', prompt: 'Modo manual Inbox Assistant', intent: 'manual_mode', sender: 'agent' },
+  { label: 'Pendiente Whapi/n8n', prompt: 'Pendiente de conectar Whapi/n8n', intent: 'pending_connection', sender: 'agent' },
+]
+const INBOX_MANUAL_RESPONSE = 'Inbox Assistant esta preparado para conectar Whapi/n8n. De momento la respuesta automatica esta desactivada para evitar respuestas falsas; puedes seguir usando esta bandeja en modo manual.'
+
 const capabilityExamples = [
   'Resume este cliente',
   'Prepara una cita',
@@ -232,6 +243,27 @@ type PreparedAction =
       missingFields: string[]
       notes?: string
     }
+  | {
+      id: string
+      type: 'task'
+      title: string
+      assistantMode: AssistantMode
+      clientName?: string
+      taskTitle?: string
+      description?: string
+      dueDate?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'prepare_pdf'
+      title: string
+      assistantMode: AssistantMode
+      clientName?: string
+      clientId?: string
+      reportText?: string
+      missingFields: string[]
+    }
 
 type PersistenceDiagnostics = {
   sessionUserId: string
@@ -283,26 +315,30 @@ function getInitials(name: string) {
   return name.trim().split(/\s+/).map((word) => word[0]).join('').slice(0, 2).toUpperCase() || 'NC'
 }
 
-function parseHourMinute(value: string) {
-  const [hour = '10', minute = '0'] = value.split(':')
-  return {
-    startHour: Math.max(0, Math.min(23, Number(hour) || 10)),
-    startMinute: Math.max(0, Math.min(59, Number(minute) || 0)),
-  }
-}
-
-function endTime(start: string, duration: number) {
-  const { startHour, startMinute } = parseHourMinute(start)
-  const total = startHour * 60 + startMinute + duration
-  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-}
-
 function isGenericConversationName(value?: string) {
   return !value || /nuevo lead|lead demo|cliente demo|sin cliente|asistente interno|consulta crm|operacion comercial|operación comercial/i.test(value)
 }
 
 function normalizeInput(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function extractTaskTitle(message: string): string | undefined {
+  const t = message.trim()
+  const patterns: [RegExp, number | null][] = [
+    [/recuérdame(?:\s+que\s+tengo\s+que|\s+de)?\s+(.+)/i, 1],
+    [/recuerdame(?:\s+que\s+tengo\s+que|\s+de)?\s+(.+)/i, 1],
+    [/crea\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
+    [/pon\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
+    [/agrega\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
+    [/añade\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
+    [/tarea\s+de\s+seguimiento\b/i, null],
+  ]
+  for (const [pattern, group] of patterns) {
+    const match = t.match(pattern)
+    if (match) return group !== null ? match[group]?.trim().replace(/\.?\s*$/, '') : 'Seguimiento'
+  }
+  return undefined
 }
 
 function isCapabilityQuestion(value: string) {
@@ -345,19 +381,24 @@ function missingText(fields: string[]) {
 
 function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): PreparedAction | null {
   const { extracted } = intent
-  if ((intent.intent === 'booking' || intent.intent === 'booking_concrete') && (extracted.clientName || extracted.service || extracted.date || extracted.time)) {
+
+  if ((intent.intent === 'booking' || intent.intent === 'booking_concrete') && (extracted.clientName || extracted.date || extracted.time || extracted.service)) {
     return {
       id: `booking-${Date.now()}`,
       type: 'booking',
       title: 'Crear cita',
       assistantMode: mode,
       clientName: extracted.clientName,
-      service: extracted.service,
+      service: extracted.service || 'Reunion comercial',
       date: extracted.date,
       time: extracted.time,
-      duration: extracted.duration,
-      missingFields: intent.missingFields,
-      notes: extracted.service ? `Reserva preparada desde Assistant Agent para ${extracted.service}.` : 'Reserva preparada desde Assistant Agent.',
+      duration: extracted.duration ?? 60,
+      missingFields: [
+        !extracted.clientName && 'cliente',
+        !extracted.date && 'fecha',
+        !extracted.time && 'hora',
+      ].filter(Boolean) as string[],
+      notes: 'Cita preparada desde NowLabs AI. Requiere confirmacion.',
     }
   }
 
@@ -372,7 +413,7 @@ function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): Prep
       amount: extracted.amount,
       dueDate: extracted.dueDate,
       missingFields: intent.missingFields,
-      notes: 'Factura preparada desde Assistant Agent. Requiere confirmación.',
+      notes: 'Factura preparada desde NowLabs AI. Requiere confirmación.',
     }
   }
 
@@ -446,30 +487,188 @@ function mergePreparedAction(action: PreparedAction, intent: AssistantIntent): P
       ...next,
       missingFields: [
         !next.clientName && 'cliente',
-        !next.service && 'servicio',
         !next.date && 'fecha',
         !next.time && 'hora',
-        !next.duration && 'duración',
       ].filter(Boolean) as string[],
     }
   }
 
-  const next = {
-    ...action,
-    clientName: extracted.clientName || action.clientName,
-    concept: extracted.concept || action.concept,
-    amount: action.amount ?? extracted.amount,
-    dueDate: extracted.dueDate || extracted.date || action.dueDate,
+  if (action.type === 'invoice') {
+    const next = {
+      ...action,
+      clientName: extracted.clientName || action.clientName,
+      concept: extracted.concept || action.concept,
+      amount: action.amount ?? extracted.amount,
+      dueDate: extracted.dueDate || extracted.date || action.dueDate,
+    }
+    return {
+      ...next,
+      missingFields: [
+        !next.clientName && 'cliente',
+        !next.amount && 'importe',
+        !next.concept && 'concepto',
+        !next.dueDate && 'vencimiento',
+      ].filter(Boolean) as string[],
+    }
   }
-  return {
-    ...next,
-    missingFields: [
-      !next.clientName && 'cliente',
-      !next.amount && 'importe',
-      !next.concept && 'concepto',
-      !next.dueDate && 'vencimiento',
-    ].filter(Boolean) as string[],
+  return action
+}
+
+function parseIsoDate(raw: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const parts = raw.split('/')
+  if (parts.length === 2) {
+    const year = new Date().getFullYear()
+    return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
   }
+  if (parts.length === 3) {
+    const [d, m, y] = parts
+    const year = y.length === 2 ? `20${y}` : y
+    return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  }
+  return null
+}
+
+function parseRelativeDate(keyword: string): string | null {
+  const k = keyword.trim().toLowerCase()
+  const today = new Date()
+  const pad = (v: number) => String(v).padStart(2, '0')
+  const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  if (k === 'manana') { const d = new Date(today); d.setDate(today.getDate() + 1); return toIso(d) }
+  if (k === 'pasado manana') { const d = new Date(today); d.setDate(today.getDate() + 2); return toIso(d) }
+  const days = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+  const idx = days.indexOf(k)
+  if (idx >= 0) {
+    const d = new Date(today)
+    let delta = idx - today.getDay()
+    if (delta <= 0) delta += 7
+    d.setDate(today.getDate() + delta)
+    return toIso(d)
+  }
+  return null
+}
+
+function todayIsoLocal() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function addDaysIso(dateIso: string, days: number) {
+  const [year, month, day] = dateIso.split('-').map(Number)
+  const date = new Date(year, (month || 1) - 1, day || 1)
+  date.setDate(date.getDate() + days)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function applyActionEdit(action: PreparedAction, text: string): PreparedAction | null {
+  const n = normalizeInput(text)
+  let changed = false
+
+  if (action.type === 'booking') {
+    let next = { ...action }
+
+    const timeMatch = n.match(/(?:mejor\s+)?a\s+las?\s+(\d{1,2})(?:[:\s](\d{2}))?/)
+    if (timeMatch) {
+      next = { ...next, time: `${timeMatch[1].padStart(2, '0')}:${(timeMatch[2] ?? '00').padStart(2, '0')}` }
+      changed = true
+    }
+
+    const dateMatch = n.match(/(?:mejor\s+)?(?:(?:para\s+)?el\s+dia\s+|para\s+el\s+|el\s+)(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\d{4}-\d{2}-\d{2})/)
+    if (dateMatch) {
+      const iso = parseIsoDate(dateMatch[1])
+      if (iso) { next = { ...next, date: iso }; changed = true }
+    }
+    if (!dateMatch) {
+      const relMatch = n.match(/\b(pasado manana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/)
+      if (relMatch) {
+        const iso = parseRelativeDate(relMatch[1])
+        if (iso) { next = { ...next, date: iso }; changed = true }
+      }
+    }
+
+    const durMatch = n.match(/(\d+)\s*(?:minutos?|min\b)/) || n.match(/(\d+)\s*hora/)
+    if (durMatch) {
+      const val = parseInt(durMatch[1])
+      const dur = /hora/.test(n) ? val * 60 : val
+      if (dur > 0) { next = { ...next, duration: dur }; changed = true }
+    }
+
+    const serviceMatch = n.match(/(?:servicio|para)\s+(?:es\s+|de\s+)?(.{3,30})/)
+    if (serviceMatch && !/mejor|las?\s+\d|minutos|hora/.test(serviceMatch[1])) {
+      next = { ...next, service: serviceMatch[1].trim() }
+      changed = true
+    }
+
+    if (!changed) return null
+    return {
+      ...next,
+      missingFields: [
+        !next.clientName && 'cliente',
+        !next.date && 'fecha',
+        !next.time && 'hora',
+      ].filter(Boolean) as string[],
+    }
+  }
+
+  if (action.type === 'invoice') {
+    let next = { ...action }
+
+    const amountMatch = n.match(/(?:cambia(?:r|lo|la)?\s+(?:el\s+)?importe\s+a\s*|importe\s+(?:de\s+)?a?\s*|son\s+)(\d+(?:[.,]\d+)?)/)
+      || n.match(/(\d+(?:[.,]\d+)?)\s*(?:eur(?:os?)?|€)/)
+    if (amountMatch) {
+      const val = parseFloat(amountMatch[1].replace(',', '.'))
+      if (val > 0) { next = { ...next, amount: val }; changed = true }
+    }
+
+    const dueDateMatch = n.match(/(?:vence(?:\s+el)?|vencimiento\s+(?:el\s+)?)(\d{4}-\d{2}-\d{2}|\d{1,2}[\/]\d{1,2})/)
+    if (dueDateMatch) {
+      const iso = parseIsoDate(dueDateMatch[1])
+      if (iso) { next = { ...next, dueDate: iso }; changed = true }
+    }
+    if (!dueDateMatch) {
+      const relMatch = n.match(/(?:vence(?:\s+el)?\s+|vencimiento\s+)?(pasado manana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/)
+      if (relMatch) {
+        const iso = parseRelativeDate(relMatch[1])
+        if (iso) { next = { ...next, dueDate: iso }; changed = true }
+      }
+    }
+
+    const conceptMatch = n.match(/concepto[:\s]+(?:es\s+)?(.{3,60})/)
+    if (conceptMatch) { next = { ...next, concept: conceptMatch[1].trim() }; changed = true }
+
+    if (!changed) return null
+    return {
+      ...next,
+      missingFields: [
+        !next.clientName && 'cliente',
+        !next.amount && 'importe',
+        !next.concept && 'concepto',
+        !next.dueDate && 'vencimiento',
+      ].filter(Boolean) as string[],
+    }
+  }
+
+  if (action.type === 'task') {
+    let next = { ...action }
+
+    const dueDateMatch = n.match(/(?:para\s+el|vence(?:\s+el)?)[\s]+(\d{4}-\d{2}-\d{2}|\d{1,2}[\/]\d{1,2})/)
+    if (dueDateMatch) {
+      const iso = parseIsoDate(dueDateMatch[1])
+      if (iso) { next = { ...next, dueDate: iso }; changed = true }
+    }
+    if (!dueDateMatch) {
+      const relMatch = n.match(/\b(pasado manana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/)
+      if (relMatch) {
+        const iso = parseRelativeDate(relMatch[1])
+        if (iso) { next = { ...next, dueDate: iso }; changed = true }
+      }
+    }
+
+    if (!changed) return null
+    return { ...next }
+  }
+
+  return null
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {
@@ -508,93 +707,197 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
     return `Resumen de ${name}: estado ${status}.${notes ? `\nNotas: ${notes}` : ''}\nSiguiente paso: confirma necesidad y agenda seguimiento.`
   }
 
-  return 'Tool ejecutada. Resultado preparado para el Assistant Agent.'
+  return 'Herramienta ejecutada. Resultado disponible en NowLabs AI.'
 }
 
 function normalizeQuery(value: string) {
   return normalizeInput(value).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-function detectCopilotCRMQuery(value: string, lastReferencedClientName?: string) {
+function detectCopilotCRMQuery(value: string, lastReferencedClientName?: string, lastReferencedClientId?: string) {
   const text = normalizeInput(value)
-  
-  // Detectar referencias a "sus datos", "ese cliente", etc.
-  if (/\b(sus datos|su correo|su email|su telefono|su empresa|ese cliente|este cliente|resumen de ese|todos los datos|todos sus datos|informe de ese|dame todos sus datos)\b/.test(text) && lastReferencedClientName) {
-    return 'client_report_referenced'
+  const hasRef = Boolean(lastReferencedClientName || lastReferencedClientId)
+
+  // Ficha rápida de datos básicos del cliente referenciado
+  if (/\b(sus datos|su correo|su email|su telefono|su empresa|todos sus datos|dame todos sus datos|pasame sus datos|dame su email|dame su telefono|dame su empresa|dame su telefono|pasa sus datos)\b/.test(text)) {
+    return hasRef ? 'client_data_card' : 'no_client_referenced'
   }
-  
-  if (/\b(ultimo|ultima) cliente\b/.test(text) && /\b(hora|tiempo|fecha|registrado|registr)\b/.test(text)) return 'latest_client'
+
+  // Informe del último cliente (con o sin "último" explícito)
+  if (/\b(informe del ultimo cliente|informe del ultima|hazme un informe del ultimo)\b/.test(text)) return 'latest_client_report'
+
+  // Informe / resumen del cliente referenciado
+  if (/\b(informe de ese|informe de el|informe de este|resumen de ese|resumen de este|todos los datos|dame todo lo que tengas|hazme un informe)\b/.test(text)) {
+    return hasRef ? 'client_report_referenced' : 'no_client_referenced'
+  }
+
+  // Informe de ese/este cliente
+  if (/\b(ese cliente|este cliente)\b/.test(text)) {
+    return hasRef ? 'client_report_referenced' : 'no_client_referenced'
+  }
+
+  // Último cliente registrado (sin requerir palabra de tiempo)
+  if (/\b(ultimo|ultima) cliente\b/.test(text)) return 'latest_client'
+
   if (/\b(cuantos clientes|numero de clientes|clientes tengo|total de clientes)\b/.test(text)) return 'client_count'
   if (/\b(buscar clientes|busca clientes|encuentra clientes|nombres de cliente|clientes con)\b/.test(text)) return 'search_clients'
-  if (/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/.test(text) && /\b(cliente|cliente)\b/.test(text)) return 'client_report'
+  if (/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/.test(text) && /\bcliente\b/.test(text)) return 'client_report'
   if (/\b(facturas pendientes|pendientes de pago|cobros pendientes|facturas sin pagar|facturas abiertas)\b/.test(text)) return 'pending_invoices'
-  if (/\b(citas proximas|proximas citas|agenda|calendario|reuniones proximas)\b/.test(text)) return 'upcoming_events'
+  // Invoice creation — checked after pending_invoices
+  if (
+    /\b(crea(?:r)?|haz|hacer|prepara(?:r)?|factura(?:r)?)\b/.test(text) &&
+    /\bfactura\b/.test(text)
+  ) return 'create_invoice'
+  if (/\bfactura\s+\d/.test(text)) return 'create_invoice'
+  // Booking creation — checked before upcoming_events to avoid "agenda" ambiguity
+  if (
+    /\b(crear?|agendar?|reservar?|pon|preparar?|programar?)\b/.test(text) &&
+    /\b(cita|reunion)\b/.test(text)
+  ) return 'create_booking'
+  if (/\b(citas proximas|proximas citas|agenda|calendario|reuniones proximas|que tengo manana|que tengo maÃ±ana|tengo algo|esta semana|cita con|reunion con)\b/.test(text)) return 'upcoming_events'
   if (/\b(resume mi crm|resumen crm|estado crm|como va mi crm|situacion crm)\b/.test(text)) return 'workspace_summary'
   if (/\b(proxima accion|siguiente accion|que hago|prioridad|siguiente paso|accion comercial)\b/.test(text)) return 'next_action'
+
+  // PDF export
+  if (/\b(pdf|genera pdf|generar pdf|pasalo a pdf|pasa(me)? a pdf|informe pdf|descarga|exportar informe)\b/.test(text)) {
+    return hasRef ? 'prepare_pdf' : 'no_client_referenced'
+  }
+
+  // Task creation
+  if (/\b(crea|pon|agrega|añade|recuerdame|recuérdame)\b/.test(text) && /\b(tarea|recordatorio|seguimiento)\b/.test(text)) return 'create_task'
+  if (/\b(recuerdame|recuérdame)\s+/.test(text)) return 'create_task'
+
   return null
 }
 
-async function generateClientReport(clientData: Record<string, unknown>, workspaceId: string) {
-  // Mapear el row de Supabase al tipo Client
+function generateClientDataCard(clientData: Record<string, unknown>): string {
   const client = mapSupabaseClient(clientData)
-  const createdAt = String(clientData.created_at || new Date().toISOString())
-  
-  const [invoices, events, conversations, activities] = await Promise.all([
-    getClientInvoices(workspaceId, client.name),
-    getClientCalendarEvents(workspaceId, client.name),
-    getClientConversations(workspaceId, client.id),
-    getClientActivities(workspaceId, client.name),
-  ])
+  const rawDate = String(clientData.created_at || '')
+  const fechaRegistro = rawDate ? (() => { try { return new Date(rawDate).toLocaleDateString('es-ES') } catch { return 'No consta' } })() : 'No consta'
+  return [
+    `DATOS DEL CLIENTE: ${client.name.toUpperCase()}\n`,
+    `- Nombre: ${client.name || 'No consta'}`,
+    `- Empresa: ${client.company || 'No consta'}`,
+    `- Email: ${client.email || 'No consta'}`,
+    `- Teléfono: ${client.phone || 'No consta'}`,
+    `- Canal: ${client.channel || 'No consta'}`,
+    `- Estado: ${client.status || 'No consta'}`,
+    `- Lead score: ${client.leadScore ?? 'No consta'}`,
+    `- Notas: ${client.notes || 'No consta'}`,
+    `- Fecha de registro: ${fechaRegistro}`,
+  ].join('\n')
+}
 
+type ClientReportContext = {
+  client: ReturnType<typeof mapSupabaseClient>
+  createdAt: string
+  invoices: Awaited<ReturnType<typeof getClientInvoices>>
+  events: Awaited<ReturnType<typeof getClientCalendarEvents>>
+  conversations: Awaited<ReturnType<typeof getClientConversations>>
+  activities: Awaited<ReturnType<typeof getClientActivities>>
+}
+
+function buildClientReportText(ctx: ClientReportContext): string {
+  const { client, createdAt, invoices, events, conversations, activities } = ctx
   const sections = [
-    `**INFORME DE CLIENTE: ${client.name?.toUpperCase() || 'CLIENTE'}**\n`,
-    `**1. DATOS BÁSICOS**`,
+    `INFORME DE CLIENTE — ${client.name?.toUpperCase() || 'CLIENTE'}\n`,
+    `1. DATOS BÁSICOS`,
     `- Nombre: ${client.name || 'No consta'}`,
     `- Empresa: ${client.company || 'No consta'}`,
     `- Email: ${client.email || 'No consta'}`,
     `- Teléfono: ${client.phone || 'No consta'}`,
     `- Canal: ${client.channel || 'No consta'}`,
     `- Fecha de registro: ${createdAt ? new Date(createdAt).toLocaleDateString('es-ES') : 'No consta'}`,
-    `\n**2. ESTADO COMERCIAL**`,
+    `\n2. ESTADO COMERCIAL`,
     `- Estado: ${client.status || 'No consta'}`,
     `- Lead Score: ${client.leadScore || 'No consta'}`,
     `- Notas: ${client.notes || 'No consta'}`,
-    `\n**3. FACTURAS**`,
+    `\n3. FACTURAS`,
     invoices.length
       ? invoices.map((i) => `- ${i.plan || 'Concepto'}: ${i.amount}€ (${i.status}) vence ${i.dueDate}`).join('\n')
       : '- No hay facturas registradas',
-    `\n**4. CITAS Y CALENDARIO**`,
+    `\n4. CITAS Y CALENDARIO`,
     events.length
       ? events.map((e) => `- ${e.title} el ${e.date} a las ${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')} (${e.duration} min)`).join('\n')
       : '- No hay citas registradas',
-    `\n**5. CONVERSACIONES**`,
+    `\n5. CONVERSACIONES`,
     conversations.length
       ? conversations.map((c) => `- ${c.lastMessage} (${c.sentiment})`).join('\n')
       : '- No hay conversaciones registradas',
-    `\n**6. ACTIVIDAD RECIENTE**`,
+    `\n6. ACTIVIDAD RECIENTE`,
     activities.length
       ? activities.slice(0, 5).map((a) => `- [${a.type}] ${a.description}`).join('\n')
       : '- No hay actividades registradas',
-    `\n**7. PRÓXIMA ACCIÓN RECOMENDADA**`,
+    `\n7. PRÓXIMA ACCIÓN RECOMENDADA`,
     client.status === 'lead' ? '→ Contactar para convertir en cliente activo' : client.status === 'active' ? '→ Revisar facturas pendientes' : '→ Sin acción inmediata recomendada',
   ]
-
   return sections.filter(Boolean).join('\n')
 }
 
-async function executeCopilotCRMQuery(text: string, workspaceId: string, lastReferencedClientName?: string) {
-  const queryType = detectCopilotCRMQuery(text, lastReferencedClientName)
+async function generateClientReport(clientData: Record<string, unknown>, workspaceId: string) {
+  const client = mapSupabaseClient(clientData)
+  const createdAt = String(clientData.created_at || new Date().toISOString())
+  const [invoices, events, conversations, activities] = await Promise.all([
+    getClientInvoices(workspaceId, client.name).catch(() => []),
+    getClientCalendarEvents(workspaceId, client.name).catch(() => []),
+    getClientConversations(workspaceId, client.id).catch(() => []),
+    getClientActivities(workspaceId, client.name).catch(() => []),
+  ])
+  return buildClientReportText({ client, createdAt, invoices, events, conversations, activities })
+}
+
+async function executeCopilotCRMQuery(
+  text: string,
+  workspaceId: string,
+  lastReferencedClientName?: string,
+  lastReferencedClientId?: string,
+  onClientReferenced?: (client: { id: string; name: string }) => void,
+  onPreparedAction?: (action: PreparedAction) => void
+) {
+  const queryType = detectCopilotCRMQuery(text, lastReferencedClientName, lastReferencedClientId)
   if (!queryType) return null
+
+  if (queryType === 'no_client_referenced') {
+    return 'No tengo un cliente referenciado todavía. Dime el nombre del cliente que quieres consultar.'
+  }
 
   try {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) return null
+
+    if (queryType === 'client_data_card') {
+      let rawRow: Record<string, unknown> | null = null
+      if (lastReferencedClientId) {
+        const { data, error } = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
+        if (!error && data) rawRow = data as Record<string, unknown>
+      }
+      if (!rawRow && lastReferencedClientName) {
+        const clients = await searchClients(workspaceId, lastReferencedClientName)
+        if (clients.length) {
+          const { data, error } = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
+          if (!error && data) rawRow = data as Record<string, unknown>
+        }
+      }
+      if (!rawRow) return 'No encuentro el cliente referenciado. Dime el nombre y te busco.'
+      const card = mapSupabaseClient(rawRow)
+      onClientReferenced?.({ id: card.id, name: card.name })
+      return generateClientDataCard(rawRow)
+    }
+
+    if (queryType === 'latest_client_report') {
+      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1)
+      if (error || !data?.length) return 'No hay clientes registrados todavía en este workspace.'
+      const latest = mapSupabaseClient(data[0])
+      onClientReferenced?.({ id: latest.id, name: latest.name })
+      return await generateClientReport(data[0] as Record<string, unknown>, workspaceId)
+    }
 
     if (queryType === 'latest_client') {
       const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1)
       if (error || !data?.length) return 'No hay clientes registrados todavía en este workspace.'
       const client = mapSupabaseClient(data[0])
       const createdAt = data[0].created_at as string
+      onClientReferenced?.({ id: client.id, name: client.name })
       if (text.includes('hora') || text.includes('tiempo') || text.includes('fecha') || text.includes('cuándo') || text.includes('cuando')) {
         if (createdAt) {
           const date = new Date(createdAt)
@@ -618,19 +921,31 @@ async function executeCopilotCRMQuery(text: string, workspaceId: string, lastRef
     if (queryType === 'search_clients') {
       const query = normalizeQuery(text)
       const results = await searchClients(workspaceId, query)
+      if (results.length === 1) onClientReferenced?.({ id: results[0].id, name: results[0].name })
       return results.length
         ? `He encontrado ${results.length} cliente(s): ${results.slice(0, 4).map((client) => `${client.name}${client.company ? ` (${client.company})` : ''}${client.email ? ` – ${client.email}` : ''}`).join('; ')}.`
         : 'No se han encontrado clientes que coincidan con ese criterio.'
     }
 
-    if (queryType === 'client_report_referenced' && lastReferencedClientName) {
-      const clients = await searchClients(workspaceId, lastReferencedClientName)
-      if (!clients.length) return `No encuentro a ${lastReferencedClientName} en este workspace. ¿Quieres que busque por otro nombre?`
-      const client = clients[0]
-      const fullData = await supabase.from('clients').select('*').eq('id', client.id).maybeSingle()
-      if (fullData.error) throw fullData.error
-      const report = await generateClientReport(fullData.data, workspaceId)
-      return report
+    if (queryType === 'client_report_referenced') {
+      if (lastReferencedClientId) {
+        const fullData = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
+        if (fullData.error || !fullData.data) return 'No encuentro el cliente referenciado. Dime el nombre y te busco.'
+        const refClient = mapSupabaseClient(fullData.data as Record<string, unknown>)
+        onClientReferenced?.({ id: refClient.id, name: refClient.name })
+        return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
+      }
+      if (lastReferencedClientName) {
+        const clients = await searchClients(workspaceId, lastReferencedClientName)
+        if (!clients.length) return `No encuentro a ${lastReferencedClientName} en este workspace. ¿Quieres que busque por otro nombre?`
+        const client = clients[0]
+        const fullData = await supabase.from('clients').select('*').eq('id', client.id).maybeSingle()
+        if (fullData.error) throw fullData.error
+        if (!fullData.data) return `No encuentro datos de ${client.name}. ¿Quieres que busque por otro nombre?`
+        onClientReferenced?.({ id: client.id, name: client.name })
+        return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
+      }
+      return 'No tengo un cliente referenciado. Dime el nombre del cliente que quieres consultar.'
     }
 
     if (queryType === 'client_report') {
@@ -642,8 +957,9 @@ async function executeCopilotCRMQuery(text: string, workspaceId: string, lastRef
       }
       const fullData = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
       if (fullData.error) throw fullData.error
-      const report = await generateClientReport(fullData.data, workspaceId)
-      return report
+      if (!fullData.data) return 'No encuentro datos de ese cliente.'
+      onClientReferenced?.({ id: clients[0].id, name: clients[0].name })
+      return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
     }
 
     if (queryType === 'pending_invoices') {
@@ -655,8 +971,20 @@ async function executeCopilotCRMQuery(text: string, workspaceId: string, lastRef
 
     if (queryType === 'upcoming_events') {
       const events = await getUpcomingCalendarEvents(workspaceId)
-      return events.length
-        ? `Próximas citas: ${events.slice(0, 4).map((event) => `${event.title} con ${event.clientName ?? 'cliente'} el ${event.date}${event.startHour !== undefined ? ` a las ${String(event.startHour).padStart(2, '0')}:${String(event.startMinute).padStart(2, '0')}` : ''}`).join('; ')}.`
+      const normalizedText = normalizeInput(text)
+      const today = todayIsoLocal()
+      const tomorrow = normalizedText.includes('manana') ? parseRelativeDate('manana') : null
+      const weekLimit = addDaysIso(today, 7)
+      const clientMatch = normalizedText.match(/\b(?:cita|reunion)?\s*con\s+([a-z0-9 ]{3,40})/)
+      const clientQuery = clientMatch?.[1]?.replace(/\b(manana|esta semana|cuando|tengo|algo)\b/g, '').trim()
+      const filteredEvents = events.filter((event) => {
+        const matchesTomorrow = !tomorrow || event.date === tomorrow
+        const matchesWeek = !normalizedText.includes('esta semana') || (event.date >= today && event.date <= weekLimit)
+        const matchesClient = !clientQuery || [event.clientName, event.title].some((value) => normalizeInput(value ?? '').includes(clientQuery))
+        return matchesTomorrow && matchesWeek && matchesClient
+      })
+      return filteredEvents.length
+        ? `Próximas citas: ${filteredEvents.slice(0, 4).map((event) => `${event.title} con ${event.clientName ?? 'cliente'} el ${event.date}${event.startHour !== undefined ? ` a las ${String(event.startHour).padStart(2, '0')}:${String(event.startMinute).padStart(2, '0')}` : ''}`).join('; ')}.`
         : 'No hay citas próximas en el calendario del workspace.'
     }
 
@@ -671,11 +999,198 @@ async function executeCopilotCRMQuery(text: string, workspaceId: string, lastRef
         ? `Próxima(s) acción(es): ${actions.join(' ')}`
         : 'No hay acciones comerciales urgentes detectadas en este momento.'
     }
+
+    if (queryType === 'create_invoice') {
+      const invoiceIntent = detectAssistantIntent(text)
+      const { extracted } = invoiceIntent
+      const rawClientName = extracted.clientName || lastReferencedClientName
+      if (!rawClientName) {
+        return 'Para crear la factura necesito saber el nombre del cliente. ¿A quién va dirigida?'
+      }
+      if (!extracted.amount) {
+        return 'Para crear la factura necesito el importe. ¿Cuánto es?'
+      }
+      const invoiceClients = await searchClients(workspaceId, rawClientName)
+      if (!invoiceClients.length) {
+        return `No encuentro a "${rawClientName}" en este workspace. Dime el nombre exacto o crea el cliente primero.`
+      }
+      if (invoiceClients.length > 1) {
+        const nameList = invoiceClients.slice(0, 3).map((c) => `${c.name}${c.company ? ` (${c.company})` : ''}`).join(', ')
+        return `Encontré varios clientes con ese nombre: ${nameList}. ¿Cuál es el correcto?`
+      }
+      const invoiceClient = invoiceClients[0]
+      onClientReferenced?.({ id: invoiceClient.id, name: invoiceClient.name })
+      const concept = extracted.concept || 'Servicio CRM'
+      const todayDate = new Date()
+      const due = new Date(todayDate)
+      due.setDate(todayDate.getDate() + 14)
+      const dueDate = due.toISOString().slice(0, 10)
+      onPreparedAction?.({
+        id: `invoice-${Date.now()}`,
+        type: 'invoice',
+        title: `Factura para ${invoiceClient.name}`,
+        assistantMode: 'copilot',
+        clientName: invoiceClient.name,
+        concept,
+        amount: extracted.amount,
+        dueDate,
+        missingFields: [],
+        notes: 'Factura creada desde NowLabs AI',
+      })
+      return `Factura preparada: ${invoiceClient.name}, ${extracted.amount} EUR, concepto: ${concept}, vence ${dueDate}. Revísala en el panel y confirma.`
+    }
+
+    if (queryType === 'create_booking') {
+      const bookingIntent = detectAssistantIntent(text)
+      const { extracted } = bookingIntent
+      const rawClientName = extracted.clientName || lastReferencedClientName
+      if (!rawClientName) {
+        return 'Para crear la cita necesito saber el nombre del cliente. ¿Con quién es?'
+      }
+      const clients = await searchClients(workspaceId, rawClientName)
+      if (!clients.length) {
+        return `No encuentro a "${rawClientName}" en este workspace. Dime el nombre exacto o crea el cliente primero.`
+      }
+      if (clients.length > 1) {
+        const nameList = clients.slice(0, 3).map((c) => `${c.name}${c.company ? ` (${c.company})` : ''}`).join(', ')
+        return `Encontré varios clientes con ese nombre: ${nameList}. ¿Cuál quieres para la cita?`
+      }
+      const client = clients[0]
+      onClientReferenced?.({ id: client.id, name: client.name })
+      const service = extracted.service || 'Reunión comercial'
+      const duration = extracted.duration ?? 60
+      const missingFields: string[] = [
+        !extracted.date && 'fecha',
+        !extracted.time && 'hora',
+      ].filter(Boolean) as string[]
+      onPreparedAction?.({
+        id: `booking-${Date.now()}`,
+        type: 'booking',
+        title: `Cita con ${client.name}`,
+        assistantMode: 'copilot',
+        clientName: client.name,
+        service,
+        date: extracted.date,
+        time: extracted.time,
+        duration,
+        missingFields,
+        notes: 'Cita creada desde NowLabs AI',
+      })
+      if (missingFields.length) {
+        return `Cita preparada con ${client.name}. Falta: ${missingFields.join(' y ')}. Dímelos para dejarla lista.`
+      }
+      return `Cita preparada: ${client.name}, ${service}, ${extracted.date} a las ${extracted.time}. Revísala en el panel y confirma.`
+    }
+
+    if (queryType === 'create_task') {
+      const taskTitle = extractTaskTitle(text)
+      const taskIntent = detectAssistantIntent(text)
+      const taskExtracted = taskIntent.extracted
+      // Try to resolve client from message (optional — tasks can be clientless)
+      let taskClientName = lastReferencedClientName
+      if (taskExtracted.clientName && taskExtracted.clientName !== lastReferencedClientName) {
+        const taskClients = await searchClients(workspaceId, taskExtracted.clientName).catch(() => [] as Awaited<ReturnType<typeof searchClients>>)
+        if (taskClients.length === 1) {
+          onClientReferenced?.({ id: taskClients[0].id, name: taskClients[0].name })
+          taskClientName = taskClients[0].name
+        } else if (taskClients.length === 0 && !lastReferencedClientName) {
+          taskClientName = taskExtracted.clientName
+        }
+      }
+      const taskDueDate = taskExtracted.date
+      const taskDescription = taskClientName
+        ? `Tarea para ${taskClientName}${taskDueDate ? ` — vence ${taskDueDate}` : ''}`
+        : undefined
+      onPreparedAction?.({
+        id: `task-${Date.now()}`,
+        type: 'task',
+        title: 'Crear tarea',
+        assistantMode: 'copilot',
+        clientName: taskClientName,
+        taskTitle,
+        description: taskDescription,
+        dueDate: taskDueDate,
+        missingFields: taskTitle ? [] : ['título de la tarea'],
+      })
+      if (!taskTitle) return 'Necesito saber el título de la tarea. ¿Cómo quieres llamarla?'
+      const duePart = taskDueDate ? `, vence ${taskDueDate}` : ''
+      const clientPart = taskClientName ? ` para ${taskClientName}` : ''
+      return `Tarea preparada: "${taskTitle}"${clientPart}${duePart}. Revísala en el panel y confirma.`
+    }
+
+    if (queryType === 'prepare_pdf') {
+      let rawRow: Record<string, unknown> | null = null
+      if (lastReferencedClientId) {
+        const { data, error } = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
+        if (!error && data) rawRow = data as Record<string, unknown>
+      }
+      if (!rawRow && lastReferencedClientName) {
+        const clients = await searchClients(workspaceId, lastReferencedClientName)
+        if (clients.length) {
+          const { data, error } = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
+          if (!error && data) rawRow = data as Record<string, unknown>
+        }
+      }
+      if (!rawRow) return 'No encuentro al cliente referenciado para generar el PDF. Dime su nombre.'
+      const pdfClient = mapSupabaseClient(rawRow)
+      const pdfCreatedAt = String(rawRow.created_at || new Date().toISOString())
+      const [pdfInvoices, pdfEvents, pdfConversations, pdfActivities] = await Promise.all([
+        getClientInvoices(workspaceId, pdfClient.name).catch(() => []),
+        getClientCalendarEvents(workspaceId, pdfClient.name).catch(() => []),
+        getClientConversations(workspaceId, pdfClient.id).catch(() => []),
+        getClientActivities(workspaceId, pdfClient.name).catch(() => []),
+      ])
+      const reportText = buildClientReportText({ client: pdfClient, createdAt: pdfCreatedAt, invoices: pdfInvoices, events: pdfEvents, conversations: pdfConversations, activities: pdfActivities })
+      onClientReferenced?.({ id: pdfClient.id, name: pdfClient.name })
+      onPreparedAction?.({
+        id: `pdf-${Date.now()}`,
+        type: 'prepare_pdf',
+        title: `PDF — ${pdfClient.name}`,
+        assistantMode: 'copilot',
+        clientName: pdfClient.name,
+        clientId: pdfClient.id,
+        reportText,
+        missingFields: [],
+      })
+      return `Informe de ${pdfClient.name} preparado como PDF pendiente. Revísalo en el panel y confirma para registrarlo.`
+    }
   } catch {
     return null
   }
 
   return null
+}
+
+const GENERIC_COPILOT_TITLES = new Set([
+  'consulta nowlabs ai',
+  'nueva consulta nowlabs ai',
+  'consulta nowlabs ai demo',
+  'abre una consulta interna para gestionar clientes, citas o facturas.',
+])
+
+function isGenericCopilotTitle(title: string) {
+  return GENERIC_COPILOT_TITLES.has(title.toLowerCase().trim())
+}
+
+function generateAutoTitle(message: string, referencedClientName?: string): string {
+  const t = normalizeInput(message)
+
+  if (/\b(ultimo|ultima) cliente\b/.test(t)) return 'Último cliente registrado'
+  if (/\b(informe|resumen)\b/.test(t) && referencedClientName) return `Informe de ${referencedClientName}`
+  if (/\b(informe|resumen)\b/.test(t)) return 'Informe de cliente'
+  if (/\b(facturas? pendientes?|cobros? pendientes?)\b/.test(t)) return 'Facturas pendientes'
+  if (/\b(citas? proximas?|agenda|calendario)\b/.test(t)) return 'Próximas citas'
+  if (/\b(resumen.*crm|crm.*resumen|como.*crm)\b/.test(t)) return 'Resumen CRM'
+  if (/\b(todos sus datos|sus datos|dame.*datos)\b/.test(t) && referencedClientName) return `Datos de ${referencedClientName}`
+  if (/\b(todos sus datos|sus datos|dame.*datos)\b/.test(t)) return 'Consulta de cliente'
+  if (/\b(proxima accion|siguiente accion|que hago|siguiente paso)\b/.test(t)) return 'Próxima acción'
+  if (/\b(cuantos clientes|numero de clientes)\b/.test(t)) return 'Total de clientes'
+  if (/\b(buscar|busca|encuentra)\b/.test(t) && /\bcliente\b/.test(t)) return 'Búsqueda de cliente'
+
+  const trimmed = message.trim()
+  if (trimmed.length <= 40) return trimmed
+  const firstWords = trimmed.split(/\s+/).slice(0, 6).join(' ')
+  return firstWords.length < trimmed.length ? `${firstWords}…` : firstWords
 }
 
 function safeErrorMessage(error: unknown) {
@@ -704,13 +1219,17 @@ export default function AssistantPage() {
   const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | 'supabase' | null>(null)
   const [lastActionStatus, setLastActionStatus] = useState('')
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('copilot')
-  const [lastReferencedClientName, setLastReferencedClientName] = useState<string | undefined>()
+  const [referencedClients, setReferencedClients] = useState<Record<string, { id?: string; name?: string }>>({})
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
   const [confirmingAction, setConfirmingAction] = useState(false)
+  const [editingAction, setEditingAction] = useState(false)
+  const [editDraft, setEditDraft] = useState<Record<string, string>>({})
   const [diagnostics, setDiagnostics] = useState<PersistenceDiagnostics>(initialDiagnostics)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const activeQuickPrompts = quickPromptsByMode[assistantMode]
+  const activeQuickPrompts = assistantMode === 'inbox' ? inboxManualPrompts : quickPromptsByMode[assistantMode]
 
   const updateDiagnostics = useCallback((patch: Partial<PersistenceDiagnostics>) => {
     setDiagnostics((prev) => ({ ...prev, ...patch }))
@@ -911,6 +1430,12 @@ export default function AssistantPage() {
   const selected = modeConversations.find((conversation) => conversation.id === selectedId) ?? modeConversations[0] ?? null
   const activeSelectedId = selected?.id ?? ''
   const selectedConversationIsUuid = isUuid(activeSelectedId)
+  const lastReferencedClientName = activeSelectedId ? referencedClients[activeSelectedId]?.name : undefined
+  const lastReferencedClientId = activeSelectedId ? referencedClients[activeSelectedId]?.id : undefined
+
+  const setConversationClient = (conversationId: string, client: { id: string; name: string }) => {
+    setReferencedClients(prev => ({ ...prev, [conversationId]: { id: client.id, name: client.name } }))
+  }
 
   useEffect(() => {
     if (!selected) return
@@ -963,12 +1488,12 @@ export default function AssistantPage() {
   const averageLeadScore = Math.round((modeConversations.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(modeConversations.length, 1)))
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
   const isOfflineMode = OFFLINE_FORCE_DEV
-  const assistantN8nActive = !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
-  const assistantSourceLabel = isOfflineMode ? 'Offline local' : assistantN8nActive ? 'n8n/OpenAI' : 'Demo'
-  const assistantSourceDetail = isOfflineMode ? 'Supabase bloqueado por red' : assistantN8nActive ? 'workflow activo' : 'fallback mock'
+  const assistantN8nActive = assistantMode === 'copilot' && !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
+  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : assistantN8nActive ? 'n8n/OpenAI' : 'Demo'
+  const assistantSourceDetail = assistantMode === 'inbox' ? 'Whapi/n8n pendiente' : isOfflineMode ? 'Supabase bloqueado por red' : assistantN8nActive ? 'workflow activo' : 'fallback mock'
 
   const assistantStats = [
-    { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas Copilot', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
+    { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas NowLabs AI', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
     { label: 'IA en modo', value: assistantSourceLabel, detail: assistantSourceDetail, icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
     { label: assistantMode === 'inbox' ? 'Lead score medio' : 'Acciones preparadas', value: assistantMode === 'inbox' ? String(averageLeadScore) : (preparedAction ? '1' : '0'), detail: assistantMode === 'inbox' ? 'estimado' : 'requieren confirmación', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
@@ -1058,7 +1583,7 @@ export default function AssistantPage() {
         metadata: { assistant_mode: assistantMode, last_source: 'assistant_agent' },
       }).catch(() => null)
       if (workspaceId) {
-        await createActivity(workspaceId, { type: 'message', description: `Assistant Agent: ${content.slice(0, 90)}`, clientName })
+        await createActivity(workspaceId, { type: 'message', description: `${assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}: ${content.slice(0, 90)}`, clientName })
       }
     }
   }
@@ -1077,8 +1602,10 @@ export default function AssistantPage() {
       toast.error('No se pudo enviar', { description: message })
       return
     }
+    const isFirstUserMessage = assistantMode === 'copilot' &&
+      (localMessages[conversationId] ?? []).filter((m) => m.sender !== 'ai').length === 0
     const userSender: MessageSender = options.sender || (assistantMode === 'inbox' ? 'client' : 'agent')
-    const userMsg: Message = { id: `${userSender}-${Date.now()}`, conversationId, content, sender: userSender, timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }
+    const userMsg: Message = { id: `${userSender}-${createUuid()}`, conversationId, content, sender: userSender, timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }
     const defaultClientName = isGenericConversationName(activeConversation.clientName) ? undefined : activeConversation.clientName
     const operationalIntent = detectAssistantIntent(content, { defaultClientName })
     const localIntentLabel = intentLabel(operationalIntent)
@@ -1110,6 +1637,57 @@ export default function AssistantPage() {
           metadata: { assistant_mode: assistantMode, last_source: 'assistant_ui', detected_intent: operationalIntent.intent },
         }).catch(() => null)
         await createActivity(workspaceId, { type: 'message', description: `Mensaje enviado a ${activeConversation.clientName}`, clientName: activeConversation.clientName })
+
+        if (isFirstUserMessage && isGenericCopilotTitle(activeConversation.clientName)) {
+          const autoTitle = generateAutoTitle(content, lastReferencedClientName)
+          setConversationList((prev) => prev.map((c) => c.id === conversationId ? { ...c, clientName: autoTitle } : c))
+          void updateConversationTitle(conversationId, workspaceId, autoTitle).catch(() => null)
+        }
+      }
+
+      if (assistantMode === 'inbox') {
+        setPreparedAction(null)
+        setDetectedIntent('Inbox Assistant - modo manual')
+        await appendAssistantMessage(conversationId, INBOX_MANUAL_RESPONSE, activeConversation.clientName)
+        setLastResponseSource(null)
+        setLastActionStatus('Inbox Assistant pendiente de conectar a Whapi/n8n')
+        return
+      }
+
+      if (preparedAction?.assistantMode === assistantMode) {
+        const trimmed = content.trim()
+        const isConfirmMsg = /^(confirmar?|s[ií]|dale|perfecto|ok|va|venga|hazlo|hazlo ya|gu[aá]rdalo|confirma(?:do)?|adelante|procede|listo|de acuerdo|claro que s[ií]|s[ií] por favor|s[ií] confirma|cr[eé]ala|cr[eé]alo|crea la cita|crea la factura|crea la tarea|crea el evento)[\.\!\?]?$/i.test(trimmed)
+        const isCancelMsg = /^(cancelar?|no|olv[ií]dalo|descarta(?:lo|r)?|cancela(?:do)?|mejor no|stop|no hace falta|d[eé]jalo|descartar)[\.\!\?]?$/i.test(trimmed)
+
+        if (isConfirmMsg) {
+          if (preparedAction.missingFields.length) {
+            await appendAssistantMessage(conversationId, `Todavía faltan datos para confirmar: ${missingText(preparedAction.missingFields)}. Dímelos y lo ejecuto.`, activeConversation.clientName)
+            setLastResponseSource(null)
+            return
+          }
+          void confirmPreparedAction()
+          return
+        }
+
+        if (isCancelMsg) {
+          cancelPreparedAction()
+          return
+        }
+
+        const editedAction = applyActionEdit(preparedAction, content)
+        if (editedAction) {
+          setPreparedAction(editedAction)
+          setLastActionStatus('Acción actualizada')
+          await appendAssistantMessage(
+            conversationId,
+            editedAction.missingFields.length > 0
+              ? `He actualizado la acción. Todavía falta: ${missingText(editedAction.missingFields)}.`
+              : 'He actualizado la acción. Revísala y pulsa Confirmar cuando estés listo.',
+            activeConversation.clientName
+          )
+          setLastResponseSource(null)
+          return
+        }
       }
 
       if (OFFLINE_FORCE_DEV) {
@@ -1155,16 +1733,16 @@ export default function AssistantPage() {
       }
 
       if (assistantMode === 'copilot' && isRealMode && workspaceId) {
-        const crmResponse = await executeCopilotCRMQuery(content, workspaceId, lastReferencedClientName)
+        let newReferencedClient: { id: string; name: string } | undefined
+        let newPreparedAction: PreparedAction | undefined
+        const crmResponse = await executeCopilotCRMQuery(
+          content, workspaceId, lastReferencedClientName, lastReferencedClientId,
+          (client) => { newReferencedClient = client },
+          (action) => { newPreparedAction = action }
+        )
         if (crmResponse) {
-          // Actualizar el cliente referenciado si es una consulta CRM
-          const queryType = detectCopilotCRMQuery(content, lastReferencedClientName)
-          if (queryType === 'latest_client' || queryType === 'client_report' || queryType === 'client_report_referenced') {
-            const clients = await searchClients(workspaceId, normalizeQuery(content))
-            if (clients.length > 0) {
-              setLastReferencedClientName(clients[0].name)
-            }
-          }
+          if (newReferencedClient) setConversationClient(conversationId, newReferencedClient)
+          if (newPreparedAction) setPreparedAction(newPreparedAction)
           await appendAssistantMessage(conversationId, crmResponse, activeConversation.clientName)
           setLastResponseSource('supabase')
           return
@@ -1235,10 +1813,10 @@ export default function AssistantPage() {
 
       const lower = content.toLowerCase()
       if (!OFFLINE_FORCE_DEV && (lower.includes('pago') || lower.includes('factura') || lower.includes('cobro'))) {
-        await triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
+        void triggerN8nWebhook('invoice_paid', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' }).catch(() => null)
       }
       if (!OFFLINE_FORCE_DEV && (lower.includes('llamada') || lower.includes('reun') || lower.includes('agenda'))) {
-        await triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' })
+        void triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' }).catch(() => null)
       }
     } catch (error) {
       toast.error('No se pudo guardar el mensaje', { description: error instanceof Error ? error.message : 'Se mantiene en pantalla como fallback local.' })
@@ -1252,6 +1830,7 @@ export default function AssistantPage() {
     if (!selected) return
 
     setConfirmingAction(true)
+    let debugPayload: Record<string, unknown> | null = null
     try {
       const activeConversation = isRealMode ? await ensureRealConversation() : selected
       if (!activeConversation) return
@@ -1260,123 +1839,279 @@ export default function AssistantPage() {
       }
 
       if (preparedAction.type === 'booking') {
-        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.service || !preparedAction.date || !preparedAction.time || !preparedAction.duration) {
+        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.date || !preparedAction.time) {
           toast.warning('Faltan datos para crear la cita', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
           return
         }
-        const { startHour, startMinute } = parseHourMinute(preparedAction.time)
-        const toolInput = {
-          title: `${preparedAction.service} - ${preparedAction.clientName}`,
-          client_name: preparedAction.clientName,
+        const service = preparedAction.service || 'Reunión comercial'
+        const duration = preparedAction.duration ?? 60
+        const times = buildCalendarEventTimes({ date: preparedAction.date, time: preparedAction.time, duration })
+        const calendarPayload = {
+          title: `${service} con ${preparedAction.clientName}`,
           date: preparedAction.date,
-          start_time: preparedAction.time,
-          end_time: endTime(preparedAction.time, preparedAction.duration),
-          type: 'meeting',
+          time: preparedAction.time,
+          startAt: times.startAtIso,
+          endAt: times.endAtIso,
+          startHour: times.startHour,
+          startMinute: times.startMinute,
+          duration: times.duration,
+          type: 'meeting' as const,
+          clientName: preparedAction.clientName,
           notes: preparedAction.notes,
+          description: preparedAction.notes || 'Cita creada desde NowLabs AI',
+          status: 'scheduled',
+          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
         }
-        const toolResult = !OFFLINE_FORCE_DEV && workspaceId
-          ? await callAgentTool('create_calendar_event', workspaceId, toolInput, {
-              source: 'assistant_confirmation',
-              conversation_id: activeConversation.id,
-              user_intent: 'booking',
-            }).catch(() => null)
-          : null
-
-        if (!toolResult?.ok || toolResult.mode === 'fallback') {
-          if (!workspaceId) throw new Error('No hay workspace real para crear el evento.')
-          await createCalendarEvent(workspaceId, {
-            title: `${preparedAction.service} - ${preparedAction.clientName}`,
-            date: preparedAction.date,
-            startHour,
-            startMinute,
-            duration: preparedAction.duration,
-            type: 'meeting',
-            clientName: preparedAction.clientName,
-            description: preparedAction.notes,
-          })
-        }
+        debugPayload = calendarPayload
+        if (!workspaceId) throw new Error('No hay workspace real para crear el evento.')
+        const createdEvent = await createCalendarEvent(workspaceId, calendarPayload)
 
         if (workspaceId) {
-          await createActivity(workspaceId, { type: 'call', description: `Cita creada desde Assistant: ${preparedAction.service}`, clientName: preparedAction.clientName })
+          void createActivity(workspaceId, { type: 'call', description: `Cita creada desde NowLabs AI: ${service} con ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:booking]', error)
+          })
           if (!OFFLINE_FORCE_DEV) {
-            await triggerN8nWebhook('calendar_event_created', {
+            void triggerN8nWebhook('calendar_event_created', {
               workspace_id: workspaceId,
               mode: 'real',
-              calendar_event: toolInput,
+              calendar_event: { ...calendarPayload, id: createdEvent.id },
               client: { name: preparedAction.clientName },
               metadata: { source: 'assistant_confirmation' },
+            }).catch((error) => {
+              if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:booking]', error)
             })
           }
         }
 
-        await appendAssistantMessage(activeConversation.id, `Cita creada en Calendario: ${preparedAction.clientName}, ${preparedAction.service}, ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName)
+        await appendAssistantMessage(activeConversation.id, `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:booking]', error)
+        })
         toast.success('Cita creada en Calendario')
         setLastActionStatus('Última acción confirmada: cita creada')
       }
 
       if (preparedAction.type === 'invoice') {
-        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.concept || !preparedAction.amount || !preparedAction.dueDate) {
-          toast.warning('Faltan datos para crear la factura', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
+        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.amount) {
+          toast.warning('Faltan datos para crear la factura', { description: missingText(preparedAction.missingFields) || 'Se necesita al menos cliente e importe.' })
           return
         }
-        const toolInput = {
-          client_name: preparedAction.clientName,
-          concept: preparedAction.concept,
+        const concept = preparedAction.concept || 'Servicio CRM'
+        const todayInvoice = new Date()
+        const dueInvoice = new Date(todayInvoice)
+        dueInvoice.setDate(todayInvoice.getDate() + 14)
+        const dueDate = preparedAction.dueDate || dueInvoice.toISOString().slice(0, 10)
+        const invoicePayload = {
+          clientName: preparedAction.clientName,
+          concept,
           amount: preparedAction.amount,
-          status: 'pending',
-          due_date: preparedAction.dueDate,
+          status: 'pending' as const,
+          dueDate,
+          plan: concept,
+          currency: 'EUR',
           notes: preparedAction.notes,
+          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
         }
-        const toolResult = !OFFLINE_FORCE_DEV && workspaceId
-          ? await callAgentTool('create_invoice', workspaceId, toolInput, {
-              source: 'assistant_confirmation',
-              conversation_id: activeConversation.id,
-              user_intent: 'invoice',
-            }).catch(() => null)
-          : null
-
-        if (!toolResult?.ok || toolResult.mode === 'fallback') {
-          if (!workspaceId) throw new Error('No hay workspace real para crear la factura.')
-          await createInvoice(workspaceId, {
-            clientName: preparedAction.clientName,
-            amount: preparedAction.amount,
-            status: 'pending',
-            dueDate: preparedAction.dueDate,
-            plan: preparedAction.concept,
-            notes: preparedAction.notes,
-          })
-        }
+        debugPayload = invoicePayload
+        if (!workspaceId) throw new Error('No hay workspace real para crear la factura.')
+        const createdInvoice = await createInvoice(workspaceId, invoicePayload)
 
         if (workspaceId) {
-          await createActivity(workspaceId, { type: 'deal', description: `Factura creada desde Assistant: ${preparedAction.concept}`, clientName: preparedAction.clientName })
+          void createActivity(workspaceId, { type: 'deal', description: `Factura creada desde NowLabs AI: ${concept} para ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:invoice]', error)
+          })
           if (!OFFLINE_FORCE_DEV) {
-            await triggerN8nWebhook('invoice_created', {
+            void triggerN8nWebhook('invoice_created', {
               workspace_id: workspaceId,
               mode: 'real',
-              invoice: toolInput,
+              invoice: { ...invoicePayload, id: createdInvoice.id },
               client: { name: preparedAction.clientName },
               metadata: { source: 'assistant_confirmation' },
+            }).catch((error) => {
+              if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:invoice]', error)
             })
           }
         }
 
-        await appendAssistantMessage(activeConversation.id, `Factura creada: ${preparedAction.clientName}, ${preparedAction.concept}, ${preparedAction.amount} EUR.`, preparedAction.clientName)
+        await appendAssistantMessage(activeConversation.id, `Factura creada correctamente para ${preparedAction.clientName}: ${concept}, ${preparedAction.amount} EUR, vence ${dueDate}.`, preparedAction.clientName).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
+        })
         toast.success('Factura creada')
         setLastActionStatus('Última acción confirmada: factura creada')
       }
 
+      if (preparedAction.type === 'task') {
+        if (!preparedAction.taskTitle) {
+          toast.warning('Falta el título de la tarea', { description: 'Escribe el título y vuelve a confirmar.' })
+          return
+        }
+        if (!workspaceId) throw new Error('No hay workspace real para crear la tarea.')
+        const taskPayload = {
+          title: preparedAction.taskTitle,
+          clientName: preparedAction.clientName,
+          description: preparedAction.description,
+          dueDate: preparedAction.dueDate,
+          status: 'pending',
+          priority: 'normal',
+          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
+        }
+        debugPayload = taskPayload
+        await createTask(workspaceId, taskPayload)
+        void createActivity(workspaceId, { type: 'note', description: `Tarea creada desde NowLabs AI: ${preparedAction.taskTitle}`, clientName: preparedAction.clientName }).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:task]', error)
+        })
+        const taskMsg = `Tarea creada: "${preparedAction.taskTitle}"${preparedAction.clientName ? ` para ${preparedAction.clientName}` : ''}${preparedAction.dueDate ? `, vence ${preparedAction.dueDate}` : ''}.`
+        await appendAssistantMessage(activeConversation.id, taskMsg, preparedAction.clientName).catch((error) => {
+          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:task]', error)
+        })
+        toast.success('Tarea creada')
+        setLastActionStatus('Última acción confirmada: tarea creada')
+      }
+
+      if (preparedAction.type === 'prepare_pdf') {
+        // TODO Future PDF/Storage: generate a real PDF, upload it to "informes-pdf",
+        // create a documents row, and return a signed URL for chat/email/WhatsApp.
+        if (workspaceId) {
+          void createAgentActionLog(workspaceId, {
+            action: 'prepare_pdf',
+            details: { clientName: preparedAction.clientName, clientId: preparedAction.clientId, title: preparedAction.title },
+          }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/actionLog:pdf]', error)
+          })
+        }
+        const displayText = preparedAction.reportText
+          ? `Informe registrado para ${preparedAction.clientName ?? 'cliente'}.\n\n${preparedAction.reportText}\n\nCuando Supabase Storage esté activado, podrás descargarlo como PDF.`
+          : `Acción PDF registrada para ${preparedAction.clientName ?? 'cliente'}. Falta el contenido del informe.`
+        await appendAssistantMessage(activeConversation.id, displayText, preparedAction.clientName)
+        toast.success('PDF registrado')
+        setLastActionStatus('Última acción: PDF registrado')
+      }
+
       setPreparedAction(null)
+      setEditingAction(false)
     } catch (error) {
-      toast.error('No se pudo confirmar la acción', { description: error instanceof Error ? error.message : 'Revisa Supabase y vuelve a intentarlo.' })
+      const errMsg = safeErrorMessage(error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[confirmPreparedAction]', {
+          type: preparedAction?.type,
+          workspaceId,
+          payload: debugPayload,
+          error,
+          message: errMsg,
+          code: (error as Record<string, unknown>)?.code,
+          details: (error as Record<string, unknown>)?.details,
+          hint: (error as Record<string, unknown>)?.hint,
+        })
+      }
+      toast.error('No se pudo confirmar la acción', {
+        description: process.env.NODE_ENV === 'development'
+          ? errMsg
+          : 'Revisa los datos e inténtalo de nuevo.',
+      })
     } finally {
       setConfirmingAction(false)
     }
   }
 
+  const startEditingTitle = () => {
+    setTitleDraft(selected?.clientName ?? '')
+    setEditingTitle(true)
+  }
+
+  const cancelEditingTitle = () => {
+    setEditingTitle(false)
+    setTitleDraft('')
+  }
+
+  const saveTitle = async () => {
+    const trimmed = titleDraft.trim() || 'Consulta NowLabs AI'
+    setEditingTitle(false)
+    setTitleDraft('')
+    if (!selected || trimmed === selected.clientName) return
+    setConversationList((prev) => prev.map((c) => c.id === selected.id ? { ...c, clientName: trimmed } : c))
+    if (isRealMode && workspaceId && isUuid(selected.id)) {
+      void updateConversationTitle(selected.id, workspaceId, trimmed).catch(() => null)
+    }
+  }
+
   const cancelPreparedAction = () => {
+    if (selected) {
+      void appendAssistantMessage(selected.id, 'Acción cancelada.', selected.clientName).catch(() => null)
+    }
     setPreparedAction(null)
+    setEditingAction(false)
     setLastActionStatus('Última acción cancelada')
     toast.info('Acción descartada', { description: 'No se ha creado nada en Supabase.' })
+  }
+
+  const startEditingAction = () => {
+    if (!preparedAction) return
+    const d: Record<string, string> = { clientName: preparedAction.clientName ?? '' }
+    if (preparedAction.type === 'booking') {
+      d.service = preparedAction.service ?? ''
+      d.date = preparedAction.date ?? ''
+      d.time = preparedAction.time ?? ''
+      d.duration = preparedAction.duration?.toString() ?? ''
+    } else if (preparedAction.type === 'invoice') {
+      d.concept = preparedAction.concept ?? ''
+      d.amount = preparedAction.amount?.toString() ?? ''
+      d.dueDate = preparedAction.dueDate ?? ''
+    } else if (preparedAction.type === 'task') {
+      d.taskTitle = preparedAction.taskTitle ?? ''
+      d.description = preparedAction.description ?? ''
+      d.dueDate = preparedAction.dueDate ?? ''
+    }
+    setEditDraft(d)
+    setEditingAction(true)
+  }
+
+  const saveEditDraft = () => {
+    if (!preparedAction) return
+    if (preparedAction.type === 'booking') {
+      const duration = parseInt(editDraft.duration ?? '') || preparedAction.duration
+      const next = {
+        ...preparedAction,
+        clientName: editDraft.clientName?.trim() || preparedAction.clientName,
+        service: editDraft.service?.trim() || preparedAction.service,
+        date: editDraft.date || preparedAction.date,
+        time: editDraft.time || preparedAction.time,
+        duration,
+      }
+      setPreparedAction({
+        ...next,
+        missingFields: [
+          !next.clientName && 'cliente',
+          !next.date && 'fecha',
+          !next.time && 'hora',
+        ].filter(Boolean) as string[],
+      })
+    } else if (preparedAction.type === 'invoice') {
+      const amount = parseFloat((editDraft.amount ?? '').replace(',', '.')) || preparedAction.amount
+      const next = {
+        ...preparedAction,
+        clientName: editDraft.clientName?.trim() || preparedAction.clientName,
+        concept: editDraft.concept?.trim() || preparedAction.concept,
+        amount,
+        dueDate: editDraft.dueDate || preparedAction.dueDate,
+      }
+      setPreparedAction({
+        ...next,
+        missingFields: [
+          !next.clientName && 'cliente',
+          !next.amount && 'importe',
+          !next.concept && 'concepto',
+          !next.dueDate && 'vencimiento',
+        ].filter(Boolean) as string[],
+      })
+    } else if (preparedAction.type === 'task') {
+      setPreparedAction({
+        ...preparedAction,
+        clientName: editDraft.clientName?.trim() || preparedAction.clientName,
+        taskTitle: editDraft.taskTitle?.trim() || preparedAction.taskTitle,
+        description: editDraft.description?.trim() || preparedAction.description,
+        dueDate: editDraft.dueDate || preparedAction.dueDate,
+      })
+    }
+    setEditingAction(false)
   }
 
   const createDemoConversation = async () => {
@@ -1386,7 +2121,7 @@ export default function AssistantPage() {
       clientAvatar: isCopilot ? 'CRM' : 'IN',
       channel: 'Web' as Channel,
       sentiment: 'neutral' as ConversationSentiment,
-      intent: isCopilot ? 'Copilot CRM' : 'Inbox Assistant',
+      intent: isCopilot ? 'NowLabs AI CRM' : 'Inbox Assistant',
       lastMessage: isCopilot
         ? 'Abre una consulta interna para gestionar clientes, citas o facturas.'
         : 'Conversación lista para simular un mensaje de cliente.',
@@ -1525,7 +2260,7 @@ export default function AssistantPage() {
     const testMessage = `Mensaje test persistencia ${new Date().toISOString()}`
     try {
       const created = await createAssistantConversation(workspaceId, assistantMode, {
-        clientName: assistantMode === 'copilot' ? 'Test persistencia Copilot' : 'Test persistencia Inbox',
+        clientName: assistantMode === 'copilot' ? 'Test persistencia NowLabs AI' : 'Test persistencia Inbox',
         clientAvatar: assistantMode === 'copilot' ? 'TC' : 'TI',
         lastMessage: testMessage,
         unread: false,
@@ -1696,15 +2431,21 @@ export default function AssistantPage() {
           throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede eliminar una conversación temporal en modo real.')
         }
         await deleteConversationPermanently(selected.id, workspaceId)
+        const deletedId = selected.id
         setConversationList((prev) => {
-          const next = prev.filter((conversation) => conversation.id !== selected.id)
+          const next = prev.filter((conversation) => conversation.id !== deletedId)
           const nextSelected = next.find((conversation) => conversation.assistantMode === assistantMode)
           setSelectedIds((current) => ({ ...current, [assistantMode]: nextSelected?.id ?? '' }))
           return next
         })
         setLocalMessages((prev) => {
           const next = { ...prev }
-          delete next[selected.id]
+          delete next[deletedId]
+          return next
+        })
+        setReferencedClients((prev) => {
+          const next = { ...prev }
+          delete next[deletedId]
           return next
         })
         toast.success('Conversación eliminada definitivamente')
@@ -1730,7 +2471,7 @@ export default function AssistantPage() {
       >
         <PageHeader
           title="Asistente IA"
-          description="Preparando Assistant Agent..."
+          description="Preparando NowLabs AI..."
           action={<Badge variant="indigo" dot>Conectando</Badge>}
         />
         <div className="grid gap-3 lg:grid-cols-3">
@@ -1743,7 +2484,7 @@ export default function AssistantPage() {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-            <p className="text-sm font-semibold text-gray-950">Preparando Assistant Agent...</p>
+            <p className="text-sm font-semibold text-gray-950">Preparando NowLabs AI...</p>
             <p className="mt-1 text-xs leading-5 text-gray-500">Cargando workspace, conversaciones y n8n/OpenAI.</p>
           </div>
         </div>
@@ -1760,16 +2501,16 @@ export default function AssistantPage() {
     >
       <PageHeader
         title="Asistente IA"
-        description="Assistant Agent opera tu CRM: clientes, citas, facturas, cobros y próximas acciones."
+        description="NowLabs AI opera tu CRM: clientes, citas, facturas, cobros y próximas acciones."
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={assistantN8nActive ? 'success' : 'warning'} dot>{assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
+            <Badge variant={assistantMode === 'inbox' ? 'warning' : assistantN8nActive ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
-            <Badge variant="indigo" dot>Acciones con confirmación</Badge>
-            <Badge variant="warning" dot>WhatsApp siguiente fase</Badge>
+            <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
+            <Badge variant="warning" dot>{assistantMode === 'inbox' ? 'Whapi/n8n pendiente' : 'WhatsApp siguiente fase'}</Badge>
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
-              {assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear conversación de ejemplo') : (isRealMode ? 'Crear consulta' : 'Crear consulta de ejemplo')}
+              {assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}
             </Button>
           </div>
         }
@@ -1804,9 +2545,9 @@ export default function AssistantPage() {
                     <p className="text-sm font-bold text-gray-950">{mode.title}</p>
                   </div>
                 </div>
-                <Badge variant={isActive ? 'indigo' : 'default'}>{mode.badge}</Badge>
+                <Badge variant={isActive ? 'indigo' : 'default'}>{mode.id === 'inbox' ? 'Modo manual' : mode.badge}</Badge>
               </div>
-              <p className="text-xs leading-5 text-gray-600">{mode.description}</p>
+              <p className="text-xs leading-5 text-gray-600">{mode.id === 'inbox' ? 'Conversaciones cliente/WhatsApp en modo manual, pendiente de conectar Whapi/n8n propio.' : mode.description}</p>
             </button>
           )
         })}
@@ -1857,7 +2598,7 @@ export default function AssistantPage() {
                       <div className="mt-1 flex items-center gap-1">
                         <Badge variant={channelVariant[conv.channel]} className="px-1.5 py-0 text-[10px]">{conv.channel}</Badge>
                         <Badge variant={sentimentConfig[conv.sentiment].variant} className="px-1.5 py-0 text-[10px]">{sentimentConfig[conv.sentiment].label}</Badge>
-                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'Copilot' : 'Inbox'}</Badge>
+                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox'}</Badge>
                       </div>
                     </div>
                   </button>
@@ -1867,14 +2608,21 @@ export default function AssistantPage() {
             {!loadingConversations && filteredConvs.length === 0 && (
               <li className="p-5 text-center">
                 <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
-                  <MessageSquare className="h-5 w-5" />
+                  {assistantMode === 'copilot' ? <Bot className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
                 </div>
-                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones' : 'Sin consultas'}</p>
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones' : 'No hay consultas NowLabs AI todavía'}</p>
+                <p className="mt-1 text-xs leading-4 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para empezar.'
-                    : 'Abre una consulta para operar tu CRM.'}
+                    : 'Abre una consulta para operar tu CRM con datos reales.'}
                 </p>
+                <button
+                  onClick={createDemoConversation}
+                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                >
+                  <Plus className="h-3 w-3" />
+                  {assistantMode === 'inbox' ? 'Nueva conversación' : 'Nueva consulta'}
+                </button>
               </li>
             )}
           </ul>
@@ -1887,7 +2635,29 @@ export default function AssistantPage() {
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">{selected.clientAvatar || getInitials(selected.clientName)}</div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+                    {assistantMode === 'copilot' && editingTitle ? (
+                      <form onSubmit={(e) => { e.preventDefault(); void saveTitle() }} className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={titleDraft}
+                          onChange={(e) => setTitleDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Escape') cancelEditingTitle() }}
+                          className="h-7 rounded-lg border border-indigo-300 bg-white px-2 text-sm font-semibold text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          style={{ width: Math.max(160, titleDraft.length * 8) }}
+                        />
+                        <button type="submit" className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50">Guardar</button>
+                        <button type="button" onClick={cancelEditingTitle} className="rounded px-1.5 py-0.5 text-[11px] text-gray-400 hover:bg-gray-50">Cancelar</button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+                        {assistantMode === 'copilot' && (
+                          <button onClick={startEditingTitle} className="text-gray-300 transition-colors hover:text-indigo-500" aria-label="Editar título">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <Badge variant={channelVariant[selected.channel]} className="text-[10px]">{selected.channel}</Badge>
                       {selected.intent && <span className="text-[10px] text-gray-400">· {selected.intent}</span>}
@@ -1913,7 +2683,7 @@ export default function AssistantPage() {
                 {!loadingMessages && msgs.map((msg) => {
                   const isUser = msg.sender !== 'ai'
                   const isAI = msg.sender === 'ai'
-                  const label = isAI ? 'Assistant Agent' : 'Tú'
+                  const label = isAI ? (assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant') : 'Tú'
                   return (
                     <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
                       <div className={cn('max-w-[80%]', isUser ? 'items-end' : 'items-start')}>
@@ -1935,73 +2705,187 @@ export default function AssistantPage() {
                 })}
                 {preparedAction && (
                   <div className="flex justify-start">
-                    <div className="max-w-[72%] rounded-2xl rounded-tl-sm border border-violet-100 bg-gradient-to-br from-white via-violet-50 to-indigo-50 p-4 shadow-md shadow-indigo-950/[0.05]">
+                    <div className="max-w-[78%] rounded-2xl rounded-tl-sm border border-violet-100 bg-gradient-to-br from-white via-violet-50 to-indigo-50 p-4 shadow-md shadow-indigo-950/[0.05]">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm shadow-violet-600/20">
-                            {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                            {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : preparedAction.type === 'task' ? <CheckCircle className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                           </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-950">Acción preparada: {preparedAction.type === 'booking' ? 'crear cita' : 'crear factura'}</p>
-                          <p className="text-[11px] text-gray-500">{preparedAction.title} · {preparedAction.assistantMode === 'inbox' ? 'Inbox Assistant' : 'Copilot CRM'}</p>
+                          <div>
+                            <p className="text-sm font-bold text-gray-950">
+                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : 'PDF de informe'}
+                            </p>
+                            <p className="text-[11px] text-gray-500">{preparedAction.title} · NowLabs AI</p>
+                          </div>
                         </div>
+                        <div className="flex items-center gap-1.5">
+                          {preparedAction.type !== 'prepare_pdf' && !editingAction && (
+                            <button onClick={startEditingAction} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-500 transition-colors hover:bg-white/70 hover:text-indigo-600">
+                              <Pencil className="h-3 w-3" />
+                              Editar
+                            </button>
+                          )}
+                          <Badge variant={editingAction ? 'indigo' : 'warning'} dot>{editingAction ? 'Editando' : 'Confirmar'}</Badge>
                         </div>
-                        <Badge variant="warning" dot>Requiere confirmación</Badge>
                       </div>
 
-                      <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-2">
-                        <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                          <span className="block text-[10px] font-semibold uppercase text-gray-400">Cliente</span>
-                          {preparedAction.clientName ?? 'Pendiente'}
+                      {editingAction ? (
+                        <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-2">
+                          <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                            <span className="block text-[10px] font-semibold uppercase text-gray-400">Cliente</span>
+                            <input value={editDraft.clientName ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, clientName: e.target.value }))} placeholder="Nombre del cliente" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                          </div>
+                          {preparedAction.type === 'booking' && (
+                            <>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Servicio</span>
+                                <input value={editDraft.service ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, service: e.target.value }))} placeholder="Corte, demo, reunión…" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Fecha</span>
+                                <input type="date" value={editDraft.date ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, date: e.target.value }))} className="mt-0.5 w-full bg-transparent text-xs outline-none focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Hora</span>
+                                <input type="time" value={editDraft.time ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, time: e.target.value }))} className="mt-0.5 w-full bg-transparent text-xs outline-none focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Duración (min)</span>
+                                <input type="number" min="15" max="480" value={editDraft.duration ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, duration: e.target.value }))} placeholder="60" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'invoice' && (
+                            <>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Concepto</span>
+                                <input value={editDraft.concept ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, concept: e.target.value }))} placeholder="Plan Pro, Consultoría…" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Importe (EUR)</span>
+                                <input type="number" min="0" step="0.01" value={editDraft.amount ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, amount: e.target.value }))} placeholder="299" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Vencimiento</span>
+                                <input type="date" value={editDraft.dueDate ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, dueDate: e.target.value }))} className="mt-0.5 w-full bg-transparent text-xs outline-none focus:text-gray-900" />
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'task' && (
+                            <>
+                              <div className="col-span-2 rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Título de tarea</span>
+                                <input value={editDraft.taskTitle ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, taskTitle: e.target.value }))} placeholder="Llamar a cliente…" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Vencimiento</span>
+                                <input type="date" value={editDraft.dueDate ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, dueDate: e.target.value }))} className="mt-0.5 w-full bg-transparent text-xs outline-none focus:text-gray-900" />
+                              </div>
+                              <div className="rounded-lg bg-white/90 p-2 ring-1 ring-indigo-200">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Descripción</span>
+                                <input value={editDraft.description ?? ''} onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value }))} placeholder="Opcional…" className="mt-0.5 w-full bg-transparent text-xs outline-none placeholder:text-gray-300 focus:text-gray-900" />
+                              </div>
+                            </>
+                          )}
+                          <div className="col-span-2 flex justify-end gap-2 pt-1">
+                            <button onClick={() => setEditingAction(false)} className="rounded-lg px-2.5 py-1 text-xs text-gray-500 transition-colors hover:bg-white/70 hover:text-gray-700">
+                              Cancelar edición
+                            </button>
+                            <button onClick={saveEditDraft} className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-indigo-700">
+                              Guardar cambios
+                            </button>
+                          </div>
                         </div>
-                        {preparedAction.type === 'booking' ? (
-                          <>
+                      ) : (
+                        <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-2">
+                          {preparedAction.clientName && (
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Servicio</span>
-                              {preparedAction.service ?? 'Pendiente'}
+                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Cliente</span>
+                              {preparedAction.clientName}
                             </div>
-                            <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Fecha y hora</span>
-                              {preparedAction.date ?? 'Fecha pendiente'} · {preparedAction.time ?? 'hora pendiente'}
+                          )}
+                          {preparedAction.type === 'booking' && (
+                            <>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Servicio</span>
+                                {preparedAction.service ?? 'Pendiente'}
+                              </div>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Fecha y hora</span>
+                                {preparedAction.date ?? 'Pendiente'} · {preparedAction.time ?? 'Pendiente'}
+                              </div>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Duración</span>
+                                {preparedAction.duration ? `${preparedAction.duration} min` : 'Pendiente'}
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'invoice' && (
+                            <>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Concepto</span>
+                                {preparedAction.concept ?? 'Pendiente'}
+                              </div>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Importe</span>
+                                {preparedAction.amount ? `${preparedAction.amount.toLocaleString('es-ES')} EUR` : 'Pendiente'}
+                              </div>
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Vencimiento</span>
+                                {preparedAction.dueDate ?? 'Pendiente'}
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'task' && (
+                            <>
+                              <div className="col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Tarea</span>
+                                {preparedAction.taskTitle ?? 'Pendiente'}
+                              </div>
+                              {preparedAction.dueDate && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Vence</span>
+                                  {preparedAction.dueDate}
+                                </div>
+                              )}
+                              {preparedAction.description && (
+                                <div className={preparedAction.dueDate ? 'rounded-lg bg-white/75 p-2 ring-1 ring-white' : 'col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white'}>
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Descripción</span>
+                                  {preparedAction.description}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {preparedAction.type === 'prepare_pdf' && preparedAction.reportText && (
+                            <div className="col-span-2 max-h-32 overflow-y-auto rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Vista previa del informe</span>
+                              <pre className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-gray-600">{preparedAction.reportText.slice(0, 600)}{preparedAction.reportText.length > 600 ? '\n…' : ''}</pre>
                             </div>
-                            <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Duración</span>
-                              {preparedAction.duration ? `${preparedAction.duration} min` : 'Pendiente'}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Concepto</span>
-                              {preparedAction.concept ?? 'Pendiente'}
-                            </div>
-                            <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Importe</span>
-                              {preparedAction.amount ? `${preparedAction.amount.toLocaleString('es-ES')} EUR` : 'Pendiente'}
-                            </div>
-                            <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                              <span className="block text-[10px] font-semibold uppercase text-gray-400">Vencimiento</span>
-                              {preparedAction.dueDate ?? 'Pendiente'}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
 
-                      {preparedAction.missingFields.length > 0 && (
+                      {!editingAction && preparedAction.missingFields.length > 0 && (
                         <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50 p-2 text-xs font-medium text-amber-700">
-                          Faltan datos: {missingText(preparedAction.missingFields)}. Escríbelos en el chat para completar la acción.
+                          Faltan datos: {missingText(preparedAction.missingFields)}. Escríbelos en el chat o pulsa Editar para completarlos.
                         </p>
                       )}
-                      {preparedAction.notes && <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs leading-5 text-gray-500">{preparedAction.notes}</p>}
+                      {!editingAction && 'notes' in preparedAction && preparedAction.notes && (
+                        <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs leading-5 text-gray-500">{preparedAction.notes}</p>
+                      )}
 
                       <div className="mt-3 flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={cancelPreparedAction} disabled={confirmingAction}>
+                        <Button variant="ghost" size="sm" onClick={cancelPreparedAction} disabled={confirmingAction || editingAction}>
                           <X className="h-3.5 w-3.5" />
                           Cancelar
                         </Button>
-                        <Button size="sm" onClick={() => void confirmPreparedAction()} loading={confirmingAction} disabled={preparedAction.missingFields.length > 0}>
+                        <Button size="sm" onClick={() => void confirmPreparedAction()} loading={confirmingAction} disabled={preparedAction.missingFields.length > 0 || editingAction}>
                           <CheckCircle className="h-3.5 w-3.5" />
-                          {preparedAction.missingFields.length ? 'Faltan datos' : preparedAction.type === 'booking' ? 'Confirmar cita' : 'Confirmar factura'}
+                          {preparedAction.missingFields.length ? 'Faltan datos' :
+                            preparedAction.type === 'booking' ? 'Confirmar cita' :
+                            preparedAction.type === 'invoice' ? 'Confirmar factura' :
+                            preparedAction.type === 'task' ? 'Crear tarea' :
+                            'Registrar PDF'}
                         </Button>
                       </div>
                     </div>
@@ -2026,7 +2910,7 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pide a Copilot que opere tu CRM...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pide a NowLabs AI que opere tu CRM...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
@@ -2053,14 +2937,14 @@ export default function AssistantPage() {
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp/Whapi, los mensajes reales aparecerán aquí.'
-                    : 'Abre una consulta interna para que Copilot opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
+                    : 'Abre una consulta interna para que NowLabs AI opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
                   {capabilityExamples.slice(0, 4).map((example) => (
                     <span key={example} className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">{example}</span>
                   ))}
                 </div>
-                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Crear conversación' : 'Crear conversación de ejemplo') : (isRealMode ? 'Crear consulta' : 'Crear consulta de ejemplo')}</Button>
+                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}</Button>
               </div>
             </div>
           )}
@@ -2068,7 +2952,7 @@ export default function AssistantPage() {
 
         <aside className="w-72 shrink-0 overflow-y-auto border-l border-indigo-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_44%,#f5f3ff_100%)]">
           <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-700 px-4 py-3.5 text-white shadow-sm shadow-indigo-950/10">
-            <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">Assistant Agent</h3></div>
+            <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</h3></div>
           </div>
           <div className="space-y-4 p-4">
             {selected && (
@@ -2099,11 +2983,21 @@ export default function AssistantPage() {
 
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
               <p className="mb-1 text-[10px] font-semibold text-emerald-700">Estado técnico</p>
-              <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'Assistant Agent conectado' : isRealMode ? 'Workspace real · webhook pendiente' : 'Mock data · IA simulada'}</span></div>
-              <p className="mt-1 text-[10px] text-emerald-600">{assistantN8nActive ? 'Workflow: NowCRM - Assistant Agent.' : isRealMode ? 'No hay webhook activo detectado para este workspace.' : 'Siguiente paso: activar Assistant Agent en Settings.'}</p>
-              <p className="mt-1 text-[10px] text-emerald-600">Calendar tools preparadas.</p>
-              <p className="mt-1 text-[10px] text-emerald-600">Confirmación requerida para escrituras.</p>
-              <p className="mt-1 text-[10px] text-emerald-600">Fallback seguro disponible.</p>
+              <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'NowLabs AI conectado' : isRealMode ? 'Workspace real · webhook pendiente' : 'Mock data · IA simulada'}</span></div>
+              <p className="mt-1 text-[10px] text-emerald-600">{assistantN8nActive ? 'Workflow: NowCRM - NowLabs AI.' : isRealMode ? 'No hay webhook activo detectado para este workspace.' : 'Siguiente paso: activar NowLabs AI en Settings.'}</p>
+              {assistantMode === 'inbox' ? (
+                <>
+                  <p className="mt-1 text-[10px] text-emerald-600">Respuesta automatica desactivada.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Whapi/n8n pendiente de conexion.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Modo manual para evitar respuestas falsas.</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-[10px] text-emerald-600">Calendar tools preparadas.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Confirmación requerida para escrituras.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Fallback seguro disponible.</p>
+                </>
+              )}
               {lastResponseSource === 'n8n' && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">Última respuesta por n8n/OpenAI</p>}
               {lastActionStatus && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">{lastActionStatus}</p>}
               {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta por fallback</p>}
@@ -2113,7 +3007,7 @@ export default function AssistantPage() {
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
               <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</p>
               <div className="flex flex-wrap gap-1.5">
-                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities).map((capability) => (
+                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities.map((_, index) => ['Conversaciones', 'Whapi/n8n pendiente', 'Modo manual'][index]).filter(Boolean)).map((capability) => (
                   <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>
                 ))}
               </div>
@@ -2143,7 +3037,7 @@ export default function AssistantPage() {
                 <p className="text-xs leading-relaxed text-indigo-800">
                   {assistantMode === 'inbox'
                     ? selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y prepara cita o seguimiento.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Responde con contexto y pide el dato mínimo para avanzar.' : 'Crea una conversación para simular mensajes entrantes de clientes.'
-                    : selected ? 'Usa Copilot para consultar datos reales, preparar acciones y confirmar antes de escribir en Supabase.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
+                    : selected ? 'Usa NowLabs AI para consultar datos reales, preparar acciones y confirmar antes de escribir en Supabase.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
                 </p>
                 <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Próxima acción') : toast.info('Crea una conversación primero')}>
                   Aplicar <ArrowRight className="h-3 w-3" />

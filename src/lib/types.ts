@@ -82,25 +82,48 @@ export type AutomationEmail = {
 
 export type CalendarEvent = {
   id: string
+  workspaceId?: string
+  clientId?: string
   title: string
+  startAt?: string
+  endAt?: string
   date: string
   startHour: number
   startMinute: number
   duration: number
   type: EventType
   clientName?: string
+  location?: string
+  notes?: string
   description?: string
+  status?: string
+  metadata?: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+  googleEventId?: string
+  googleCalendarId?: string
+  syncSource?: string
+  lastSyncedAt?: string
 }
 
 export type Invoice = {
   id: string
+  workspaceId?: string
+  clientId?: string
   clientName: string
+  invoiceNumber?: string
+  number?: string
   amount: number
+  currency?: string
   status: InvoiceStatus
   date: string
+  issueDate?: string
   dueDate: string
+  paidAt?: string
+  concept?: string
   plan: string
   notes?: string
+  metadata?: Record<string, unknown>
 }
 
 export type AIInsight = {

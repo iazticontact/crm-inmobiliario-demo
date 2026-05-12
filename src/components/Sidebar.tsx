@@ -106,15 +106,22 @@ export function Sidebar() {
           })}
         </ul>
 
-        <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
-            <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Demo activa' : 'Trial activo'}</p>
+        {isLoading ? (
+          <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
+            <div className="h-3 w-24 rounded-full bg-white/10 animate-pulse" />
+            <div className="mt-1.5 h-2 w-40 rounded-full bg-white/5 animate-pulse" />
           </div>
-          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
-            {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} está probando NowCRM con Auth real.`}
-          </p>
-        </div>
+        ) : (
+          <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
+              <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Demo activa' : 'Trial activo'}</p>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+              {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} está probando NowCRM con Auth real.`}
+            </p>
+          </div>
+        )}
 
         {/* Divider + quick links */}
         <div className="mt-4 space-y-0.5 border-t border-white/10 pt-4">

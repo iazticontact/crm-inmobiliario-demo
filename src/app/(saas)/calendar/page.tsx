@@ -11,6 +11,7 @@ import { calendarEvents as initialEvents } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { triggerN8nWebhook } from '@/lib/integrations'
+import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
   createActivity,
   createCalendarEvent,
@@ -36,9 +37,7 @@ const eventVariant: Record<EventType, 'indigo' | 'success' | 'info' | 'warning'>
 }
 
 const WEEK_DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-const WEEK_DATES = ['4 may', '5 may', '6 may', '7 may', '8 may', '9 may', '10 may']
-const WEEK_FULL = ['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07', '2026-05-08', '2026-05-09', '2026-05-10']
-const TODAY = '2026-05-05'
+const TODAY = toDateInput(new Date())
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8)
 
 type EventForm = {
@@ -54,6 +53,50 @@ type EventForm = {
 }
 
 const emptyEventForm: EventForm = { title: '', date: TODAY, type: 'demo', startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
+
+function toDateInput(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function fromDateInput(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, (month || 1) - 1, day || 1)
+}
+
+function addDays(value: string, days: number) {
+  const date = fromDateInput(value)
+  date.setDate(date.getDate() + days)
+  return toDateInput(date)
+}
+
+function addMonths(value: string, months: number) {
+  const date = fromDateInput(value)
+  date.setMonth(date.getMonth() + months)
+  return toDateInput(date)
+}
+
+function startOfWeek(value: string) {
+  const date = fromDateInput(value)
+  const day = date.getDay() || 7
+  date.setDate(date.getDate() - day + 1)
+  return toDateInput(date)
+}
+
+function monthLabel(value: string) {
+  return fromDateInput(value).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+}
+
+function monthCells(value: string) {
+  const date = fromDateInput(value)
+  const year = date.getFullYear()
+  const month = date.getMonth()
+  const firstOffset = (new Date(year, month, 1).getDay() || 7) - 1
+  const lastDay = new Date(year, month + 1, 0).getDate()
+  return [
+    ...Array.from({ length: firstOffset }, () => null),
+    ...Array.from({ length: lastDay }, (_, index) => toDateInput(new Date(year, month, index + 1))),
+  ]
+}
 
 function toForm(event: CalendarEvent): EventForm {
   return {
@@ -81,6 +124,9 @@ export default function CalendarPage() {
   const [isRealMode, setIsRealMode] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
+  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
+  const calendarMonthCells = useMemo(() => monthCells(selectedDate), [selectedDate])
 
   const loadEvents = useCallback(async () => {
     const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
@@ -110,11 +156,13 @@ export default function CalendarPage() {
       setEvents(realEvents)
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
-    } catch {
+    } catch (error) {
       setEvents(initialEvents)
       setWorkspaceId(null)
       setIsRealMode(false)
-      setLoadError('No se pudieron cargar eventos reales. Revisa RLS o columnas de calendar_events.')
+      const message = error instanceof Error ? error.message : 'Revisa RLS o columnas de calendar_events.'
+      setLoadError(process.env.NODE_ENV === 'development' ? `No se pudieron cargar eventos reales: ${message}` : 'No se pudieron cargar eventos reales. Revisa RLS o columnas de calendar_events.')
+      if (process.env.NODE_ENV === 'development') console.error('[calendar/loadEvents]', error)
     } finally {
       setLoading(false)
     }
@@ -159,11 +207,13 @@ export default function CalendarPage() {
     const payload = {
       title: form.title.trim(),
       date: form.date,
+      time: `${String(form.startHour).padStart(2, '0')}:${String(form.startMinute).padStart(2, '0')}`,
       startHour: Number(form.startHour),
       startMinute: Number(form.startMinute),
       duration: Number(form.duration),
       type: form.type,
       clientName: form.clientName.trim(),
+      notes: form.description.trim(),
       description: form.description.trim(),
     }
 
@@ -171,20 +221,33 @@ export default function CalendarPage() {
     try {
       if (isRealMode && workspaceId) {
         if (form.id) {
-          await updateCalendarEvent(form.id, payload)
-          await createActivity(workspaceId, { type: 'call', description: `Evento actualizado: ${payload.title}`, clientName: payload.clientName })
+          await updateCalendarEvent(form.id, workspaceId, payload)
+          void createActivity(workspaceId, { type: 'call', description: `Evento actualizado: ${payload.title}`, clientName: payload.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[calendar/createActivity:update]', error)
+          })
           toast.success(`Evento actualizado: ${payload.title}`)
         } else {
           const created = await createCalendarEvent(workspaceId, payload)
-          await createActivity(workspaceId, { type: 'call', description: `Evento creado: ${payload.title}`, clientName: payload.clientName })
-          await triggerN8nWebhook('calendar_event_created', { workspace_id: workspaceId, mode: 'real', calendar_event: { ...payload, id: created.id } })
+          void createActivity(workspaceId, { type: 'call', description: `Evento creado: ${payload.title}`, clientName: payload.clientName }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[calendar/createActivity:create]', error)
+          })
+          void triggerN8nWebhook('calendar_event_created', { workspace_id: workspaceId, mode: 'real', calendar_event: { ...payload, id: created.id } }).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[calendar/n8n:create]', error)
+          })
           toast.success(`Evento creado en Supabase: ${payload.title}`)
         }
         await loadEvents()
       } else {
+        const times = buildCalendarEventTimes(payload)
         const localEvent: CalendarEvent = {
           id: form.id || `ev-${Date.now()}`,
           ...payload,
+          startAt: times.startAtIso,
+          endAt: times.endAtIso,
+          date: times.date,
+          startHour: times.startHour,
+          startMinute: times.startMinute,
+          duration: times.duration,
           clientName: payload.clientName || undefined,
           description: payload.description || undefined,
         }
@@ -205,8 +268,8 @@ export default function CalendarPage() {
     if (!form.id) return
     setDeleting(true)
     try {
-      if (isRealMode) {
-        await deleteCalendarEvent(form.id)
+      if (isRealMode && workspaceId) {
+        await deleteCalendarEvent(form.id, workspaceId)
         await loadEvents()
       } else {
         setEvents((prev) => prev.filter((event) => event.id !== form.id))
@@ -256,10 +319,10 @@ export default function CalendarPage() {
         <aside className="flex w-64 shrink-0 flex-col gap-4">
           <div className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035]">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Mayo 2026</h3>
+              <h3 className="text-sm font-semibold text-gray-900">{monthLabel(selectedDate)}</h3>
               <div className="flex gap-0.5">
-                <button className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronLeft className="h-3.5 w-3.5" /></button>
-                <button className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronRight className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setSelectedDate(addMonths(selectedDate, -1))} className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronLeft className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setSelectedDate(addMonths(selectedDate, 1))} className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100"><ChevronRight className="h-3.5 w-3.5" /></button>
               </div>
             </div>
 
@@ -268,10 +331,9 @@ export default function CalendarPage() {
             </div>
 
             <div className="grid grid-cols-7 gap-y-0.5">
-              {Array.from({ length: 4 }).map((_, i) => <div key={`empty-${i}`} />)}
-              {Array.from({ length: 31 }, (_, i) => {
-                const day = i + 1
-                const dateStr = `2026-05-${String(day).padStart(2, '0')}`
+              {calendarMonthCells.map((dateStr, i) => {
+                if (!dateStr) return <div key={`empty-${i}`} />
+                const day = Number(dateStr.slice(-2))
                 const isToday = dateStr === TODAY
                 const isSelected = dateStr === selectedDate
                 const hasEvent = events.some((e) => e.date === dateStr)
@@ -326,14 +388,14 @@ export default function CalendarPage() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
           <div className="flex shrink-0 border-b border-gray-100">
             <div className="w-16 shrink-0 border-r border-gray-100 px-2 py-3"><span className="text-[10px] text-gray-400">UTC+2</span></div>
-            {WEEK_DAYS.map((day, i) => {
-              const dateStr = WEEK_FULL[i]
+            {weekDates.map((dateStr, i) => {
+              const day = WEEK_DAYS[i] ?? ''
               const isToday = dateStr === TODAY
               const isSelected = dateStr === selectedDate
               return (
                 <div key={day} onClick={() => setSelectedDate(dateStr)} className={cn('flex flex-1 cursor-pointer flex-col items-center border-r border-gray-100 py-3 transition-colors last:border-r-0', isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50')}>
                   <span className={cn('text-[10px] font-medium', isSelected ? 'text-indigo-600' : 'text-gray-400')}>{day}</span>
-                  <span className={cn('mt-1 flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isToday ? 'bg-indigo-600 text-white' : isSelected ? 'text-indigo-700' : 'text-gray-700')}>{WEEK_DATES[i].split(' ')[0]}</span>
+                  <span className={cn('mt-1 flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isToday ? 'bg-indigo-600 text-white' : isSelected ? 'text-indigo-700' : 'text-gray-700')}>{Number(dateStr.slice(-2))}</span>
                 </div>
               )
             })}
@@ -345,7 +407,7 @@ export default function CalendarPage() {
             </div>
 
             <div className="flex min-w-0 flex-1">
-              {WEEK_FULL.map((dateStr) => {
+              {weekDates.map((dateStr) => {
                 const dayEvents = events.filter((e) => e.date === dateStr)
                 const isToday = dateStr === TODAY
                 return (
