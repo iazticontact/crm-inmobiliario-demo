@@ -1,6 +1,8 @@
 import type { N8nFlowStatus, N8nRequirement } from '@/lib/types'
+import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { getErrorMessage } from '@/lib/error-utils'
 
-export const ASSISTANT_AGENT_WEBHOOK_URL = 'https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent'
+export const ASSISTANT_AGENT_WEBHOOK_URL = ''
 
 export const N8N_EVENT_TYPES = [
   'new_lead',
@@ -131,7 +133,7 @@ export const n8nWebhookConfigs: WebhookConfig[] = [
   { event: 'client_updated', label: 'Cliente actualizado', description: 'Sincroniza cambios del perfil comercial y registra seguimiento.', trigger: 'Edicion de cliente', url: 'https://n8n.tudominio.com/webhook/client-updated', status: 'pending_config', requires: ['Supabase', 'n8n'] },
   { event: 'client_deleted', label: 'Cliente eliminado', description: 'Limpia tareas pendientes o avisa al equipo antes de borrar contexto.', trigger: 'Borrado de cliente', url: 'https://n8n.tudominio.com/webhook/client-deleted', status: 'inactive', requires: ['Supabase', 'n8n'] },
   { event: 'whatsapp_message', label: 'Mensaje WhatsApp', description: 'Registra conversacion, clasifica intencion y propone respuesta IA.', trigger: 'Mensaje WhatsApp Business', url: 'https://n8n.tudominio.com/webhook/whatsapp-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
-  { event: 'assistant_message', label: 'Assistant Agent', description: 'Workflow real NowCRM - Assistant Agent: n8n recibe el mensaje, llama OpenAI y devuelve suggested_response.', trigger: 'Mensaje enviado al assistant', url: ASSISTANT_AGENT_WEBHOOK_URL, status: 'active', requires: ['Supabase', 'n8n', 'IA/API'] },
+  { event: 'assistant_message', label: 'Assistant Agent externo', description: 'Workflow n8n opcional para integraciones externas. NowLabs AI responde por /api/assistant/chat.', trigger: 'Mensaje enviado al assistant', url: ASSISTANT_AGENT_WEBHOOK_URL, status: 'pending_config', requires: ['n8n'] },
   { event: 'conversation_resolved', label: 'Conversacion resuelta', description: 'Registra cierre, resumen y siguiente accion si procede.', trigger: 'Conversacion marcada como resuelta', url: 'https://n8n.tudominio.com/webhook/conversation-resolved', status: 'demo', requires: ['Supabase', 'n8n'] },
   { event: 'appointment_booked', label: 'Reunion agendada', description: 'Guarda evento, envia confirmacion y prepara resumen previo.', trigger: 'Nueva cita en calendario', url: 'https://n8n.tudominio.com/webhook/appointment-booked', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
   { event: 'calendar_event_created', label: 'Evento de calendario', description: 'Dispara recordatorios o preparacion comercial para reuniones.', trigger: 'Nuevo evento en calendario', url: 'https://n8n.tudominio.com/webhook/calendar-event-created', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
@@ -170,9 +172,9 @@ export function getAssistantAgentFlow(flows: AssistantAgentFlowCandidate[] = [],
   return {
     event: 'assistant_message',
     label: 'NowCRM - Assistant Agent',
-    status: 'active',
-    webhookUrl: ASSISTANT_AGENT_WEBHOOK_URL,
-    isActive: !isDemoMode,
+    status: 'pending_config',
+    webhookUrl: '',
+    isActive: false,
     source: 'default',
   }
 }
@@ -251,9 +253,126 @@ export async function callAgentTool(tool: AgentToolName, workspaceId: string, in
   }
 }
 
-export async function simulateWhatsAppIncomingLead(): Promise<{ success: boolean; lead: { name: string; phone: string; message: string } }> {
-  await new Promise((r) => setTimeout(r, 600))
-  return { success: true, lead: { name: 'Lead WhatsApp Demo', phone: '+34 699 000 001', message: 'Hola! Vi vuestro anuncio y me interesa NowCRM.' } }
+export type WhatsAppSimulationResult = {
+  success: boolean
+  ok?: boolean
+  conversationId?: string
+  messageId?: string
+  lead: { name: string; phone: string; message: string }
+  step?: string
+  error?: string
+  message?: string
+  code?: string
+  details?: string
+  hint?: string
+  status?: number
+}
+
+function createClientRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+export async function simulateWhatsAppIncomingLead(
+  workspaceId?: string,
+  options: { phone?: string; webhookUrl?: string } = {}
+): Promise<WhatsAppSimulationResult> {
+  const lead = {
+    name: 'Lead WhatsApp Demo',
+    phone: options.phone?.trim() || '+34600000000',
+    message: 'Hola, vi vuestro anuncio y me interesa NowCRM. ¿Podéis darme más información?',
+  }
+
+  lead.message = 'Hola, estoy interesado en recibir informacion.'
+
+  if (!workspaceId) {
+    return {
+      success: false,
+      lead,
+      step: 'validate_payload',
+      error: 'workspaceId es requerido para simular WhatsApp desde Settings.',
+      message: 'workspaceId es requerido para simular WhatsApp desde Settings.',
+      status: 400,
+    }
+  }
+
+  try {
+    const supabase = getSupabaseBrowserClient()
+    const token = supabase
+      ? (await supabase.auth.getSession()).data.session?.access_token
+      : undefined
+
+    if (!token) {
+      return {
+        success: false,
+        lead,
+        step: 'authorize_request',
+        error: 'No hay sesion activa de Supabase para enviar Authorization Bearer.',
+        message: 'No hay sesion activa de Supabase para enviar Authorization Bearer.',
+        status: 401,
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    }
+    const requestId = createClientRequestId()
+
+    const response = await fetch('/api/inbox/whatsapp/inbound', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        workspaceId,
+        provider: 'test',
+        phone: lead.phone,
+        customerName: lead.name,
+        customerEmail: 'lead.demo@nowcrm.local',
+        message: lead.message,
+        externalConversationId: `demo-whatsapp-${workspaceId}-${lead.phone}`,
+        externalMessageId: `demo-${requestId}`,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          source: 'settings_simulator',
+          test: true,
+          webhookUrl: options.webhookUrl?.trim() || undefined,
+        },
+      }),
+    })
+
+    const data = (await response.json().catch(() => ({}))) as {
+      ok?: boolean
+      conversationId?: string
+      messageId?: string
+      step?: string
+      error?: string
+      message?: string
+      code?: string
+      details?: string
+      hint?: string
+      status?: number
+    }
+
+    return {
+      success: Boolean(response.ok && data.ok),
+      ok: Boolean(data.ok),
+      conversationId: data.conversationId,
+      messageId: data.messageId,
+      lead,
+      step: data.step,
+      error: data.error,
+      message: data.message,
+      code: data.code,
+      details: data.details,
+      hint: data.hint,
+      status: data.status ?? response.status,
+    }
+  } catch (error) {
+    const message = getErrorMessage(error) || 'Error de red llamando a /api/inbox/whatsapp/inbound.'
+    return { success: false, lead, step: 'network_request', error: message, message }
+  }
 }
 
 export async function simulatePaymentRegistered(): Promise<{ success: boolean; amount: number; client: string }> {

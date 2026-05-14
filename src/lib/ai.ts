@@ -308,7 +308,7 @@ function formatRecentHistory(messages: Message[] = []) {
 
 function buildOperationalPrompt(input: string, messages: Message[] = [], conversation?: Conversation | null, assistantMode: AssistantMode = 'copilot') {
   const modeDescription = assistantMode === 'inbox'
-    ? 'Modo Inbox Assistant: trabajas sobre conversaciones con clientes/leads. Responde como capa de conversación del negocio y prepara acciones con confirmación. WhatsApp/Whapi es siguiente fase, no está conectado todavía.'
+    ? 'Modo Inbox Assistant: trabajas sobre conversaciones con clientes/leads. Responde como capa de conversación del negocio y prepara acciones con confirmación. WhatsApp Business (Meta Cloud API) es la siguiente fase, no está conectado todavía.'
     : 'Modo CRM Copilot: eres empleado interno del CRM. Ayudas al usuario del CRM a consultar Supabase, preparar citas, facturas, cobros, propuestas y próximas acciones.'
 
   return [
@@ -318,7 +318,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
     'Si detectas reserva/cita, pide solo datos mínimos o prepara la cita; no propongas llamadas comerciales genéricas.',
     'Si detectas factura, pide cliente, importe, concepto y vencimiento si faltan datos.',
     'Si preguntan por precios/planes, no inventes importes: pide tipo de negocio, usuarios y modulos a activar.',
-    'WhatsApp/Whapi es siguiente fase; no digas que ya esta conectado.',
+    'WhatsApp Business (Meta Cloud API) es la siguiente fase; no digas que ya está conectado.',
     'Responde en español, maximo 3 frases, con tono operativo.',
     'No confirmes acciones críticas como creadas si el usuario no las ha confirmado en NowCRM.',
     `Conversacion actual: ${conversation?.clientName ?? 'consulta interna'} · ${conversation?.intent ?? 'sin intencion asignada'}.`,
@@ -340,7 +340,7 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   if (isCapabilityQuestion(normalized)) {
     const summaryText = workspaceSummary ? `En ${workspaceName || 'tu workspace'}, tienes ${workspaceSummary.total_clients} clientes, ${workspaceSummary.leads} leads, ${workspaceSummary.pending_invoices} facturas pendientes y ${workspaceSummary.overdue_invoices} vencidas.` : ''
     return isInbox
-      ? `Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. ${summaryText} WhatsApp/Whapi será la siguiente fase para que esos mensajes entren solos.`
+      ? `Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. ${summaryText} WhatsApp Business (Meta Cloud API) es la siguiente fase para que esos mensajes entren solos.`
       : `Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. ${summaryText} También puedo preparar respuestas o propuestas para clientes.`
   }
 
@@ -350,7 +350,7 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
 
   if (isConsultativeBusinessQuestion(normalized) || isReservationAutomationQuery(normalized)) {
     const businessLabel = normalized.includes('peluqueria') ? 'una peluquería' : normalized.includes('clinica') ? 'una clínica' : normalized.includes('restaurante') ? 'un restaurante' : 'ese negocio'
-    return `Para ${businessLabel}, NowCRM puede centralizar la gestión de clientes, preparar reservas en calendario y automatizar seguimientos. El asistente puede recopilar nombre, servicio, fecha y hora, y crear la cita con confirmación. Si deseas integrar WhatsApp o llamadas reales, esa sería la siguiente fase con Whapi/n8n.`
+    return `Para ${businessLabel}, NowCRM puede centralizar la gestión de clientes, preparar reservas en calendario y automatizar seguimientos. El asistente puede recopilar nombre, servicio, fecha y hora, y crear la cita con confirmación. Si deseas integrar WhatsApp o llamadas reales, esa sería la siguiente fase con WhatsApp Business (Meta Cloud API).`
   }
 
   if (hasAny(text, ['demo', 'reunion', 'reunir', 'llamada', 'agenda', 'cita', 'calendario', 'reserva'])) {
@@ -366,7 +366,7 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   }
 
   if (hasAny(text, ['whatsapp', 'instagram', 'meta', 'canal', 'mensaje'])) {
-    return `Buen caso para destacar la multicanalidad: centralizar mensajes, detectar intención y convertir conversaciones en leads accionables. Actualmente en ${modeLabel}; cuando conectes WhatsApp/Whapi, el flujo podrá crear clientes y mensajes reales.`
+    return `Buen caso para destacar la multicanalidad: centralizar mensajes, detectar intención y convertir conversaciones en leads accionables. Actualmente en ${modeLabel}; cuando conectes WhatsApp Business, el flujo podrá crear clientes y mensajes reales.`
   }
 
   if (hasAny(text, ['automatizacion', 'automatizar', 'n8n', 'webhook', 'flujo', 'workflow'])) {

@@ -1,4 +1,4 @@
-export type Channel = 'WhatsApp' | 'Instagram' | 'Web' | 'Email'
+export type Channel = 'web' | 'whatsapp' | 'instagram' | 'email' | 'crm'
 export type ClientStatus = 'active' | 'lead' | 'inactive' | 'churned'
 export type ConversationSentiment = 'positive' | 'neutral' | 'negative'
 export type MessageSender = 'client' | 'agent' | 'ai'
@@ -192,4 +192,76 @@ export type WorkspaceDocument = {
   size?: number
   createdBy?: string
   createdAt?: string
+}
+
+// ─── Meta WhatsApp Business Platform (oficial) ───────────────────────────────
+
+export type MetaWhatsAppConnectionStatus =
+  | 'not_configured'
+  | 'pending_meta_business'
+  | 'webhook_pending'
+  | 'connected'
+  | 'error'
+
+export type MetaWhatsAppConnection = {
+  id?: string
+  workspaceId: string
+  provider: 'meta'
+  metaBusinessId?: string
+  whatsappBusinessAccountId?: string
+  phoneNumberId?: string
+  displayPhoneNumber?: string
+  webhookVerifyTokenConfigured: boolean
+  webhookUrl?: string
+  connectionStatus: MetaWhatsAppConnectionStatus
+  lastWebhookAt?: string
+  lastTestAt?: string
+  updatedAt?: string
+}
+
+// ─── Google Calendar (oficial OAuth) ─────────────────────────────────────────
+
+export type GoogleCalendarConnectionStatus =
+  | 'not_configured'
+  | 'oauth_pending'
+  | 'token_expired'
+  | 'connected'
+  | 'error'
+
+export type GoogleCalendarConnectionConfig = {
+  id?: string
+  workspaceId: string
+  provider: 'google_calendar'
+  calendarId?: string
+  primaryCalendar?: string
+  connectionStatus: GoogleCalendarConnectionStatus
+  lastSyncAt?: string
+  tokenStatus?: 'valid' | 'expired' | 'missing'
+  updatedAt?: string
+}
+
+// ─── Automation catalog (richer type for n8n-ready automations) ───────────────
+
+export type AutomationRequiredIntegration =
+  | 'whatsapp_business'
+  | 'google_calendar'
+  | 'email'
+  | 'n8n'
+  | 'stripe'
+  | 'openai'
+
+export type AutomationCatalogItem = {
+  id: string
+  title: string
+  description: string
+  trigger: string
+  actions: string[]
+  requiredIntegrations: AutomationRequiredIntegration[]
+  sectorTags: string[]
+  priority: 'high' | 'medium' | 'low'
+  status: AutomationStatus
+  enabledInApp: boolean
+  canActivateNow: boolean
+  reasonIfUnavailable?: string
+  n8nWorkflowSlug?: string
 }

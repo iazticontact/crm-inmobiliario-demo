@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Play, Pause, Zap, Mail, Clock, CheckCircle, XCircle, ArrowRight, BarChart2, ExternalLink, Copy, RefreshCw } from 'lucide-react'
+import { Plus, Play, Pause, Zap, Mail, Clock, CheckCircle, XCircle, ArrowRight, BarChart2, ExternalLink, Copy, RefreshCw, AlertTriangle, MessageSquare, Calendar } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
@@ -22,9 +22,9 @@ const statusConfig: Record<AutomationStatus, { label: string; variant: 'success'
 }
 
 const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
-  active: { label: 'n8n active', variant: 'success' },
-  demo: { label: 'n8n demo', variant: 'indigo' },
-  pending_config: { label: 'Pendiente config', variant: 'warning' },
+  active: { label: 'Control NowCRM activo', variant: 'success' },
+  demo: { label: 'Preparado demo', variant: 'indigo' },
+  pending_config: { label: 'n8n pendiente', variant: 'warning' },
   inactive: { label: 'Inactivo', variant: 'default' },
   error: { label: 'Error', variant: 'danger' },
 }
@@ -36,10 +36,45 @@ const emailStatusConfig: Record<AutomationEmailStatus, { label: string; variant:
   bounced: { label: 'Rebotado', variant: 'danger', icon: <XCircle className="h-3 w-3" /> },
 }
 
+type IntegrationTag = 'whatsapp_business' | 'google_calendar' | 'email' | 'n8n' | 'openai'
+
+const integrationLabel: Record<IntegrationTag, { label: string; icon: React.ReactNode; pending?: boolean }> = {
+  whatsapp_business: { label: 'WhatsApp Business', icon: <MessageSquare className="h-2.5 w-2.5" />, pending: true },
+  google_calendar: { label: 'Google Calendar', icon: <Calendar className="h-2.5 w-2.5" />, pending: true },
+  email: { label: 'Email', icon: <Mail className="h-2.5 w-2.5" /> },
+  n8n: { label: 'n8n', icon: <Zap className="h-2.5 w-2.5" /> },
+  openai: { label: 'OpenAI', icon: <Zap className="h-2.5 w-2.5" /> },
+}
+
+const n8nPendingReason = 'Requiere endpoint n8n real y credenciales server-side'
+const metaPendingReason = 'Requiere WhatsApp Business Platform oficial (Meta Cloud API)'
+const calendarPendingReason = 'Requiere OAuth real de Google Calendar'
+const openAiPendingReason = 'Requiere OpenAI server-side configurado'
+
+const automationCatalog: Record<string, { requiredIntegrations: IntegrationTag[]; canActivateNow: boolean; reasonIfUnavailable?: string }> = {
+  '1': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
+  '2': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
+  '3': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
+  '4': { requiredIntegrations: ['whatsapp_business', 'google_calendar', 'n8n'], canActivateNow: false, reasonIfUnavailable: `${metaPendingReason} + ${calendarPendingReason}` },
+  '5': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
+  '6': { requiredIntegrations: ['n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
+  '7': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}` },
+  '8': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
+  '9': { requiredIntegrations: ['email', 'whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
+  '10': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}` },
+}
+
 const automationFlowMap: Record<string, N8nEventType> = {
   '1': 'new_lead',
   '2': 'invoice_overdue',
   '3': 'reengagement_needed',
+  '4': 'appointment_booked',
+  '5': 'new_lead',
+  '6': 'daily_summary',
+  '7': 'urgent_conversation',
+  '8': 'invoice_paid',
+  '9': 'client_updated',
+  '10': 'daily_summary',
 }
 
 const emailFlowSteps = [
@@ -58,7 +93,7 @@ function defaultFlowUrl(event: N8nEventType) {
 
 export default function AutomationsPage() {
   const [activeStatuses, setActiveStatuses] = useState<Record<string, AutomationStatus>>(
-    Object.fromEntries(automations.map((a) => [a.id, a.status]))
+    Object.fromEntries(automations.map((a) => [a.id, automationCatalog[a.id]?.canActivateNow ? a.status : 'draft']))
   )
   const [flowStatuses, setFlowStatuses] = useState<Record<string, N8nFlowStatus>>(
     Object.fromEntries(n8nWebhookConfigs.map((flow) => [flow.event, flow.status]))
@@ -103,8 +138,9 @@ export default function AutomationsPage() {
         for (const wf of workflows) {
           const automation = automations.find((a) => a.name === String(wf.name ?? ''))
           if (automation) {
+            const catalog = automationCatalog[automation.id]
             ids[automation.id] = String(wf.id ?? '')
-            statuses[automation.id] = Boolean(wf.enabled_in_app) ? 'active' : 'paused'
+            statuses[automation.id] = catalog?.canActivateNow && Boolean(wf.enabled_in_app) ? 'active' : 'draft'
           }
         }
         setWorkflowIds((prev) => ({ ...prev, ...ids }))
@@ -113,13 +149,14 @@ export default function AutomationsPage() {
       } else if (resolvedWorkspaceId) {
         for (const automation of automations) {
           const event = automationFlowMap[automation.id]
+          const catalog = automationCatalog[automation.id]
           const result = await upsertAutomationWorkflow(resolvedWorkspaceId, {
             name: automation.name,
             description: automation.description,
             trigger: automation.trigger,
-            enabledInApp: automation.status === 'active',
+            enabledInApp: Boolean(catalog?.canActivateNow && automation.status === 'active'),
             n8nEvent: event ?? undefined,
-            status: automation.status === 'active' ? 'active' : 'inactive',
+            status: catalog?.canActivateNow && automation.status === 'active' ? 'active' : 'inactive',
           }).catch(() => null)
           if (result && typeof result === 'object' && 'id' in result) {
             setWorkflowIds((prev) => ({ ...prev, [automation.id]: String(result.id ?? '') }))
@@ -140,12 +177,19 @@ export default function AutomationsPage() {
   }, [loadFlows])
 
   const toggle = async (id: string) => {
+    const catalog = automationCatalog[id]
+    if (!catalog?.canActivateNow) {
+      toast.info('Automatizacion pendiente', {
+        description: catalog?.reasonIfUnavailable ?? 'Configura las integraciones necesarias antes de activarla.',
+      })
+      return
+    }
     const event = automationFlowMap[id]
     const isCurrentlyActive = activeStatuses[id] === 'active'
     const nextAppStatus: AutomationStatus = isCurrentlyActive ? 'paused' : 'active'
     setActiveStatuses((prev) => ({ ...prev, [id]: nextAppStatus }))
     toast.success(
-      nextAppStatus === 'active' ? 'Activada en NowCRM. Sincronizacion n8n pendiente.' : 'Desactivada en NowCRM.',
+      nextAppStatus === 'active' ? 'Control NowCRM activo. n8n pendiente de conexion segura.' : 'Desactivada en NowCRM.',
       { description: automations.find((a) => a.id === id)?.name }
     )
 
@@ -155,7 +199,7 @@ export default function AutomationsPage() {
     }
 
     if (event) {
-      const nextFlowStatus: N8nFlowStatus = isCurrentlyActive ? 'inactive' : isRealMode ? 'active' : 'demo'
+      const nextFlowStatus: N8nFlowStatus = isCurrentlyActive ? 'inactive' : 'pending_config'
       setFlowStatuses((prev) => ({ ...prev, [event]: nextFlowStatus }))
       if (isRealMode && flowIds[event]) {
         await updateN8nFlow(flowIds[event], { event, status: nextFlowStatus }).catch(() => null)
@@ -212,7 +256,7 @@ export default function AutomationsPage() {
         description="Flujos comerciales alineados con n8n y preparados para webhooks reales"
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? (workflowSeeded ? 'Control NowCRM activo' : 'Automatizaciones preparadas') : 'Modo demo'}</Badge>
+            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? (workflowSeeded ? 'Catalogo preparado' : 'Automatizaciones preparadas') : 'Modo demo'}</Badge>
             <Button size="sm" onClick={() => toast.success('Editor de automatizaciones', { description: 'Siguiente fase: crear workflows visuales conectados a n8n_flows.' })}>
               <Plus className="h-3.5 w-3.5" />
               Nueva automatizacion
@@ -241,7 +285,7 @@ export default function AutomationsPage() {
       <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
         <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
         <p className="text-xs leading-5 text-amber-800">
-          Cuando conectes la API segura de n8n, estos toggles activaran y desactivaran los workflows reales automaticamente.
+          Los toggles se habilitaran cuando exista endpoint n8n real, credenciales server-side e integraciones requeridas.
         </p>
       </div>
 
@@ -250,20 +294,30 @@ export default function AutomationsPage() {
           const currentStatus = activeStatuses[automation.id] ?? automation.status
           const cfg = statusConfig[currentStatus]
           const event = automationFlowMap[automation.id]
-          const flowStatus = event ? flowStatuses[event] ?? 'demo' : 'demo'
+          const flowStatus = event ? flowStatuses[event] ?? 'pending_config' : 'pending_config'
           const flowCfg = flowStatusConfig[flowStatus]
           const isActive = currentStatus === 'active'
           const isRunning = runningAction === automation.id
+          const catalog = automationCatalog[automation.id]
+          const canActivate = catalog?.canActivateNow ?? true
+          const blockReason = catalog?.reasonIfUnavailable
           return (
             <SectionCard
               key={automation.id}
-              className={cn('transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.045]', isActive && 'ring-1 ring-indigo-200')}
+              className={cn('transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.045]', isActive && 'ring-1 ring-indigo-200', !canActivate && 'opacity-90')}
               title={automation.name}
               action={<Badge variant={cfg.variant} dot>{cfg.label}</Badge>}
             >
-              <p className="mb-4 text-xs leading-relaxed text-gray-500">{automation.description}</p>
+              <p className="mb-3 text-xs leading-relaxed text-gray-500">{automation.description}</p>
 
-              <div className="mb-4 rounded-lg bg-gray-50 px-3 py-2">
+              {!canActivate && blockReason && (
+                <div className="mb-3 flex items-start gap-1.5 rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-2">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                  <span className="text-[10px] leading-4 text-amber-800">{blockReason} - configura en Ajustes</span>
+                </div>
+              )}
+
+              <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2">
                 <div className="flex items-center gap-1.5">
                   <Zap className="h-3.5 w-3.5 text-amber-500" />
                   <span className="text-[11px] font-medium text-gray-600">Trigger:</span>
@@ -273,9 +327,28 @@ export default function AutomationsPage() {
                   <Badge variant={flowCfg.variant} dot className="text-[10px]">{flowCfg.label}</Badge>
                   {event && <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{event}</span>}
                 </div>
+                {catalog && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    {catalog.requiredIntegrations.map((key) => {
+                      const intg = integrationLabel[key]
+                      const isPending = intg.pending
+                      return (
+                        <span
+                          key={key}
+                          className={cn(
+                            'flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                            isPending ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100' : 'bg-gray-100 text-gray-600'
+                          )}
+                        >
+                          {intg.icon}{intg.label}{isPending && ' pendiente'}
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div className="mb-4 grid grid-cols-2 gap-3">
+              <div className="mb-3 grid grid-cols-2 gap-3">
                 {[
                   { label: 'Emails enviados', value: automation.emailsSent.toLocaleString() },
                   { label: 'Conversiones', value: automation.conversions },
@@ -303,16 +376,27 @@ export default function AutomationsPage() {
                   <RefreshCw className={cn('h-3 w-3', isRunning && 'animate-spin')} />
                   {isRunning ? 'Probando...' : 'Probar'}
                 </button>
-                <button
-                  onClick={() => void toggle(automation.id)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
-                    isActive ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                  )}
-                >
-                  {isActive ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                  {isActive ? 'Pausar' : 'Activar'}
-                </button>
+                {canActivate ? (
+                  <button
+                    onClick={() => void toggle(automation.id)}
+                    className={cn(
+                      'flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
+                      isActive ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    )}
+                  >
+                    {isActive ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                    {isActive ? 'Pausar' : 'Activar'}
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    title={blockReason}
+                    className="flex cursor-not-allowed items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1.5 text-[11px] font-semibold text-gray-400"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    Pendiente
+                  </button>
+                )}
               </div>
             </SectionCard>
           )

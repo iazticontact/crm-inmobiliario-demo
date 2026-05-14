@@ -63,24 +63,24 @@ export const weeklyLeads: WeeklyLeads[] = [
 ]
 
 export const clients: Client[] = [
-  { id: '1', name: 'Ana Rodríguez', email: 'ana.rodriguez@empresa.com', phone: '+34 612 345 678', channel: 'WhatsApp', status: 'active', leadScore: 92, lastInteraction: 'Hace 2h', company: 'Diseño Digital SL', avatar: 'AR' },
-  { id: '2', name: 'Carlos Méndez', email: 'carlos@techmendez.es', phone: '+34 687 234 567', channel: 'Instagram', status: 'lead', leadScore: 74, lastInteraction: 'Ayer', company: 'TechMéndez', avatar: 'CM' },
-  { id: '3', name: 'Laura García', email: 'l.garcia@logistica.com', phone: '+34 654 321 098', channel: 'Web', status: 'active', leadScore: 88, lastInteraction: 'Hace 4h', company: 'Logística Express', avatar: 'LG' },
-  { id: '4', name: 'Miguel Torres', email: 'miguel.torres@distribuciones.es', phone: '+34 698 765 432', channel: 'Email', status: 'active', leadScore: 96, lastInteraction: 'Hace 1h', company: 'Distribuciones Torres', avatar: 'MT' },
-  { id: '5', name: 'Sofía Ramírez', email: 'sofia@startup.io', phone: '+34 611 222 333', channel: 'WhatsApp', status: 'lead', leadScore: 61, lastInteraction: 'Hace 3 días', company: 'StartupIO', avatar: 'SR' },
-  { id: '6', name: 'Pablo Fernández', email: 'pablo.fernandez@consultoria.com', phone: '+34 622 333 444', channel: 'Instagram', status: 'inactive', leadScore: 45, lastInteraction: 'Hace 2 sem', company: 'Consultoría Vera', avatar: 'PF' },
-  { id: '7', name: 'Elena Moreno', email: 'elena@farmacia.com', phone: '+34 633 444 555', channel: 'Web', status: 'active', leadScore: 83, lastInteraction: 'Hace 6h', company: 'Farmacia Buena Salud', avatar: 'EM' },
-  { id: '8', name: 'David López', email: 'david.lopez@textil.com', phone: '+34 644 555 666', channel: 'Email', status: 'churned', leadScore: 32, lastInteraction: 'Hace 1 mes', company: 'Empresa Textil SL', avatar: 'DL' },
-  { id: '9', name: 'Isabel Castillo', email: 'icastillo@retail.es', phone: '+34 655 666 777', channel: 'WhatsApp', status: 'active', leadScore: 79, lastInteraction: 'Hace 5h', company: 'Retail Castillo', avatar: 'IC' },
-  { id: '10', name: 'Javier Ruiz', email: 'j.ruiz@agencia.com', phone: '+34 666 777 888', channel: 'Web', status: 'lead', leadScore: 57, lastInteraction: 'Hace 2 días', company: 'Agencia Ruiz', avatar: 'JR' },
+  { id: '1', name: 'Ana Rodríguez', email: 'ana.rodriguez@empresa.com', phone: '+34 612 345 678', channel: 'whatsapp', status: 'active', leadScore: 92, lastInteraction: 'Hace 2h', company: 'Diseño Digital SL', avatar: 'AR' },
+  { id: '2', name: 'Carlos Méndez', email: 'carlos@techmendez.es', phone: '+34 687 234 567', channel: 'instagram', status: 'lead', leadScore: 74, lastInteraction: 'Ayer', company: 'TechMéndez', avatar: 'CM' },
+  { id: '3', name: 'Laura García', email: 'l.garcia@logistica.com', phone: '+34 654 321 098', channel: 'web', status: 'active', leadScore: 88, lastInteraction: 'Hace 4h', company: 'Logística Express', avatar: 'LG' },
+  { id: '4', name: 'Miguel Torres', email: 'miguel.torres@distribuciones.es', phone: '+34 698 765 432', channel: 'email', status: 'active', leadScore: 96, lastInteraction: 'Hace 1h', company: 'Distribuciones Torres', avatar: 'MT' },
+  { id: '5', name: 'Sofía Ramírez', email: 'sofia@startup.io', phone: '+34 611 222 333', channel: 'whatsapp', status: 'lead', leadScore: 61, lastInteraction: 'Hace 3 días', company: 'StartupIO', avatar: 'SR' },
+  { id: '6', name: 'Pablo Fernández', email: 'pablo.fernandez@consultoria.com', phone: '+34 622 333 444', channel: 'instagram', status: 'inactive', leadScore: 45, lastInteraction: 'Hace 2 sem', company: 'Consultoría Vera', avatar: 'PF' },
+  { id: '7', name: 'Elena Moreno', email: 'elena@farmacia.com', phone: '+34 633 444 555', channel: 'web', status: 'active', leadScore: 83, lastInteraction: 'Hace 6h', company: 'Farmacia Buena Salud', avatar: 'EM' },
+  { id: '8', name: 'David López', email: 'david.lopez@textil.com', phone: '+34 644 555 666', channel: 'email', status: 'churned', leadScore: 32, lastInteraction: 'Hace 1 mes', company: 'Empresa Textil SL', avatar: 'DL' },
+  { id: '9', name: 'Isabel Castillo', email: 'icastillo@retail.es', phone: '+34 655 666 777', channel: 'whatsapp', status: 'active', leadScore: 79, lastInteraction: 'Hace 5h', company: 'Retail Castillo', avatar: 'IC' },
+  { id: '10', name: 'Javier Ruiz', email: 'j.ruiz@agencia.com', phone: '+34 666 777 888', channel: 'web', status: 'lead', leadScore: 57, lastInteraction: 'Hace 2 días', company: 'Agencia Ruiz', avatar: 'JR' },
 ]
 
 export const conversations: Conversation[] = [
-  { id: '1', clientId: '1', clientName: 'Ana Rodríguez', clientAvatar: 'AR', lastMessage: 'Perfecto, entonces confirmamos la reunión para el jueves a las 10.', timestamp: 'Hace 2h', unread: true, sentiment: 'positive', channel: 'WhatsApp', intent: 'Confirmación de reunión' },
-  { id: '2', clientId: '2', clientName: 'Carlos Méndez', clientAvatar: 'CM', lastMessage: '¿Podéis enviarme más información sobre el plan Business?', timestamp: 'Ayer', unread: true, sentiment: 'neutral', channel: 'Instagram', intent: 'Solicitud de información' },
-  { id: '3', clientId: '3', clientName: 'Laura García', clientAvatar: 'LG', lastMessage: 'El sistema funciona genial, muy contenta con el servicio.', timestamp: 'Hace 4h', unread: false, sentiment: 'positive', channel: 'Web', intent: 'Satisfacción' },
-  { id: '4', clientId: '4', clientName: 'Miguel Torres', clientAvatar: 'MT', lastMessage: 'Tengo un problema con la factura del mes pasado.', timestamp: 'Hace 1h', unread: true, sentiment: 'negative', channel: 'Email', intent: 'Reclamación' },
-  { id: '5', clientId: '5', clientName: 'Sofía Ramírez', clientAvatar: 'SR', lastMessage: '¿Hacéis descuento para startups?', timestamp: 'Hace 3 días', unread: false, sentiment: 'neutral', channel: 'WhatsApp', intent: 'Consulta de precio' },
+  { id: '1', clientId: '1', clientName: 'Ana Rodríguez', clientAvatar: 'AR', lastMessage: 'Perfecto, entonces confirmamos la reunión para el jueves a las 10.', timestamp: 'Hace 2h', unread: true, sentiment: 'positive', channel: 'whatsapp', intent: 'Confirmación de reunión' },
+  { id: '2', clientId: '2', clientName: 'Carlos Méndez', clientAvatar: 'CM', lastMessage: '¿Podéis enviarme más información sobre el plan Business?', timestamp: 'Ayer', unread: true, sentiment: 'neutral', channel: 'instagram', intent: 'Solicitud de información' },
+  { id: '3', clientId: '3', clientName: 'Laura García', clientAvatar: 'LG', lastMessage: 'El sistema funciona genial, muy contenta con el servicio.', timestamp: 'Hace 4h', unread: false, sentiment: 'positive', channel: 'web', intent: 'Satisfacción' },
+  { id: '4', clientId: '4', clientName: 'Miguel Torres', clientAvatar: 'MT', lastMessage: 'Tengo un problema con la factura del mes pasado.', timestamp: 'Hace 1h', unread: true, sentiment: 'negative', channel: 'email', intent: 'Reclamación' },
+  { id: '5', clientId: '5', clientName: 'Sofía Ramírez', clientAvatar: 'SR', lastMessage: '¿Hacéis descuento para startups?', timestamp: 'Hace 3 días', unread: false, sentiment: 'neutral', channel: 'whatsapp', intent: 'Consulta de precio' },
 ]
 
 export const messages: Record<string, Message[]> = {
@@ -115,8 +115,15 @@ export const messages: Record<string, Message[]> = {
 
 export const automations: Automation[] = [
   { id: '1', name: 'Bienvenida a nuevos leads', description: 'Secuencia de 5 emails para nuevos leads registrados desde cualquier canal.', status: 'active', trigger: 'Nuevo lead registrado', emailsSent: 1284, openRate: 67.3, clickRate: 24.8, conversions: 142, lastRun: 'Hace 5 min' },
-  { id: '2', name: 'Cobro automático', description: 'Recordatorios de pago y seguimiento de facturas pendientes por email y WhatsApp.', status: 'active', trigger: 'Factura pendiente +3 días', emailsSent: 438, openRate: 82.1, clickRate: 55.4, conversions: 387, lastRun: 'Hace 2h' },
+  { id: '2', name: 'Cobro automático', description: 'Recordatorios de pago y seguimiento de facturas vencidas por email y mensaje.', status: 'active', trigger: 'Factura vencida +3 días', emailsSent: 438, openRate: 82.1, clickRate: 55.4, conversions: 387, lastRun: 'Hace 2h' },
   { id: '3', name: 'Re-engagement clientes', description: 'Campaña de reactivación para clientes sin actividad en los últimos 30 días.', status: 'paused', trigger: 'Sin actividad 30 días', emailsSent: 892, openRate: 41.2, clickRate: 12.7, conversions: 67, lastRun: 'Hace 3 días' },
+  { id: '4', name: 'Confirmación de cita', description: 'Mensaje automático al cliente 24h antes de la cita con resumen y enlace de confirmación.', status: 'active', trigger: 'Cita creada en calendario', emailsSent: 312, openRate: 91.4, clickRate: 78.2, conversions: 298, lastRun: 'Hace 1h' },
+  { id: '5', name: 'Propuesta a lead caliente', description: 'Envío automático de PDF de propuesta cuando un lead supera score 80.', status: 'draft', trigger: 'Lead score ≥ 80', emailsSent: 47, openRate: 89.4, clickRate: 61.7, conversions: 31, lastRun: 'Hace 12h' },
+  { id: '6', name: 'Alerta diaria de agenda', description: 'Resumen a las 08:00 con citas del día, leads calientes y facturas pendientes.', status: 'active', trigger: 'Cada día a las 08:00', emailsSent: 180, openRate: 94.4, clickRate: 41.1, conversions: 0, lastRun: 'Hoy 08:00' },
+  { id: '7', name: 'Escalado conversación urgente', description: 'Alerta interna y cambio de prioridad cuando se detecta sentimiento negativo en conversación activa.', status: 'active', trigger: 'Sentimiento negativo detectado', emailsSent: 28, openRate: 100.0, clickRate: 85.7, conversions: 24, lastRun: 'Hace 6h' },
+  { id: '8', name: 'Cobro recibido — agradecimiento', description: 'Mensaje de agradecimiento al cliente cuando se registra una factura pagada.', status: 'paused', trigger: 'Factura marcada pagada', emailsSent: 203, openRate: 76.8, clickRate: 22.2, conversions: 0, lastRun: 'Hace 2 días' },
+  { id: '9', name: 'Onboarding cliente activo', description: 'Secuencia de bienvenida extendida cuando un lead pasa a estado activo: guía, recursos y seguimiento.', status: 'draft', trigger: 'Estado cambia a activo', emailsSent: 0, openRate: 0, clickRate: 0, conversions: 0, lastRun: 'Pendiente' },
+  { id: '10', name: 'Resumen semanal IA', description: 'Informe CRM generado por NowLabs AI cada lunes: ventas, leads, cobros y próximas acciones prioritarias.', status: 'active', trigger: 'Cada lunes a las 09:00', emailsSent: 52, openRate: 88.5, clickRate: 34.6, conversions: 0, lastRun: 'Lunes 09:00' },
 ]
 
 export const automationEmails: AutomationEmail[] = [

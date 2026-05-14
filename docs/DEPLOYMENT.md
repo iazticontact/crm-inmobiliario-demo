@@ -88,5 +88,5 @@ Cuando haya dominio:
 - Revisar URLs autorizadas en Supabase.
 - Probar `POST /api/n8n/trigger` en modo simulado antes de meter endpoints reales.
 - Probar `POST /api/n8n/trigger` contra una URL n8n HTTPS real antes de la demo final.
-- Verificar que WhatsApp/Whapi sigue marcado como pendiente si no hay QR real.
+- Verificar que WhatsApp Business sigue marcado como pendiente si no hay verificacion Meta y webhook real.
 - Revisar que no hay valores de `.env.local` en capturas, docs o UI.

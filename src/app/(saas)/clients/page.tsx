@@ -15,10 +15,19 @@ import { createActivity, createClientLead, deleteClient, getClients, getWorkspac
 import type { Client, Channel, ClientStatus } from '@/lib/types'
 
 const channelVariant: Record<Channel, 'success' | 'purple' | 'info' | 'indigo'> = {
-  WhatsApp: 'success',
-  Instagram: 'purple',
-  Web: 'info',
-  Email: 'indigo',
+  whatsapp: 'success',
+  instagram: 'purple',
+  web: 'info',
+  email: 'indigo',
+  crm: 'indigo',
+}
+
+const channelLabels: Record<Channel, string> = {
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  web: 'Web',
+  email: 'Email',
+  crm: 'CRM',
 }
 
 const statusConfig: Record<ClientStatus, { label: string; variant: 'success' | 'indigo' | 'default' | 'danger' }> = {
@@ -28,7 +37,7 @@ const statusConfig: Record<ClientStatus, { label: string; variant: 'success' | '
   churned: { label: 'Perdido', variant: 'danger' },
 }
 
-const channels: Array<Channel | 'Todos'> = ['Todos', 'WhatsApp', 'Instagram', 'Web', 'Email']
+const channels: Array<Channel | 'Todos'> = ['Todos', 'whatsapp', 'instagram', 'web', 'email']
 const statuses: Array<ClientStatus | 'Todos'> = ['Todos', 'active', 'lead', 'inactive', 'churned']
 const statusLabels: Record<ClientStatus | 'Todos', string> = {
   Todos: 'Todos',
@@ -55,7 +64,7 @@ const emptyForm: ClientForm = {
   company: '',
   email: '',
   phone: '',
-  channel: 'WhatsApp',
+  channel: 'whatsapp',
   status: 'lead',
   leadScore: '65',
   notes: '',
@@ -218,7 +227,7 @@ export default function ClientsPage() {
           channel: payload.channel,
           status: payload.status,
           leadScore: payload.leadScore,
-          lastInteraction: 'Ahora mismo',
+          lastInteraction: 'Sin actividad registrada',
           avatar: getInitials(payload.name),
           notes: payload.notes,
         }
@@ -341,7 +350,7 @@ export default function ClientsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-1">
             {channels.map((ch) => (
-              <button key={ch} onClick={() => setChannelFilter(ch)} className={cn('rounded-lg px-2.5 py-1 text-xs font-medium transition-colors', channelFilter === ch ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100')}>{ch}</button>
+              <button key={ch} onClick={() => setChannelFilter(ch)} className={cn('rounded-lg px-2.5 py-1 text-xs font-medium transition-colors', channelFilter === ch ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100')}>{ch === 'Todos' ? ch : channelLabels[ch]}</button>
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-1">
@@ -405,7 +414,7 @@ export default function ClientsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5"><Badge variant={channelVariant[client.channel]}>{client.channel}</Badge></td>
+                    <td className="px-4 py-3.5"><Badge variant={channelVariant[client.channel]}>{channelLabels[client.channel]}</Badge></td>
                     <td className="px-4 py-3.5"><Badge variant={status.variant} dot>{status.label}</Badge></td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
@@ -502,7 +511,7 @@ export default function ClientsPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Canal</label>
                   <select value={form.channel} onChange={(e) => setForm((p) => ({ ...p, channel: e.target.value as Channel }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white">
-                    {(['WhatsApp', 'Instagram', 'Web', 'Email'] as Channel[]).map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+                    {(['whatsapp', 'instagram', 'web', 'email'] as Channel[]).map((ch) => <option key={ch} value={ch}>{channelLabels[ch]}</option>)}
                   </select>
                 </div>
                 <div>

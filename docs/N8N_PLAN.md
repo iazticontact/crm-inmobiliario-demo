@@ -149,11 +149,11 @@ Para `assistant_message`:
 5. Devolver `suggested_response`.
 6. NowCRM guardara la respuesta como mensaje assistant.
 
-NowCRM ya hace deteccion local de intenciones para ahorrar tokens. Si detecta una reserva o factura con datos suficientes, prepara una card de confirmacion y no necesita llamar a OpenAI para ejecutar la accion. n8n/OpenAI queda para conversacion comercial, contexto, propuesta y fallback inteligente.
+NowCRM resuelve NowLabs AI desde `/api/assistant/chat`: OpenAI server-side puede usar tools backend y las escrituras siguen pasando por confirmacion. n8n queda como brazo externo para canales, PDFs, recordatorios y workflows.
 
 ## Separacion de roles Assistant
 
-- **Inbox Assistant / Conversaciones**: trabaja sobre conversaciones, mensajes, intención y sentimiento. Es la zona que recibira WhatsApp/Whapi en la siguiente fase.
+- **Inbox Assistant / Conversaciones**: trabaja sobre conversaciones, mensajes, intención y sentimiento. Es la zona que recibira WhatsApp Business Platform oficial (Meta Cloud API) en la siguiente fase.
 - **CRM Copilot / Asistente interno**: opera el CRM para clientes, citas, facturas, cobros, propuestas y documentos. Las escrituras criticas requieren confirmacion.
 
 NowCRM envia `assistant_mode` en cada payload `assistant_message`:
@@ -164,10 +164,10 @@ NowCRM envia `assistant_mode` en cada payload `assistant_message`:
 Flujo futuro recomendado:
 
 ```txt
-WhatsApp -> Whapi -> n8n -> Inbox Assistant -> Supabase conversations/messages -> CRM Copilot puede actuar con tools
+WhatsApp Business Platform -> Meta webhook -> NowCRM Inbox -> n8n externo opcional para workflows
 ```
 
-No marcar WhatsApp como conectado hasta tener QR, webhook y workflow inbound probados.
+No marcar WhatsApp como conectado hasta tener verificacion Meta, webhook oficial y workflow inbound probados.
 
 Hint de prompt recomendado en n8n:
 
@@ -212,7 +212,7 @@ Payload de prueba desde Settings:
 }
 ```
 
-Si n8n falla, NowCRM conserva la conversacion y usa la IA demo como fallback.
+Si n8n falla, NowCRM conserva la conversacion. NowLabs AI no depende de n8n para responder en modo real.
 
 ## AI Agent Tools
 
@@ -220,7 +220,7 @@ NowCRM expone una capa interna de herramientas:
 
 `POST /api/agent/tool`
 
-Uso desde n8n/OpenAI:
+Uso desde n8n externo:
 
 ```json
 {
@@ -263,18 +263,18 @@ El valor debe configurarse en variables server-only, nunca en cliente.
 - Si se necesita Supabase desde n8n, guardar credenciales solo en n8n Credentials.
 - Usar RLS o service role con mucho cuidado solo server-side.
 
-## WhatsApp/Whapi mas adelante
+## WhatsApp Business Platform mas adelante
 
 Flujo objetivo:
 
 ```txt
-WhatsApp -> Whapi webhook -> n8n -> OpenAI -> NowCRM tools -> Supabase -> respuesta WhatsApp
+Meta Cloud API webhook -> NowCRM Inbox -> n8n externo opcional -> respuesta outbound confirmada
 ```
 
 Credenciales necesarias:
 
-- Whapi token.
-- Channel ID.
+- Meta access token server-side.
+- WABA ID y phone_number_id.
 - Webhook URL publica de n8n.
 - Credenciales de n8n para llamar a `/api/agent/tool`.
 
@@ -288,16 +288,16 @@ Workflows futuros:
 
 Pasos recomendados:
 
-1. Conectar Whapi por QR y comprobar que recibe mensajes.
+1. Conectar Meta Cloud API y comprobar que recibe mensajes.
 2. Crear workflow `whatsapp_inbound_message` con Webhook POST.
 3. Normalizar contacto, telefono y mensaje.
 4. Usar `/api/agent/tool` para buscar o crear cliente con confirmacion/validacion.
 5. Crear conversacion y mensaje en Supabase.
-6. Llamar OpenAI dentro de n8n solo cuando haga falta respuesta.
-7. Devolver respuesta por Whapi si el flujo esta aprobado.
+6. Pedir borrador a NowLabs AI o usar plantilla aprobada cuando haga falta respuesta.
+7. Devolver respuesta por Meta Cloud API si el flujo esta aprobado.
 8. Registrar activity en NowCRM.
 
-No marcar WhatsApp como conectado en UI hasta tener QR y webhook real probados.
+No marcar WhatsApp como conectado en UI hasta tener verificacion Meta y webhook real probados.
 
 ## Primer workflow real sugerido
 

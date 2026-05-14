@@ -1,5 +1,6 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { buildCalendarEventTimes, type CalendarTimeInput } from '@/lib/calendar-time'
+import { getErrorMessage, toError } from '@/lib/error-utils'
 import type {
   Activity,
   ActivityType,
@@ -217,6 +218,18 @@ function normalizeAssistantMode(value: unknown): AssistantMode | undefined {
   return undefined
 }
 
+function normalizeChannelKey(value: unknown): Channel {
+  if (typeof value === 'string') {
+    const normalized = value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    if (normalized === 'whatsapp' || normalized === 'wa') return 'whatsapp'
+    if (normalized === 'instagram') return 'instagram'
+    if (normalized === 'email' || normalized === 'mail') return 'email'
+    if (normalized === 'internal' || normalized === 'crm' || normalized === 'copilot' || normalized === 'nowlabs') return 'crm'
+    if (normalized === 'web' || normalized === 'inbox' || normalized === 'general') return 'web'
+  }
+  return 'web'
+}
+
 function inferAssistantMode(row: DataRecord): AssistantMode {
   const metadata = asRecord(row.metadata)
   const explicit =
@@ -225,13 +238,24 @@ function inferAssistantMode(row: DataRecord): AssistantMode {
     normalizeAssistantMode(metadata.mode)
   if (explicit) return explicit
 
+  const channel = normalizeChannelKey(row.channel)
+  const source = asString(metadata.source).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+  if (channel === 'whatsapp' || source === 'whatsapp_inbound' || source === 'settings_simulator') {
+    return 'inbox'
+  }
+
   const marker = [
     asString(row.intent ?? row.intention),
-    asString(row.channel),
+    channel,
     asString(row.ai_summary),
   ].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
   if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('consulta nowlabs ai') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
+    return 'copilot'
+  }
+
+  if (channel === 'crm' || channel === 'web') {
     return 'copilot'
   }
 
@@ -242,17 +266,18 @@ function assistantIntentForMode(mode?: AssistantMode) {
   return mode === 'copilot' ? 'assistant_copilot' : 'assistant_inbox'
 }
 
-function assistantChannelForMode(mode?: AssistantMode) {
-  return mode === 'copilot' ? 'crm' : 'web'
+function assistantChannelForMode() {
+  return 'crm'
 }
 
 function assistantChannelForPayload(mode: AssistantMode | undefined, channel: Channel) {
-  if (mode === 'copilot') return assistantChannelForMode(mode)
-  return channel === 'WhatsApp' ? 'whatsapp' : assistantChannelForMode(mode)
+  if (mode === 'copilot') return assistantChannelForMode()
+  const normalized = normalizeChannelKey(channel)
+  return normalized === 'whatsapp' ? 'whatsapp' : 'web'
 }
 
 function isMissingColumn(error: unknown, column: string) {
-  const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as { message?: unknown }).message) : String(error ?? '')
+  const message = getErrorMessage(error)
   return message.toLowerCase().includes(column.toLowerCase())
 }
 
@@ -261,7 +286,7 @@ function isSchemaError(error: unknown) {
   const e = error as Record<string, unknown>
   const code = String(e.code ?? '')
   if (code === 'PGRST204' || code === '42703') return true
-  const msg = String(e.message ?? '').toLowerCase()
+  const msg = getErrorMessage(error).toLowerCase()
   return msg.includes('column') || msg.includes('could not find') || msg.includes('schema cache')
 }
 
@@ -282,6 +307,21 @@ function removeMissingSchemaColumn(row: DataRecord, error: unknown, optionalColu
   return next
 }
 
+function removeSchemaProblemColumn(row: DataRecord, error: unknown, optionalColumns: string[]) {
+  if (!isSchemaError(error)) return null
+  const direct = optionalColumns.find((column) => Object.prototype.hasOwnProperty.call(row, column) && isMissingColumn(error, column))
+  const fallback = optionalColumns.find((column) => Object.prototype.hasOwnProperty.call(row, column))
+  const missing = direct || fallback
+  if (!missing) return null
+  const next = { ...row }
+  delete next[missing]
+  return next
+}
+
+function throwNormalized(error: unknown): never {
+  throw toError(error)
+}
+
 function warnBestEffort(label: string, error: unknown) {
   if (process.env.NODE_ENV === 'development') {
     console.warn(`[best-effort:${label}]`, error)
@@ -300,15 +340,7 @@ function getInitials(name: string) {
 }
 
 function normalizeChannel(value: unknown): Channel {
-  if (value === 'WhatsApp' || value === 'Instagram' || value === 'Web' || value === 'Email') return value
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    if (normalized === 'whatsapp') return 'WhatsApp'
-    if (normalized === 'instagram') return 'Instagram'
-    if (normalized === 'email') return 'Email'
-    if (normalized === 'web' || normalized === 'crm') return 'Web'
-  }
-  return 'WhatsApp'
+  return normalizeChannelKey(value)
 }
 
 function normalizeStatus(value: unknown): ClientStatus {
@@ -378,6 +410,15 @@ function displayTime(value: unknown, fallback = 'Ahora mismo') {
   return date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
 }
 
+function displayClientActivity(row: DataRecord) {
+  const value = row.lastInteraction ?? row.updated_at ?? row.created_at
+  if (!value) return 'Sin actividad registrada'
+  return displayTime(value, 'Sin actividad registrada')
+}
+
+const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
+const MESSAGE_COLUMNS = 'id, workspace_id, conversation_id, sender, body, is_ai, created_at'
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -386,7 +427,7 @@ export async function getCurrentUser() {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return null
   const { data, error } = await supabase.auth.getUser()
-  if (error) throw error
+  if (error) throwNormalized(error)
   return data.user
 }
 
@@ -517,40 +558,6 @@ export async function getResolvedWorkspaceContext() {
   const profileResult = await resolveCurrentProfile(user.id, user.email ?? undefined)
   const profile = profileResult.profile
 
-  const isEmergencyDemoOwner =
-    user.id === '91b65a40-222d-4f97-870c-8e4119278c2c' ||
-    user.email === 'oier.dunabeitia@opendeusto.es'
-  const emergencyWorkspaceId = '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
-
-  if (!profile && isEmergencyDemoOwner) {
-    const fallbackProfile: ProfileRecord = {
-      id: '91b65a40-222d-4f97-870c-8e4119278c2c',
-      workspace_id: emergencyWorkspaceId,
-      full_name: 'Oier Duñabeitia',
-      email: 'oier.dunabeitia@opendeusto.es',
-      role: 'owner',
-    }
-
-    const fallbackWorkspace: WorkspaceRecord = {
-      id: emergencyWorkspaceId,
-      name: 'Arturito',
-      plan: 'demo',
-      status: 'active',
-    }
-
-    return {
-      user,
-      profile: fallbackProfile,
-      workspace: fallbackWorkspace,
-      workspaceId: emergencyWorkspaceId,
-      resolvedWorkspaceId: emergencyWorkspaceId,
-      error: null,
-      profileLookupMethod: 'emergency-fallback-no-profile',
-      profileByIdError: profileResult.profileByIdError ?? null,
-      profileByEmailError: profileResult.profileByEmailError ?? null,
-    }
-  }
-
   if (!profile) {
     return {
       user,
@@ -589,39 +596,6 @@ export async function getResolvedWorkspaceContext() {
     .eq('id', workspaceId)
     .maybeSingle()
 
-  // Emergency local fallback for demo owner while Supabase profile resolver is being verified.
-  if (
-    !workspace &&
-    (user.id === '91b65a40-222d-4f97-870c-8e4119278c2c' ||
-     user.email === 'oier.dunabeitia@opendeusto.es')
-  ) {
-    const fallbackWorkspaceId = '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
-    const fallbackProfile: ProfileRecord = {
-      id: '91b65a40-222d-4f97-870c-8e4119278c2c',
-      workspace_id: fallbackWorkspaceId,
-      full_name: 'Oier Duñabeitia',
-      email: 'oier.dunabeitia@opendeusto.es',
-      role: 'owner',
-    }
-    const fallbackWorkspace: WorkspaceRecord = {
-      id: fallbackWorkspaceId,
-      name: 'Arturito',
-      plan: 'demo',
-      status: 'active',
-    }
-    return {
-      user,
-      profile: fallbackProfile,
-      workspace: fallbackWorkspace,
-      workspaceId: fallbackWorkspaceId,
-      resolvedWorkspaceId: fallbackWorkspaceId,
-      error: null,
-      profileLookupMethod: 'emergency-fallback',
-      profileByIdError: null,
-      profileByEmailError: null,
-    }
-  }
-
   return {
     user,
     profile,
@@ -636,20 +610,20 @@ export async function getResolvedWorkspaceContext() {
 }
 
 export function mapSupabaseClient(row: DataRecord): Client {
-  const name = asString(row.name, 'No consta')
+  const name = asString(row.name ?? row.nombre ?? row.full_name, 'No consta')
   return {
     id: asString(row.id),
     name,
-    company: asString(row.company, 'No consta'),
-    email: asString(row.email, 'No consta'),
-    phone: asString(row.phone, 'No consta'),
-    channel: normalizeChannel(row.channel),
-    status: normalizeStatus(row.status),
-    leadScore: asNumber(row.lead_score, 50),
-    lastInteraction: asString(row.last_interaction, 'Ahora mismo'),
+    company: asString(row.company ?? row.company_name ?? row.empresa ?? row.organization, 'No consta'),
+    email: asString(row.email ?? row.correo ?? row.mail, 'No consta'),
+    phone: asString(row.phone ?? row.telefono ?? row.phone_number ?? row.mobile, 'No consta'),
+    channel: normalizeChannel(row.channel ?? row.canal),
+    status: normalizeStatus(row.status ?? row.estado),
+    leadScore: asNumber(row.lead_score ?? row.leadScore ?? row.score, 50),
+    lastInteraction: displayClientActivity(row),
     avatar: asString(row.avatar, getInitials(name === 'No consta' ? 'C' : name)),
-    notes: asString(row.notes, 'No consta'),
-    createdAt: asString(row.created_at, 'No consta'),
+    notes: asString(row.notes ?? row.notas ?? row.description, 'No consta'),
+    createdAt: asString(row.created_at ?? row.createdAt) || undefined,
   }
 }
 
@@ -673,7 +647,7 @@ export async function getClients(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('clients')
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
 
@@ -691,7 +665,7 @@ export async function createClientLead(workspaceId: string, payload: ClientPaylo
   const { data, error } = await supabase
     .from('clients')
     .insert(row)
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .single()
 
   if (error) {
@@ -712,7 +686,7 @@ export async function updateClient(id: string, payload: ClientPayload) {
     .from('clients')
     .update(row)
     .eq('id', id)
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .single()
 
   if (error) throw error
@@ -805,7 +779,7 @@ export async function createInvoice(workspaceId: string, payload: InvoicePayload
     const result = await supabase.from('invoices').insert(row).select('*').single()
     if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
     const nextRow = removeMissingSchemaColumn(row, result.error, optionalColumns)
-    if (!nextRow) throw result.error
+    if (!nextRow) throwNormalized(result.error)
     row = nextRow
   }
 
@@ -826,7 +800,7 @@ export async function updateInvoice(id: string, payload: InvoicePayload) {
     const result = await supabase.from('invoices').update(patch).eq('id', id).select('*').single()
     if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
     const nextPatch = removeMissingSchemaColumn(patch, result.error, optionalColumns)
-    if (!nextPatch) throw result.error
+    if (!nextPatch) throwNormalized(result.error)
     patch = nextPatch
   }
 
@@ -842,7 +816,7 @@ export async function markInvoicePaid(id: string) {
     const result = await supabase.from('invoices').update(patch).eq('id', id).select('*').single()
     if (!result.error) return mapSupabaseInvoice(result.data as DataRecord)
     const nextPatch = removeMissingSchemaColumn(patch, result.error, ['paid_at'])
-    if (!nextPatch) throw result.error
+    if (!nextPatch) throwNormalized(result.error)
     patch = nextPatch
   }
 
@@ -943,7 +917,7 @@ export async function getCalendarEvents(workspaceId: string) {
       .order('date', { ascending: true })
   }
 
-  if (result.error) throw result.error
+  if (result.error) throwNormalized(result.error)
   return ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
 }
 
@@ -959,13 +933,19 @@ export async function deleteConversationPermanently(conversationId: string, work
 
   if (deleteMessagesError) throw deleteMessagesError
 
-  const { error: deleteConversationError } = await supabase
+  const { data: deletedConv, error: deleteConversationError } = await supabase
     .from('conversations')
     .delete()
     .eq('id', conversationId)
     .eq('workspace_id', workspaceId)
+    .select('id')
 
   if (deleteConversationError) throw deleteConversationError
+  // Supabase returns empty array (no error) when RLS blocks the delete silently.
+  // Throw so the caller can show a meaningful error instead of a ghost entry on reload.
+  if (!deletedConv?.length) {
+    throw new Error('La conversación no fue eliminada. Verifica que los permisos de Supabase (RLS) permitan el borrado para este workspace.')
+  }
 }
 
 export async function getLatestClient(workspaceId: string) {
@@ -974,7 +954,7 @@ export async function getLatestClient(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('clients')
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -1003,7 +983,7 @@ export async function searchClients(workspaceId: string, query = '') {
   const normalized = query.trim().toLowerCase()
   const { data, error } = await supabase
     .from('clients')
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -1019,13 +999,28 @@ export async function searchClients(workspaceId: string, query = '') {
   )
 }
 
+export async function getClientById(workspaceId: string, clientId: string) {
+  return getClientDetail(workspaceId, clientId)
+}
+
+export async function getClientByName(workspaceId: string, name: string) {
+  const normalized = name.trim().toLowerCase()
+  if (!normalized) return []
+  const clients = await searchClients(workspaceId, normalized)
+  return clients.filter((client) => client.name.toLowerCase().includes(normalized))
+}
+
+export async function getClientFullProfile(workspaceId: string, clientId: string) {
+  return getClientDetail(workspaceId, clientId)
+}
+
 export async function getClientDetail(workspaceId: string, clientId: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return null
 
   const { data, error } = await supabase
     .from('clients')
-    .select('*')
+    .select(CLIENT_COLUMNS)
     .eq('workspace_id', workspaceId)
     .eq('id', clientId)
     .maybeSingle()
@@ -1091,6 +1086,138 @@ export async function getPendingInvoices(workspaceId: string) {
   return ((data as DataRecord[] | null) ?? []).map(mapSupabaseInvoice)
 }
 
+export async function getLatestClients(workspaceId: string, limit = 5) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseClient)
+}
+
+export async function getTopClientsByLeadScore(workspaceId: string, limit = 10) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .order('lead_score', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseClient)
+}
+
+export async function getClientsByStatus(workspaceId: string, status: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .eq('status', status)
+    .order('lead_score', { ascending: false })
+    .limit(50)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseClient)
+}
+
+export async function getClientsByChannel(workspaceId: string, channel: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .eq('channel', channel)
+    .order('lead_score', { ascending: false })
+    .limit(50)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseClient)
+}
+
+export async function getOverdueInvoices(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'overdue')
+    .order('due_date', { ascending: true })
+    .limit(50)
+
+  if (error) throw error
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseInvoice)
+}
+
+export async function getHotLeads(workspaceId: string, minScore = 70) {
+  const clients = await getClients(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseClient>[])
+  return clients
+    .filter((c) => c.leadScore >= minScore && (c.status === 'lead' || c.status === 'active'))
+    .sort((a, b) => b.leadScore - a.leadScore)
+}
+
+export async function getPendingTasks(workspaceId: string) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(30)
+
+  if (error) return []
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseTask)
+}
+
+export async function getWorkspaceFullOverview(workspaceId: string) {
+  const [clients, invoices, events, conversations, activities, tasks] = await Promise.all([
+    getClients(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseClient>[]),
+    getInvoices(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseInvoice>[]),
+    getCalendarEvents(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseCalendarEvent>[]),
+    getAssistantConversations(workspaceId).catch(() => []),
+    getActivities(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseActivity>[]),
+    listTasks(workspaceId).catch(() => [] as ReturnType<typeof mapSupabaseTask>[]),
+  ])
+
+  const now = new Date().toISOString()
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  return {
+    totalClients: clients.length,
+    activeClients: clients.filter((c) => c.status === 'active').length,
+    leads: clients.filter((c) => c.status === 'lead').length,
+    inactiveClients: clients.filter((c) => c.status === 'inactive').length,
+    lostClients: clients.filter((c) => c.status === 'churned').length,
+    topLeadScoreClients: clients.filter((c) => c.leadScore >= 70).sort((a, b) => b.leadScore - a.leadScore).slice(0, 5),
+    recentClients: clients.filter((c) => c.createdAt && c.createdAt >= weekAgo).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).slice(0, 5),
+    pendingInvoices: invoices.filter((i) => i.status === 'pending').length,
+    overdueInvoices: invoices.filter((i) => i.status === 'overdue').length,
+    paidInvoices: invoices.filter((i) => i.status === 'paid').length,
+    upcomingEvents: events.filter((e) => (e.startAt ?? '') >= now).slice(0, 5),
+    pendingTasks: tasks.filter((t) => t.status === 'pending').slice(0, 5),
+    recentConversations: conversations.filter((c) => c.status !== 'resolved').slice(0, 5),
+    recentActivities: activities.slice(0, 5),
+  }
+}
+
 export async function getUpcomingCalendarEvents(workspaceId: string) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
@@ -1115,7 +1242,7 @@ export async function getUpcomingCalendarEvents(workspaceId: string) {
       .limit(20)
   }
 
-  if (result.error) throw result.error
+  if (result.error) throwNormalized(result.error)
   return ((result.data as DataRecord[] | null) ?? []).map(mapSupabaseCalendarEvent)
 }
 
@@ -1171,7 +1298,7 @@ export async function createCalendarEvent(workspaceId: string, payload: Calendar
     const result = await supabase.from('calendar_events').insert(row).select('*').single()
     if (!result.error) return mapSupabaseCalendarEvent(result.data as DataRecord)
     const nextRow = removeMissingSchemaColumn(row, result.error, optionalColumns)
-    if (!nextRow) throw result.error
+    if (!nextRow) throwNormalized(result.error)
     row = nextRow
   }
 
@@ -1223,7 +1350,8 @@ export function mapSupabaseConversation(row: DataRecord): Conversation {
   const metadata = asRecord(row.metadata)
   const assistantMode = inferAssistantMode(row)
   const metadataTitle = typeof metadata.title === 'string' && metadata.title ? metadata.title : undefined
-  const clientName = metadataTitle ?? (asString(row.title ?? row.name, '') || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente'))
+  const metadataClientName = typeof metadata.clientName === 'string' && metadata.clientName ? metadata.clientName : undefined
+  const clientName = asString(row.client_name) || metadataTitle || metadataClientName || asString(row.title ?? row.name, '') || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente')
   return {
     id: asString(row.id),
     workspaceId: asString(row.workspace_id) || undefined,
@@ -1247,15 +1375,16 @@ export function mapSupabaseConversation(row: DataRecord): Conversation {
 function toConversationRow(workspaceId: string, payload: ConversationPayload): DataRecord {
   const assistantMode = payload.assistantMode
   const metadataBase = payload.metadata ?? {}
+  const title = payload.clientName || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant')
   return {
     workspace_id: workspaceId,
-    client_id: payload.clientId || null,
     channel: assistantChannelForPayload(assistantMode, payload.channel),
     status: payload.status || 'open',
     sentiment: payload.sentiment || 'neutral',
     intent: assistantIntentForMode(assistantMode),
     ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
-    metadata: { ...metadataBase, assistant_mode: assistantMode },
+    metadata: { ...metadataBase, assistant_mode: assistantMode, title, clientName: title, clientId: payload.clientId || null, clientAvatar: payload.clientAvatar || null, unread: payload.unread ?? false },
+    created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
 }
@@ -1308,14 +1437,24 @@ export async function createConversation(workspaceId: string, payload: Conversat
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no esta configurado')
 
-  const { data, error } = await supabase
-    .from('conversations')
-    .insert(toConversationRow(workspaceId, payload))
-    .select('*')
-    .single()
+  let row = toConversationRow(workspaceId, payload)
+  const optionalColumns = ['channel', 'status', 'sentiment', 'intent', 'ai_summary', 'metadata', 'created_at', 'updated_at']
 
-  if (error) throw error
-  return mapSupabaseConversation(data as DataRecord)
+  for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert(row)
+      .select('*')
+      .single()
+
+    if (!error) return mapSupabaseConversation(data as DataRecord)
+
+    const next = removeSchemaProblemColumn(row, error, optionalColumns)
+    if (!next) throwNormalized(error)
+    row = next
+  }
+
+  throw new Error('No se pudo crear la conversacion con el schema disponible.')
 }
 
 export async function createAssistantConversation(workspaceId: string, mode: AssistantMode, input: Partial<ConversationPayload> = {}) {
@@ -1323,7 +1462,7 @@ export async function createAssistantConversation(workspaceId: string, mode: Ass
   return createConversation(workspaceId, {
     clientName: input.clientName || (isCopilot ? 'Consulta NowLabs AI' : 'Nueva conversacion'),
     clientAvatar: input.clientAvatar || (isCopilot ? 'CRM' : 'IN'),
-    channel: input.channel || 'Web',
+    channel: input.channel || (isCopilot ? 'crm' : 'web'),
     sentiment: input.sentiment || 'neutral',
     intent: input.intent || assistantIntentForMode(mode),
     lastMessage: input.lastMessage || (isCopilot ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
@@ -1446,7 +1585,7 @@ export function mapSupabaseMessage(row: DataRecord): Message {
     content: asString(row.body ?? row.message),
     sender,
     timestamp: displayTime(row.created_at ?? row.timestamp),
-    metadata: asRecord(row.metadata),
+    metadata: {},
     createdAt: asString(row.created_at) || undefined,
   }
 }
@@ -1457,7 +1596,7 @@ export async function getConversationMessages(conversationId: string, workspaceI
 
   let query = supabase
     .from('messages')
-    .select('*')
+    .select(MESSAGE_COLUMNS)
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
 
@@ -1477,8 +1616,8 @@ export async function createMessage(conversationId: string, payloadOrWorkspaceId
   if (!payload?.content?.trim()) throw new Error('content es obligatorio para guardar mensaje')
   if (!workspaceId) throw new Error('workspace_id es obligatorio para guardar mensajes del Assistant')
 
-  const dbSender = payload.sender === 'ai' ? 'ai' : payload.sender === 'agent' ? 'user' : 'client'
-  const row: DataRecord = {
+  const dbSender = payload.sender === 'ai' ? 'ai' : payload.sender === 'agent' ? 'agent' : 'client'
+  let row: DataRecord = {
     conversation_id: conversationId,
     workspace_id: workspaceId,
     sender: dbSender,
@@ -1486,15 +1625,29 @@ export async function createMessage(conversationId: string, payloadOrWorkspaceId
     is_ai: payload.sender === 'ai',
     created_at: new Date().toISOString(),
   }
+  const optionalColumns = ['created_at', 'is_ai']
 
-  const result = await supabase
-    .from('messages')
-    .insert(row)
-    .select('*')
-    .single()
+  for (let attempt = 0; attempt <= optionalColumns.length + 1; attempt += 1) {
+    const result = await supabase
+      .from('messages')
+      .insert(row)
+      .select('*')
+      .single()
 
-  if (result.error) throw result.error
-  return mapSupabaseMessage(result.data as DataRecord)
+    if (!result.error) return mapSupabaseMessage(result.data as DataRecord)
+
+    if (isSchemaError(result.error) && isMissingColumn(result.error, 'body') && 'body' in row) {
+      row = { ...row, message: row.body }
+      delete row.body
+      continue
+    }
+
+    const next = removeSchemaProblemColumn(row, result.error, optionalColumns)
+    if (!next) throwNormalized(result.error)
+    row = next
+  }
+
+  throw new Error('No se pudo guardar el mensaje con el schema disponible.')
 }
 
 export async function ensureAssistantConversation(workspaceId: string, mode: AssistantMode = 'copilot') {
@@ -1917,7 +2070,7 @@ export async function upsertWhatsappConnection(workspaceId: string, payload: Wha
 
   const row: DataRecord = compactRow({
     workspace_id: workspaceId,
-    provider: payload.provider ?? 'whapi',
+    provider: payload.provider ?? 'meta',
     phone_number: payload.phoneNumber ?? null,
     status: payload.status ?? 'pending',
     webhook_url: payload.webhookUrl ?? null,
@@ -2182,7 +2335,7 @@ export async function createTask(workspaceId: string, payload: TaskPayload) {
     const result = await supabase.from('tasks').insert(insertRow).select('*').single()
     if (!result.error) return mapSupabaseTask(result.data as DataRecord)
     const nextRow = removeMissingSchemaColumn(insertRow, result.error, optionalColumns)
-    if (!nextRow) throw result.error
+    if (!nextRow) throwNormalized(result.error)
     insertRow = nextRow
   }
 

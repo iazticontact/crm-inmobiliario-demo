@@ -47,15 +47,8 @@ const allowedTools: AgentTool[] = [
   'get_next_best_actions',
 ]
 
-const writeTools = new Set<AgentTool>([
-  'create_client',
-  'update_client',
-  'create_invoice',
-  'mark_invoice_paid',
-  'create_calendar_event',
-  'save_message',
-  'create_activity',
-])
+const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
+const MESSAGE_COLUMNS = 'id, workspace_id, conversation_id, sender, body, is_ai, created_at'
 
 function publicSupabaseKey() {
   return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
@@ -97,7 +90,7 @@ function fallback(tool: AgentTool, message: string, input: Record<string, unknow
   return ok(tool, {
     fallback: true,
     input,
-    next_step: 'Configura SUPABASE_SERVICE_ROLE_KEY y AGENT_TOOL_SECRET/N8N_WEBHOOK_SECRET para ejecutar esta tool desde n8n.',
+    next_step: 'Configura SUPABASE_SERVICE_ROLE_KEY y AGENT_TOOL_SECRET para ejecutar esta tool desde un agente externo.',
   }, message, { mode: 'fallback' })
 }
 
@@ -115,7 +108,12 @@ function num(value: unknown, fallback = 0) {
 }
 
 function channel(value: unknown): Channel {
-  return value === 'Instagram' || value === 'Web' || value === 'Email' || value === 'WhatsApp' ? value : 'WhatsApp'
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'internal' || normalized === 'crm') return 'crm'
+    if (normalized === 'instagram' || normalized === 'web' || normalized === 'email' || normalized === 'whatsapp') return normalized
+  }
+  return 'whatsapp'
 }
 
 function clientStatus(value: unknown): ClientStatus {
@@ -140,7 +138,7 @@ function sender(value: unknown): MessageSender {
 
 async function selectWorkspaceData(supabase: NonNullable<ReturnType<typeof getServerClient>['supabase']>, workspaceId: string) {
   const [clients, invoices, events, conversations, activities] = await Promise.all([
-    supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
+    supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
     supabase.from('invoices').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
     supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('start_at', { ascending: true }),
     supabase.from('conversations').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
@@ -158,7 +156,7 @@ async function selectWorkspaceData(supabase: NonNullable<ReturnType<typeof getSe
 
 async function findClientById(supabase: NonNullable<ReturnType<typeof getServerClient>['supabase']>, workspaceId: string, clientId?: string) {
   if (!clientId) return null
-  const { data } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).eq('id', clientId).maybeSingle()
+  const { data } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).eq('id', clientId).maybeSingle()
   return data as DataRecord | null
 }
 
@@ -169,7 +167,7 @@ function nextBestActions(data: Awaited<ReturnType<typeof selectWorkspaceData>>) 
   const upcomingEvents = data.events.slice(0, 3)
 
   return [
-    overdueInvoices.length ? `Prioriza ${overdueInvoices.length} factura(s) vencida(s) con recordatorio n8n.` : '',
+    overdueInvoices.length ? `Prioriza ${overdueInvoices.length} factura(s) vencida(s) — envía recordatorio hoy.` : '',
     hotLeads.length ? `Contacta ${hotLeads.length} lead(s) con score alto hoy.` : '',
     openConversations.length ? `Resuelve ${openConversations.length} conversacion(es) abiertas.` : '',
     upcomingEvents.length ? `Prepara contexto para ${upcomingEvents.length} evento(s) proximo(s).` : '',
@@ -199,8 +197,23 @@ export async function POST(request: Request) {
     return fallback(tool, 'Tool ejecutada en fallback demo.', input)
   }
 
-  if (writeTools.has(tool) && hasServiceRole && !authorizedService) {
+  if (hasServiceRole && !authorizedService) {
     return fail(tool, 'Tool protegida: falta x-nowcrm-secret valido.', 401)
+  }
+
+  // This only proves the workspace exists. A shared external secret is not a
+  // tenant ownership model; keep this endpoint behind trusted server workflows.
+  try {
+    const { data: wsRow, error: wsErr } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('id', workspaceId)
+      .maybeSingle()
+    if (wsErr || !wsRow) {
+      return fail(tool, 'workspace_id no encontrado.', 404)
+    }
+  } catch {
+    return fail(tool, 'No se pudo validar el workspace.', 503)
   }
 
   try {
@@ -219,7 +232,7 @@ export async function POST(request: Request) {
     }
 
     if (tool === 'search_clients') {
-      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(100)
+      const { data, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(100)
       if (error) throw error
       const query = str(input.query).toLowerCase()
       const status = str(input.status)
@@ -237,7 +250,7 @@ export async function POST(request: Request) {
       const clientId = str(input.client_id)
       const email = str(input.email).toLowerCase()
       const name = str(input.name).toLowerCase()
-      const { data: clients, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).limit(100)
+      const { data: clients, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).limit(100)
       if (error) throw error
       const client = (clients ?? []).find((item) =>
         (clientId && item.id === clientId) ||
@@ -276,8 +289,7 @@ export async function POST(request: Request) {
         status: clientStatus(input.status),
         lead_score: num(input.lead_score, 65),
         notes: str(input.notes) || null,
-        last_interaction: 'Ahora mismo',
-      }).select('*').single()
+      }).select(CLIENT_COLUMNS).single()
       if (error) throw error
       await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'deal', description: `Agente creo cliente: ${name}`, client_name: name })
       return ok(tool, data, 'Cliente creado.')
@@ -295,7 +307,7 @@ export async function POST(request: Request) {
       if (input.status !== undefined) patch.status = clientStatus(input.status)
       if (input.lead_score !== undefined) patch.lead_score = num(input.lead_score, 65)
       if (input.notes !== undefined) patch.notes = str(input.notes) || null
-      const { data, error } = await supabase.from('clients').update(patch).eq('workspace_id', workspaceId).eq('id', clientId).select('*').single()
+      const { data, error } = await supabase.from('clients').update(patch).eq('workspace_id', workspaceId).eq('id', clientId).select(CLIENT_COLUMNS).single()
       if (error) throw error
       await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'note', description: `Agente actualizo cliente: ${data.name ?? clientId}`, client_name: data.name ?? null })
       return ok(tool, data, 'Cliente actualizado.')
@@ -416,11 +428,11 @@ export async function POST(request: Request) {
       const { data, error } = await supabase.from('messages').insert({
         workspace_id: workspaceId,
         conversation_id: conversationId,
-        sender: normalizedSender === 'ai' ? 'assistant' : normalizedSender === 'agent' ? 'user' : 'client',
+        sender: normalizedSender,
         body: content,
         is_ai: normalizedSender === 'ai',
         created_at: new Date().toISOString(),
-      }).select('*').single()
+      }).select(MESSAGE_COLUMNS).single()
       if (error) throw error
       return ok(tool, data, 'Mensaje guardado.')
     }

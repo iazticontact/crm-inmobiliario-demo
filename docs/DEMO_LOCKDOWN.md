@@ -8,14 +8,14 @@
 - Redirect URLs de auth si login/reset funcionan.
 - Nuevos paquetes o cambios grandes de UI.
 - Service role en frontend.
-- WhatsApp/Whapi si no hay QR y webhook real probados.
+- WhatsApp Business si no hay verificacion Meta y webhook real probados.
 - Ramas Git sin revisar ni cambios masivos de ultima hora.
 
 ## Probar antes de abrir la demo
 
 1. Login real.
 2. Dashboard.
-3. Assistant con `n8n/OpenAI activo`.
+3. Assistant con `NowLabs AI backend activo`.
 4. Reserva: `Reserva a Ana mañana a las 10 para corte` y completar `30 minutos`.
 5. Confirmar cita y verificar `/calendar`.
 6. Factura: `Crea una factura a Ana de 299€ por Plan Pro` y completar vencimiento.
@@ -34,6 +34,6 @@
 ## Mensaje comercial seguro
 
 - NowCRM ya centraliza clientes, facturas, calendario y conversaciones.
-- El Assistant ya responde con n8n/OpenAI.
+- El Assistant ya responde con NowLabs AI backend.
 - Las acciones criticas se preparan y requieren confirmacion.
-- WhatsApp/Whapi es la siguiente fase para entrada automatica de mensajes.
+- WhatsApp Business Platform oficial es la siguiente fase para entrada automatica de mensajes.

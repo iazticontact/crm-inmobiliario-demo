@@ -9,7 +9,7 @@
 5. Probar `/assistant` con facturas: preparar factura, pedir vencimiento y confirmar si procede.
 6. Probar en Settings el workflow real `NowCRM - Assistant Agent`.
 7. Configurar secreto server-only para Agent Tools cuando n8n empiece a ejecutar acciones CRM desde workflows externos.
-8. Conectar WhatsApp/Whapi como siguiente canal real.
+8. Conectar WhatsApp Business Platform oficial (Meta Cloud API) como siguiente canal real.
 9. Crear buckets de Supabase Storage y tabla `documents` para PDFs, propuestas y adjuntos.
 10. Conectar nuevos workflows n8n: `new_lead`, `invoice_overdue`, `daily_summary`.
 11. Deploy en Vercel/Hostinger.
@@ -18,13 +18,13 @@
 
 ## Fase IA real
 
-- Assistant Agent ya usa OpenAI dentro de n8n para `assistant_message`.
+- NowLabs AI usa OpenAI server-side mediante `/api/assistant/chat`; n8n queda como brazo externo.
 - El frontend detecta intenciones operativas locales para ahorrar tokens: reservas, facturas, cliente, cobros y proximas acciones.
 - Las acciones criticas se preparan como cards y requieren confirmacion antes de escribir.
 - Ampliar contexto de workspace, cliente, conversacion, facturas y eventos en el payload solo cuando aporte valor.
 - Guardar cada respuesta en `messages`.
 - Registrar activity por recomendacion/accion.
-- Mantener fallback mock si falta clave o proveedor.
+- Mantener fallback backend determinista si falta clave o proveedor.
 
 ## Coste y rendimiento
 
@@ -47,7 +47,7 @@
 
 ## Fase canales
 
-- WhatsApp/Whapi con QR, channel id y webhook entrante.
+- WhatsApp Business con WABA, phone_number_id y webhook entrante.
 - Email SMTP/Resend.
 - Stripe para cobros.
 - Slack o Teams para alertas internas.
@@ -59,7 +59,7 @@
 - Generar PDFs de facturas y propuestas desde una API server-side o desde n8n, nunca desde el cliente con secretos.
 - Usar URLs firmadas para documentos privados.
 - Añadir tools futuras: `create_proposal_document`, `generate_invoice_pdf`, `attach_file_to_client` y `list_client_documents`.
-- Mantener adjuntos de WhatsApp/Whapi como siguiente fase, vinculados a conversaciones y clientes.
+- Mantener adjuntos de WhatsApp Business como siguiente fase, vinculados a conversaciones y clientes.
 
 ## Fase producto
 

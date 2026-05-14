@@ -2,17 +2,17 @@
 
 ## Objetivo
 
-Preparar un agente IA tipo empleado del CRM que pueda consultar y ejecutar acciones controladas en NowCRM desde n8n/OpenAI.
+Preparar un agente IA tipo empleado del CRM que pueda consultar y ejecutar acciones controladas en NowCRM desde `/api/assistant/chat`, OpenAI server-side y tools backend seguras.
 
 Arquitectura:
 
 ```text
-n8n / OpenAI
-  -> POST /api/agent/tool
-  -> valida tool, workspace y secreto opcional
-  -> ejecuta accion allowlist
-  -> Supabase guarda/consulta
-  -> devuelve JSON para la IA
+UI NowLabs AI
+  -> POST /api/assistant/chat
+  -> OpenAI Responses API opcional
+  -> tools backend allowlist
+  -> Supabase guarda/consulta desde servidor
+  -> devuelve respuesta y preparedAction
 ```
 
 ## Endpoint
@@ -49,7 +49,7 @@ Respuesta:
 
 ### Inbox Assistant / Conversaciones
 
-Gestiona conversaciones con clientes/leads. Es la capa preparada para WhatsApp/Whapi futuro: mensajes entrantes, intención, sentimiento, respuestas sugeridas y conversión de conversaciones en acciones.
+Gestiona conversaciones con clientes/leads. Es la capa preparada para WhatsApp Business Platform oficial (Meta Cloud API): mensajes entrantes, intención, sentimiento, respuestas sugeridas y conversión de conversaciones en acciones.
 
 ### CRM Copilot / Asistente interno
 
@@ -97,7 +97,7 @@ Empleado interno del CRM. El usuario le pide buscar clientes, resumir cuentas, p
 - El secreto puede venir de `AGENT_TOOL_SECRET` o `N8N_WEBHOOK_SECRET`.
 - Si no hay acceso real, la API devuelve fallback seguro.
 
-## Como conectarlo con n8n
+## Como conectar n8n como brazo externo
 
 1. Crear workflow en n8n.
 2. Recibir evento desde `/api/n8n/trigger` o desde un Webhook.
@@ -106,30 +106,21 @@ Empleado interno del CRM. El usuario le pide buscar clientes, resumir cuentas, p
 5. URL: `https://tu-dominio.com/api/agent/tool`.
 6. Header opcional: `x-nowcrm-secret`.
 7. Body JSON con `tool`, `workspace_id`, `input`, `metadata`.
-8. Usar `result` para alimentar OpenAI o decidir siguiente accion.
+8. Usar `result` para workflows externos. n8n no debe ser el cerebro de NowLabs AI.
 
-## Assistant Agent real conectado
-
-Primer workflow real:
-
-```txt
-NowCRM - Assistant Agent
-https://workspacetemporalnowlabs-n8n.hvdnby.easypanel.host/webhook/nowcrm-assistant-agent
-```
+## Assistant Agent real
 
 Flujo actual:
 
 ```text
 /assistant
-  -> guarda mensaje user en Supabase
-  -> busca flujo assistant_message activo
-  -> POST /api/n8n/trigger
-  -> n8n llama OpenAI
-  -> n8n devuelve suggested_response
-  -> NowCRM guarda mensaje assistant
+  -> POST /api/assistant/chat
+  -> OpenAI Responses API si OPENAI_AGENT_ENABLED=true
+  -> tools backend seguras
+  -> NowCRM devuelve respuesta y preparedAction
 ```
 
-NowCRM no contiene la API key de OpenAI. La clave vive solo en n8n Credentials.
+La API key de OpenAI vive solo en el backend de NowCRM. n8n queda reservado para WhatsApp, email, PDFs, recordatorios y workflows externos.
 
 ## Storage / Documents readiness
 
@@ -143,7 +134,7 @@ Supabase Storage queda como siguiente fase para propuestas, PDFs de factura y ad
 
 El CRM debe indexar esos archivos en una tabla `documents` con `workspace_id`, `client_id`, `storage_bucket`, `storage_path`, `mime_type` y `size`. Las tools futuras deben crear primero el archivo en Storage y después registrar el documento.
 
-## OpenAI dentro de n8n
+## OpenAI server-side en NowLabs AI
 
 Prompt recomendado:
 
@@ -164,9 +155,9 @@ Ejemplos de usuario:
 
 ## Proximos pasos
 
-1. Mantener `assistant_message` como workflow real.
-2. Conectar Whapi para Inbox Assistant.
-3. Permitir que OpenAI decida tool + input en n8n.
-4. Ejecutar tool con `x-nowcrm-secret`.
+1. Mantener `/api/assistant/chat` como flujo real principal.
+2. Conectar Meta Cloud API para Inbox Assistant.
+3. Permitir que OpenAI use tools backend allowlist.
+4. Revisar `/api/agent/tool` antes de exponerlo a n8n real.
 5. Crear buckets Storage y tabla `documents`.
 6. Añadir tools de documentos/PDFs.

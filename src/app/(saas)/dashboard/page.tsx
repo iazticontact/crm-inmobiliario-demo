@@ -43,9 +43,9 @@ const activityBg: Record<ActivityType, string> = {
 }
 
 const channels = [
-  { name: 'Assistant n8n/OpenAI', status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
+  { name: 'NowLabs AI', status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
   { name: 'Web Chat', status: 'prepared', color: 'text-blue-600 bg-blue-50', leads: 0, icon: <Wifi className="h-4 w-4" /> },
-  { name: 'WhatsApp / Whapi', status: 'pending', color: 'text-amber-600 bg-amber-50', leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
+  { name: 'WhatsApp Business', status: 'pending', color: 'text-amber-600 bg-amber-50', leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
   { name: 'Instagram', status: 'pending', color: 'text-violet-600 bg-violet-50', leads: 0, icon: <Globe className="h-4 w-4" /> },
   { name: 'Email / Resend', status: 'pending', color: 'text-indigo-600 bg-indigo-50', leads: 0, icon: <Mail className="h-4 w-4" /> },
 ]

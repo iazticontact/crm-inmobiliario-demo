@@ -48,7 +48,7 @@
 
 - Cargar `/assistant`.
 - Verificar que no aparece flash demo con usuario real.
-- Verificar badges: `Mensajes reales`, `n8n/OpenAI activo`, `Workspace real`.
+- Verificar badges: `Mensajes reales`, `NowLabs AI backend activo`, `Workspace real`.
 - Seleccionar `Conversaciones / Inbox Assistant`.
 - Crear conversacion real Inbox.
 - Enviar `Hola, quiero saber precios`.
@@ -68,7 +68,7 @@
 - Enviar `30 minutos`, confirmar card y comprobar evento en `/calendar`.
 - Enviar `Crea una factura a Ana de 299€ por Plan Pro`.
 - Verificar card de factura y confirmacion bloqueada si falta vencimiento.
-- Con flujo `assistant_message` activo, verificar respuesta n8n/OpenAI y mensaje assistant guardado.
+- Con NowLabs AI en modo real, verificar respuesta desde `/api/assistant/chat` y mensaje assistant guardado.
 - Si n8n falla, verificar fallback seguro sin cambiar la pantalla a demo.
 - Probar quick action `Resumen cliente`.
 - Probar quick action `Proxima accion`.
@@ -125,7 +125,7 @@
 
 - Comprobar KPIs con usuario real.
 - Comprobar activities recientes si existen.
-- Confirmar badges de datos reales, Assistant n8n/OpenAI y n8n preparado.
+- Confirmar badges de datos reales, NowLabs AI backend y n8n externo preparado.
 
 ## Lockdown antes de demo
 

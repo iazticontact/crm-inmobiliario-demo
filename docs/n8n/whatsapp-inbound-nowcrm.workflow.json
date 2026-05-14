@@ -1,0 +1,104 @@
+{
+  "name": "NowCRM WhatsApp Inbound",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "whatsapp-inbound-nowcrm",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "id": "Webhook_WhatsApp_Inbound",
+      "name": "Meta Cloud API Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst value = body.entry?.[0]?.changes?.[0]?.value || body.value || body;\nconst metaMessage = value.messages?.[0] || body.messages?.[0] || {};\nconst contact = value.contacts?.[0] || body.contacts?.[0] || {};\nconst message = metaMessage.text?.body || body.message || body.text || body.body || '';\nconst phone = metaMessage.from || body.phone || body.from || '';\nconst name = body.customerName || contact.profile?.name || 'Lead WhatsApp';\nreturn [{\n  json: {\n    workspaceId: $env.NOWCRM_WORKSPACE_ID,\n    provider: 'meta',\n    phone,\n    customerName: name,\n    message,\n    externalConversationId: value.metadata?.phone_number_id || phone,\n    externalMessageId: metaMessage.id || body.messageId || body.id,\n    timestamp: metaMessage.timestamp ? new Date(Number(metaMessage.timestamp) * 1000).toISOString() : (body.timestamp || new Date().toISOString()),\n    metadata: {\n      source: 'n8n_meta_cloud_api',\n      rawProvider: 'meta',\n      phoneNumberId: value.metadata?.phone_number_id\n    }\n  }\n}];"
+      },
+      "id": "Code_Normalize_Payload",
+      "name": "Normalize NowCRM Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.NOWCRM_BASE_URL}}/api/inbox/whatsapp/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-nowcrm-webhook-secret",
+              "value": "={{$env.NOWCRM_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}"
+      },
+      "id": "HTTP_Save_To_NowCRM",
+      "name": "Save inbound in NowCRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "Respond_To_Meta",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1080, 300]
+    }
+  ],
+  "connections": {
+    "Meta Cloud API Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize NowCRM Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize NowCRM Payload": {
+      "main": [
+        [
+          {
+            "node": "Save inbound in NowCRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save inbound in NowCRM": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

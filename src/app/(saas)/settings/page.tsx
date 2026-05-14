@@ -28,9 +28,10 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { ASSISTANT_AGENT_WEBHOOK_URL, getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
+import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
+import { getErrorMessage } from '@/lib/error-utils'
 import {
   createActivity,
   disconnectGoogleCalendar,
@@ -64,13 +65,13 @@ type IntegrationCard = {
 
 const integrations: IntegrationCard[] = [
   { id: 'supabase', name: 'Supabase', description: 'Auth, datos reales y persistencia por workspace.', status: 'connected', icon: <Database className="h-5 w-5" />, category: 'Core' },
-  { id: 'agent-tools', name: 'AI Agent Tools', description: 'API interna para que n8n/OpenAI consulte y ejecute acciones CRM controladas.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'IA' },
-  { id: 'n8n', name: 'n8n', description: 'Capa de automatizacion por webhooks y workflows externos.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
-  { id: 'whatsapp', name: 'WhatsApp / Whapi', description: 'Siguiente fase: QR, webhook Whapi y n8n para mensajes entrantes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente QR + webhook', category: 'Mensajeria' },
+  { id: 'agent-tools', name: 'AI Agent Tools', description: 'Tools backend para que NowLabs AI consulte el CRM y prepare acciones controladas.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'IA' },
+  { id: 'n8n', name: 'n8n', description: 'Brazo externo para WhatsApp, email, PDFs, recordatorios y workflows.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Meta Business API oficial. Próxima fase: verificación de número y webhook para mensajes entrantes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificación', category: 'Mensajeria' },
   { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja social preparada para mensajes y leads de Instagram.', status: 'pending', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
   { id: 'email', name: 'Email / Resend', description: 'Emails transaccionales y secuencias cuando exista dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
   { id: 'resend', name: 'Resend', description: 'SMTP transaccional para confirmaciones y reset con dominio.', status: 'pending_config', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'openai', name: 'OpenAI / IA', description: 'Activo dentro del workflow n8n Assistant Agent. La key no vive en NowCRM.', status: 'demo_connected', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
+  { id: 'openai', name: 'OpenAI / IA', description: 'NowLabs AI usa OpenAI server-side mediante /api/assistant/chat. La key nunca vive en el frontend.', status: 'demo_connected', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
   { id: 'storage', name: 'Documents / PDFs', description: 'Supabase Storage preparado para propuestas, facturas PDF y adjuntos futuros.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
   { id: 'stripe', name: 'Stripe Payments', description: 'Cobros, suscripciones y eventos de pago para fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
   { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
@@ -80,7 +81,7 @@ const architectureCards = [
   { title: 'Supabase', label: 'Auth y datos reales', detail: 'Conectado', icon: <Database className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
   { title: 'n8n', label: 'Webhooks y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
   { title: 'Agent Tools', label: 'Tools CRM seguras', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
-  { title: 'Canales', label: 'Whapi, Email, Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Canales', label: 'Meta/Email/Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
 const notifDefaults = [
@@ -95,10 +96,10 @@ const supabaseReadiness = [
   { label: 'Clientes', value: 'Real', status: 'CRUD completo con notas y filtros por workspace' },
   { label: 'Facturacion', value: 'Real', status: 'Facturas persistentes y metricas por workspace' },
   { label: 'Calendario', value: 'Real', status: 'Eventos persistentes con citas desde IA' },
-  { label: 'Assistant', value: 'Real + n8n', status: 'Mensajes reales y NowLabs AI conectado' },
+  { label: 'Assistant', value: 'Backend real', status: 'NowLabs AI responde por /api/assistant/chat con tools seguras' },
   { label: 'Agent Tools', value: 'Preparado', status: 'Endpoint seguro con allowlist de acciones' },
-  { label: 'OpenAI', value: 'Via n8n', status: 'Clave solo en credenciales n8n, no en frontend' },
-  { label: 'n8n Agent', value: 'Activo', status: 'Webhook assistant_message conectado' },
+  { label: 'OpenAI', value: 'Server-side', status: 'Clave solo en backend; no se expone al navegador' },
+  { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro de NowLabs AI' },
   { label: 'Documentos', value: 'Preparado', status: 'PDFs de informes y facturas generados' },
   { label: 'Dashboard', value: 'Real', status: 'KPIs de clientes, facturas y calendario reales' },
   { label: 'n8n Flows', value: 'Configurable', status: 'Endpoints y estados por flujo configurables' },
@@ -130,8 +131,8 @@ const envChecks = [
 
 function statusBadge(status: IntegrationStatus) {
   if (status === 'connected') return <Badge variant="success" dot>Conectado</Badge>
-  if (status === 'demo_connected') return <Badge variant="indigo" dot>Demo conectado</Badge>
-  if (status === 'demo_ready') return <Badge variant="indigo" dot>Demo ready</Badge>
+  if (status === 'demo_connected') return <Badge variant="indigo" dot>Preparado</Badge>
+  if (status === 'demo_ready') return <Badge variant="indigo" dot>Preparado</Badge>
   if (status === 'error') return <Badge variant="danger" dot>Error</Badge>
   if (status === 'pending_config') return <Badge variant="warning" dot>Pendiente config</Badge>
   if (status === 'pending') return <Badge variant="warning" dot>Pendiente</Badge>
@@ -309,11 +310,55 @@ export default function SettingsPage() {
 
   const handleSimulateWA = async () => {
     setSimulatingWA(true)
-    const result = await simulateWhatsAppIncomingLead()
+    const wid = workspaceId || currentUser.workspaceId || undefined
+    const result = await simulateWhatsAppIncomingLead(wid, {
+      phone: waPhoneNumber || '+34600000000',
+      webhookUrl: waWebhookUrl,
+    }).catch((error) => ({
+      success: false,
+      conversationId: undefined,
+      messageId: undefined,
+      lead: { name: 'Lead WhatsApp Demo', phone: waPhoneNumber || '+34600000000', message: 'Hola, estoy interesado en recibir informacion.' },
+      step: 'client_exception',
+      error: getErrorMessage(error),
+      message: getErrorMessage(error),
+      code: undefined,
+      details: undefined,
+      hint: undefined,
+      status: undefined,
+    }))
     setSimulatingWA(false)
     if (result.success) {
-      toast.success(`Lead simulado: ${result.lead.name}`, {
-        description: `${result.lead.phone} · "${result.lead.message.slice(0, 60)}..."`,
+      if (result.conversationId) {
+        toast.success('Mensaje entrante simulado guardado en Inbox.', {
+          description: `${result.lead.phone} — "${result.lead.message.slice(0, 60)}..."`,
+        })
+      } else {
+        toast.success(`Lead simulado: ${result.lead.name}`, {
+          description: `${result.lead.phone} · "${result.lead.message.slice(0, 60)}..."`,
+        })
+      }
+    } else {
+      const isDev = process.env.NODE_ENV === 'development'
+      const devDescription = [
+        result.step ? result.step.toUpperCase() : 'UNKNOWN_STEP',
+        result.message || result.error || 'Error desconocido',
+        result.code,
+        result.details,
+        result.hint,
+      ].filter(Boolean).join(' - ')
+
+      if (isDev || result.step || result.message || result.error) {
+        toast.error('Error al simular lead', {
+          description: isDev
+            ? devDescription
+            : 'No se pudo guardar el mensaje entrante. Revisa la sesion y la configuracion del workspace.',
+        })
+        return
+      }
+
+      toast.error('Error al simular lead', {
+        description: 'Revisa la configuración de Supabase o las políticas RLS.',
       })
     }
   }
@@ -391,29 +436,35 @@ export default function SettingsPage() {
   }
 
   const handleActivateAssistantAgent = async () => {
-    setFlowStatuses((prev) => ({ ...prev, assistant_message: 'active' }))
-    setFlowPaths((prev) => ({ ...prev, assistant_message: ASSISTANT_AGENT_WEBHOOK_URL }))
+    setFlowStatuses((prev) => ({ ...prev, assistant_message: 'pending_config' }))
+    setFlowPaths((prev) => ({ ...prev, assistant_message: '' }))
     const saved = await persistFlow('assistant_message', {
-      status: 'active',
-      webhookUrl: ASSISTANT_AGENT_WEBHOOK_URL,
+      status: 'pending_config',
+      webhookUrl: '',
       notify: true,
     })
     if (workspaceId && saved) {
-      await createActivity(workspaceId, { type: 'note', description: 'Assistant Agent activado con webhook real n8n/OpenAI.' })
+      await createActivity(workspaceId, { type: 'note', description: 'n8n externo preparado para Assistant Agent. Pendiente de endpoint real.' })
     }
   }
 
   const handleTestAssistantAgent = async () => {
     setTestingKey('assistant-agent')
+    const webhookUrl = assistantAgentUrl.trim()
+    if (!webhookUrl || flowStatuses.assistant_message !== 'active') {
+      setTestingKey(null)
+      toast.info('n8n externo pendiente', { description: 'Configura un endpoint real y activa el flujo antes de probarlo.' })
+      return
+    }
     const result = await triggerN8nWebhook('assistant_message', {
       mode: workspaceId && !currentUser.isDemo ? 'real' : 'demo',
       workspace_id: workspaceId || undefined,
-      webhook_url: assistantAgentUrl || ASSISTANT_AGENT_WEBHOOK_URL,
+      webhook_url: webhookUrl,
       flow_status: flowStatuses.assistant_message,
       conversation: {
         id: 'test',
         client_name: 'Ana Rodriguez',
-        channel: 'WhatsApp',
+        channel: 'whatsapp',
         sentiment: 'positive',
         intent: 'pricing',
       },
@@ -437,7 +488,7 @@ export default function SettingsPage() {
     }
     setTestingKey(null)
     if (result.status === 'ok') {
-      toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido desde Assistant Agent.' : result.message })
+      toast.success('n8n externo respondio correctamente', { description: result.suggested_response ? 'suggested_response recibido desde Assistant Agent.' : result.message })
     } else {
       toast.error('No se pudo probar Assistant Agent', { description: result.message })
     }
@@ -502,6 +553,13 @@ export default function SettingsPage() {
   }
 
   const handleIntegrationAction = async (integration: IntegrationCard) => {
+    const managedByDedicatedConfig = ['whatsapp', 'openai', 'agent-tools', 'n8n'].includes(integration.id)
+    if (managedByDedicatedConfig) {
+      toast.info('Integracion gestionada por configuracion dedicada', {
+        description: 'No se marca como conectada manualmente hasta validar credenciales y endpoints server-side.',
+      })
+      return
+    }
     const currentStatus = integrationStatuses[integration.id]
     const nextStatus: IntegrationStatus = currentStatus === 'connected' ? 'pending' : 'connected'
     setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: nextStatus }))
@@ -569,7 +627,7 @@ export default function SettingsPage() {
         const result = await upsertWhatsappConnection(workspaceId, {
           phoneNumber: waPhoneNumber || undefined,
           webhookUrl: waWebhookUrl || null,
-          status: 'verification_required',
+          status: 'webhook_pending',
           syncEnabled: false,
         })
         if (result) {
@@ -578,7 +636,7 @@ export default function SettingsPage() {
           setWaWebhookUrl(String(result.webhook_url ?? ''))
         }
       }
-      toast.info('WhatsApp preparado', { description: 'El numero queda registrado. La verificacion y el QR se activaran en la siguiente fase.' })
+      toast.info('WhatsApp preparado', { description: 'El numero queda registrado. La verificacion y el webhook oficial de Meta se activaran en la siguiente fase.' })
     } catch {
       toast.error('No se pudo preparar WhatsApp', { description: 'Revisa la tabla whatsapp_connections y RLS.' })
     } finally {
@@ -615,7 +673,7 @@ export default function SettingsPage() {
     }
   }
 
-  const settingsMode = currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Fallback demo'
+  const settingsMode = currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Local'
 
   return (
     <motion.div
@@ -806,21 +864,21 @@ export default function SettingsPage() {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-gray-950">NowCRM - Assistant Agent</p>
-                    <Badge variant={assistantAgentActive ? 'success' : 'warning'} dot>{assistantAgentActive ? 'n8n/OpenAI activo' : 'Pendiente de activar'}</Badge>
+                    <Badge variant={assistantAgentActive ? 'success' : 'warning'} dot>{assistantAgentActive ? 'n8n externo activo' : 'Pendiente de configurar'}</Badge>
                   </div>
                   <p className="text-xs leading-5 text-gray-600">
-                    Primer workflow real conectado. Recibe `assistant_message`, llama OpenAI dentro de n8n y devuelve `suggested_response` para guardar la respuesta en el chat.
+                    Brazo externo opcional para automatizaciones. NowLabs AI no usa n8n como cerebro: responde por `/api/assistant/chat` y tools backend.
                   </p>
                   <p className="mt-2 truncate rounded-lg bg-white/80 px-2.5 py-1.5 font-mono text-[10px] text-emerald-700 ring-1 ring-emerald-100">
-                    {assistantAgentUrl || ASSISTANT_AGENT_WEBHOOK_URL}
+                    {assistantAgentUrl || 'Pendiente de endpoint n8n externo'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button variant="secondary" size="sm" onClick={() => void handleActivateAssistantAgent()}>
                     <CheckCircle className="h-3.5 w-3.5" />
-                    Activar Agent
+                    Preparar n8n externo
                   </Button>
-                  <Button size="sm" loading={testingKey === 'assistant-agent'} onClick={() => void handleTestAssistantAgent()}>
+                  <Button size="sm" loading={testingKey === 'assistant-agent'} disabled={!assistantAgentUrl || flowStatuses.assistant_message !== 'active'} onClick={() => void handleTestAssistantAgent()}>
                     <Play className="h-3.5 w-3.5" />
                     Probar Assistant Agent
                   </Button>
@@ -1021,7 +1079,7 @@ export default function SettingsPage() {
                 <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
                   <div>
                     <p className="text-sm font-medium text-gray-900">Respuesta automatica</p>
-                    <p className="text-xs text-gray-500">Requiere WhatsApp/Whapi conectado</p>
+                    <p className="text-xs text-gray-500">Requiere WhatsApp Business conectado</p>
                   </div>
                   <button
                     onClick={() => setInboxAutoReply((v) => !v)}
@@ -1065,8 +1123,8 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="WhatsApp / Whapi"
-            description="Conectar numero verificado para recibir leads entrantes y activar Inbox Assistant"
+            title="WhatsApp Business"
+            description="Conectar número verificado via Meta Business API para recibir leads entrantes y activar Inbox Assistant"
             action={
               waConnection && String(waConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleWADisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
@@ -1081,22 +1139,22 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">WhatsApp via Whapi</p>
+                      <p className="text-sm font-semibold text-gray-900">WhatsApp Business (Meta Cloud API)</p>
                       {(() => {
                         const s = waConnection ? String(waConnection.status ?? '') : null
                         if (s === 'connected') return <Badge variant="success" dot>Conectado y verificado</Badge>
-                        if (s === 'verification_required') return <Badge variant="warning" dot>Pendiente de verificacion</Badge>
-                        if (s === 'prepared') return <Badge variant="indigo" dot>Preparado · pendiente QR</Badge>
+                    if (s === 'webhook_pending' || s === 'pending') return <Badge variant="warning" dot>Pendiente webhook Meta</Badge>
+                    if (s === 'prepared') return <Badge variant="indigo" dot>Preparado · pendiente Meta</Badge>
                         return <Badge variant="default" dot>No configurado</Badge>
                       })()}
                     </div>
                     <p className="mt-0.5 text-xs text-gray-500">
                       {waConnection
-                        ? `${String(waConnection.provider ?? 'whapi')}${waConnection.phone_number ? ` · ${String(waConnection.phone_number)}` : ''}`
-                        : 'Registra el numero para iniciar el proceso de verificacion con Whapi.'}
+                        ? `${String(waConnection.provider ?? 'meta')}${waConnection.phone_number ? ` · ${String(waConnection.phone_number)}` : ''}`
+                        : 'Registra el número para iniciar la verificación con Meta Business API.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      Registra el numero de telefono para preparar la conexion. La verificacion real y el escaneo del QR se realizaran en la siguiente fase mediante Whapi o Meta Business.
+                      Registra el número de teléfono para preparar la conexión. La verificación se realizará mediante Meta Business API (WhatsApp Business Platform oficial).
                     </p>
                   </div>
                 </div>
@@ -1113,7 +1171,7 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                      URL de entrada n8n/Whapi <span className="text-gray-400 font-normal">(avanzado — se configura desde n8n)</span>
+                      URL de entrada webhook <span className="text-gray-400 font-normal">(avanzado — se configura desde el orquestador)</span>
                     </label>
                     <input
                       type="text"
@@ -1128,8 +1186,8 @@ export default function SettingsPage() {
                   <Button size="sm" loading={waLoading} onClick={() => void handleWAPrepare()}>
                     Preparar WhatsApp
                   </Button>
-                  <Button size="sm" variant="secondary" disabled title="Disponible cuando Whapi este configurado">
-                    Conectar por QR
+                  <Button size="sm" variant="secondary" disabled title="Disponible cuando Meta Business API esté configurado">
+                    Verificar en Meta
                   </Button>
                   <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
                     <Play className="h-3.5 w-3.5" />
@@ -1139,7 +1197,7 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
                   <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                   <p className="text-[11px] leading-5 text-emerald-700">
-                    El numero de WhatsApp requiere verificacion antes de activar respuestas automaticas. No pegues claves API en este panel. Los tokens se configuran en n8n.
+                    El numero de WhatsApp requiere verificacion antes de activar respuestas automaticas. No pegues claves API en este panel. Los tokens se configuran en variables server-side.
                   </p>
                 </div>
               </div>
@@ -1148,9 +1206,9 @@ export default function SettingsPage() {
                 <p className="text-xs font-semibold text-emerald-900">Flujo de conexion</p>
                 <div className="mt-3 space-y-2">
                   {[
-                    'Conectar proveedor Whapi/Meta',
+                    'Conectar Meta Business API',
                     'Verificar numero',
-                    'Activar webhook desde n8n',
+                    'Activar webhook oficial Meta',
                     'Probar mensaje entrante',
                     'Activar Inbox Assistant',
                   ].map((step, index) => (
@@ -1164,10 +1222,11 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Integraciones externas" description="Canales y servicios conectados, demo o pendientes">
+          <SectionCard title="Integraciones externas" description="Canales y servicios conectados o pendientes">
             <div className="grid gap-3 md:grid-cols-2">
               {integrations.map((intg) => {
                 const currentStatus = integrationStatuses[intg.id]
+                const managedByDedicatedConfig = ['whatsapp', 'openai', 'agent-tools', 'n8n'].includes(intg.id)
                 return (
                   <div
                     key={intg.id}
@@ -1196,17 +1255,26 @@ export default function SettingsPage() {
                       <p className="mt-2 truncate rounded-lg bg-white px-2 py-1.5 font-mono text-[10px] text-indigo-600">{intg.info}</p>
                     )}
                     <button
+                      disabled={managedByDedicatedConfig}
                       onClick={() => void handleIntegrationAction(intg)}
                       className={cn(
                         'mt-3 flex w-full items-center justify-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
-                        currentStatus === 'connected'
-                          ? 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                          : currentStatus === 'pending'
-                            ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        managedByDedicatedConfig
+                          ? 'cursor-not-allowed border border-gray-200 bg-gray-50 text-gray-400'
+                          : currentStatus === 'connected'
+                            ? 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            : currentStatus === 'pending'
+                              ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700'
                       )}
                     >
-                      {currentStatus === 'connected' ? 'Pasar a pendiente' : currentStatus === 'pending' ? 'Marcar conectado' : 'Conectar'}
+                      {managedByDedicatedConfig
+                        ? 'Gestionado arriba'
+                        : currentStatus === 'connected'
+                          ? 'Pasar a pendiente'
+                          : currentStatus === 'pending'
+                            ? 'Marcar conectado'
+                            : 'Conectar'}
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -1234,7 +1302,7 @@ export default function SettingsPage() {
             <div className="mt-3 grid gap-2">
               {[
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM activos' },
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Assistant n8n/OpenAI activo' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'NowLabs AI backend activo' },
                 { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Google Calendar pendiente' },
                 { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'WhatsApp/Stripe/Resend pendientes' },
               ].map((item) => (
@@ -1277,8 +1345,8 @@ export default function SettingsPage() {
             <div className="space-y-2">
               {[
                 { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
-                { title: '2. IA real', desc: 'Conectar API server con contexto Supabase.' },
-                { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows.' },
+                { title: '2. IA real', desc: 'Mantener /api/assistant/chat con tools backend y OpenAI server-side.' },
+                { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows externos.' },
                 { title: '4. Deploy', desc: 'Vercel o Hostinger con variables seguras.' },
               ].map((item) => (
                 <div key={item.title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">

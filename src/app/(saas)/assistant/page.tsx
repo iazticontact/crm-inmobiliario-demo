@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -7,10 +7,9 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
-import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
-import { ASSISTANT_AGENT_WEBHOOK_URL, callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
+import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
@@ -27,33 +26,22 @@ import {
   getAssistantConversationById,
   getAssistantConversations,
   getConversationMessages,
-  getClientStats,
   getInboxAgentSettings,
   getN8nFlows,
-  getPendingInvoices,
   getResolvedWorkspaceContext,
   getSignedDocumentUrl,
-  getUpcomingCalendarEvents,
   getWhatsappConnection,
-  getWorkspaceSummary,
-  getNextBestActions,
-  mapSupabaseClient,
   saveGeneratedDocument,
-  searchClients,
   updateConversationScoped,
   updateConversationTitle,
-  getClientInvoices,
-  getClientCalendarEvents,
-  getClientConversations,
-  getClientActivities,
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
-const OFFLINE_WORKSPACE_ID = '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b'
-const OFFLINE_USER_ID = '91b65a40-222d-4f97-870c-8e4119278c2c'
-const OFFLINE_USER_EMAIL = 'oier.dunabeitia@opendeusto.es'
+const OFFLINE_WORKSPACE_ID = 'offline-workspace'
+const OFFLINE_USER_ID = 'offline-user'
+const OFFLINE_USER_EMAIL = 'local@nowcrm.local'
 const OFFLINE_STORAGE_KEY_CONVERSATIONS = 'nowcrm-offline-conversations'
 const OFFLINE_STORAGE_KEY_MESSAGES = 'nowcrm-offline-messages'
 
@@ -133,7 +121,7 @@ function createOfflineConversation(mode: AssistantMode): Conversation {
     timestamp: new Date().toISOString(),
     unread: true,
     sentiment: 'neutral',
-    channel: mode === 'inbox' ? 'WhatsApp' : 'Web',
+    channel: mode === 'inbox' ? 'whatsapp' : 'web',
     assistantMode: mode,
     metadata: { source: 'offline' },
   }
@@ -146,10 +134,11 @@ const sentimentConfig: Record<ConversationSentiment, { label: string; variant: '
 }
 
 const channelVariant: Record<Channel, 'indigo' | 'purple' | 'info' | 'success'> = {
-  WhatsApp: 'success',
-  Instagram: 'purple',
-  Web: 'info',
-  Email: 'indigo',
+  whatsapp: 'success',
+  instagram: 'purple',
+  web: 'info',
+  email: 'indigo',
+  crm: 'indigo',
 }
 
 const leadScores: Record<string, number> = { '1': 92, '2': 74, '3': 88, '4': 96, '5': 61 }
@@ -165,7 +154,7 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Preparar cita', prompt: 'Prepara una cita desde esta conversación. Pide cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
     { label: 'Preparar factura', prompt: 'Prepara una factura desde esta conversación. Pide cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
     { label: 'Siguiente respuesta', prompt: 'Dime la siguiente respuesta recomendada para el cliente.', intent: 'next_reply', sender: 'agent' },
-    { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una conversación de cliente.', intent: 'n8n_test', sender: 'agent' },
+    { label: 'Resumen CRM', prompt: 'Dame el resumen del CRM: clientes activos, facturas pendientes y próximas citas.', intent: 'crm_summary', sender: 'agent' },
   ],
   copilot: [
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
@@ -175,19 +164,18 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
     { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing', sender: 'agent' },
     { label: 'Preparar propuesta', prompt: 'Prepara una propuesta comercial breve con siguiente paso claro.', intent: 'proposal', sender: 'agent' },
-    { label: 'Consultar calendario', prompt: 'Revisa los próximos eventos de calendario y dime qué preparación comercial falta.', intent: 'calendar', sender: 'agent' },
-    { label: 'Probar n8n', prompt: 'Prueba el workflow NowCRM - Assistant Agent con una consulta interna breve.', intent: 'n8n_test', sender: 'agent' },
+    { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, cobros y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }
 
-const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'n8n preparado']
-const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp/Whapi futuro']
+const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'Plan del día']
+const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp Business próximo']
 const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }> = [
   { label: 'Estado conexion', prompt: 'Estado de conexion Inbox Assistant', intent: 'manual_status', sender: 'agent' },
   { label: 'Modo manual', prompt: 'Modo manual Inbox Assistant', intent: 'manual_mode', sender: 'agent' },
-  { label: 'Pendiente Whapi/n8n', prompt: 'Pendiente de conectar Whapi/n8n', intent: 'pending_connection', sender: 'agent' },
+  { label: 'Pendiente Meta API', prompt: 'Pendiente de conectar Meta API', intent: 'pending_connection', sender: 'agent' },
 ]
-const INBOX_MANUAL_RESPONSE = 'Inbox Assistant esta preparado para conectar Whapi/n8n. De momento la respuesta automatica esta desactivada para evitar respuestas falsas; puedes seguir usando esta bandeja en modo manual.'
+const INBOX_MANUAL_RESPONSE = 'Inbox Assistant está preparado para conectar WhatsApp Business (Meta Cloud API). De momento la respuesta automática está desactivada; puedes seguir usando esta bandeja en modo manual.'
 
 const capabilityExamples = [
   'Resume este cliente',
@@ -211,14 +199,14 @@ const assistantModes: Array<{
     title: 'Conversaciones',
     eyebrow: 'Inbox Assistant',
     description: 'Gestiona mensajes con clientes/leads, detecta intención y prepara acciones desde conversaciones.',
-    badge: 'Whapi siguiente fase',
+    badge: 'Meta API próximo',
   },
   {
     id: 'copilot',
     title: 'NowLabs AI',
     eyebrow: 'Asistente interno',
     description: 'Opera el CRM para buscar clientes, preparar citas, facturas, cobros, propuestas y documentos.',
-    badge: 'Tools + Supabase',
+    badge: 'Tools backend',
   },
 ]
 
@@ -228,6 +216,7 @@ type PreparedAction =
       type: 'booking'
       title: string
       assistantMode: AssistantMode
+      clientId?: string
       clientName?: string
       service?: string
       date?: string
@@ -241,6 +230,7 @@ type PreparedAction =
       type: 'invoice'
       title: string
       assistantMode: AssistantMode
+      clientId?: string
       clientName?: string
       concept?: string
       amount?: number
@@ -253,6 +243,7 @@ type PreparedAction =
       type: 'task'
       title: string
       assistantMode: AssistantMode
+      clientId?: string
       clientName?: string
       taskTitle?: string
       description?: string
@@ -341,24 +332,6 @@ function normalizeInput(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
-function extractTaskTitle(message: string): string | undefined {
-  const t = message.trim()
-  const patterns: [RegExp, number | null][] = [
-    [/recuérdame(?:\s+que\s+tengo\s+que|\s+de)?\s+(.+)/i, 1],
-    [/recuerdame(?:\s+que\s+tengo\s+que|\s+de)?\s+(.+)/i, 1],
-    [/crea\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
-    [/pon\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
-    [/agrega\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
-    [/añade\s+(?:una?\s+)?tarea\s+(?:de\s+|para\s+|sobre\s+|:\s*)(.+)/i, 1],
-    [/tarea\s+de\s+seguimiento\b/i, null],
-  ]
-  for (const [pattern, group] of patterns) {
-    const match = t.match(pattern)
-    if (match) return group !== null ? match[group]?.trim().replace(/\.?\s*$/, '') : 'Seguimiento'
-  }
-  return undefined
-}
-
 function isCapabilityQuestion(value: string) {
   const text = normalizeInput(value)
   return ['que haces', 'que puedes hacer', 'echame un cable', 'ayudame', 'que eres', 'para que sirves'].some((pattern) => text.includes(pattern))
@@ -371,7 +344,7 @@ function isPricingQuestion(value: string) {
 
 function internalAssistantIntro(mode: AssistantMode = 'copilot') {
   if (mode === 'inbox') {
-    return 'Soy Inbox Assistant, la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. WhatsApp/Whapi será la siguiente fase para que esos mensajes entren automáticamente.'
+    return 'Soy Inbox Assistant, la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. La integración con WhatsApp Business (Meta Cloud API) es la siguiente fase.'
   }
 
   return 'Soy tu NowLabs AI interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
@@ -449,12 +422,12 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
 
   if (intent.intent === 'consultative') {
     return mode === 'inbox'
-      ? 'Como Inbox Assistant, puedo ayudarte a convertir esa conversación en una respuesta clara, detectar intención y preparar una cita o seguimiento con confirmación. Si quieres que los mensajes entren desde WhatsApp real, la siguiente fase es Whapi/n8n.'
-      : 'Como NowLabs AI, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres llevarlo a llamadas o WhatsApp reales, la siguiente fase sería conectarlo con Whapi/n8n para que los mensajes entren solos al CRM.'
+      ? 'Como Inbox Assistant, puedo ayudarte a convertir esa conversación en una respuesta clara, detectar intención y preparar una cita o seguimiento con confirmación. Si quieres que los mensajes entren desde WhatsApp real, la siguiente fase es WhatsApp Business (Meta Cloud API).'
+      : 'Como NowLabs AI, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres que los mensajes entren solos al CRM desde WhatsApp o llamadas, eso va en la siguiente fase con integración oficial.'
   }
 
   if (intent.intent === 'booking_strategy') {
-    return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día, hora y duración, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp/Whapi, web o llamadas.'
+    return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día, hora y duración, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp Business, web o llamadas.'
   }
 
   if (intent.intent === 'invoice_general') {
@@ -462,7 +435,7 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
   }
 
   if (intent.intent === 'document_request') {
-    return 'La parte de documentos/PDFs está preparada como siguiente fase con Supabase Storage. Ahora puedo ayudarte a preparar el contenido de una propuesta o factura; la generación y adjuntos reales quedarán conectados cuando actives Storage.'
+    return 'La parte de documentos/PDFs está preparada como siguiente fase. Ahora puedo ayudarte a preparar el contenido de una propuesta o factura; la generación y adjuntos reales quedarán conectados cuando actives documentos.'
   }
 
   if (intent.intent === 'booking' || intent.intent === 'booking_concrete') {
@@ -564,18 +537,6 @@ function parseRelativeDate(keyword: string): string | null {
     return toIso(d)
   }
   return null
-}
-
-function todayIsoLocal() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function addDaysIso(dateIso: string, days: number) {
-  const [year, month, day] = dateIso.split('-').map(Number)
-  const date = new Date(year, (month || 1) - 1, day || 1)
-  date.setDate(date.getDate() + days)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function applyActionEdit(action: PreparedAction, text: string): PreparedAction | null {
@@ -725,547 +686,10 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
     return `Resumen de ${name}: estado ${status}.${notes ? `\nNotas: ${notes}` : ''}\nSiguiente paso: confirma necesidad y agenda seguimiento.`
   }
 
-  return 'Herramienta ejecutada. Resultado disponible en NowLabs AI.'
+  return '✅ Acción preparada. Ya tienes el resultado disponible en NowLabs AI.'
 }
 
-function normalizeQuery(value: string) {
-  return normalizeInput(value).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
-}
 
-function detectCopilotCRMQuery(value: string, lastReferencedClientName?: string, lastReferencedClientId?: string) {
-  const text = normalizeInput(value)
-  const hasRef = Boolean(lastReferencedClientName || lastReferencedClientId)
-
-  // Ficha rápida de datos básicos del cliente referenciado
-  if (/\b(sus datos|su correo|su email|su telefono|su empresa|todos sus datos|dame todos sus datos|pasame sus datos|dame su email|dame su telefono|dame su empresa|dame su telefono|pasa sus datos)\b/.test(text)) {
-    return hasRef ? 'client_data_card' : 'no_client_referenced'
-  }
-
-  // Informe del último cliente (con o sin "último" explícito)
-  if (/\b(informe del ultimo cliente|informe del ultima|hazme un informe del ultimo)\b/.test(text)) return 'latest_client_report'
-
-  // Informe / resumen del cliente referenciado
-  if (/\b(informe de ese|informe de el|informe de este|resumen de ese|resumen de este|todos los datos|dame todo lo que tengas|hazme un informe)\b/.test(text)) {
-    return hasRef ? 'client_report_referenced' : 'no_client_referenced'
-  }
-
-  // Informe de ese/este cliente
-  if (/\b(ese cliente|este cliente)\b/.test(text)) {
-    return hasRef ? 'client_report_referenced' : 'no_client_referenced'
-  }
-
-  // Último cliente registrado (sin requerir palabra de tiempo)
-  if (/\b(ultimo|ultima) cliente\b/.test(text)) return 'latest_client'
-
-  if (/\b(cuantos clientes|numero de clientes|clientes tengo|total de clientes)\b/.test(text)) return 'client_count'
-  if (/\b(buscar clientes|busca clientes|encuentra clientes|nombres de cliente|clientes con)\b/.test(text)) return 'search_clients'
-  if (/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/.test(text) && /\bcliente\b/.test(text)) return 'client_report'
-  if (/\b(facturas pendientes|pendientes de pago|cobros pendientes|facturas sin pagar|facturas abiertas)\b/.test(text)) return 'pending_invoices'
-  // Invoice creation — checked after pending_invoices
-  if (
-    /\b(crea(?:r)?|haz|hacer|prepara(?:r)?|factura(?:r)?)\b/.test(text) &&
-    /\bfactura\b/.test(text)
-  ) return 'create_invoice'
-  if (/\bfactura\s+\d/.test(text)) return 'create_invoice'
-  // Booking creation — checked before upcoming_events to avoid "agenda" ambiguity
-  if (
-    /\b(crear?|agendar?|reservar?|pon|preparar?|programar?)\b/.test(text) &&
-    /\b(cita|reunion)\b/.test(text)
-  ) return 'create_booking'
-  if (/\b(citas proximas|proximas citas|agenda|calendario|reuniones proximas|que tengo manana|que tengo maÃ±ana|tengo algo|esta semana|cita con|reunion con)\b/.test(text)) return 'upcoming_events'
-  if (/\b(resume mi crm|resumen crm|estado crm|como va mi crm|situacion crm)\b/.test(text)) return 'workspace_summary'
-  if (/\b(proxima accion|siguiente accion|que hago|prioridad|siguiente paso|accion comercial)\b/.test(text)) return 'next_action'
-
-  // Invoice PDF — check before general PDF
-  if (/\b(pdf de (la |esta |una )?factura|factura (en |a |como )?pdf|genera(r)? (el |un )?pdf (de|para) (la|esta|una) factura|crea(r)? pdf (de|para) (la|esta|una) factura|pasa(me)? (la )?factura (a|en) pdf|descarga(r)? (la )?factura)\b/.test(text)) {
-    return 'generate_invoice_pdf'
-  }
-
-  // Client report PDF export
-  if (/\b(pdf|genera pdf|generar pdf|pasalo a pdf|pasa(me)? a pdf|informe pdf|descarga|exportar informe)\b/.test(text)) {
-    return hasRef ? 'prepare_pdf' : 'no_client_referenced'
-  }
-
-  // Task creation
-  if (/\b(crea|pon|agrega|añade|recuerdame|recuérdame)\b/.test(text) && /\b(tarea|recordatorio|seguimiento)\b/.test(text)) return 'create_task'
-  if (/\b(recuerdame|recuérdame)\s+/.test(text)) return 'create_task'
-
-  return null
-}
-
-function generateClientDataCard(clientData: Record<string, unknown>): string {
-  const client = mapSupabaseClient(clientData)
-  const rawDate = String(clientData.created_at || '')
-  const fechaRegistro = rawDate ? (() => { try { return new Date(rawDate).toLocaleDateString('es-ES') } catch { return 'No consta' } })() : 'No consta'
-  return [
-    `DATOS DEL CLIENTE: ${client.name.toUpperCase()}\n`,
-    `- Nombre: ${client.name || 'No consta'}`,
-    `- Empresa: ${client.company || 'No consta'}`,
-    `- Email: ${client.email || 'No consta'}`,
-    `- Teléfono: ${client.phone || 'No consta'}`,
-    `- Canal: ${client.channel || 'No consta'}`,
-    `- Estado: ${client.status || 'No consta'}`,
-    `- Lead score: ${client.leadScore ?? 'No consta'}`,
-    `- Notas: ${client.notes || 'No consta'}`,
-    `- Fecha de registro: ${fechaRegistro}`,
-  ].join('\n')
-}
-
-type ClientReportContext = {
-  client: ReturnType<typeof mapSupabaseClient>
-  createdAt: string
-  invoices: Awaited<ReturnType<typeof getClientInvoices>>
-  events: Awaited<ReturnType<typeof getClientCalendarEvents>>
-  conversations: Awaited<ReturnType<typeof getClientConversations>>
-  activities: Awaited<ReturnType<typeof getClientActivities>>
-}
-
-function buildClientReportText(ctx: ClientReportContext): string {
-  const { client, createdAt, invoices, events, conversations, activities } = ctx
-  const fechaRegistro = createdAt
-    ? (() => { try { return new Date(createdAt).toLocaleDateString('es-ES') } catch { return 'No consta' } })()
-    : 'No consta'
-  const generatedAt = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })
-  const totalFacturado = invoices.reduce((sum, i) => sum + i.amount, 0)
-  const facturasPendientes = invoices.filter((i) => i.status === 'pending' || i.status === 'overdue').length
-  const facturasPagadas = invoices.filter((i) => i.status === 'paid').length
-  const ultimaActividad = activities.length > 0 ? (activities[0].description || 'Sin registros') : 'Sin registros'
-  const sections = [
-    `INFORME DE CLIENTE — ${(client.name || 'CLIENTE').toUpperCase()}\n`,
-    `Generado: ${generatedAt}`,
-    `\n1. RESUMEN EJECUTIVO`,
-    `- Cliente: ${client.name || 'No consta'} (${client.status || 'No consta'})`,
-    `- Total facturado: ${totalFacturado.toLocaleString('es-ES', { minimumFractionDigits: 2 })} EUR`,
-    `- Facturas pendientes: ${facturasPendientes}`,
-    `- Facturas pagadas: ${facturasPagadas}`,
-    `- Citas registradas: ${events.length}`,
-    `- Ultima actividad: ${ultimaActividad}`,
-    `\n2. DATOS BASICOS`,
-    `- Nombre: ${client.name || 'No consta'}`,
-    `- Empresa: ${client.company || 'No consta'}`,
-    `- Fecha de registro: ${fechaRegistro}`,
-    `\n3. CONTACTO`,
-    `- Email: ${client.email || 'No consta'}`,
-    `- Telefono: ${client.phone || 'No consta'}`,
-    `- Canal principal: ${client.channel || 'No consta'}`,
-    `\n4. ESTADO COMERCIAL`,
-    `- Estado: ${client.status || 'No consta'}`,
-    `- Lead Score: ${client.leadScore || 'No consta'}`,
-    `- Notas: ${client.notes || 'No consta'}`,
-    `\n5. FACTURACION`,
-    invoices.length
-      ? invoices.map((i) => `- ${i.plan || 'Concepto'}: ${i.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })} EUR (${i.status}) vence ${i.dueDate}`).join('\n')
-      : '- No hay datos registrados.',
-    `\n6. CALENDARIO`,
-    events.length
-      ? events.map((e) => `- ${e.title} el ${e.date} a las ${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')} (${e.duration} min)`).join('\n')
-      : '- No hay datos registrados.',
-    `\n7. CONVERSACIONES`,
-    conversations.length
-      ? conversations.map((c) => `- ${c.lastMessage} (${c.sentiment})`).join('\n')
-      : '- No hay datos registrados.',
-    `\n8. ACTIVIDAD RECIENTE`,
-    activities.length
-      ? activities.slice(0, 5).map((a) => `- [${a.type}] ${a.description}`).join('\n')
-      : '- No hay datos registrados.',
-    `\n9. PROXIMA ACCION RECOMENDADA`,
-    client.status === 'lead'
-      ? '→ Contactar para convertir en cliente activo. Revisar canal preferido y preparar propuesta.'
-      : client.status === 'active'
-        ? facturasPendientes > 0
-          ? `→ Gestionar ${facturasPendientes} factura(s) pendiente(s) de cobro. Preparar seguimiento.`
-          : '→ Mantener seguimiento activo. Proponer nuevo servicio o renovacion.'
-        : client.status === 'inactive'
-          ? '→ Campana de reactivacion. Revisar motivo de inactividad y proponer oferta.'
-          : '→ Sin accion inmediata recomendada.',
-  ]
-  return sections.filter(Boolean).join('\n')
-}
-
-async function generateClientReport(clientData: Record<string, unknown>, workspaceId: string) {
-  const client = mapSupabaseClient(clientData)
-  const createdAt = String(clientData.created_at || new Date().toISOString())
-  const [invoices, events, conversations, activities] = await Promise.all([
-    getClientInvoices(workspaceId, client.name).catch(() => []),
-    getClientCalendarEvents(workspaceId, client.name).catch(() => []),
-    getClientConversations(workspaceId, client.id).catch(() => []),
-    getClientActivities(workspaceId, client.name).catch(() => []),
-  ])
-  return buildClientReportText({ client, createdAt, invoices, events, conversations, activities })
-}
-
-async function executeCopilotCRMQuery(
-  text: string,
-  workspaceId: string,
-  lastReferencedClientName?: string,
-  lastReferencedClientId?: string,
-  onClientReferenced?: (client: { id: string; name: string }) => void,
-  onPreparedAction?: (action: PreparedAction) => void,
-  lastCreatedInvoiceId?: string
-) {
-  const queryType = detectCopilotCRMQuery(text, lastReferencedClientName, lastReferencedClientId)
-  if (!queryType) return null
-
-  if (queryType === 'no_client_referenced') {
-    return 'No tengo un cliente referenciado todavía. Dime el nombre del cliente que quieres consultar.'
-  }
-
-  try {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) return null
-
-    if (queryType === 'client_data_card') {
-      let rawRow: Record<string, unknown> | null = null
-      if (lastReferencedClientId) {
-        const { data, error } = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
-        if (!error && data) rawRow = data as Record<string, unknown>
-      }
-      if (!rawRow && lastReferencedClientName) {
-        const clients = await searchClients(workspaceId, lastReferencedClientName)
-        if (clients.length) {
-          const { data, error } = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
-          if (!error && data) rawRow = data as Record<string, unknown>
-        }
-      }
-      if (!rawRow) return 'No encuentro el cliente referenciado. Dime el nombre y te busco.'
-      const card = mapSupabaseClient(rawRow)
-      onClientReferenced?.({ id: card.id, name: card.name })
-      return generateClientDataCard(rawRow)
-    }
-
-    if (queryType === 'latest_client_report') {
-      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1)
-      if (error || !data?.length) return 'No hay clientes registrados todavía en este workspace.'
-      const latest = mapSupabaseClient(data[0])
-      onClientReferenced?.({ id: latest.id, name: latest.name })
-      return await generateClientReport(data[0] as Record<string, unknown>, workspaceId)
-    }
-
-    if (queryType === 'latest_client') {
-      const { data, error } = await supabase.from('clients').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1)
-      if (error || !data?.length) return 'No hay clientes registrados todavía en este workspace.'
-      const client = mapSupabaseClient(data[0])
-      const createdAt = data[0].created_at as string
-      onClientReferenced?.({ id: client.id, name: client.name })
-      if (text.includes('hora') || text.includes('tiempo') || text.includes('fecha') || text.includes('cuándo') || text.includes('cuando')) {
-        if (createdAt) {
-          const date = new Date(createdAt)
-          const formatted = date.toLocaleString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-          return `El último cliente registrado es ${client.name}. Se registró el ${formatted}.`
-        } else {
-          return `El último cliente registrado es ${client.name}. No consta la fecha de registro.`
-        }
-      } else {
-        return `El último cliente registrado es ${client.name}.`
-      }
-    }
-
-    if (queryType === 'client_count') {
-      const stats = await getClientStats(workspaceId)
-      return stats.total_clients
-        ? `Tienes ${stats.total_clients} cliente(s) en este workspace, incluyendo ${stats.leads} lead(s), ${stats.active} activo(s), ${stats.inactive} inactivo(s) y ${stats.churned} churned.`
-        : 'No hay clientes registrados todavía en este workspace.'
-    }
-
-    if (queryType === 'search_clients') {
-      const query = normalizeQuery(text)
-      const results = await searchClients(workspaceId, query)
-      if (results.length === 1) onClientReferenced?.({ id: results[0].id, name: results[0].name })
-      return results.length
-        ? `He encontrado ${results.length} cliente(s): ${results.slice(0, 4).map((client) => `${client.name}${client.company ? ` (${client.company})` : ''}${client.email ? ` – ${client.email}` : ''}`).join('; ')}.`
-        : 'No se han encontrado clientes que coincidan con ese criterio.'
-    }
-
-    if (queryType === 'client_report_referenced') {
-      if (lastReferencedClientId) {
-        const fullData = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
-        if (fullData.error || !fullData.data) return 'No encuentro el cliente referenciado. Dime el nombre y te busco.'
-        const refClient = mapSupabaseClient(fullData.data as Record<string, unknown>)
-        onClientReferenced?.({ id: refClient.id, name: refClient.name })
-        return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
-      }
-      if (lastReferencedClientName) {
-        const clients = await searchClients(workspaceId, lastReferencedClientName)
-        if (!clients.length) return `No encuentro a ${lastReferencedClientName} en este workspace. ¿Quieres que busque por otro nombre?`
-        const client = clients[0]
-        const fullData = await supabase.from('clients').select('*').eq('id', client.id).maybeSingle()
-        if (fullData.error) throw fullData.error
-        if (!fullData.data) return `No encuentro datos de ${client.name}. ¿Quieres que busque por otro nombre?`
-        onClientReferenced?.({ id: client.id, name: client.name })
-        return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
-      }
-      return 'No tengo un cliente referenciado. Dime el nombre del cliente que quieres consultar.'
-    }
-
-    if (queryType === 'client_report') {
-      const query = normalizeQuery(text).replace(/\b(resume|hazme un informe|informe de|detalles de|resumen de)\b/g, '').replace(/\b(cliente|cliente)\b/g, '').trim()
-      const clients = await searchClients(workspaceId, query)
-      if (!clients.length) return 'No encuentro ese cliente en este workspace. ¿Quieres que busque por nombre parecido?'
-      if (clients.length > 1) {
-        return `Encontré varios clientes: ${clients.slice(0, 3).map((client) => `${client.name} (${client.email})`).join(', ')}. ¿Cuál quieres que resuma?`
-      }
-      const fullData = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
-      if (fullData.error) throw fullData.error
-      if (!fullData.data) return 'No encuentro datos de ese cliente.'
-      onClientReferenced?.({ id: clients[0].id, name: clients[0].name })
-      return await generateClientReport(fullData.data as Record<string, unknown>, workspaceId)
-    }
-
-    if (queryType === 'pending_invoices') {
-      const invoices = await getPendingInvoices(workspaceId)
-      return invoices.length
-        ? `Tienes ${invoices.length} factura(s) pendiente(s): ${invoices.slice(0, 4).map((invoice) => `${invoice.clientName} · ${invoice.amount}€ · vence ${invoice.dueDate}`).join('; ')}.`
-        : 'No hay facturas pendientes en este workspace.'
-    }
-
-    if (queryType === 'upcoming_events') {
-      const events = await getUpcomingCalendarEvents(workspaceId)
-      const normalizedText = normalizeInput(text)
-      const today = todayIsoLocal()
-      const tomorrow = normalizedText.includes('manana') ? parseRelativeDate('manana') : null
-      const weekLimit = addDaysIso(today, 7)
-      const clientMatch = normalizedText.match(/\b(?:cita|reunion)?\s*con\s+([a-z0-9 ]{3,40})/)
-      const clientQuery = clientMatch?.[1]?.replace(/\b(manana|esta semana|cuando|tengo|algo)\b/g, '').trim()
-      const filteredEvents = events.filter((event) => {
-        const matchesTomorrow = !tomorrow || event.date === tomorrow
-        const matchesWeek = !normalizedText.includes('esta semana') || (event.date >= today && event.date <= weekLimit)
-        const matchesClient = !clientQuery || [event.clientName, event.title].some((value) => normalizeInput(value ?? '').includes(clientQuery))
-        return matchesTomorrow && matchesWeek && matchesClient
-      })
-      return filteredEvents.length
-        ? `Próximas citas: ${filteredEvents.slice(0, 4).map((event) => `${event.title} con ${event.clientName ?? 'cliente'} el ${event.date}${event.startHour !== undefined ? ` a las ${String(event.startHour).padStart(2, '0')}:${String(event.startMinute).padStart(2, '0')}` : ''}`).join('; ')}.`
-        : 'No hay citas próximas en el calendario del workspace.'
-    }
-
-    if (queryType === 'workspace_summary') {
-      const summary = await getWorkspaceSummary(workspaceId)
-      return `Resumen CRM: ${summary.total_clients} clientes, ${summary.leads} lead(s), ${summary.pending_invoices} factura(s) pendientes, ${summary.overdue_invoices} factura(s) vencida(s), ${summary.upcoming_events} cita(s) próximas y ${summary.open_conversations} conversación(es) abiertas.`
-    }
-
-    if (queryType === 'next_action') {
-      const actions = await getNextBestActions(workspaceId)
-      return actions.length
-        ? `Próxima(s) acción(es): ${actions.join(' ')}`
-        : 'No hay acciones comerciales urgentes detectadas en este momento.'
-    }
-
-    if (queryType === 'create_invoice') {
-      const invoiceIntent = detectAssistantIntent(text)
-      const { extracted } = invoiceIntent
-      const rawClientName = extracted.clientName || lastReferencedClientName
-      if (!rawClientName) {
-        return 'Para crear la factura necesito saber el nombre del cliente. ¿A quién va dirigida?'
-      }
-      if (!extracted.amount) {
-        return 'Para crear la factura necesito el importe. ¿Cuánto es?'
-      }
-      const invoiceClients = await searchClients(workspaceId, rawClientName)
-      if (!invoiceClients.length) {
-        return `No encuentro a "${rawClientName}" en este workspace. Dime el nombre exacto o crea el cliente primero.`
-      }
-      if (invoiceClients.length > 1) {
-        const nameList = invoiceClients.slice(0, 3).map((c) => `${c.name}${c.company ? ` (${c.company})` : ''}`).join(', ')
-        return `Encontré varios clientes con ese nombre: ${nameList}. ¿Cuál es el correcto?`
-      }
-      const invoiceClient = invoiceClients[0]
-      onClientReferenced?.({ id: invoiceClient.id, name: invoiceClient.name })
-      const concept = extracted.concept || 'Servicio CRM'
-      const todayDate = new Date()
-      const due = new Date(todayDate)
-      due.setDate(todayDate.getDate() + 14)
-      const dueDate = due.toISOString().slice(0, 10)
-      onPreparedAction?.({
-        id: `invoice-${Date.now()}`,
-        type: 'invoice',
-        title: `Factura para ${invoiceClient.name}`,
-        assistantMode: 'copilot',
-        clientName: invoiceClient.name,
-        concept,
-        amount: extracted.amount,
-        dueDate,
-        missingFields: [],
-        notes: 'Factura creada desde NowLabs AI',
-      })
-      return `Factura preparada: ${invoiceClient.name}, ${extracted.amount} EUR, concepto: ${concept}, vence ${dueDate}. Revísala en el panel y confirma.`
-    }
-
-    if (queryType === 'create_booking') {
-      const bookingIntent = detectAssistantIntent(text)
-      const { extracted } = bookingIntent
-      const rawClientName = extracted.clientName || lastReferencedClientName
-      if (!rawClientName) {
-        return 'Para crear la cita necesito saber el nombre del cliente. ¿Con quién es?'
-      }
-      const clients = await searchClients(workspaceId, rawClientName)
-      if (!clients.length) {
-        return `No encuentro a "${rawClientName}" en este workspace. Dime el nombre exacto o crea el cliente primero.`
-      }
-      if (clients.length > 1) {
-        const nameList = clients.slice(0, 3).map((c) => `${c.name}${c.company ? ` (${c.company})` : ''}`).join(', ')
-        return `Encontré varios clientes con ese nombre: ${nameList}. ¿Cuál quieres para la cita?`
-      }
-      const client = clients[0]
-      onClientReferenced?.({ id: client.id, name: client.name })
-      const service = extracted.service || 'Reunión comercial'
-      const duration = extracted.duration ?? 60
-      const missingFields: string[] = [
-        !extracted.date && 'fecha',
-        !extracted.time && 'hora',
-      ].filter(Boolean) as string[]
-      onPreparedAction?.({
-        id: `booking-${Date.now()}`,
-        type: 'booking',
-        title: `Cita con ${client.name}`,
-        assistantMode: 'copilot',
-        clientName: client.name,
-        service,
-        date: extracted.date,
-        time: extracted.time,
-        duration,
-        missingFields,
-        notes: 'Cita creada desde NowLabs AI',
-      })
-      if (missingFields.length) {
-        return `Cita preparada con ${client.name}. Falta: ${missingFields.join(' y ')}. Dímelos para dejarla lista.`
-      }
-      return `Cita preparada: ${client.name}, ${service}, ${extracted.date} a las ${extracted.time}. Revísala en el panel y confirma.`
-    }
-
-    if (queryType === 'create_task') {
-      const taskTitle = extractTaskTitle(text)
-      const taskIntent = detectAssistantIntent(text)
-      const taskExtracted = taskIntent.extracted
-      // Try to resolve client from message (optional — tasks can be clientless)
-      let taskClientName = lastReferencedClientName
-      if (taskExtracted.clientName && taskExtracted.clientName !== lastReferencedClientName) {
-        const taskClients = await searchClients(workspaceId, taskExtracted.clientName).catch(() => [] as Awaited<ReturnType<typeof searchClients>>)
-        if (taskClients.length === 1) {
-          onClientReferenced?.({ id: taskClients[0].id, name: taskClients[0].name })
-          taskClientName = taskClients[0].name
-        } else if (taskClients.length === 0 && !lastReferencedClientName) {
-          taskClientName = taskExtracted.clientName
-        }
-      }
-      const taskDueDate = taskExtracted.date
-      const taskDescription = taskClientName
-        ? `Tarea para ${taskClientName}${taskDueDate ? ` — vence ${taskDueDate}` : ''}`
-        : undefined
-      onPreparedAction?.({
-        id: `task-${Date.now()}`,
-        type: 'task',
-        title: 'Crear tarea',
-        assistantMode: 'copilot',
-        clientName: taskClientName,
-        taskTitle,
-        description: taskDescription,
-        dueDate: taskDueDate,
-        missingFields: taskTitle ? [] : ['título de la tarea'],
-      })
-      if (!taskTitle) return 'Necesito saber el título de la tarea. ¿Cómo quieres llamarla?'
-      const duePart = taskDueDate ? `, vence ${taskDueDate}` : ''
-      const clientPart = taskClientName ? ` para ${taskClientName}` : ''
-      return `Tarea preparada: "${taskTitle}"${clientPart}${duePart}. Revísala en el panel y confirma.`
-    }
-
-    if (queryType === 'generate_invoice_pdf') {
-      if (!lastCreatedInvoiceId) {
-        return 'Para generar el PDF de una factura, primero crea una. Por ejemplo: "crea una factura para X de 300€" y confírmala. Después podrás pedir el PDF.'
-      }
-      const { data: invData, error: invError } = await supabase
-        .from('invoices')
-        .select('*')
-        .eq('workspace_id', workspaceId)
-        .eq('id', lastCreatedInvoiceId)
-        .maybeSingle()
-      if (invError || !invData) {
-        return 'No encuentro la factura referenciada. Crea una nueva y confirma antes de pedir el PDF.'
-      }
-      const inv = invData as Record<string, unknown>
-      const invId = String(inv.id || '')
-      const invNumber = String(inv.invoice_number ?? inv.number ?? `FAC-${invId.slice(0, 8).toUpperCase()}`)
-      const invClientName = String(inv.client_name ?? 'Cliente')
-      const invAmount = typeof inv.amount === 'number' ? inv.amount : Number(inv.amount ?? 0)
-      const invCurrency = String(inv.currency ?? 'EUR')
-      const invConcept = String(inv.concept ?? inv.plan ?? 'Servicio')
-      const invIssueDate = String(inv.issue_date ?? inv.date ?? new Date().toISOString().slice(0, 10))
-      const invDueDate = String(inv.due_date ?? invIssueDate)
-      const invStatus = String(inv.status ?? 'pending')
-      const invStatusLabel = invStatus === 'paid' ? 'Pagada' : invStatus === 'overdue' ? 'Vencida' : 'Pendiente'
-      const invNotes = String(inv.notes ?? '')
-      const invoiceText = [
-        `FACTURA — ${invNumber}\n`,
-        `Generada: ${new Date().toLocaleDateString('es-ES')}`,
-        `\n1. DATOS DE FACTURA`,
-        `- Número: ${invNumber}`,
-        `- Fecha de emisión: ${invIssueDate}`,
-        `- Vencimiento: ${invDueDate}`,
-        `- Estado: ${invStatusLabel}`,
-        `\n2. CLIENTE`,
-        `- Nombre: ${invClientName}`,
-        `\n3. CONCEPTO E IMPORTE`,
-        `- Concepto: ${invConcept}`,
-        `- Importe: ${invAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${invCurrency}`,
-        invNotes ? `\n4. NOTAS\n- ${invNotes}` : '',
-        `\n---\nDocumento generado por NowCRM.`,
-      ].filter(Boolean).join('\n')
-      onPreparedAction?.({
-        id: `invoice-pdf-${Date.now()}`,
-        type: 'generate_invoice_pdf',
-        title: `PDF — Factura ${invNumber}`,
-        assistantMode: 'copilot',
-        invoiceId: lastCreatedInvoiceId,
-        invoiceNumber: invNumber,
-        clientName: invClientName,
-        amount: invAmount,
-        currency: invCurrency,
-        invoiceText,
-        missingFields: [],
-      })
-      return `Factura ${invNumber} para ${invClientName} preparada como PDF. Revísala en el panel y confirma para guardarla.`
-    }
-
-    if (queryType === 'prepare_pdf') {
-      let rawRow: Record<string, unknown> | null = null
-      if (lastReferencedClientId) {
-        const { data, error } = await supabase.from('clients').select('*').eq('id', lastReferencedClientId).eq('workspace_id', workspaceId).maybeSingle()
-        if (!error && data) rawRow = data as Record<string, unknown>
-      }
-      if (!rawRow && lastReferencedClientName) {
-        const clients = await searchClients(workspaceId, lastReferencedClientName)
-        if (clients.length) {
-          const { data, error } = await supabase.from('clients').select('*').eq('id', clients[0].id).maybeSingle()
-          if (!error && data) rawRow = data as Record<string, unknown>
-        }
-      }
-      if (!rawRow) return 'No encuentro al cliente referenciado para generar el PDF. Dime su nombre.'
-      const pdfClient = mapSupabaseClient(rawRow)
-      const pdfCreatedAt = String(rawRow.created_at || new Date().toISOString())
-      const [pdfInvoices, pdfEvents, pdfConversations, pdfActivities] = await Promise.all([
-        getClientInvoices(workspaceId, pdfClient.name).catch(() => []),
-        getClientCalendarEvents(workspaceId, pdfClient.name).catch(() => []),
-        getClientConversations(workspaceId, pdfClient.id).catch(() => []),
-        getClientActivities(workspaceId, pdfClient.name).catch(() => []),
-      ])
-      const reportText = buildClientReportText({ client: pdfClient, createdAt: pdfCreatedAt, invoices: pdfInvoices, events: pdfEvents, conversations: pdfConversations, activities: pdfActivities })
-      onClientReferenced?.({ id: pdfClient.id, name: pdfClient.name })
-      onPreparedAction?.({
-        id: `pdf-${Date.now()}`,
-        type: 'prepare_pdf',
-        title: `PDF — ${pdfClient.name}`,
-        assistantMode: 'copilot',
-        clientName: pdfClient.name,
-        clientId: pdfClient.id,
-        reportText,
-        missingFields: [],
-      })
-      return `Informe de ${pdfClient.name} preparado como PDF pendiente. Revísalo en el panel y confirma para registrarlo.`
-    }
-  } catch {
-    return null
-  }
-
-  return null
-}
 
 const GENERIC_COPILOT_TITLES = new Set([
   'consulta nowlabs ai',
@@ -1341,7 +765,7 @@ export default function AssistantPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
-  const [lastCreatedInvoiceId, setLastCreatedInvoiceId] = useState<string | null>(null)
+  const [lastResultsMap, setLastResultsMap] = useState<Record<string, Record<string, unknown>[]>>({})
   const [confirmingAction, setConfirmingAction] = useState(false)
   const [editingAction, setEditingAction] = useState(false)
   const [editDraft, setEditDraft] = useState<Record<string, string>>({})
@@ -1366,8 +790,8 @@ export default function AssistantPage() {
         }
         setConversationList(offlineConversations)
         setSelectedIds(offlineSelectedIds)
-        setWorkspaceId(OFFLINE_WORKSPACE_ID)
-        setIsRealMode(true)
+        setWorkspaceId(null)
+        setIsRealMode(false)
         setAssistantWebhookUrl('')
         setAssistantFlowFound(false)
         setAssistantFlowStatus('active')
@@ -1485,7 +909,7 @@ export default function AssistantPage() {
       setLocalMessages({})
       setWorkspaceId(resolvedWorkspaceId ?? null)
       setIsRealMode(Boolean(resolvedWorkspaceId))
-      setAssistantWebhookUrl(resolvedWorkspaceId ? assistantFlow.webhookUrl || ASSISTANT_AGENT_WEBHOOK_URL : '')
+      setAssistantWebhookUrl(resolvedWorkspaceId ? assistantFlow.webhookUrl : '')
       setAssistantFlowFound(assistantFlow.isActive)
       setAssistantFlowStatus(assistantFlow.status)
     } catch (error) {
@@ -1602,6 +1026,15 @@ export default function AssistantPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, isTyping])
 
+  // Clear prepared action when switching conversations so stale actions don't bleed across
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setPreparedAction(null)
+      setEditingAction(false)
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [selected?.id])
+
   useEffect(() => {
     if (!workspaceId) return
     void Promise.all([
@@ -1620,8 +1053,8 @@ export default function AssistantPage() {
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
   const isOfflineMode = OFFLINE_FORCE_DEV
   const assistantN8nActive = assistantMode === 'copilot' && !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
-  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : assistantN8nActive ? 'n8n/OpenAI' : 'Demo'
-  const assistantSourceDetail = assistantMode === 'inbox' ? 'Whapi/n8n pendiente' : isOfflineMode ? 'Supabase bloqueado por red' : assistantN8nActive ? 'workflow activo' : 'fallback mock'
+  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : isRealMode ? 'Backend agent' : 'Demo'
+  const assistantSourceDetail = assistantMode === 'inbox' ? 'Meta API pendiente' : isOfflineMode ? 'backend bloqueado por red' : isRealMode ? 'OpenAI/tools server-side' : 'modo muestra'
 
   const assistantStats = [
     { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas NowLabs AI', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
@@ -1781,11 +1214,13 @@ export default function AssistantPage() {
         setDetectedIntent('Inbox Assistant - modo manual')
         await appendAssistantMessage(conversationId, INBOX_MANUAL_RESPONSE, activeConversation.clientName)
         setLastResponseSource(null)
-        setLastActionStatus('Inbox Assistant pendiente de conectar a Whapi/n8n')
+        setLastActionStatus('Inbox Assistant pendiente de conectar a Meta API')
         return
       }
 
-      if (preparedAction?.assistantMode === assistantMode) {
+      const isRankingQuery = /\b(mas caliente|mayor score|mejor lead|mas prometedor|mayor potencial|mas potencial|lead caliente|top leads?|mas fuerte|mayor puntuacion|mas score|oportunidad mas alta|mayor lead score|mejor cliente|cliente prioritario)\b/.test(normalizeInput(content))
+
+      if (!isRankingQuery && preparedAction?.assistantMode === assistantMode) {
         const trimmed = content.trim()
         const isConfirmMsg = /^(confirmar?|s[ií]|dale|perfecto|ok|va|venga|hazlo|hazlo ya|gu[aá]rdalo|confirma(?:do)?|adelante|procede|listo|de acuerdo|claro que s[ií]|s[ií] por favor|s[ií] confirma|cr[eé]ala|cr[eé]alo|crea la cita|crea la factura|crea la tarea|crea el evento)[\.\!\?]?$/i.test(trimmed)
         const isCancelMsg = /^(cancelar?|no|olv[ií]dalo|descarta(?:lo|r)?|cancela(?:do)?|mejor no|stop|no hace falta|d[eé]jalo|descartar)[\.\!\?]?$/i.test(trimmed)
@@ -1828,25 +1263,25 @@ export default function AssistantPage() {
         return
       }
 
-      if (!assistantN8nActive && isCapabilityQuestion(content)) {
+      if (!isRealMode && !assistantN8nActive && isCapabilityQuestion(content)) {
         await appendAssistantMessage(conversationId, internalAssistantIntro(assistantMode), activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
 
-      if (!assistantN8nActive && isPricingQuestion(content)) {
+      if (!isRealMode && !assistantN8nActive && isPricingQuestion(content)) {
         await appendAssistantMessage(conversationId, pricingGuidance(), activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
 
-      if (!assistantN8nActive && /no entiendo|no sé|no se|ayuda/i.test(content)) {
+      if (!isRealMode && !assistantN8nActive && /no entiendo|no sé|no se|ayuda/i.test(content)) {
         await appendAssistantMessage(conversationId, 'Claro. Dime si quieres crear una cita, buscar un cliente, preparar una factura o ver la próxima acción comercial.', activeConversation.clientName)
         setLastResponseSource(null)
         return
       }
 
-      if (preparedAction?.assistantMode === assistantMode && preparedAction.missingFields.length) {
+      if (!isRankingQuery && preparedAction?.assistantMode === assistantMode && preparedAction.missingFields.length) {
         const mergedAction = mergePreparedAction(preparedAction, operationalIntent)
         if (mergedAction.missingFields.length < preparedAction.missingFields.length) {
           setPreparedAction(mergedAction)
@@ -1864,21 +1299,79 @@ export default function AssistantPage() {
       }
 
       if (assistantMode === 'copilot' && isRealMode && workspaceId) {
-        let newReferencedClient: { id: string; name: string } | undefined
-        let newPreparedAction: PreparedAction | undefined
-        const crmResponse = await executeCopilotCRMQuery(
-          content, workspaceId, lastReferencedClientName, lastReferencedClientId,
-          (client) => { newReferencedClient = client },
-          (action) => { newPreparedAction = action },
-          lastCreatedInvoiceId ?? undefined
-        )
-        if (crmResponse) {
-          if (newReferencedClient) setConversationClient(conversationId, newReferencedClient)
-          if (newPreparedAction) setPreparedAction(newPreparedAction)
-          await appendAssistantMessage(conversationId, crmResponse, activeConversation.clientName)
-          setLastResponseSource('supabase')
-          return
+        setPreparedAction(null)
+        setEditingAction(false)
+        try {
+          const res = await fetch('/api/assistant/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspaceId,
+              conversationId,
+              message: content,
+              mode: 'copilot',
+              lastReferencedClientId,
+              lastReferencedClientName,
+              lastResults: lastResultsMap[conversationId] ?? [],
+            }),
+          })
+          type ApiResponse = {
+            ok: boolean
+            answer?: string
+            referencedClientId?: string
+            referencedClientName?: string
+            preparedAction?: { type: 'booking' | 'invoice' | 'task'; clientId?: string; clientName?: string; service?: string; date?: string; time?: string; amount?: number; concept?: string; dueDate?: string; taskTitle?: string; description?: string; missingFields: string[] }
+            referencedList?: Record<string, unknown>[]
+            debugSource?: string
+            error?: string
+          }
+          const apiData = await res.json() as ApiResponse
+          console.log('[assistant/ui] backend response', {
+            ok: apiData.ok,
+            debugSource: apiData.debugSource,
+            hasAnswer: Boolean(apiData.answer),
+            hasPreparedAction: Boolean(apiData.preparedAction),
+            referencedClientName: apiData.referencedClientName,
+          })
+          if (apiData.ok && apiData.answer) {
+            if (apiData.referencedClientId && apiData.referencedClientName) {
+              setConversationClient(conversationId, { id: apiData.referencedClientId, name: apiData.referencedClientName })
+            }
+            if (apiData.referencedList?.length) {
+              setLastResultsMap((prev) => ({ ...prev, [conversationId]: apiData.referencedList! }))
+            }
+            if (apiData.preparedAction) {
+              const pa = apiData.preparedAction
+              const paId = `backend-${createUuid()}`
+              let frontendAction: PreparedAction
+              if (pa.type === 'booking') {
+                frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Acción preparada por NowLabs AI' }
+              } else if (pa.type === 'invoice') {
+                frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Acción preparada por NowLabs AI' }
+              } else {
+                frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
+              }
+              setPreparedAction(frontendAction)
+            } else {
+              setPreparedAction(null)
+            }
+            await appendAssistantMessage(conversationId, apiData.answer, activeConversation.clientName)
+            setLastResponseSource('supabase')
+            return
+          }
+        } catch {
+          // Fall through — backend unavailable
         }
+        // Backend is the only valid source for copilot real mode — no client-side fallbacks
+        console.log('[assistant/ui] backend did not return valid response (copilot+real) — showing neutral error')
+        await appendAssistantMessage(
+          conversationId,
+          'No he podido resolver esta consulta desde el CRM real ahora mismo. Prueba de nuevo o reformula la pregunta.',
+          activeConversation.clientName
+        )
+        setPreparedAction(null)
+        setLastResponseSource(null)
+        return
       }
 
       const concreteActionIntents: AssistantIntent['intent'][] = ['booking', 'booking_concrete', 'invoice', 'invoice_concrete']
@@ -1918,6 +1411,13 @@ export default function AssistantPage() {
         }
       }
 
+      // Safety net — copilot real mode must never reach this point (block above always returns)
+      if (assistantMode === 'copilot' && isRealMode) {
+        await appendAssistantMessage(conversationId, 'No he podido resolver esta consulta ahora mismo. Prueba de nuevo.', activeConversation.clientName)
+        setLastResponseSource(null)
+        return
+      }
+
       const assistantResult = await respondWithAssistant({
         input: content,
         workspaceId,
@@ -1935,10 +1435,10 @@ export default function AssistantPage() {
 
       if (assistantResult.source === 'n8n') {
         setLastResponseSource('n8n')
-        toast.success('n8n/OpenAI respondió', { description: 'Respuesta guardada en la conversación.' })
+        toast.success('Automatizacion externa respondio', { description: 'Respuesta guardada en la conversacion.' })
       } else if (assistantN8nActive && assistantResult.trigger.status === 'error') {
         setLastResponseSource('fallback')
-        toast.warning('n8n no disponible, usando fallback seguro.', { description: 'El mensaje se ha guardado igualmente.' })
+        toast.warning('Automatizacion externa no disponible', { description: 'El mensaje se ha guardado igualmente con respuesta local.' })
       } else {
         setLastResponseSource('fallback')
       }
@@ -1951,7 +1451,7 @@ export default function AssistantPage() {
         void triggerN8nWebhook('appointment_booked', { message: { content }, client: { name: activeConversation.clientName }, workspace_id: workspaceId || undefined, mode: isRealMode ? 'real' : 'demo' }).catch(() => null)
       }
     } catch (error) {
-      toast.error('No se pudo guardar el mensaje', { description: error instanceof Error ? error.message : 'Se mantiene en pantalla como fallback local.' })
+      toast.error('No se pudo guardar el mensaje', { description: error instanceof Error ? error.message : 'Se mantiene en pantalla de forma local.' })
     } finally {
       setIsTyping(false)
     }
@@ -1988,6 +1488,7 @@ export default function AssistantPage() {
           startMinute: times.startMinute,
           duration: times.duration,
           type: 'meeting' as const,
+          clientId: preparedAction.clientId,
           clientName: preparedAction.clientName,
           notes: preparedAction.notes,
           description: preparedAction.notes || 'Cita creada desde NowLabs AI',
@@ -2007,7 +1508,7 @@ export default function AssistantPage() {
               workspace_id: workspaceId,
               mode: 'real',
               calendar_event: { ...calendarPayload, id: createdEvent.id },
-              client: { name: preparedAction.clientName },
+              client: { id: preparedAction.clientId, name: preparedAction.clientName },
               metadata: { source: 'assistant_confirmation' },
             }).catch((error) => {
               if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:booking]', error)
@@ -2033,6 +1534,7 @@ export default function AssistantPage() {
         dueInvoice.setDate(todayInvoice.getDate() + 14)
         const dueDate = preparedAction.dueDate || dueInvoice.toISOString().slice(0, 10)
         const invoicePayload = {
+          clientId: preparedAction.clientId,
           clientName: preparedAction.clientName,
           concept,
           amount: preparedAction.amount,
@@ -2056,7 +1558,7 @@ export default function AssistantPage() {
               workspace_id: workspaceId,
               mode: 'real',
               invoice: { ...invoicePayload, id: createdInvoice.id },
-              client: { name: preparedAction.clientName },
+              client: { id: preparedAction.clientId, name: preparedAction.clientName },
               metadata: { source: 'assistant_confirmation' },
             }).catch((error) => {
               if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:invoice]', error)
@@ -2064,7 +1566,6 @@ export default function AssistantPage() {
           }
         }
 
-        setLastCreatedInvoiceId(createdInvoice.id)
         await appendAssistantMessage(activeConversation.id, `Factura creada correctamente para ${preparedAction.clientName}: ${concept}, ${preparedAction.amount} EUR, vence ${dueDate}.\n\nSi quieres el PDF, escribe: "genera PDF de la factura".`, preparedAction.clientName).catch((error) => {
           if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
         })
@@ -2080,6 +1581,7 @@ export default function AssistantPage() {
         if (!workspaceId) throw new Error('No hay workspace real para crear la tarea.')
         const taskPayload = {
           title: preparedAction.taskTitle,
+          clientId: preparedAction.clientId,
           clientName: preparedAction.clientName,
           description: preparedAction.description,
           dueDate: preparedAction.dueDate,
@@ -2291,7 +1793,7 @@ export default function AssistantPage() {
     setPreparedAction(null)
     setEditingAction(false)
     setLastActionStatus('Última acción cancelada')
-    toast.info('Acción descartada', { description: 'No se ha creado nada en Supabase.' })
+    toast.info('Acción descartada', { description: 'No se ha creado nada en el CRM.' })
   }
 
   const startEditingAction = () => {
@@ -2580,13 +2082,17 @@ export default function AssistantPage() {
     }
 
     if (action === 'Probar n8n') {
-      const webhookForTest = assistantWebhookUrl || ASSISTANT_AGENT_WEBHOOK_URL
-      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow NowCRM - Assistant Agent vía n8n/OpenAI...', sender: 'ai', timestamp: nowTime() }
+      const webhookForTest = assistantN8nActive ? assistantWebhookUrl : ''
+      if (!webhookForTest) {
+        toast.info('Automatizacion externa pendiente', { description: 'Configura un endpoint n8n real antes de probar este flujo.' })
+        return
+      }
+      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow externo NowCRM - Assistant Agent...', sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(activeConversation.id, testingMsg)
       if (isRealMode && workspaceId && !OFFLINE_FORCE_DEV) await createMessage(activeConversation.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
       if (OFFLINE_FORCE_DEV) {
         setLastResponseSource('fallback')
-        toast.warning('Modo offline: n8n no disponible', { description: 'Prueba de webhook ignorada en modo off-line local.' })
+        toast.warning('Modo offline: automatizacion externa pendiente', { description: 'Prueba de webhook ignorada en modo off-line local.' })
         return
       }
       const result = await triggerN8nWebhook('assistant_message', {
@@ -2597,7 +2103,7 @@ export default function AssistantPage() {
         conversation: {
           id: 'test',
           client_name: 'Ana Rodriguez',
-          channel: 'WhatsApp',
+          channel: 'whatsapp',
           sentiment: 'positive',
           intent: 'pricing',
         },
@@ -2616,7 +2122,7 @@ export default function AssistantPage() {
         toast.success('n8n respondió correctamente', { description: result.suggested_response ? 'suggested_response recibido.' : result.message })
       } else {
         setLastResponseSource('fallback')
-        toast.warning('n8n no disponible, usando fallback seguro.', { description: result.message })
+        toast.warning('Automatizacion externa no disponible', { description: result.message })
       }
       return
     }
@@ -2736,7 +2242,7 @@ export default function AssistantPage() {
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
             <p className="text-sm font-semibold text-gray-950">Preparando NowLabs AI...</p>
-            <p className="mt-1 text-xs leading-5 text-gray-500">Cargando workspace, conversaciones y n8n/OpenAI.</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">Cargando workspace, conversaciones y herramientas del CRM.</p>
           </div>
         </div>
       </motion.div>
@@ -2755,14 +2261,14 @@ export default function AssistantPage() {
         description="NowLabs AI opera tu CRM: clientes, citas, facturas, cobros y próximas acciones."
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={assistantMode === 'inbox' ? 'warning' : assistantN8nActive ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : assistantN8nActive ? 'n8n/OpenAI activo' : 'IA demo'}</Badge>
+            <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'NowLabs AI real' : 'IA demo'}</Badge>
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
             <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
             <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
               {assistantMode === 'inbox'
                 ? (waConnected
                     ? 'WhatsApp conectado'
-                    : waStatus === 'verification_required' || waStatus === 'prepared'
+                    : waStatus === 'webhook_pending' || waStatus === 'pending' || waStatus === 'prepared'
                       ? 'WhatsApp preparado · pendiente verificacion'
                       : 'WhatsApp pendiente')
                 : 'WhatsApp siguiente fase'}
@@ -2814,10 +2320,10 @@ export default function AssistantPage() {
                 {mode.id === 'inbox'
                   ? (waConnected
                       ? (inboxSettings && Boolean(inboxSettings.auto_reply_enabled)
-                          ? 'Modo automatico activo. El agente responde directamente via Whapi/n8n.'
+                          ? 'Modo automático activo. El agente responde directamente.'
                           : 'Modo manual activo. WhatsApp conectado. El agente sugiere y el operador confirma.')
-                      : waStatus === 'verification_required' || waStatus === 'prepared'
-                        ? 'Inbox Assistant en modo manual. WhatsApp preparado pero pendiente de verificacion. Conecta y verifica el numero en Settings para recibir mensajes reales.'
+                      : waStatus === 'webhook_pending' || waStatus === 'pending' || waStatus === 'prepared'
+                        ? 'Inbox Assistant en modo manual. WhatsApp preparado pero pendiente de webhook Meta. Conecta y verifica el numero en Settings para recibir mensajes reales.'
                         : 'Inbox Assistant en modo manual. Conecta y verifica WhatsApp en Settings para recibir mensajes reales.')
                   : mode.description}
               </p>
@@ -3191,7 +2697,7 @@ export default function AssistantPage() {
                   <div className="flex justify-start">
                     <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-indigo-100 bg-indigo-50 px-4 py-2.5">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
-                      <span className="text-xs text-indigo-600">{assistantN8nActive ? 'n8n/OpenAI pensando...' : 'IA generando respuesta...'}</span>
+                      <span className="text-xs text-indigo-600">{isRealMode ? 'NowLabs AI consultando el CRM...' : 'IA generando respuesta...'}</span>
                     </div>
                   </div>
                 )}
@@ -3232,7 +2738,7 @@ export default function AssistantPage() {
                 </p>
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
-                    ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp/Whapi, los mensajes reales aparecerán aquí.'
+                    ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp Business, los mensajes reales aparecerán aquí.'
                     : 'Abre una consulta interna para que NowLabs AI opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
@@ -3266,7 +2772,7 @@ export default function AssistantPage() {
                   {assistantMode === 'inbox' ? (
                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className={cn('h-full rounded-full', score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${score}%` }} /></div>
                   ) : (
-                    <p className="mt-2 text-[10px] leading-4 text-emerald-700">Tools y confirmaciones preparadas para operar Supabase sin ejecutar escrituras peligrosas.</p>
+                    <p className="mt-2 text-[10px] leading-4 text-emerald-700">Tools y confirmaciones preparadas para operar datos del CRM sin ejecutar escrituras peligrosas.</p>
                   )}
                 </div>
 
@@ -3284,20 +2790,20 @@ export default function AssistantPage() {
               {assistantMode === 'inbox' ? (
                 <>
                   <p className="mt-1 text-[10px] text-emerald-600">Respuesta automatica desactivada.</p>
-                  <p className="mt-1 text-[10px] text-emerald-600">Whapi/n8n pendiente de conexion.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Meta Business API pendiente de conexión.</p>
                   <p className="mt-1 text-[10px] text-emerald-600">Modo manual para evitar respuestas falsas.</p>
                 </>
               ) : (
                 <>
                   <p className="mt-1 text-[10px] text-emerald-600">Calendar tools preparadas.</p>
                   <p className="mt-1 text-[10px] text-emerald-600">Confirmación requerida para escrituras.</p>
-                  <p className="mt-1 text-[10px] text-emerald-600">Fallback seguro disponible.</p>
+                  <p className="mt-1 text-[10px] text-emerald-600">Backend seguro disponible.</p>
                 </>
               )}
-              {lastResponseSource === 'n8n' && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">Última respuesta por n8n/OpenAI</p>}
+              {lastResponseSource === 'n8n' && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">Última respuesta por automatización externa</p>}
               {lastActionStatus && <p className="mt-1 rounded-lg bg-white/75 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100">{lastActionStatus}</p>}
-              {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta por fallback</p>}
-              {lastResponseSource === 'supabase' && <p className="mt-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">Última respuesta por Supabase</p>}
+              {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta local</p>}
+              {lastResponseSource === 'supabase' && <p className="mt-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">Última respuesta por agente backend</p>}
             </div>
 
             {assistantMode === 'copilot' && lastGeneratedDocument && (
@@ -3325,7 +2831,7 @@ export default function AssistantPage() {
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
               <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</p>
               <div className="flex flex-wrap gap-1.5">
-                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities.map((_, index) => ['Conversaciones', 'Whapi/n8n pendiente', 'Modo manual'][index]).filter(Boolean)).map((capability) => (
+                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities.map((_, index) => ['Conversaciones', 'Meta API próximo', 'Modo manual'][index]).filter(Boolean)).map((capability) => (
                   <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>
                 ))}
               </div>
@@ -3338,14 +2844,14 @@ export default function AssistantPage() {
                 </div>
               ) : (
                 <p className="mt-3 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                  Inbox Assistant es la capa para conversaciones de clientes. Ahora trabaja sobre mensajes persistentes; cuando conectes WhatsApp/Whapi, los mensajes entrantes caerán aquí.
+                  Inbox Assistant es la capa para conversaciones de clientes. Ahora trabaja sobre mensajes persistentes; cuando conectes WhatsApp Business, los mensajes entrantes caerán aquí.
                 </p>
               )}
               <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium leading-5 text-amber-800">
                 Las acciones importantes requieren confirmación antes de guardarse.
               </p>
               <p className="mt-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                WhatsApp/Whapi será la siguiente fase: permitirá recibir mensajes reales y convertirlos en clientes, citas o seguimientos dentro de NowCRM.
+                WhatsApp Business (Meta Cloud API) es la siguiente fase: recibirás mensajes reales y los convertirás en clientes, citas o seguimientos dentro de NowCRM.
               </p>
             </div>
 
@@ -3355,7 +2861,7 @@ export default function AssistantPage() {
                 <p className="text-xs leading-relaxed text-indigo-800">
                   {assistantMode === 'inbox'
                     ? selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y prepara cita o seguimiento.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Responde con contexto y pide el dato mínimo para avanzar.' : 'Crea una conversación para simular mensajes entrantes de clientes.'
-                    : selected ? 'Usa NowLabs AI para consultar datos reales, preparar acciones y confirmar antes de escribir en Supabase.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
+                    : selected ? 'Usa NowLabs AI para consultar datos reales, preparar acciones y confirmar antes de escribir en el CRM.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
                 </p>
                 <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Próxima acción') : toast.info('Crea una conversación primero')}>
                   Aplicar <ArrowRight className="h-3 w-3" />

@@ -27,13 +27,12 @@ const demoUser: CurrentUser = {
 }
 
 const offlineCurrentUser: CurrentUser = {
-  name: 'Oier Duñabeitia',
-  email: 'oier.dunabeitia@opendeusto.es',
-  workspaceId: '7d1ad8e8-e9f7-47fb-92d5-299516b6dc1b',
-  workspaceName: 'Arturito',
-  initials: 'OD',
-  isDemo: false,
-  trialLabel: 'Trial activo',
+  name: 'NowCRM Local',
+  email: 'local@nowcrm.local',
+  workspaceName: 'NowCRM Local',
+  initials: 'NL',
+  isDemo: true,
+  trialLabel: 'Modo local',
 }
 
 function getInitials(value: string) {
@@ -82,6 +81,10 @@ export function useCurrentUser() {
         }
         return
       }
+
+      // Show skeleton on every re-run (including auth-state-change re-runs) so we never
+      // flash "NowCRM Demo" while the real profile resolves in the background.
+      if (mounted) setIsLoading(true)
 
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
