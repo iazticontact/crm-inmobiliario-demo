@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 let browserClient: SupabaseClient | null = null
 
@@ -12,20 +13,15 @@ export function isSupabaseConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && getSupabasePublicKey())
 }
 
+// Uses createBrowserClient from @supabase/ssr so the session is stored in cookies,
+// making it readable server-side via createServerClient. The old createClient stored
+// sessions only in localStorage — invisible to Route Handlers.
 export function getSupabaseBrowserClient() {
   if (!isSupabaseConfigured()) return null
   if (!browserClient) {
-    browserClient = createClient(
+    browserClient = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       getSupabasePublicKey()!,
-      {
-        auth: {
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-          flowType: 'pkce',
-          persistSession: true,
-        },
-      }
     )
   }
   return browserClient

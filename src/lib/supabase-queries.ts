@@ -163,6 +163,9 @@ export type GoogleCalendarConnectionPayload = {
 export type WhatsappConnectionPayload = {
   provider?: string
   phoneNumber?: string
+  phoneNumberId?: string
+  whatsappBusinessAccountId?: string
+  metaBusinessId?: string
   status?: string
   webhookUrl?: string | null
   syncEnabled?: boolean
@@ -1968,7 +1971,7 @@ export async function getWhatsappConnection(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('whatsapp_connections')
-    .select('id, workspace_id, provider, phone_number, status, created_at, updated_at')
+    .select('id, workspace_id, provider, phone_number, phone_number_id, whatsapp_business_account_id, meta_business_id, status, webhook_url, last_webhook_at, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -2072,6 +2075,9 @@ export async function upsertWhatsappConnection(workspaceId: string, payload: Wha
     workspace_id: workspaceId,
     provider: payload.provider ?? 'meta',
     phone_number: payload.phoneNumber ?? null,
+    phone_number_id: payload.phoneNumberId ?? null,
+    whatsapp_business_account_id: payload.whatsappBusinessAccountId ?? null,
+    meta_business_id: payload.metaBusinessId ?? null,
     status: payload.status ?? 'pending',
     webhook_url: payload.webhookUrl ?? null,
     sync_enabled: payload.syncEnabled ?? false,

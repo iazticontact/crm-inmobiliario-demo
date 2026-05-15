@@ -51,17 +51,17 @@ const metaPendingReason = 'Requiere WhatsApp Business Platform oficial (Meta Clo
 const calendarPendingReason = 'Requiere OAuth real de Google Calendar'
 const openAiPendingReason = 'Requiere OpenAI server-side configurado'
 
-const automationCatalog: Record<string, { requiredIntegrations: IntegrationTag[]; canActivateNow: boolean; reasonIfUnavailable?: string }> = {
-  '1': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
-  '2': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
-  '3': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
-  '4': { requiredIntegrations: ['whatsapp_business', 'google_calendar', 'n8n'], canActivateNow: false, reasonIfUnavailable: `${metaPendingReason} + ${calendarPendingReason}` },
-  '5': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
-  '6': { requiredIntegrations: ['n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason },
-  '7': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}` },
-  '8': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
-  '9': { requiredIntegrations: ['email', 'whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason },
-  '10': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}` },
+const automationCatalog: Record<string, { requiredIntegrations: IntegrationTag[]; canActivateNow: boolean; reasonIfUnavailable?: string; n8nWorkflowSlug?: string }> = {
+  '1': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason, n8nWorkflowSlug: 'new-lead' },
+  '2': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason, n8nWorkflowSlug: 'invoice-overdue' },
+  '3': { requiredIntegrations: ['email', 'n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason, n8nWorkflowSlug: 'reengagement-needed' },
+  '4': { requiredIntegrations: ['whatsapp_business', 'google_calendar', 'n8n'], canActivateNow: false, reasonIfUnavailable: `${metaPendingReason} + ${calendarPendingReason}`, n8nWorkflowSlug: 'appointment-booked' },
+  '5': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason, n8nWorkflowSlug: 'new-lead' },
+  '6': { requiredIntegrations: ['n8n'], canActivateNow: false, reasonIfUnavailable: n8nPendingReason, n8nWorkflowSlug: 'daily-summary' },
+  '7': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}`, n8nWorkflowSlug: 'urgent-conversation' },
+  '8': { requiredIntegrations: ['whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason, n8nWorkflowSlug: 'invoice-paid' },
+  '9': { requiredIntegrations: ['email', 'whatsapp_business', 'n8n'], canActivateNow: false, reasonIfUnavailable: metaPendingReason, n8nWorkflowSlug: 'client-updated' },
+  '10': { requiredIntegrations: ['n8n', 'openai'], canActivateNow: false, reasonIfUnavailable: `${n8nPendingReason} + ${openAiPendingReason}`, n8nWorkflowSlug: 'daily-summary' },
 }
 
 const automationFlowMap: Record<string, N8nEventType> = {

@@ -1,3 +1,5 @@
+// LEGACY — not used by NowLabs AI v2. The UI routes all real copilot queries to /api/assistant/v2.
+// This route is kept for reference and may serve the Inbox Assistant or direct API consumers.
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'

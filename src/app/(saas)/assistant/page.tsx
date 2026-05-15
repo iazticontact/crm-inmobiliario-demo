@@ -39,6 +39,7 @@ import type { AssistantMode, Channel, Conversation, ConversationSentiment, Messa
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
+
 const OFFLINE_WORKSPACE_ID = 'offline-workspace'
 const OFFLINE_USER_ID = 'offline-user'
 const OFFLINE_USER_EMAIL = 'local@nowcrm.local'
@@ -1301,75 +1302,90 @@ export default function AssistantPage() {
       if (assistantMode === 'copilot' && isRealMode && workspaceId) {
         setPreparedAction(null)
         setEditingAction(false)
+
+        // --- NowLabs AI v2: único cerebro real del CRM ---
         try {
-          const res = await fetch('/api/assistant/chat', {
+          const v2Res = await fetch('/api/assistant/v2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              workspaceId,
-              conversationId,
               message: content,
-              mode: 'copilot',
               lastReferencedClientId,
               lastReferencedClientName,
               lastResults: lastResultsMap[conversationId] ?? [],
             }),
           })
-          type ApiResponse = {
+          type V2Response = {
             ok: boolean
             answer?: string
-            referencedClientId?: string
-            referencedClientName?: string
-            preparedAction?: { type: 'booking' | 'invoice' | 'task'; clientId?: string; clientName?: string; service?: string; date?: string; time?: string; amount?: number; concept?: string; dueDate?: string; taskTitle?: string; description?: string; missingFields: string[] }
-            referencedList?: Record<string, unknown>[]
             debugSource?: string
+            toolCalls?: string[]
+            referencedClientId?: string | null
+            referencedClientName?: string | null
+            referencedList?: Record<string, unknown>[] | null
+            dataPreview?: unknown
+            preparedAction?: {
+              type: 'booking' | 'invoice' | 'task'
+              clientId?: string
+              clientName?: string
+              service?: string
+              date?: string
+              time?: string
+              amount?: number
+              concept?: string
+              dueDate?: string
+              taskTitle?: string
+              description?: string
+              missingFields: string[]
+            }
             error?: string
           }
-          const apiData = await res.json() as ApiResponse
-          console.log('[assistant/ui] backend response', {
-            ok: apiData.ok,
-            debugSource: apiData.debugSource,
-            hasAnswer: Boolean(apiData.answer),
-            hasPreparedAction: Boolean(apiData.preparedAction),
-            referencedClientName: apiData.referencedClientName,
+          const v2Data = await v2Res.json() as V2Response
+          console.log('[assistant/ui] v2 response', {
+            ok: v2Data.ok,
+            debugSource: v2Data.debugSource,
+            toolCalls: v2Data.toolCalls,
+            referencedClientName: v2Data.referencedClientName,
           })
-          if (apiData.ok && apiData.answer) {
-            if (apiData.referencedClientId && apiData.referencedClientName) {
-              setConversationClient(conversationId, { id: apiData.referencedClientId, name: apiData.referencedClientName })
+
+          if (v2Data.ok && v2Data.answer) {
+            if (v2Data.referencedClientId && v2Data.referencedClientName) {
+              setConversationClient(conversationId, { id: v2Data.referencedClientId, name: v2Data.referencedClientName })
             }
-            if (apiData.referencedList?.length) {
-              setLastResultsMap((prev) => ({ ...prev, [conversationId]: apiData.referencedList! }))
+            // Prefer referencedList (structured client list) over dataPreview for ordinal context
+            const listToStore = v2Data.referencedList?.length
+              ? v2Data.referencedList
+              : Array.isArray(v2Data.dataPreview) && v2Data.dataPreview.length
+                ? v2Data.dataPreview as Record<string, unknown>[]
+                : null
+            if (listToStore) {
+              setLastResultsMap((prev) => ({ ...prev, [conversationId]: listToStore }))
             }
-            if (apiData.preparedAction) {
-              const pa = apiData.preparedAction
-              const paId = `backend-${createUuid()}`
+            if (v2Data.preparedAction) {
+              const pa = v2Data.preparedAction
+              const paId = `v2-${createUuid()}`
               let frontendAction: PreparedAction
               if (pa.type === 'booking') {
-                frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Acción preparada por NowLabs AI' }
+                frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
               } else if (pa.type === 'invoice') {
-                frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Acción preparada por NowLabs AI' }
+                frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
               } else {
-                frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
+                frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? pa.description ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
               }
               setPreparedAction(frontendAction)
-            } else {
-              setPreparedAction(null)
             }
-            await appendAssistantMessage(conversationId, apiData.answer, activeConversation.clientName)
+            await appendAssistantMessage(conversationId, v2Data.answer, activeConversation.clientName)
             setLastResponseSource('supabase')
             return
           }
         } catch {
-          // Fall through — backend unavailable
+          // v2 unavailable
         }
-        // Backend is the only valid source for copilot real mode — no client-side fallbacks
-        console.log('[assistant/ui] backend did not return valid response (copilot+real) — showing neutral error')
         await appendAssistantMessage(
           conversationId,
-          'No he podido resolver esta consulta desde el CRM real ahora mismo. Prueba de nuevo o reformula la pregunta.',
+          'No he podido consultar el CRM ahora mismo. Reinténtalo en unos segundos.',
           activeConversation.clientName
         )
-        setPreparedAction(null)
         setLastResponseSource(null)
         return
       }
@@ -1462,6 +1478,13 @@ export default function AssistantPage() {
     if (!selected) return
 
     setConfirmingAction(true)
+    // Guard: clientId must be a real UUID or absent — never a name string
+    const paClientId = 'clientId' in preparedAction ? preparedAction.clientId : undefined
+    if (paClientId && !isUuid(paClientId)) {
+      toast.warning('No tengo identificado el cliente exacto. Busca o selecciona el cliente antes de confirmar.')
+      setConfirmingAction(false)
+      return
+    }
     let debugPayload: Record<string, unknown> | null = null
     try {
       const activeConversation = isRealMode ? await ensureRealConversation() : selected
@@ -1499,6 +1522,25 @@ export default function AssistantPage() {
         if (!workspaceId) throw new Error('No hay workspace real para crear el evento.')
         const createdEvent = await createCalendarEvent(workspaceId, calendarPayload)
 
+        // Google Calendar sync — best-effort after local creation succeeds
+        let gcalSynced = false
+        let gcalNotConnected = false
+        try {
+          const gcalRes = await fetch('/api/integrations/google/calendar/sync-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eventId: createdEvent.id }),
+            signal: AbortSignal.timeout(9000),
+          })
+          if (gcalRes.ok) {
+            const gcalData = await gcalRes.json() as { synced?: boolean; reason?: string }
+            gcalSynced = gcalData.synced === true
+            gcalNotConnected = gcalData.reason === 'not_connected'
+          }
+        } catch {
+          // Google sync is best-effort — local creation already succeeded
+        }
+
         if (workspaceId) {
           void createActivity(workspaceId, { type: 'call', description: `Cita creada desde NowLabs AI: ${service} con ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:booking]', error)
@@ -1509,17 +1551,25 @@ export default function AssistantPage() {
               mode: 'real',
               calendar_event: { ...calendarPayload, id: createdEvent.id },
               client: { id: preparedAction.clientId, name: preparedAction.clientName },
-              metadata: { source: 'assistant_confirmation' },
+              metadata: { source: 'assistant_confirmation', google_synced: gcalSynced },
             }).catch((error) => {
               if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:booking]', error)
             })
           }
         }
 
-        await appendAssistantMessage(activeConversation.id, `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`, preparedAction.clientName).catch((error) => {
+        const bookingMsg = gcalSynced
+          ? `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}. Añadida también a Google Calendar.`
+          : `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`
+        await appendAssistantMessage(activeConversation.id, bookingMsg, preparedAction.clientName).catch((error) => {
           if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:booking]', error)
         })
-        toast.success('Cita creada en Calendario')
+        const bookingToast = gcalSynced
+          ? 'Cita creada y añadida a Google Calendar'
+          : gcalNotConnected
+            ? 'Cita creada en NowCRM. Google Calendar aún no está conectado.'
+            : 'Cita creada en Calendario'
+        toast.success(bookingToast)
         setLastActionStatus('Última acción confirmada: cita creada')
       }
 

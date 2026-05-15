@@ -11,6 +11,7 @@ type WhatsappInboundPayload = {
   workspaceId?: string
   provider?: string
   phone?: string
+  phoneNumberId?: string
   customerName?: string
   customerEmail?: string
   message?: string
@@ -24,6 +25,7 @@ type NormalizedInboundPayload = {
   workspaceId?: string
   provider: Provider
   phone: string
+  phoneNumberId?: string
   customerName?: string
   customerEmail?: string
   message: string
@@ -180,6 +182,7 @@ function normalizePayload(raw: WhatsappInboundPayload): NormalizedInboundPayload
     workspaceId: asString(raw.workspaceId) || undefined,
     provider,
     phone,
+    phoneNumberId: asString(raw.phoneNumberId) || undefined,
     customerName: asString(raw.customerName) || undefined,
     customerEmail: asString(raw.customerEmail).toLowerCase() || undefined,
     message,
@@ -234,6 +237,19 @@ async function resolveWorkspace(admin: SupabaseClient, payload: NormalizedInboun
   if (payload.workspaceId) return payload.workspaceId
   if (authMode !== 'webhook_secret') return null
 
+  // Primary: resolve by phone_number_id (Meta's business phone number ID — identifies the workspace)
+  if (payload.phoneNumberId) {
+    const { data, error } = await admin
+      .from('whatsapp_connections')
+      .select('workspace_id')
+      .eq('phone_number_id', payload.phoneNumberId)
+      .maybeSingle()
+    if (error) throw error
+    const wsId = asString((data as DataRecord | null)?.workspace_id)
+    if (wsId) return wsId
+  }
+
+  // Fallback: resolve by phone_number (business phone, not customer phone)
   const { data, error } = await admin
     .from('whatsapp_connections')
     .select('workspace_id')
@@ -569,6 +585,14 @@ export async function POST(request: Request) {
       phone: normalized.phone,
       authMode: auth.authMode,
     })
+  }
+
+  // Fire-and-forget: stamp last_webhook_at so the settings page can show when the last real message arrived
+  if (normalized.provider === 'meta') {
+    void admin.from('whatsapp_connections')
+      .update({ last_webhook_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId)
+      .eq('provider', 'meta')
   }
 
   let conversation: DataRecord | null = null

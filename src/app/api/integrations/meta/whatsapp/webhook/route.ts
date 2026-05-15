@@ -96,6 +96,7 @@ function forwardToInbound(messages: Array<{
       body: JSON.stringify({
         provider: 'meta',
         phone: msg.phone,
+        phoneNumberId: msg.phoneNumberId,
         customerName: msg.customerName,
         message: msg.message,
         externalMessageId: msg.externalMessageId,
@@ -103,9 +104,6 @@ function forwardToInbound(messages: Array<{
         metadata: {
           source: 'meta_cloud_api',
           phoneNumberId: msg.phoneNumberId,
-          // phoneNumberId can be used to resolve workspaceId once whatsapp_connections
-          // has a phone_number_id column:
-          //   ALTER TABLE whatsapp_connections ADD COLUMN phone_number_id text;
         },
       }),
     }).catch((err: unknown) => {

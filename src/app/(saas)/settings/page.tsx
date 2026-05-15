@@ -64,24 +64,22 @@ type IntegrationCard = {
 }
 
 const integrations: IntegrationCard[] = [
-  { id: 'supabase', name: 'Supabase', description: 'Auth, datos reales y persistencia por workspace.', status: 'connected', icon: <Database className="h-5 w-5" />, category: 'Core' },
-  { id: 'agent-tools', name: 'AI Agent Tools', description: 'Tools backend para que NowLabs AI consulte el CRM y prepare acciones controladas.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'IA' },
-  { id: 'n8n', name: 'n8n', description: 'Brazo externo para WhatsApp, email, PDFs, recordatorios y workflows.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Meta Business API oficial. Próxima fase: verificación de número y webhook para mensajes entrantes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificación', category: 'Mensajeria' },
-  { id: 'instagram', name: 'Instagram Direct', description: 'Bandeja social preparada para mensajes y leads de Instagram.', status: 'pending', icon: <Globe className="h-5 w-5" />, info: '@nowcrm.demo', category: 'Social' },
-  { id: 'email', name: 'Email / Resend', description: 'Emails transaccionales y secuencias cuando exista dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'resend', name: 'Resend', description: 'SMTP transaccional para confirmaciones y reset con dominio.', status: 'pending_config', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'openai', name: 'OpenAI / IA', description: 'NowLabs AI usa OpenAI server-side mediante /api/assistant/chat. La key nunca vive en el frontend.', status: 'demo_connected', icon: <MessageSquare className="h-5 w-5" />, category: 'IA' },
-  { id: 'storage', name: 'Documents / PDFs', description: 'Supabase Storage preparado para propuestas, facturas PDF y adjuntos futuros.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
-  { id: 'stripe', name: 'Stripe Payments', description: 'Cobros, suscripciones y eventos de pago para fase real.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
+  { id: 'supabase', name: 'Base de datos', description: 'Auth, datos y persistencia por workspace. Gestionado por NowCRM.', status: supabaseStatus.configured ? 'connected' : 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'agent-tools', name: 'NowLabs AI Tools', description: 'Capacidades de IA para consultar el CRM y preparar acciones. Gestionado por NowCRM.', status: 'connected', icon: <Zap className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'n8n', name: 'Automatizaciones', description: 'Motor de workflows para WhatsApp, email, recordatorios y procesos automaticos.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Meta Business Platform oficial. Conecta tu cuenta para recibir y responder mensajes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificacion Meta', category: 'Mensajeria' },
+  { id: 'instagram', name: 'Instagram Direct', description: 'Mensajes y leads desde Instagram Direct.', status: 'pending', icon: <Globe className="h-5 w-5" />, category: 'Social' },
+  { id: 'email', name: 'Email', description: 'Emails transaccionales y secuencias automaticas con tu dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
+  { id: 'storage', name: 'Documentos y PDFs', description: 'Almacenamiento para propuestas, facturas PDF y adjuntos de conversaciones.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
+  { id: 'stripe', name: 'Cobros y pagos', description: 'Cobros, suscripciones y eventos de pago.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
   { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
 
 const architectureCards = [
-  { title: 'Supabase', label: 'Auth y datos reales', detail: 'Conectado', icon: <Database className="h-5 w-5" />, tone: 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' },
-  { title: 'n8n', label: 'Webhooks y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
-  { title: 'Agent Tools', label: 'Tools CRM seguras', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
-  { title: 'Canales', label: 'Meta/Email/Stripe', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Base de datos', label: 'Auth y datos por workspace', detail: supabaseStatus.configured ? 'Conectada' : 'Pendiente', icon: <Database className="h-5 w-5" />, tone: supabaseStatus.configured ? 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' : 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Automatizaciones', label: 'Workflows y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
+  { title: 'NowLabs AI', label: 'Asistente y agent tools', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
+  { title: 'Canales', label: 'WhatsApp / Email / Pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
 const notifDefaults = [
@@ -185,8 +183,19 @@ export default function SettingsPage() {
   const [waPhoneNumber, setWaPhoneNumber] = useState('')
   const [waWebhookUrl, setWaWebhookUrl] = useState('')
   const [waLoading, setWaLoading] = useState(false)
+  const [waLastWebhookAt, setWaLastWebhookAt] = useState('')
+  const [waTestLoading, setWaTestLoading] = useState(false)
   const [inboxSettings, setInboxSettings] = useState<Record<string, unknown> | null>(null)
   const [inboxAutoReply, setInboxAutoReply] = useState(false)
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState('')
+  const [waBusinessAccountId, setWaBusinessAccountId] = useState('')
+  const [waMetaBusinessId, setWaMetaBusinessId] = useState('')
+  const [gcalOauthStatus] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('integration') !== 'google_calendar') return null
+    return p.get('status')
+  })
 
   const flowConfigByEvent = useMemo(() => new Map<string, WebhookConfig>(n8nWebhookConfigs.map((flow) => [flow.event, flow])), [])
 
@@ -280,6 +289,10 @@ export default function SettingsPage() {
         setWaConnection(wa)
         setWaPhoneNumber(String(wa.phone_number ?? ''))
         setWaWebhookUrl(String(wa.webhook_url ?? ''))
+        setWaPhoneNumberId(String(wa.phone_number_id ?? ''))
+        setWaBusinessAccountId(String(wa.whatsapp_business_account_id ?? ''))
+        setWaMetaBusinessId(String(wa.meta_business_id ?? ''))
+        setWaLastWebhookAt(String(wa.last_webhook_at ?? ''))
       }
       if (inbox) {
         setInboxSettings(inbox)
@@ -300,6 +313,32 @@ export default function SettingsPage() {
     }, 0)
     return () => window.clearTimeout(timeout)
   }, [loadControlCenter])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const integration = params.get('integration')
+    const status = params.get('status')
+    if (integration !== 'google_calendar' || !status) return
+    if (status === 'connected') {
+      toast.success('Google Calendar conectado', { description: 'Tu calendario ya esta sincronizado con NowCRM.' })
+    } else if (status === 'error') {
+      const reason = params.get('reason') ?? ''
+      const desc = reason === 'not_configured'
+        ? 'La plataforma NowCRM aun no tiene Google OAuth configurado. Contacta con el equipo tecnico.'
+        : reason === 'state_mismatch'
+          ? 'Error de seguridad en el flujo OAuth. Cierra sesion, vuelve a entrar e intentalo de nuevo.'
+          : reason === 'no_refresh_token'
+            ? 'Google no concedio permiso permanente. Revoca el acceso en myaccount.google.com y vuelve a autorizar.'
+            : reason === 'db_error'
+              ? 'Error al guardar la conexion. Contacta con el equipo tecnico de NowCRM.'
+              : reason === 'unauthenticated'
+                ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
+                : 'No se pudo completar la autorizacion. Intentalo de nuevo o contacta con NowCRM.'
+      toast.error('No se pudo conectar Google Calendar', { description: desc })
+    } else if (status === 'pending') {
+      toast.info('Google Calendar pendiente', { description: 'La conexion OAuth esta pendiente. Contacta con el equipo tecnico de NowCRM.' })
+    }
+  }, [])
 
   const toggleNotif = (key: string) => {
     const next = !notifications[key]
@@ -553,10 +592,10 @@ export default function SettingsPage() {
   }
 
   const handleIntegrationAction = async (integration: IntegrationCard) => {
-    const managedByDedicatedConfig = ['whatsapp', 'openai', 'agent-tools', 'n8n'].includes(integration.id)
-    if (managedByDedicatedConfig) {
-      toast.info('Integracion gestionada por configuracion dedicada', {
-        description: 'No se marca como conectada manualmente hasta validar credenciales y endpoints server-side.',
+    const managedByNowCRM = ['supabase', 'agent-tools', 'n8n', 'whatsapp', 'storage'].includes(integration.id)
+    if (managedByNowCRM) {
+      toast.info('Integracion gestionada por NowCRM', {
+        description: 'Esta integracion se configura desde la seccion correspondiente de esta pagina o directamente por el equipo de NowCRM.',
       })
       return
     }
@@ -573,7 +612,7 @@ export default function SettingsPage() {
         setSettingsPersisted(true)
       } catch {
         setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: 'error' }))
-        toast.error('No se pudo guardar la integracion', { description: 'Revisa integrations y RLS.' })
+        toast.error('No se pudo guardar la integracion')
         return
       }
     }
@@ -587,10 +626,13 @@ export default function SettingsPage() {
     setGcalLoading(true)
     try {
       if (!currentUser.isDemo && workspaceId) {
+        // Preserve connected status — only update calendar preferences, not the auth state
+        const currentStatus = String(gcalConnection?.status ?? '')
+        const statusToSet = currentStatus === 'connected' ? 'connected' : 'prepared'
         const result = await upsertGoogleCalendarConnection(workspaceId, {
           calendarId: gcalCalendarId || 'primary',
           syncEnabled: gcalSyncEnabled,
-          status: 'prepared',
+          status: statusToSet,
         })
         if (result) {
           setGcalConnection(result)
@@ -598,9 +640,9 @@ export default function SettingsPage() {
           setGcalSyncEnabled(Boolean(result.sync_enabled))
         }
       }
-      toast.info('Google Calendar preparado', { description: 'La autorizacion OAuth completara la conexion en la siguiente fase.' })
+      toast.success('Preferencias actualizadas', { description: 'Calendar ID y sincronizacion guardados.' })
     } catch {
-      toast.error('No se pudo preparar Google Calendar', { description: 'Revisa la tabla google_calendar_connections y RLS.' })
+      toast.error('No se pudo guardar las preferencias', { description: 'Revisa la tabla google_calendar_connections y RLS.' })
     } finally {
       setGcalLoading(false)
     }
@@ -626,6 +668,9 @@ export default function SettingsPage() {
       if (!currentUser.isDemo && workspaceId) {
         const result = await upsertWhatsappConnection(workspaceId, {
           phoneNumber: waPhoneNumber || undefined,
+          phoneNumberId: waPhoneNumberId || undefined,
+          whatsappBusinessAccountId: waBusinessAccountId || undefined,
+          metaBusinessId: waMetaBusinessId || undefined,
           webhookUrl: waWebhookUrl || null,
           status: 'webhook_pending',
           syncEnabled: false,
@@ -634,9 +679,12 @@ export default function SettingsPage() {
           setWaConnection(result)
           setWaPhoneNumber(String(result.phone_number ?? ''))
           setWaWebhookUrl(String(result.webhook_url ?? ''))
+          setWaPhoneNumberId(String(result.phone_number_id ?? ''))
+          setWaBusinessAccountId(String(result.whatsapp_business_account_id ?? ''))
+          setWaMetaBusinessId(String(result.meta_business_id ?? ''))
         }
       }
-      toast.info('WhatsApp preparado', { description: 'El numero queda registrado. La verificacion y el webhook oficial de Meta se activaran en la siguiente fase.' })
+      toast.info('WhatsApp preparado', { description: 'Datos registrados. La verificacion y el webhook oficial de Meta se configuraran en el siguiente paso.' })
     } catch {
       toast.error('No se pudo preparar WhatsApp', { description: 'Revisa la tabla whatsapp_connections y RLS.' })
     } finally {
@@ -652,9 +700,29 @@ export default function SettingsPage() {
       setWaConnection(null)
       setWaPhoneNumber('')
       setWaWebhookUrl('')
+      setWaLastWebhookAt('')
       toast.success('WhatsApp desconectado')
     } catch {
       toast.error('No se pudo desconectar WhatsApp')
+    }
+  }
+
+  const handleWATest = async () => {
+    setWaTestLoading(true)
+    try {
+      const res = await fetch('/api/integrations/meta/whatsapp/test', { method: 'POST' })
+      const data = await res.json() as { ok?: boolean; simulated?: boolean; status?: string; message?: string }
+      if (data.ok) {
+        toast.success('Conexion WhatsApp OK', { description: data.message ?? 'Test enviado correctamente.' })
+      } else if (data.simulated) {
+        toast.info('Test simulado', { description: data.message ?? 'La plataforma necesita META_ACCESS_TOKEN para envios reales.' })
+      } else {
+        toast.error('Test fallido', { description: data.message ?? 'Revisa la configuracion del webhook en Meta.' })
+      }
+    } catch {
+      toast.error('Error al probar conexion', { description: 'No se pudo conectar con el servidor.' })
+    } finally {
+      setWaTestLoading(false)
     }
   }
 
@@ -684,7 +752,7 @@ export default function SettingsPage() {
     >
       <PageHeader
         title="Configuracion"
-        description="Control center para Supabase, n8n, canales y siguiente fase real"
+        description="Conecta tus integraciones y gestiona la configuracion de tu workspace"
         action={<Badge variant={currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
       />
 
@@ -750,14 +818,8 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="Supabase"
-            description="Base de datos, autenticacion y persistencia por workspace"
-            action={
-              <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
-                Supabase Console
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            }
+            title="Infraestructura"
+            description="Base de datos, autenticacion y persistencia por workspace — gestionado por NowCRM"
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
               <div className={cn('rounded-xl border px-4 py-3', supabaseStatus.configured ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50')}>
@@ -954,8 +1016,40 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
+            title="Plataforma IA"
+            description="Inteligencia artificial y mantenimiento tecnico gestionados por NowCRM"
+          >
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100">
+                  <Zap className="h-4 w-4 text-indigo-700" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por NowCRM</p>
+                  <p className="mt-1 text-xs leading-5 text-indigo-700">
+                    La inteligencia artificial, las automatizaciones backend y el mantenimiento tecnico estan gestionados por NowCRM. No necesitas configurar ninguna clave de IA.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              {[
+                { label: 'NowLabs AI', detail: 'Activo', desc: 'Responde en Inbox, Dashboard y Assistant' },
+                { label: 'Automatizaciones', detail: 'Configurable', desc: 'Activa workflows desde esta pagina' },
+                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por NowCRM' },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
+                  <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
+                  <p className="mt-0.5 font-mono text-[10px] text-indigo-600">{item.detail}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard
             title="Google Calendar"
-            description="Autorizar cuenta Google para sincronizar eventos con NowCRM"
+            description="Conecta tu cuenta Google para sincronizar eventos con NowCRM"
             action={
               gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleGCalDisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
@@ -979,12 +1073,12 @@ export default function SettingsPage() {
                       })()}
                     </div>
                     <p className="mt-0.5 text-xs text-gray-500">
-                      {gcalConnection
+                      {gcalConnection && String(gcalConnection.status ?? '') === 'connected'
                         ? `Calendario: ${String(gcalConnection.calendar_id ?? 'primary')} · ultima sync: ${String(gcalConnection.last_sync_at ?? '') || 'nunca'}`
-                        : 'Autoriza tu cuenta Google para sincronizar el calendario principal.'}
+                        : 'Pulsa el boton para autorizar tu cuenta Google y vincular tu calendario.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      En la siguiente fase, el usuario autorizara su cuenta Google y NowCRM sincronizara eventos con su calendario principal mediante OAuth seguro.
+                      La plataforma NowCRM ya gestiona la conexion tecnica con Google. Tu solo necesitas pulsar el boton, iniciar sesion con tu Google y aceptar los permisos. NowCRM guarda la conexion automaticamente.
                     </p>
                   </div>
                 </div>
@@ -1017,18 +1111,48 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
+                {gcalOauthStatus === 'error' && (
+                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                    <p className="text-xs leading-5 text-red-700">No se pudo completar la conexion con Google. Intenta de nuevo o contacta con NowCRM.</p>
+                  </div>
+                )}
+                {gcalOauthStatus === 'pending' && (
+                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <p className="text-xs leading-5 text-amber-700">Conexion en proceso. Contacta con NowCRM para completar la configuracion OAuth.</p>
+                  </div>
+                )}
                 <div className="mb-3 flex flex-wrap gap-2">
-                  <Button size="sm" loading={gcalLoading} onClick={() => void handleGCalPrepare()}>
-                    Preparar OAuth
-                  </Button>
-                  <Button size="sm" variant="secondary" disabled>
-                    Conectar con Google
-                  </Button>
+                  {String(gcalConnection?.status ?? '') === 'connected' ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
+                        disabled={currentUser.isDemo}
+                      >
+                        Reconectar Google
+                      </Button>
+                      <Button size="sm" variant="secondary" loading={gcalLoading} onClick={() => void handleGCalPrepare()}>
+                        Actualizar preferencias
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
+                      disabled={currentUser.isDemo}
+                      title={currentUser.isDemo ? 'Inicia sesion para conectar Google Calendar' : 'Autoriza tu cuenta Google para vincular el calendario'}
+                    >
+                      Autorizar con Google
+                    </Button>
+                  )}
                 </div>
                 <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
                   <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
                   <p className="text-[11px] leading-5 text-blue-700">
-                    La autorizacion OAuth se realizara mediante conexion segura. No se guardan tokens en el navegador. Google Calendar requiere autorizacion OAuth.
+                    La plataforma NowCRM gestiona la conexion tecnica. Tu solo autorizas tu cuenta. Los tokens se guardan de forma segura en el servidor, nunca en el navegador. Si al pulsar el boton no aparece la pantalla de Google, contacta con el equipo tecnico de NowCRM.
                   </p>
                 </div>
               </div>
@@ -1036,10 +1160,10 @@ export default function SettingsPage() {
                 <p className="text-xs font-semibold text-blue-900">Flujo de conexion</p>
                 <div className="mt-3 space-y-2">
                   {[
-                    'Autorizar cuenta Google',
-                    'Elegir calendario',
-                    'Activar sincronizacion',
-                    'Confirmar evento de prueba',
+                    'Pulsa "Autorizar con Google"',
+                    'Inicia sesion con tu Google',
+                    'Acepta los permisos de calendario',
+                    'NowCRM guarda la conexion',
                   ].map((step, i) => (
                     <div key={step} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700">{i + 1}</span>
@@ -1143,51 +1267,111 @@ export default function SettingsPage() {
                       {(() => {
                         const s = waConnection ? String(waConnection.status ?? '') : null
                         if (s === 'connected') return <Badge variant="success" dot>Conectado y verificado</Badge>
-                    if (s === 'webhook_pending' || s === 'pending') return <Badge variant="warning" dot>Pendiente webhook Meta</Badge>
-                    if (s === 'prepared') return <Badge variant="indigo" dot>Preparado · pendiente Meta</Badge>
+                        if (s === 'error') return <Badge variant="danger" dot>Error de conexion</Badge>
+                        if (s === 'webhook_pending' || s === 'pending') return <Badge variant="warning" dot>Pendiente webhook Meta</Badge>
+                        if (s === 'prepared') return <Badge variant="indigo" dot>Preparado · pendiente webhook</Badge>
                         return <Badge variant="default" dot>No configurado</Badge>
                       })()}
                     </div>
                     <p className="mt-0.5 text-xs text-gray-500">
                       {waConnection
-                        ? `${String(waConnection.provider ?? 'meta')}${waConnection.phone_number ? ` · ${String(waConnection.phone_number)}` : ''}`
-                        : 'Registra el número para iniciar la verificación con Meta Business API.'}
+                        ? [
+                            String(waConnection.provider ?? 'meta'),
+                            waConnection.phone_number ? String(waConnection.phone_number) : null,
+                            waLastWebhookAt ? `ultimo webhook: ${new Date(waLastWebhookAt).toLocaleString('es')}` : null,
+                          ].filter(Boolean).join(' · ')
+                        : 'Introduce los IDs de tu cuenta Meta para vincular WhatsApp Business.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      Registra el número de teléfono para preparar la conexión. La verificación se realizará mediante Meta Business API (WhatsApp Business Platform oficial).
+                      La plataforma NowCRM gestiona la conexion tecnica con Meta. Tu introduces los IDs de tu Business y numero verificado. NowCRM recibe los mensajes entrantes y los procesa en el Inbox.
                     </p>
                   </div>
                 </div>
-                <div className="mb-4 space-y-3">
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Numero de telefono</label>
-                    <input
-                      type="text"
-                      value={waPhoneNumber}
-                      onChange={(e) => setWaPhoneNumber(e.target.value)}
-                      placeholder="+34 600 000 000"
-                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
+                    <p className="text-xs font-semibold text-slate-900">Configuracion de plataforma — gestionada por NowCRM</p>
+                    <p className="text-[11px] leading-5 text-slate-600">
+                      META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y META_ACCESS_TOKEN estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo.
+                    </p>
                   </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                      URL de entrada webhook <span className="text-gray-400 font-normal">(avanzado — se configura desde el orquestador)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={waWebhookUrl}
-                      onChange={(e) => setWaWebhookUrl(e.target.value)}
-                      placeholder="Se configurara desde n8n en la siguiente fase"
-                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
+                </div>
+                <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+                  <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook de NowCRM</p>
+                  <p className="mb-2 text-[11px] leading-5 text-emerald-700">
+                    Copia esta URL y pegala en Meta Developers → Configuracion del webhook para que Meta envie los mensajes a NowCRM.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] text-emerald-800 ring-1 ring-emerald-200">
+                      {`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`, 'wa-webhook-nowcrm')}
+                      className="flex h-8 shrink-0 items-center justify-center rounded-lg px-2 text-emerald-600 transition-colors hover:bg-emerald-100"
+                    >
+                      {copiedKey === 'wa-webhook-nowcrm' ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="mb-4 space-y-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-700">Numero de telefono verificado</label>
+                      <input
+                        type="text"
+                        value={waPhoneNumber}
+                        onChange={(e) => setWaPhoneNumber(e.target.value)}
+                        placeholder="+34 600 000 000"
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        Phone Number ID <span className="text-gray-400 font-normal">(de Meta Developers)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={waPhoneNumberId}
+                        onChange={(e) => setWaPhoneNumberId(e.target.value)}
+                        placeholder="Ej: 123456789012345"
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        WhatsApp Business Account ID <span className="text-gray-400 font-normal">(WABA ID)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={waBusinessAccountId}
+                        onChange={(e) => setWaBusinessAccountId(e.target.value)}
+                        placeholder="Ej: 987654321098765"
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                        Meta Business ID <span className="text-gray-400 font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={waMetaBusinessId}
+                        onChange={(e) => setWaMetaBusinessId(e.target.value)}
+                        placeholder="Ej: 111222333444555"
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="mb-3 flex flex-wrap gap-2">
                   <Button size="sm" loading={waLoading} onClick={() => void handleWAPrepare()}>
-                    Preparar WhatsApp
+                    Guardar configuracion
                   </Button>
-                  <Button size="sm" variant="secondary" disabled title="Disponible cuando Meta Business API esté configurado">
-                    Verificar en Meta
+                  <Button size="sm" variant="secondary" loading={waTestLoading} onClick={() => void handleWATest()}>
+                    <Play className="h-3.5 w-3.5" />
+                    Probar conexion
                   </Button>
                   <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
                     <Play className="h-3.5 w-3.5" />
@@ -1197,7 +1381,7 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
                   <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                   <p className="text-[11px] leading-5 text-emerald-700">
-                    El numero de WhatsApp requiere verificacion antes de activar respuestas automaticas. No pegues claves API en este panel. Los tokens se configuran en variables server-side.
+                    No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NowCRM en el servidor. El numero requiere verificacion en Meta antes de recibir mensajes reales.
                   </p>
                 </div>
               </div>
@@ -1206,11 +1390,11 @@ export default function SettingsPage() {
                 <p className="text-xs font-semibold text-emerald-900">Flujo de conexion</p>
                 <div className="mt-3 space-y-2">
                   {[
-                    'Conectar Meta Business API',
-                    'Verificar numero',
-                    'Activar webhook oficial Meta',
-                    'Probar mensaje entrante',
-                    'Activar Inbox Assistant',
+                    'Crea o accede a Meta Business',
+                    'Anade WhatsApp Business Platform',
+                    'Copia Phone Number ID y WABA ID',
+                    'Pega la URL del webhook en Meta',
+                    'Envia mensaje de prueba al numero',
                   ].map((step, index) => (
                     <div key={step} className="flex items-start gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
@@ -1226,7 +1410,7 @@ export default function SettingsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               {integrations.map((intg) => {
                 const currentStatus = integrationStatuses[intg.id]
-                const managedByDedicatedConfig = ['whatsapp', 'openai', 'agent-tools', 'n8n'].includes(intg.id)
+                const managedByDedicatedConfig = ['supabase', 'agent-tools', 'n8n', 'whatsapp', 'storage'].includes(intg.id)
                 return (
                   <div
                     key={intg.id}
@@ -1269,7 +1453,7 @@ export default function SettingsPage() {
                       )}
                     >
                       {managedByDedicatedConfig
-                        ? 'Gestionado arriba'
+                        ? 'Gestionado por NowCRM'
                         : currentStatus === 'connected'
                           ? 'Pasar a pendiente'
                           : currentStatus === 'pending'
@@ -1303,7 +1487,7 @@ export default function SettingsPage() {
               {[
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM activos' },
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'NowLabs AI backend activo' },
-                { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'Google Calendar pendiente' },
+                { icon: gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" /> : <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? 'Google Calendar conectado' : 'Google Calendar pendiente' },
                 { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'WhatsApp/Stripe/Resend pendientes' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">

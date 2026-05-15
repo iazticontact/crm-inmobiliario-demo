@@ -20,6 +20,7 @@ export type PreparedActionData = {
   service?: string
   date?: string
   time?: string
+  duration?: number
   amount?: number
   concept?: string
   dueDate?: string
@@ -248,6 +249,17 @@ export async function toolOldestClient(supabase: SupabaseClient, workspaceId: st
   }
 }
 
+async function resolveClientNames(supabase: SupabaseClient, rows: Row[]): Promise<Map<string, string>> {
+  const orphanIds = [...new Set(
+    rows.filter((i) => !i.client_name && i.client_id).map((i) => String(i.client_id))
+  )]
+  const map = new Map<string, string>()
+  if (!orphanIds.length) return map
+  const { data } = await supabase.from('clients').select('id, name').in('id', orphanIds)
+  for (const c of (data ?? [])) map.set(String(c.id), String(c.name))
+  return map
+}
+
 // 8. Pending invoices (pending + overdue)
 export async function toolPendingInvoices(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
   const { data } = await supabase
@@ -255,13 +267,15 @@ export async function toolPendingInvoices(supabase: SupabaseClient, workspaceId:
     .in('status', ['pending', 'overdue'])
     .order('due_date', { ascending: true }).limit(20)
 
-  const rows = data ?? []
+  const rows = (data ?? []) as Row[]
   if (!rows.length) return { text: 'Sin facturas pendientes. Los cobros están al día. 👌', data: [] }
 
+  const clientNames = await resolveClientNames(supabase, rows)
   const total = rows.reduce((s, i) => s + (Number(i.amount) || 0), 0)
-  const list = rows.slice(0, 10).map((i, idx) =>
-    `${idx + 1}. ${i.client_name || 'Sin cliente'} · ${i.amount}€ (${i.status}) · vence ${i.due_date || 'sin fecha'}`
-  ).join('\n')
+  const list = rows.slice(0, 10).map((i, idx) => {
+    const label = i.client_name || (i.client_id ? clientNames.get(String(i.client_id)) : undefined) || 'cliente no asociado'
+    return `${idx + 1}. ${label} · ${i.amount}€ (${i.status}) · vence ${i.due_date || 'sin fecha'}`
+  }).join('\n')
 
   return { text: `💸 ${rows.length} factura${rows.length > 1 ? 's' : ''} pendiente${rows.length > 1 ? 's' : ''} — ${total.toFixed(0)}€ por cobrar:\n${list}`, data: rows }
 }
@@ -273,13 +287,15 @@ export async function toolOverdueInvoices(supabase: SupabaseClient, workspaceId:
     .eq('status', 'overdue')
     .order('due_date', { ascending: true }).limit(20)
 
-  const rows = data ?? []
+  const rows = (data ?? []) as Row[]
   if (!rows.length) return { text: 'Sin facturas vencidas. Todo cobrado a tiempo. 👌', data: [] }
 
+  const clientNames = await resolveClientNames(supabase, rows)
   const total = rows.reduce((s, i) => s + (Number(i.amount) || 0), 0)
-  const list = rows.map((i, idx) =>
-    `${idx + 1}. ${i.client_name || 'Sin cliente'} · ${i.amount}€ · venció ${i.due_date || 'sin fecha'}`
-  ).join('\n')
+  const list = rows.map((i, idx) => {
+    const label = i.client_name || (i.client_id ? clientNames.get(String(i.client_id)) : undefined) || 'cliente no asociado'
+    return `${idx + 1}. ${label} · ${i.amount}€ · venció ${i.due_date || 'sin fecha'}`
+  }).join('\n')
 
   return { text: `⚠️ ${rows.length} factura${rows.length > 1 ? 's' : ''} vencida${rows.length > 1 ? 's' : ''} — ${total.toFixed(0)}€ sin cobrar:\n${list}\nPriorizaría el cobro hoy.`, data: rows }
 }
@@ -513,16 +529,17 @@ export function toolPrepareTask(
 // 16. Prepare a booking or invoice action card (no Supabase needed)
 export function toolPrepareAction(
   type: 'booking' | 'invoice',
-  extracted: { clientId?: string; clientName?: string; service?: string; date?: string; time?: string; amount?: number; concept?: string; dueDate?: string }
+  extracted: { clientId?: string; clientName?: string; service?: string; date?: string; time?: string; duration?: number; amount?: number; concept?: string; dueDate?: string }
 ): ToolResult & { preparedAction: PreparedActionData } {
-  const { clientId, clientName, service, date, time, amount, concept, dueDate } = extracted
+  const { clientId, clientName, service, date, time, duration, amount, concept, dueDate } = extracted
 
   if (type === 'booking') {
+    const durationMin = typeof duration === 'number' && duration > 0 ? duration : 60
     const missingFields = [!clientName && 'cliente', !date && 'fecha', !time && 'hora'].filter(Boolean) as string[]
-    const action: PreparedActionData = { type: 'booking', clientId, clientName, service, date, time, missingFields }
+    const action: PreparedActionData = { type: 'booking', clientId, clientName, service, date, time, duration: durationMin, missingFields }
     const text = missingFields.length
       ? `📅 Casi lista — falta: ${missingFields.join(', ')}. Dímelos y la preparo para confirmar.`
-      : '📅 Cita lista. Revísala y confirma cuando quieras.'
+      : `📅 Cita lista (${durationMin} min). Revísala y confirma cuando quieras.`
     return { text, data: action, preparedAction: action }
   }
 
