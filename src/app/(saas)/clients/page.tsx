@@ -89,7 +89,7 @@ function getInitials(name: string) {
 }
 
 export default function ClientsPage() {
-  const [clientList, setClientList] = useState<Client[]>(initialClients)
+  const [clientList, setClientList] = useState<Client[]>([])
   const [search, setSearch] = useState('')
   const [channelFilter, setChannelFilter] = useState<Channel | 'Todos'>('Todos')
   const [statusFilter, setStatusFilter] = useState<ClientStatus | 'Todos'>('Todos')
@@ -121,10 +121,10 @@ export default function ClientsPage() {
       const context = await getWorkspaceContext()
       const resolvedWorkspaceId = context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
-        setClientList(initialClients)
+        setClientList([])
         setWorkspaceId(null)
         setIsRealMode(false)
-        setLoadError('No se ha encontrado workspace real. Se muestran datos demo.')
+        setLoadError('No se ha encontrado workspace real. No se muestran datos demo en modo real.')
         return
       }
 
@@ -133,7 +133,7 @@ export default function ClientsPage() {
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
     } catch {
-      setClientList(initialClients)
+      setClientList([])
       setWorkspaceId(null)
       setIsRealMode(false)
       setLoadError('No se pudieron cargar clientes reales. Revisa RLS, workspace_id o columnas de clients.')
@@ -280,7 +280,7 @@ export default function ClientsPage() {
         description={`${filtered.length} visibles de ${clientList.length} clientes`}
         action={
           <>
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Datos reales' : 'Modo demo'}</Badge>
+            <Badge variant={isRealMode ? 'success' : loadError ? 'warning' : 'indigo'} dot>{isRealMode ? 'Datos reales' : loadError ? 'Sin datos reales' : 'Modo demo'}</Badge>
             <Button size="sm" onClick={openCreateModal}>
               <Plus className="h-3.5 w-3.5" />
               Nuevo cliente

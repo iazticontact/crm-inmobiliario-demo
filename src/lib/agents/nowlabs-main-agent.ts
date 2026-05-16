@@ -57,8 +57,17 @@ type InputItem =
   | { type: 'function_call_output'; call_id: string; output: string }
   | OAIItem
 
+export type CancelEventItem = {
+  eventId: string
+  clientName?: string
+  date?: string
+  time?: string
+  title?: string
+}
+
+
 export type PreparedActionDraft = {
-  type: 'booking' | 'invoice' | 'task'
+  type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings'
   clientId?: string
   clientName?: string
   service?: string
@@ -71,12 +80,38 @@ export type PreparedActionDraft = {
   taskTitle?: string
   description?: string
   missingFields: string[]
+  // cancel_booking / reschedule_booking
+  eventId?: string
+  title?: string
+  reason?: string
+  // reschedule_booking: previous values
+  oldDate?: string
+  oldTime?: string
+  // cancel_multiple_bookings / cleanup_duplicate_bookings
+  events?: CancelEventItem[]
+  // cleanup_duplicate_bookings
+  keepEventId?: string
+  cancelEventIds?: string[]
 }
 
 export type AgentContext = {
   lastReferencedClientId?: string
   lastReferencedClientName?: string
   lastResults?: Row[]
+  lastCalendarResults?: Row[]
+  lastPreparedAction?: {
+    type: string
+    eventId?: string
+    clientId?: string
+    clientName?: string
+    date?: string
+    time?: string
+    title?: string
+    service?: string
+  }
+  lastConfirmedEventId?: string
+  lastConfirmedClientName?: string
+  lastConfirmedDate?: string
 }
 
 export type AgentV2Result = {
@@ -86,6 +121,7 @@ export type AgentV2Result = {
   referencedClientId?: string
   referencedClientName?: string
   referencedList?: Row[]
+  referencedCalendarList?: Row[]
   dataPreview?: unknown
   preparedAction?: PreparedActionDraft
   error?: string
@@ -145,6 +181,11 @@ type PreRoute =
 
 function preRoute(message: string): PreRoute {
   const t = normalize(message)
+
+  // Cancellation / multi-cancel phrases MUST go to full agent loop — never pre-route them
+  if (/\b(cancel[ae](?:r|[sm]|me|la|las)?|elimina[r]?|borra[r]?|quita[r]?|suprime[r]?|borra?la|quitala|cancelala|cancelamela)\b/.test(t)) return null
+  if (/\b(me\s+he\s+equivocado|ya\s+no\s+hace\s+falta|no\s+puedo\s+ir|cancela(?:me)?la|borra?la|quitala)\b/.test(t)) return null
+  if (/\b(todas\s+ellas|cancela\s+todas|borra\s+todas|deja\s+solo\s+una|las\s+repetidas|las\s+duplicadas)\b/.test(t)) return null
 
   // Action phrases need the full agent loop (entity extraction required)
   if (/\b(prepara|crea|agenda|pon|ponme|crear|preparar|haz|hazme)\b.*\b(cita|reunion|tarea|factura)\b/.test(t)) return null
@@ -363,7 +404,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'prepare_booking',
-    description: 'Prepara un draft de cita (NUNCA la crea). Extrae cliente, fecha, hora y servicio del mensaje. Para: "prepara una cita", "agenda una reunión", "pon una cita con X".',
+    description: 'Prepara un draft de cita (NUNCA la crea). FLUJO OBLIGATORIO: llama check_calendar_conflicts(date, time, client_name) ANTES de llamar esta tool cuando tengas fecha y hora — solo omite el check si el usuario ya lo pidió explícitamente ("créala igualmente"). Para: "prepara una cita", "agenda una reunión", "pon una cita con X".',
     parameters: {
       type: 'object',
       properties: {
@@ -409,16 +450,111 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    type: 'function',
+    name: 'search_calendar_events',
+    description: 'Busca citas/eventos en el calendario por cliente, fecha y/o texto. USA ESTO PRIMERO cuando el usuario quiera cancelar, modificar o consultar una cita específica. Para: "la cita de Miguel mañana", "la de mañana a las 10", "la reunión sobre coches", "cancélamela", "cancela la de Miguel Torres mañana".',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_name: { type: 'string', description: 'Nombre del cliente (parcial, flexible). Omite si no se conoce.' },
+        date: { type: 'string', description: 'Fecha YYYY-MM-DD, o "today"/"tomorrow"/"this_week" para fechas relativas.' },
+        text: { type: 'string', description: 'Texto a buscar en título o descripción del evento.' },
+        limit: { type: 'number', description: 'Máximo de resultados (por defecto 5).' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'check_calendar_conflicts',
+    description: 'Comprueba si hay conflictos de horario antes de crear una cita. LLAMA ESTO SIEMPRE antes de prepare_booking cuando tengas fecha y hora. Si hay conflicto, avisa al usuario y ofrece opciones. Si no hay conflicto, llama prepare_booking normalmente.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Fecha YYYY-MM-DD de la nueva cita.' },
+        time: { type: 'string', description: 'Hora HH:MM de la nueva cita.' },
+        duration: { type: 'number', description: 'Duración en minutos (por defecto 60).' },
+        client_name: { type: 'string', description: 'Nombre del cliente de la nueva cita (para detectar duplicados exactos).' },
+      },
+      required: ['date'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'prepare_reschedule_booking',
+    description: 'Prepara un draft para MOVER una cita a otra fecha/hora (NUNCA la mueve directamente). Usa search_calendar_events primero para obtener el event_id. Para: "muévela a las 12", "cambia la cita al lunes", "pásala a mañana a las 16", "reprograma la de Miguel".',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string', description: 'UUID real del evento obtenido de search_calendar_events. OBLIGATORIO.' },
+        client_name: { type: 'string', description: 'Nombre visible del cliente' },
+        old_date: { type: 'string', description: 'Fecha actual del evento YYYY-MM-DD' },
+        old_time: { type: 'string', description: 'Hora actual del evento HH:MM' },
+        new_date: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
+        new_time: { type: 'string', description: 'Nueva hora HH:MM' },
+        duration: { type: 'number', description: 'Duración en minutos (mantener la existente si no se especifica)' },
+        title: { type: 'string', description: 'Título del evento' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'prepare_cancel_booking',
+    description: 'Prepara un draft de CANCELACIÓN de cita (NUNCA cancela directamente — solo prepara la card de confirmación). USA search_calendar_events primero para obtener el event_id real. Para: "cancela la cita", "elimina la reunión", "bórrala", "cancélamela".',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string', description: 'UUID real del evento obtenido de search_calendar_events. OBLIGATORIO para poder confirmar la cancelación.' },
+        client_name: { type: 'string', description: 'Nombre visible del cliente' },
+        date: { type: 'string', description: 'Fecha del evento YYYY-MM-DD' },
+        time: { type: 'string', description: 'Hora del evento HH:MM' },
+        title: { type: 'string', description: 'Título del evento' },
+        reason: { type: 'string', description: 'Motivo de cancelación si el usuario lo menciona' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'prepare_cancel_multiple_bookings',
+    description: 'Prepara cancelación de MÚLTIPLES citas a la vez sin confirmar ninguna todavía. USAR EXACTAMENTE cuando el usuario dice "todas", "todas ellas", "las N citas", "cancela todas", "borra todas", "quiero que canceles todas" después de ver una lista de citas. NO preguntar cuál — preparar TODAS las del contexto. Obtén los event_ids de CITAS EN CONTEXTO o de search_calendar_events.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_ids: { type: 'array', items: { type: 'string' }, description: 'Array de UUIDs de todos los eventos a cancelar, obtenidos de CITAS EN CONTEXTO o de search_calendar_events.' },
+        reason: { type: 'string', description: 'Motivo de cancelación si el usuario lo menciona.' },
+      },
+      required: ['event_ids'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'prepare_cleanup_duplicates',
+    description: 'Prepara limpieza de duplicados: conserva una cita y cancela las demás. USAR cuando el usuario dice "deja solo una", "cancela las duplicadas", "las repetidas", "quédate con una", "borra las copias". Conserva el primero/más antiguo salvo que el usuario pida uno específico.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_ids: { type: 'array', items: { type: 'string' }, description: 'Todos los IDs duplicados incluyendo el que se conserva. Obtenidos de CITAS EN CONTEXTO.' },
+        keep_event_id: { type: 'string', description: 'ID del evento a conservar. Opcional: si no se especifica, conservar el primero de la lista (más antiguo).' },
+      },
+      required: ['event_ids'],
+    },
+  },
 ]
 
 // --- System prompt base ---
 
-const SYSTEM_PROMPT_BASE = `Eres NowLabs AI, el asistente comercial interno de NowCRM. Eres como un colega senior de ventas que conoce el negocio al detalle: directo, claro, en español natural de España. Sin rodeos, sin relleno.
+const SYSTEM_PROMPT_BASE = `Eres NowLabs AI, el asistente comercial interno de NowCRM. No soy un chatbot — soy más como un empleado senior de operaciones que vive dentro del CRM y conoce el negocio al detalle. Hablo en español natural de España, directo y sin relleno. Cuando veo datos, saco conclusiones útiles: si un lead tiene score 90, lo digo y recomiendo actuar; si hay una factura vencida, la trato como urgente.
 
-CRITERIO COMERCIAL:
-Piensa como un comercial experimentado. Cuando veas datos, saca conclusiones útiles. Si un lead tiene score 90, dilo y recomienda actuar. Si hay una factura vencida, es urgente. Aporta criterio real, no solo listas de datos.
+ANTES DE RESPONDER, EVALÚO:
+1. ¿Qué quiere realmente el usuario? (no solo lo que dice literalmente)
+2. ¿Tengo los datos para responder directamente, o necesito una herramienta?
+3. ¿Hay alguna acción implícita que debo preparar (cita, tarea, cancelación)?
+4. ¿El contexto activo (cliente, citas, lista) es relevante aquí?
 
-REGLAS DE TOOL — SIGUE ESTAS EXACTAS:
+CÓMO USO LAS HERRAMIENTAS:
 
 1. "todos los clientes" / "dime los clientes" → list_clients({}) sin filtros, sin preguntar
 2. "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads()
@@ -431,21 +567,62 @@ REGLAS DE TOOL — SIGUE ESTAS EXACTAS:
 9. "tareas pendientes" → pending_tasks()
 10. "mensajes" / "WhatsApp" / "conversaciones" → recent_messages(channel=...)
 11. "qué debería hacer hoy" / "plan del día" / "prioridades" → recommended_actions()
-12. "prepara una cita con X" → prepare_booking(client_name, date, time, service)
+12. "prepara una cita con X" → check_calendar_conflicts primero, luego prepare_booking(client_name, date, time, service)
 13. "prepara una tarea para X" → prepare_task(client_name, task_title, due_date)
 14. "prepara una factura para X de N€" → prepare_invoice(client_name, amount, concept, due_date)
 15. "busca a X" / "buscar" → search_clients(query=X)
 16. "automatizaciones" / "cómo automatizar" → automation_recommendations()
 17. "resumen del CRM" / "cómo está el negocio" → crm_overview()
 
-REGLA CRÍTICA: Si una tool puede responder directamente, LLÁMALA. No pidas aclaración para consultas generales.
-Para prepare_booking/task/invoice: extrae TODOS los datos posibles del mensaje. Fecha "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, indícalo en la respuesta — no bloquearte.
+REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
+Para prepare_booking/task/invoice: extraigo TODOS los datos posibles del mensaje. "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, lo indico en la respuesta — no me bloqueo.
 Para select_client_by_ordinal: índice 0-based (primero=0, quinto=4, último=N-1).
 
-DETECCIÓN DE ACCIONES — identifica siempre:
+FLUJO OBLIGATORIO PARA CREAR CITA:
+Paso 1: check_calendar_conflicts(date, time, duration, client_name) — SIEMPRE antes de prepare_booking cuando tengas fecha y hora.
+Paso 2a: si hasConflict=false → prepare_booking normalmente.
+Paso 2b: si hay conflicto exacto (mismo cliente, misma hora) → NO llamar prepare_booking. Decir "Ya existe esa cita. ¿Qué quieres hacer? 1. Mantenerla 2. Moverla 3. Cancelarla 4. Crear otra igualmente."
+Paso 2c: si hay conflicto de solapamiento (diferente cliente u hora cercana) → avisar con ⚠️ y ofrecer las mismas opciones.
+Paso 2d: si el usuario dice "créala igualmente" / "sí, otra cita" / "quiero duplicarla" → llamar prepare_booking directamente, sin otro check.
+Paso 3: Si el usuario quiere MOVER → search_calendar_events + prepare_reschedule_booking.
+
+DETECCIÓN DE ACCIONES — identifico siempre la intención real:
 - BOOKING: "prepara una cita", "crea una cita", "agenda una reunión", "pon una cita", "cita con X el/mañana/el lunes"
 - TASK: "crea una tarea", "recuérdame", "seguimiento de X", "llama a X", "contacta a X"
 - INVOICE: "prepara una factura", "factura a X de N€", "cobrar a X", "haz una factura"
+- CANCEL: "cancela la cita", "elimina la reunión", "bórrala", "cancélamela", "me he equivocado", "ya no hace falta", "no puedo ir", "quita la cita"
+- CANCEL_ALL: "cancela todas", "todas", "todas ellas", "las N citas", "borra todas", "quiero que canceles todas" (cuando hay una lista activa de citas en contexto)
+
+REGLAS DE CANCELACIÓN — CRÍTICAS:
+18. Si el usuario dice "cancélamela", "bórrala", "elimínala", "me he equivocado", "ya no hace falta" → intención = CANCEL
+    → Paso 1: search_calendar_events() con los datos del contexto (lastConfirmedEventId, lastConfirmedClientName, lastConfirmedDate si existen)
+    → Paso 2: prepare_cancel_booking() con el event_id real encontrado
+    → NUNCA llamar prepare_booking en respuesta a una intención de cancelar
+19. Si hay LAST_CONFIRMED_EVENT en el contexto y el usuario dice "cancélamela" → ese es el evento a cancelar, úsalo directamente en prepare_cancel_booking
+20. Si hay varias citas que coinciden Y el usuario NO dijo "todas" ni "todas ellas" ni "las N" → listarlas y preguntar cuál cancelar
+21. Si no hay ninguna coincidencia → "No encuentro esa cita. Dime cliente y fecha aproximada."
+22. NUNCA confundir cancelar con crear. "Cancélamela" ≠ "Prepara una cita"
+
+REGLAS DE REPROGRAMACIÓN:
+23. Si el usuario dice "muévela a las 12" / "cambia la cita al lunes" / "pásala a mañana" → intención = RESCHEDULE
+    → Paso 1: si no hay LAST_CONFIRMED_EVENT ni CITAS EN CONTEXTO → search_calendar_events()
+    → Paso 2: prepare_reschedule_booking(event_id, old_date, old_time, new_date, new_time)
+    → NUNCA mover directamente sin confirmación
+24. Si hay varias citas que podrían moverse → pedir cuál, igual que en cancelación
+
+DETECCIÓN DE DUPLICADOS AL LISTAR:
+25. Si upcoming_events devuelve citas con el mismo cliente, fecha y hora repetidas → avisar:
+    "Veo N citas repetidas con [cliente] el [fecha] a las [hora]. Puedo ayudarte a cancelar las duplicadas y dejar solo una."
+26. Ofrecer limpieza solo si el usuario lo pide. Nunca cancelar automáticamente.
+
+CANCELACIÓN MÚLTIPLE — CRÍTICO:
+27. Si el usuario dice "todas" / "todas ellas" / "las N" / "cancela todas" / "borra todas" / "quiero que canceles todas" Y hay CITAS EN CONTEXTO (listadas en CITAS EN CONTEXTO) →
+    NO preguntar cuál. Llamar prepare_cancel_multiple_bookings(event_ids=[TODOS los IDs de CITAS EN CONTEXTO]) inmediatamente.
+    Los IDs están en el formato [ID:uuid] dentro de CITAS EN CONTEXTO.
+28. Si el usuario dice "deja solo una" / "cancela las duplicadas" / "las repetidas" / "quédate con una" / "borra las copias" Y hay CITAS EN CONTEXTO →
+    Llamar prepare_cleanup_duplicates(event_ids=[todos los IDs del contexto]) — el sistema conserva el primero automáticamente.
+29. Si dice "cancela todas menos una" pero no está claro cuál conservar → preguntar: "¿Cuál quieres mantener? La primera, la más reciente, la de las X..."
+30. Si el usuario dice "la primera" / "la de las 10" / "la 1" Y hay CITAS EN CONTEXTO → preparar cancel_booking solo para esa cita concreta (no múltiple).
 
 BÚSQUEDA FLEXIBLE DE CLIENTES:
 Si el usuario dice "asier lopez" y hay un "Asier Comba Lopez", usa ese resultado. Si hay varios candidatos, muestra la lista y pregunta cuál.
@@ -463,7 +640,7 @@ PROHIBIDO:
 
 OBLIGATORIO:
 - Texto limpio, plano, pensado para un chat
-- Emojis solo cuando aporten valor real: 📊 resumen, 🔥 urgente/caliente, 📅 citas, 💸 facturas/cobros, ✅ tarea lista, ⚠️ aviso urgente, 📌 ficha cliente
+- Emojis solo cuando aporten valor real: 📊 resumen, 🔥 urgente/caliente, 📅 citas, 💸 facturas/cobros, ✅ tarea lista, ⚠️ aviso urgente, 📌 ficha cliente, 🧹 limpieza/duplicados, ✍️ propuesta/draft pendiente
 - Si falta un dato: "No consta"
 - Si no hay datos: 1 frase corta y directa
 - Máximo 4-6 frases por respuesta. Conciso.`
@@ -490,6 +667,22 @@ function buildSystemPrompt(context?: AgentContext): string {
     )
   }
 
+  if (context?.lastCalendarResults?.length) {
+    const trimmed = context.lastCalendarResults.slice(0, 10).map((e, i) => {
+      const h = e.start_hour !== undefined ? `${String(e.start_hour).padStart(2, '0')}:${String(e.start_minute ?? 0).padStart(2, '0')}` : '??:??'
+      const client = e.client_name ? ` · ${String(e.client_name)}` : ''
+      const dur = e.duration ? ` · ${String(e.duration)} min` : ''
+      return `${i + 1}. [ID:${String(e.id)}] "${String(e.title ?? 'Sin título')}" · ${String(e.date ?? '?')} ${h}${client}${dur}`
+    }).join('\n')
+    const allIds = context.lastCalendarResults.slice(0, 10).map((e) => String(e.id)).join(', ')
+    lines.push(
+      `CITAS EN CONTEXTO (${context.lastCalendarResults.length}) — usa prepare_cancel_booking o prepare_reschedule_booking con el event_id correcto cuando el usuario diga "la primera", "la de las 10", "la 2", "esa".\n` +
+      `Si el usuario dice "todas" o "todas ellas" → usa prepare_cancel_multiple_bookings con event_ids=[${allIds}].\n` +
+      `Si el usuario dice "deja solo una" o "las repetidas" → usa prepare_cleanup_duplicates con event_ids=[${allIds}].\n` +
+      trimmed
+    )
+  }
+
   if (context?.lastResults?.length) {
     const trimmed = context.lastResults.slice(0, 20).map((r, i) => {
       const name = String(r.name ?? r.title ?? `Elemento ${i + 1}`)
@@ -501,6 +694,33 @@ function buildSystemPrompt(context?: AgentContext): string {
     lines.push(
       `LISTA ACTIVA (${context.lastResults.length} elemento(s)) — usa select_client_by_ordinal cuando el usuario diga "el primero", "el quinto", "el número 3", "el último":\n${trimmed}`
     )
+  }
+
+  if (context?.lastConfirmedEventId) {
+    const confirmClient = context.lastConfirmedClientName ? ` con ${context.lastConfirmedClientName}` : ''
+    const confirmDate = context.lastConfirmedDate ? ` el ${context.lastConfirmedDate}` : ''
+    lines.push(
+      `LAST_CONFIRMED_EVENT: Última cita CREADA y confirmada en esta conversación → ID: ${context.lastConfirmedEventId}${confirmClient}${confirmDate}.\n` +
+      `Si el usuario dice "cancélamela", "me he equivocado", "bórrala", "la que acabo de crear" → se refiere a ESTA cita.\n` +
+      `Llama search_calendar_events con ese ID o client_name/date, luego prepare_cancel_booking con event_id="${context.lastConfirmedEventId}".`
+    )
+  }
+
+  if (context?.lastPreparedAction) {
+    const lpa = context.lastPreparedAction
+    if (lpa.type === 'booking' && !context.lastConfirmedEventId) {
+      lines.push(
+        `LAST_PREPARED_ACTION: Había un draft de cita (tipo ${lpa.type}) pendiente de confirmar — ` +
+        `cliente: ${lpa.clientName ?? '?'}, fecha: ${lpa.date ?? '?'}, hora: ${lpa.time ?? '?'}. ` +
+        `Si el usuario dice "cancélamela" en este contexto, busca esa cita y prepara cancel_booking.`
+      )
+    } else if (lpa.type === 'cancel_booking') {
+      lines.push(
+        `LAST_PREPARED_ACTION: Ya hay una cancelación pendiente de confirmar para ${lpa.clientName ?? '?'} el ${lpa.date ?? '?'}. ` +
+        `Si el usuario insiste en cancelar → usa prepare_cancel_booking con event_id="${lpa.eventId ?? ''}". ` +
+        `Si el usuario dice "sí" / "confirma" → usa el event_id del contexto.`
+      )
+    }
   }
 
   if (!context?.lastReferencedClientName && !context?.lastResults?.length) {
@@ -699,6 +919,313 @@ async function runTool(
         dueDate: args.due_date as string | undefined,
       })
       return { text: res.text, data: res.data, clientId: res.preparedAction?.clientId, clientName: res.preparedAction?.clientName, preparedAction: res.preparedAction as PreparedActionDraft | undefined }
+    }
+
+    case 'search_calendar_events': {
+      const clientNameArg = args.client_name as string | undefined
+      const dateArg = args.date as string | undefined
+      const limitArg = typeof args.limit === 'number' ? Math.min(args.limit, 10) : 5
+
+      const now = new Date()
+      const toMadrid = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
+      const todayISO = toMadrid(now)
+      const tomorrowISO = toMadrid(new Date(now.getTime() + 86_400_000))
+      const weekLaterISO = toMadrid(new Date(now.getTime() + 7 * 86_400_000))
+
+      let dateFrom = todayISO
+      let dateTo = weekLaterISO
+
+      if (dateArg) {
+        if (dateArg === 'today') { dateFrom = todayISO; dateTo = todayISO }
+        else if (dateArg === 'tomorrow') { dateFrom = tomorrowISO; dateTo = tomorrowISO }
+        else if (dateArg === 'this_week') { dateFrom = todayISO; dateTo = weekLaterISO }
+        else { dateFrom = dateArg; dateTo = dateArg }
+      }
+
+      const cols = 'id, title, date, start_hour, start_minute, duration, client_id, client_name, status, description, notes'
+
+      const buildQuery = (withDateFilter: boolean, withClientFilter: boolean) => {
+        let q = supabase
+          .from('calendar_events').select(cols)
+          .eq('workspace_id', workspaceId)
+          .neq('status', 'cancelled')
+          .order('date', { ascending: true })
+          .order('start_hour', { ascending: true })
+          .limit(limitArg)
+        if (withDateFilter) q = q.gte('date', dateFrom).lte('date', dateTo)
+        if (withClientFilter && clientNameArg) q = q.ilike('client_name', `%${clientNameArg}%`)
+        return q
+      }
+
+      let { data: rows } = await buildQuery(true, Boolean(clientNameArg))
+      let usedFallback = false
+
+      if ((!rows || !rows.length) && clientNameArg && dateArg) {
+        const fb = await buildQuery(false, true)
+        rows = fb.data
+        usedFallback = true
+      }
+
+      const results = (rows ?? []) as Row[]
+      if (!results.length) {
+        return { text: `No encontré citas${clientNameArg ? ` de ${clientNameArg}` : ''}${dateArg && !usedFallback ? ` para esa fecha` : ''}. Prueba con otro nombre o fecha.`, data: [] }
+      }
+
+      const list = results.map((e, i) => {
+        const h = e.start_hour !== undefined ? String(e.start_hour).padStart(2, '0') : '??'
+        const m = String(e.start_minute ?? 0).padStart(2, '0')
+        const dur = e.duration ? ` · ${String(e.duration)} min` : ''
+        const rawDate = String(e.date ?? '')
+        const dateHuman = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+          ? `${rawDate.slice(8, 10)}/${rawDate.slice(5, 7)}/${rawDate.slice(0, 4)}`
+          : rawDate
+        const client = e.client_name ? `${String(e.client_name)} — ` : ''
+        const service = (e.description || e.notes) ? ` — ${String(e.description ?? e.notes ?? '').slice(0, 40)}` : ''
+        return `${i + 1}. [ID:${String(e.id)}] ${client}${dateHuman} — ${h}:${m}${dur}${service}`
+      }).join('\n')
+
+      const note = usedFallback ? ' (sin filtro de fecha)' : ''
+      return { text: `${results.length} cita(s) encontrada(s)${note}:\n${list}`, data: results, referencedList: results }
+    }
+
+    case 'check_calendar_conflicts': {
+      const date = args.date as string | undefined
+      const time = args.time as string | undefined
+      const duration = typeof args.duration === 'number' ? args.duration : 60
+      const clientName = args.client_name as string | undefined
+
+      if (!date) return { text: 'Necesito al menos la fecha para verificar conflictos.', data: { hasConflict: false, conflicts: [] } }
+
+      const [newH, newM] = time ? time.split(':').map(Number) : [0, 0]
+      const newStartMin = (newH ?? 0) * 60 + (newM ?? 0)
+      const newEndMin = newStartMin + duration
+
+      const cols = 'id, title, date, start_hour, start_minute, duration, client_id, client_name, status'
+      const { data: rows } = await supabase
+        .from('calendar_events').select(cols)
+        .eq('workspace_id', workspaceId).eq('date', date).neq('status', 'cancelled')
+
+      const allRows = (rows ?? []) as Row[]
+      const conflicts = allRows.filter((e) => {
+        const existStart = (Number(e.start_hour) || 0) * 60 + (Number(e.start_minute) || 0)
+        const existEnd = existStart + (Number(e.duration) || 60)
+        return newStartMin < existEnd && newEndMin > existStart
+      })
+
+      if (!conflicts.length) {
+        return { text: `Sin conflictos para el ${date}${time ? ` a las ${time}` : ''}. Puedes crear la cita.`, data: { hasConflict: false, conflicts: [] } }
+      }
+
+      // Check exact duplicate (same client + same time)
+      const exactDup = clientName ? conflicts.find((e) => {
+        const sameName = String(e.client_name ?? '').toLowerCase().includes(clientName.toLowerCase())
+        const sameHour = Number(e.start_hour) === (newH ?? 0) && Number(e.start_minute) === (newM ?? 0)
+        return sameName && sameHour
+      }) : null
+
+      const list = conflicts.map((e, i) => {
+        const h = String(e.start_hour ?? 0).padStart(2, '0')
+        const m = String(e.start_minute ?? 0).padStart(2, '0')
+        const client = e.client_name ? ` · ${String(e.client_name)}` : ''
+        const dur = e.duration ? ` · ${String(e.duration)} min` : ''
+        return `${i + 1}. [ID:${String(e.id)}] "${String(e.title ?? 'Sin título')}" · ${h}:${m}${client}${dur}`
+      }).join('\n')
+
+      if (exactDup) {
+        return {
+          text: `⚠️ Duplicado exacto: ya existe "${String(exactDup.title)}" con ${String(exactDup.client_name)} el ${date} a las ${time}.\nNo crearé otro igual. ¿Qué quieres hacer?\n1. Mantener la cita actual\n2. Moverla a otra hora\n3. Cancelarla\n4. Crear otra igualmente`,
+          data: { hasConflict: true, exactDuplicate: true, conflicts },
+          referencedList: conflicts,
+        }
+      }
+
+      return {
+        text: `⚠️ ${conflicts.length} cita(s) ya ocupan ese horario el ${date}${time ? ` a las ${time}` : ''}:\n${list}\n¿Qué quieres hacer?\n1. Mantener las citas actuales\n2. Mover la nueva a otra hora\n3. Cancelar una existente\n4. Crear igualmente`,
+        data: { hasConflict: true, exactDuplicate: false, conflicts },
+        referencedList: conflicts,
+      }
+    }
+
+    case 'prepare_reschedule_booking': {
+      const eventId = args.event_id as string | undefined
+      const clientName = args.client_name as string | undefined
+      const oldDate = args.old_date as string | undefined
+      const oldTime = args.old_time as string | undefined
+      const newDate = args.new_date as string | undefined
+      const newTime = args.new_time as string | undefined
+      const duration = typeof args.duration === 'number' ? args.duration : 60
+      const title = args.title as string | undefined
+
+      const missingFields: string[] = []
+      if (!eventId) missingFields.push('id del evento')
+      if (!newDate) missingFields.push('nueva fecha')
+      if (!newTime) missingFields.push('nueva hora')
+
+      const action: PreparedActionDraft = {
+        type: 'reschedule_booking',
+        eventId,
+        clientName,
+        date: newDate,
+        time: newTime,
+        duration,
+        title: title ?? (clientName ? `Cita con ${clientName}` : 'Cita'),
+        oldDate,
+        oldTime,
+        missingFields,
+      }
+
+      const fromLabel = oldDate && oldTime ? ` (antes: ${oldDate} ${oldTime})` : ''
+      const toLabel = newDate && newTime ? `${newDate} a las ${newTime}` : 'nueva fecha/hora pendiente'
+      const text = eventId && newDate && newTime
+        ? `📅 Cambio preparado: "${action.title}" se mueve al ${toLabel}${fromLabel}. Confirma para actualizar.`
+        : `Falta información para mover la cita. ${missingFields.join(', ')}.`
+
+      return { text, data: action, preparedAction: action }
+    }
+
+    case 'prepare_cancel_booking': {
+      const eventId = args.event_id as string | undefined
+      const clientName = args.client_name as string | undefined
+      const date = args.date as string | undefined
+      const time = args.time as string | undefined
+      const title = args.title as string | undefined
+      const reason = args.reason as string | undefined
+
+      const missingFields: string[] = []
+      if (!eventId) missingFields.push('id del evento (usa search_calendar_events primero)')
+
+      const action: PreparedActionDraft = {
+        type: 'cancel_booking',
+        eventId,
+        clientName: clientName ?? undefined,
+        date,
+        time,
+        title: title ?? (clientName ? `Cita con ${clientName}` : 'Cita'),
+        reason,
+        missingFields,
+      }
+
+      const label = `"${action.title}"${date ? ` el ${date}` : ''}${time ? ` a las ${time}` : ''}`
+      const text = eventId
+        ? `📅 Cancelación preparada: ${label}. Confirma para cancelarla definitivamente.`
+        : `No tengo el ID del evento. Búscalo primero con search_calendar_events y vuelve a intentarlo.`
+
+      return { text, data: action, preparedAction: action }
+    }
+
+    case 'prepare_cancel_multiple_bookings': {
+      const rawIds = Array.isArray(args.event_ids) ? args.event_ids : []
+      const eventIds = [...new Set((rawIds as unknown[]).filter((id): id is string => typeof id === 'string' && isValidUuid(id.trim())).map((id) => id.trim()))]
+      const reason = args.reason as string | undefined
+
+      if (!eventIds.length) {
+        return { text: 'Necesito IDs de evento válidos. Usa search_calendar_events primero para obtenerlos.', data: null }
+      }
+
+      const { data: rows } = await supabase
+        .from('calendar_events')
+        .select('id, title, date, start_hour, start_minute, duration, client_name')
+        .eq('workspace_id', workspaceId)
+        .in('id', eventIds)
+
+      const eventRows = (rows ?? []) as Row[]
+
+      const buildEventItem = (id: string): CancelEventItem => {
+        const row = eventRows.find((r) => String(r.id) === id)
+        const h = row?.start_hour !== undefined ? String(row.start_hour).padStart(2, '0') : undefined
+        const m = row?.start_minute !== undefined ? String(row.start_minute ?? 0).padStart(2, '0') : undefined
+        const rawDate = row?.date ? String(row.date) : undefined
+        const dateHuman = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+          ? `${rawDate.slice(8, 10)}/${rawDate.slice(5, 7)}/${rawDate.slice(0, 4)}`
+          : rawDate
+        return {
+          eventId: id,
+          clientName: row?.client_name ? String(row.client_name) : undefined,
+          date: dateHuman,
+          time: h && m ? `${h}:${m}` : undefined,
+          title: row?.title ? String(row.title) : undefined,
+        }
+      }
+
+      const events = eventIds.map(buildEventItem)
+      const action: PreparedActionDraft = { type: 'cancel_multiple_bookings', events, reason, missingFields: [] }
+
+      const listText = events.map((e, i) => {
+        const parts = [e.clientName, e.date, e.time].filter(Boolean).join(' · ')
+        return `${i + 1}. ${parts || `Cita ${i + 1}`}`
+      }).join('\n')
+
+      return {
+        text: `📅 Cancelación múltiple preparada (${events.length} cita(s)):\n${listText}\nConfirma para cancelarlas todas definitivamente.`,
+        data: action,
+        preparedAction: action,
+        referencedList: eventRows,
+      }
+    }
+
+    case 'prepare_cleanup_duplicates': {
+      const rawIds = Array.isArray(args.event_ids) ? args.event_ids : []
+      const eventIds = [...new Set((rawIds as unknown[]).filter((id): id is string => typeof id === 'string' && isValidUuid(id.trim())).map((id) => id.trim()))]
+      const keepEventId = typeof args.keep_event_id === 'string' && isValidUuid(args.keep_event_id.trim())
+        ? args.keep_event_id.trim()
+        : undefined
+
+      if (eventIds.length < 2) {
+        return { text: 'Necesito al menos 2 eventos válidos para limpiar duplicados. Usa search_calendar_events para obtenerlos.', data: null }
+      }
+
+      const { data: rows } = await supabase
+        .from('calendar_events')
+        .select('id, title, date, start_hour, start_minute, duration, client_name, created_at')
+        .eq('workspace_id', workspaceId)
+        .in('id', eventIds)
+        .order('created_at', { ascending: true })
+
+      const eventRows = (rows ?? []) as Row[]
+      const keepId = keepEventId ?? String(eventRows[0]?.id ?? eventIds[0])
+      const cancelIds = eventIds.filter((id) => id !== keepId)
+
+      const buildItem = (id: string): CancelEventItem => {
+        const row = eventRows.find((r) => String(r.id) === id)
+        const h = row?.start_hour !== undefined ? String(row.start_hour).padStart(2, '0') : undefined
+        const m = row?.start_minute !== undefined ? String(row.start_minute ?? 0).padStart(2, '0') : undefined
+        const rawDate = row?.date ? String(row.date) : undefined
+        const dateHuman = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+          ? `${rawDate.slice(8, 10)}/${rawDate.slice(5, 7)}/${rawDate.slice(0, 4)}`
+          : rawDate
+        return {
+          eventId: id,
+          clientName: row?.client_name ? String(row.client_name) : undefined,
+          date: dateHuman,
+          time: h && m ? `${h}:${m}` : undefined,
+          title: row?.title ? String(row.title) : undefined,
+        }
+      }
+
+      const events = eventIds.map(buildItem)
+      const keepRow = eventRows.find((r) => String(r.id) === keepId)
+      const keepDisplay = [
+        keepRow?.client_name ? String(keepRow.client_name) : null,
+        keepRow?.date ? String(keepRow.date) : null,
+        keepRow?.start_hour !== undefined
+          ? `${String(keepRow.start_hour).padStart(2, '0')}:${String(keepRow.start_minute ?? 0).padStart(2, '0')}`
+          : null,
+      ].filter(Boolean).join(' · ')
+
+      const action: PreparedActionDraft = {
+        type: 'cleanup_duplicate_bookings',
+        keepEventId: keepId,
+        cancelEventIds: cancelIds,
+        events,
+        missingFields: [],
+      }
+
+      return {
+        text: `📅 Limpieza preparada: conservo "${keepDisplay || 'la primera cita'}" y cancelo ${cancelIds.length} duplicada(s). Confirma para continuar.`,
+        data: action,
+        preparedAction: action,
+        referencedList: eventRows,
+      }
     }
 
     // Legacy name — agent may use this if it ignores the new split tools
@@ -913,6 +1440,7 @@ Genera esta respuesta:
 - Lista numerada:
   "1. [título] — [fecha] a las [hora si consta] — [cliente si consta]"
 - Si no hay citas: "📅 No tienes citas próximas en el calendario."
+- DETECCIÓN DE DUPLICADOS: si hay varias citas con el mismo cliente, misma fecha y misma hora → añade al final: "🧹 Veo [N] citas idénticas con [cliente] el [fecha] a las [hora]. Puedo dejarte solo una si quieres."
 - Sin negritas, sin asteriscos.`
 
     case 'pending_tasks':
@@ -956,6 +1484,59 @@ Genera una confirmación limpia del draft:
 - Si es tarea: "✅ Te preparo una tarea de seguimiento para [cliente]: [título]. La dejaría como prioridad comercial. Confirma cuando quieras."
 - Sin negritas, sin asteriscos.`
 
+    case 'search_calendar_events':
+      return `${base}Datos:
+${rawText}
+
+Si se encontró 1 cita: "[cliente] — [fecha DD/MM/YYYY] a las [hora] — [duración si consta]."
+Si hay varias citas DISTINTAS: lista numerada, una por línea: "N. [cliente] — [fecha] — [hora] — [motivo si consta]"
+Si hay varias citas IDÉNTICAS (mismo cliente, misma fecha, misma hora): "Encontré [N] citas idénticas con [cliente] el [fecha] a las [hora]. ¿Quieres cancelarlas todas, dejar solo una, o elegir una concreta?"
+Si no se encontraron: "No encuentro esa cita. Dime el cliente y la fecha aproximada."
+Sin IDs, sin corchetes técnicos, sin comillas técnicas, sin negritas, sin asteriscos.`
+
+    case 'check_calendar_conflicts':
+      return `${base}Datos:
+${rawText}
+
+Si hasConflict=false: confirma que no hay conflicto en 1 frase, NO menciones que vas a preparar la cita — el sistema lo hará automáticamente en el siguiente paso.
+Si hay duplicado exacto: "Esa cita ya existe con [cliente] el [fecha] a las [hora]. No voy a crear otra igual. ¿Qué quieres hacer? 1. Mantener la cita actual. 2. Moverla a otra hora. 3. Cancelarla. 4. Crear otra igualmente."
+Si hay solapamiento (sin duplicado exacto): "⚠️ Ya tienes [N] cita(s) en ese horario el [fecha]. [lista]. ¿Qué prefieres? 1. Mantenerlas. 2. Mover la nueva. 3. Cancelar una. 4. Crear igualmente."
+Sin negritas, sin asteriscos.`
+
+    case 'prepare_reschedule_booking':
+      return `${base}Datos:
+${rawText}
+
+Confirma el cambio de cita:
+"📅 He preparado el cambio: [título] se mueve al [nueva fecha] a las [nueva hora]. Confirma para actualizar."
+Si faltan datos: indica cuáles faltan.
+Sin negritas, sin asteriscos.`
+
+    case 'prepare_cancel_booking':
+      return `${base}Datos:
+${rawText}
+
+Genera una confirmación limpia de la cancelación:
+"📅 He preparado la cancelación de [título] el [fecha] a las [hora]${rawText.includes('cliente') ? ' con [cliente]' : ''}. Pulsa Confirmar cancelación para eliminarla del calendario, o Mantener cita para no hacer nada."
+Si faltan datos: "Necesito el ID del evento. Búscalo con search_calendar_events."
+Sin negritas, sin asteriscos.`
+
+    case 'prepare_cancel_multiple_bookings':
+      return `${base}Datos:
+${rawText}
+
+Confirma la cancelación múltiple de forma clara y directa:
+"He preparado la cancelación de [N] citas: [lista breve, una por línea]. Pulsa Confirmar cancelación para eliminarlas todas, o Mantener citas si no quieres hacer nada."
+Sin negritas, sin asteriscos, sin IDs técnicos.`
+
+    case 'prepare_cleanup_duplicates':
+      return `${base}Datos:
+${rawText}
+
+Confirma la limpieza de duplicados:
+"Voy a conservar [cliente/fecha/hora de la cita que se mantiene] y cancelar las otras [N] duplicadas. Pulsa Confirmar para limpiarlas."
+Sin negritas, sin asteriscos, sin IDs técnicos.`
+
     default:
       return `${base}Datos del CRM:
 ${rawText}
@@ -987,8 +1568,25 @@ export async function runNowLabsAgent(
   let referencedClientId: string | undefined
   let referencedClientName: string | undefined
   let referencedList: Row[] | undefined
+  let referencedCalendarList: Row[] | undefined
   let dataPreview: unknown
   let preparedAction: PreparedActionDraft | undefined
+
+  const CALENDAR_TOOLS = new Set(['search_calendar_events', 'check_calendar_conflicts', 'prepare_cancel_booking', 'prepare_reschedule_booking', 'prepare_cancel_multiple_bookings', 'prepare_cleanup_duplicates'])
+
+  const applyResult = (result: Awaited<ReturnType<typeof runTool>>, toolName: string) => {
+    if (result.clientId) referencedClientId = result.clientId
+    if (result.clientName) referencedClientName = result.clientName
+    if (result.data !== null && result.data !== undefined) dataPreview = result.data
+    if (result.preparedAction) preparedAction = result.preparedAction
+    if (result.referencedList) {
+      if (CALENDAR_TOOLS.has(toolName)) {
+        referencedCalendarList = result.referencedList
+      } else {
+        referencedList = result.referencedList
+      }
+    }
+  }
 
   try {
     // Pre-router: unambiguous READ queries bypass LLM tool-selection
@@ -997,11 +1595,7 @@ export async function runNowLabsAgent(
       const args = 'args' in route ? (route.args as Args) : {}
       const result = await runTool(route.tool, args, supabase, workspaceId, localLastResults)
       toolCallsLog.push(route.tool)
-      if (result.clientId) referencedClientId = result.clientId
-      if (result.clientName) referencedClientName = result.clientName
-      if (result.referencedList) referencedList = result.referencedList
-      if (result.data !== null && result.data !== undefined) dataPreview = result.data
-      if (result.preparedAction) preparedAction = result.preparedAction
+      applyResult(result, route.tool)
 
       const formatInput: InputItem[] = [
         { role: 'user', content: buildFormatPrompt(route.tool, result.text, result.data, message) },
@@ -1009,7 +1603,7 @@ export async function runNowLabsAgent(
       const formatted = await callOpenAI(apiKey, systemPrompt, formatInput, controller.signal, false)
       const answer = cleanMarkdown(extractText(formatted.output) || result.text)
 
-      return { answer, debugSource: 'openai_agent_v2', toolCalls: toolCallsLog, referencedClientId, referencedClientName, referencedList, dataPreview, preparedAction }
+      return { answer, debugSource: 'openai_agent_v2', toolCalls: toolCallsLog, referencedClientId, referencedClientName, referencedList, referencedCalendarList, dataPreview, preparedAction }
     }
 
     // Full agent loop: actions, contextual queries, complex combinations
@@ -1030,6 +1624,7 @@ export async function runNowLabsAgent(
           referencedClientId,
           referencedClientName,
           referencedList,
+          referencedCalendarList,
           dataPreview,
           preparedAction,
         }
@@ -1043,11 +1638,7 @@ export async function runNowLabsAgent(
         try { args = JSON.parse(call.arguments) } catch { /* empty args */ }
 
         const result = await runTool(call.name, args, supabase, workspaceId, localLastResults)
-        if (result.clientId) referencedClientId = result.clientId
-        if (result.clientName) referencedClientName = result.clientName
-        if (result.referencedList) referencedList = result.referencedList
-        if (result.data !== null && result.data !== undefined) dataPreview = result.data
-        if (result.preparedAction) preparedAction = result.preparedAction
+        applyResult(result, call.name)
 
         input.push({ type: 'function_call_output', call_id: call.call_id, output: result.text })
       }
@@ -1062,6 +1653,7 @@ export async function runNowLabsAgent(
       referencedClientId,
       referencedClientName,
       referencedList,
+      referencedCalendarList,
       dataPreview,
       preparedAction,
     }

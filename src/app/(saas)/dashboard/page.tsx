@@ -65,18 +65,29 @@ const workspaceSignals = [
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { currentUser } = useCurrentUser()
-  const [activity, setActivity] = useState(recentActivity)
+  const { currentUser, isLoading: userLoading } = useCurrentUser()
+  const [activity, setActivity] = useState<CRMActivity[]>([])
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number } | null>(null)
+  const [dashboardLoadError, setDashboardLoadError] = useState('')
 
   useEffect(() => {
     const loadRealStats = async () => {
-      if (window.localStorage.getItem(DEMO_MODE_KEY) === 'true') return
+      if (window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+        setRealStats(null)
+        setActivity(recentActivity)
+        setDashboardLoadError('')
+        return
+      }
       try {
         const context = await getWorkspaceContext()
         const workspaceId = context?.workspace?.id || context?.profile?.workspace_id
-        if (!workspaceId) return
+        if (!workspaceId) {
+          setRealStats(null)
+          setActivity([])
+          setDashboardLoadError('No se ha encontrado workspace real. No se muestran datos demo en modo real.')
+          return
+        }
         const [clients, invoices, events, conversations, activities] = await Promise.all([
           getClients(workspaceId),
           getInvoices(workspaceId).catch(() => []),
@@ -94,9 +105,12 @@ export default function DashboardPage() {
           events: events.filter((event) => event.date >= new Date().toISOString().slice(0, 10)).length,
           conversations: conversations.length,
         })
-        if (activities.length) setActivity(activities)
+        setActivity(activities)
+        setDashboardLoadError('')
       } catch {
         setRealStats(null)
+        setActivity([])
+        setDashboardLoadError('No se pudieron cargar datos reales del dashboard. Revisa RLS, workspace_id o columnas esperadas.')
       }
     }
 
@@ -104,7 +118,15 @@ export default function DashboardPage() {
   }, [])
 
   const visibleMetrics = useMemo(() => {
-    if (!realStats) return dashboardMetrics
+    if (!realStats) {
+      if (!userLoading && currentUser.isDemo) return dashboardMetrics
+      return dashboardMetrics.map((metric) => ({
+        ...metric,
+        value: metric.label === 'Ingresos del mes' ? 'EUR 0' : '0',
+        change: 0,
+        changeLabel: 'sin datos reales',
+      }))
+    }
     return dashboardMetrics.map((metric) => {
       if (metric.label === 'Clientes activos') return { ...metric, value: String(realStats.total), changeLabel: 'clientes reales' }
       if (metric.label === 'Ingresos del mes') return { ...metric, value: `€${Math.round(realStats.revenue).toLocaleString('es-ES')}`, changeLabel: 'facturación real' }
@@ -112,7 +134,21 @@ export default function DashboardPage() {
       if (metric.label === 'Emails enviados') return { ...metric, value: String(realStats.events), label: 'Eventos próximos', changeLabel: 'calendario real' }
       return metric
     })
-  }, [realStats])
+  }, [currentUser.isDemo, realStats, userLoading])
+
+  const visibleSignals = useMemo(() => {
+    if (!userLoading && currentUser.isDemo) return workspaceSignals
+    if (!realStats) return []
+    return [
+      { label: 'Clientes reales', value: String(realStats.total), detail: `${realStats.leads} leads`, tone: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
+      { label: 'Eventos próximos', value: String(realStats.events), detail: 'calendario local', tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+      { label: 'Cobros pendientes', value: `EUR ${Math.round(realStats.pending).toLocaleString('es-ES')}`, detail: 'facturación real', tone: 'text-amber-600 bg-amber-50 border-amber-100' },
+    ]
+  }, [currentUser.isDemo, realStats, userLoading])
+
+  const visibleInsights = !userLoading && currentUser.isDemo ? aiInsights : []
+  const visibleWeeklyLeads = !userLoading && currentUser.isDemo ? weeklyLeads : []
+  const visibleAiActions = !userLoading && currentUser.isDemo ? aiActions : []
 
   const handleInsightAction = async (action: string, insightId: string) => {
     try {
@@ -162,8 +198,8 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-bold text-gray-950">Buenos días, {currentUser.name || currentUser.workspaceName}</h2>
-            <Badge variant={currentUser.isDemo ? 'indigo' : 'success'} dot>{realStats ? 'Datos reales conectados' : currentUser.trialLabel}</Badge>
+            <h2 className="text-2xl font-bold text-gray-950">Buenos días, {userLoading ? '...' : currentUser.name || currentUser.workspaceName}</h2>
+            <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : realStats ? 'success' : 'warning'} dot>{userLoading ? 'Cargando' : realStats ? 'Datos reales conectados' : currentUser.isDemo ? currentUser.trialLabel : 'Sin datos reales'}</Badge>
           </div>
           {realStats && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -178,7 +214,7 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
-          <p className="text-sm text-gray-500">Tu workspace {currentUser.workspaceName} está listo para probar NowCRM.</p>
+          <p className="text-sm text-gray-500">{userLoading ? 'Cargando workspace...' : `Tu workspace ${currentUser.workspaceName} está listo para probar NowCRM.`}</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>
           <Plus className="h-3.5 w-3.5" />
@@ -186,8 +222,15 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      {dashboardLoadError && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          {dashboardLoadError}
+        </div>
+      )}
+
       <div className="grid gap-3 lg:grid-cols-3">
-        {workspaceSignals.map((signal) => (
+        {visibleSignals.map((signal) => (
           <div key={signal.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md', signal.tone)}>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -209,9 +252,9 @@ export default function DashboardPage() {
 
       {/* Insights + Activity */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <SectionCard title="Insights de IA" description="Recomendaciones generadas automáticamente" action={<Badge variant="indigo" dot>{aiInsights.length} alertas</Badge>}>
+        <SectionCard title="Insights de IA" description="Recomendaciones generadas automáticamente" action={<Badge variant={visibleInsights.length ? 'indigo' : 'default'} dot>{visibleInsights.length} alertas</Badge>}>
           <ul className="space-y-3">
-            {aiInsights.map((insight) => {
+            {visibleInsights.map((insight) => {
               const cfg = insightConfig[insight.type]
               return (
                 <li key={insight.id} className="rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white p-4 shadow-sm shadow-gray-950/[0.02] transition-all hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.035]">
@@ -235,6 +278,11 @@ export default function DashboardPage() {
                 </li>
               )
             })}
+            {visibleInsights.length === 0 && (
+              <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+                Sin recomendaciones reales todavía.
+              </li>
+            )}
           </ul>
         </SectionCard>
 
@@ -251,6 +299,11 @@ export default function DashboardPage() {
                 <span className="shrink-0 text-[10px] text-gray-400 whitespace-nowrap">{item.timestamp}</span>
               </li>
             ))}
+            {activity.length === 0 && (
+              <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+                Sin actividad real todavía.
+              </li>
+            )}
           </ul>
         </SectionCard>
       </div>
@@ -258,19 +311,25 @@ export default function DashboardPage() {
       {/* Chart + Channels + AI Actions */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <SectionCard title="Leads por canal" description="Esta semana" action={<Button variant="ghost" size="sm" onClick={() => toast.info('Exportando datos...')}><Activity className="h-3.5 w-3.5" />Exportar</Button>}>
-          <ResponsiveContainer width="100%" height={245}>
-            <BarChart data={weeklyLeads} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 11 }} cursor={{ fill: '#f9fafb' }} />
-              <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              <Bar dataKey="WhatsApp" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={24} />
-              <Bar dataKey="Instagram" fill="#7c3aed" radius={[4, 4, 0, 0]} maxBarSize={24} />
-              <Bar dataKey="Web" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={24} />
-              <Bar dataKey="Email" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
-            </BarChart>
-          </ResponsiveContainer>
+          {visibleWeeklyLeads.length > 0 ? (
+            <ResponsiveContainer width="100%" height={245}>
+              <BarChart data={visibleWeeklyLeads} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 11 }} cursor={{ fill: '#f9fafb' }} />
+                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                <Bar dataKey="WhatsApp" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="Instagram" fill="#7c3aed" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="Web" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="Email" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[245px] items-center justify-center rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">
+              Sin datos reales de leads por canal todavía.
+            </div>
+          )}
         </SectionCard>
 
         <div className="space-y-4">
@@ -298,7 +357,7 @@ export default function DashboardPage() {
           {/* AI suggested actions */}
           <SectionCard title="Próximas acciones IA" description="Sugeridas para hoy">
             <ul className="space-y-2">
-              {aiActions.map((action) => (
+              {visibleAiActions.map((action) => (
                 <li key={action.event} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gradient-to-br from-white to-gray-50/70 p-3 transition-all hover:border-indigo-100 hover:shadow-sm">
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 mt-0.5">{action.icon}</div>
                   <div className="flex-1 min-w-0">
@@ -314,6 +373,11 @@ export default function DashboardPage() {
                   </div>
                 </li>
               ))}
+              {visibleAiActions.length === 0 && (
+                <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+                  Sin acciones sugeridas reales todavía.
+                </li>
+              )}
             </ul>
           </SectionCard>
         </div>

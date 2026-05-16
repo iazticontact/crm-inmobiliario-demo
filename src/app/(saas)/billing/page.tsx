@@ -64,7 +64,7 @@ function euro(value: number) {
 }
 
 export default function BillingPage() {
-  const [invoiceList, setInvoiceList] = useState<Invoice[]>(initialInvoices)
+  const [invoiceList, setInvoiceList] = useState<Invoice[]>([])
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<InvoiceForm>(emptyForm)
@@ -95,10 +95,10 @@ export default function BillingPage() {
       const context = await getWorkspaceContext()
       const resolvedWorkspaceId = context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
-        setInvoiceList(initialInvoices)
+        setInvoiceList([])
         setWorkspaceId(null)
         setIsRealMode(false)
-        setLoadError('No se ha encontrado workspace real. Se muestran facturas demo.')
+        setLoadError('No se ha encontrado workspace real. No se muestran facturas demo en modo real.')
         return
       }
 
@@ -107,7 +107,7 @@ export default function BillingPage() {
       setWorkspaceId(resolvedWorkspaceId)
       setIsRealMode(true)
     } catch (error) {
-      setInvoiceList(initialInvoices)
+      setInvoiceList([])
       setWorkspaceId(null)
       setIsRealMode(false)
       const message = error instanceof Error ? error.message : 'Revisa RLS o columnas de invoices.'
@@ -288,7 +288,7 @@ export default function BillingPage() {
         description="Ingresos, cobros y facturas persistentes del workspace"
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Datos reales' : 'Modo demo'}</Badge>
+            <Badge variant={isRealMode ? 'success' : loadError ? 'warning' : 'indigo'} dot>{isRealMode ? 'Datos reales' : loadError ? 'Sin datos reales' : 'Modo demo'}</Badge>
             <Button variant="secondary" size="sm" onClick={() => toast.info('Exportar', { description: 'La exportación CSV estará disponible próximamente.' })}>
               <Download className="h-3.5 w-3.5" />
               Exportar

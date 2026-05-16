@@ -55,7 +55,17 @@ export async function GET() {
       scope: REQUIRED_SCOPES.join(' '),
       access_type: 'offline',
       prompt: 'consent',
+      include_granted_scopes: 'true',
       state: user.id,
+    })
+
+    console.log('[google/connect]', {
+      hasUser: Boolean(user),
+      userId: user.id?.slice(0, 8),
+      redirectUri,
+      scopes: REQUIRED_SCOPES,
+      hasClientId: Boolean(clientId),
+      statePreview: user.id?.slice(0, 8),
     })
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`

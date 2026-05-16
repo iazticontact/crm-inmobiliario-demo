@@ -94,7 +94,7 @@ const supabaseReadiness = [
   { label: 'Clientes', value: 'Real', status: 'CRUD completo con notas y filtros por workspace' },
   { label: 'Facturacion', value: 'Real', status: 'Facturas persistentes y metricas por workspace' },
   { label: 'Calendario', value: 'Real', status: 'Eventos persistentes con citas desde IA' },
-  { label: 'Assistant', value: 'Backend real', status: 'NowLabs AI responde por /api/assistant/chat con tools seguras' },
+  { label: 'Assistant', value: 'Backend real', status: 'NowLabs AI responde por /api/assistant/v2 con tools seguras' },
   { label: 'Agent Tools', value: 'Preparado', status: 'Endpoint seguro con allowlist de acciones' },
   { label: 'OpenAI', value: 'Server-side', status: 'Clave solo en backend; no se expone al navegador' },
   { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro de NowLabs AI' },
@@ -152,7 +152,7 @@ function splitWebhookUrl(value: string) {
 }
 
 export default function SettingsPage() {
-  const { currentUser } = useCurrentUser()
+  const { currentUser, isLoading: userLoading } = useCurrentUser()
   const [notifications, setNotifications] = useState<Record<string, boolean>>(
     Object.fromEntries(notifDefaults.map((n) => [n.key, n.enabled]))
   )
@@ -199,7 +199,12 @@ export default function SettingsPage() {
 
   const flowConfigByEvent = useMemo(() => new Map<string, WebhookConfig>(n8nWebhookConfigs.map((flow) => [flow.event, flow])), [])
 
-  const visibleWorkspaceItems = currentUser.isDemo ? [
+  const visibleWorkspaceItems = userLoading ? [
+    { label: 'Nombre del workspace', value: 'Cargando...', icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Email de administrador', value: 'Cargando...', icon: <Mail className="h-4 w-4" /> },
+    { label: 'Estado', value: 'Cargando', icon: <Shield className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
+  ] : currentUser.isDemo ? [
     { label: 'Nombre del workspace', value: 'NowCRM Demo', icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: 'demo@nowcrm.local', icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: 'Modo demo', icon: <Shield className="h-4 w-4" /> },
@@ -253,6 +258,7 @@ export default function SettingsPage() {
   }, [])
 
   const loadControlCenter = useCallback(async () => {
+    if (userLoading) return
     if (currentUser.isDemo) {
       setSettingsPersisted(false)
       setSettingsError('')
@@ -305,7 +311,7 @@ export default function SettingsPage() {
     } finally {
       setSettingsLoading(false)
     }
-  }, [applyRemoteFlows, applyRemoteIntegrations, currentUser.isDemo, currentUser.workspaceId])
+  }, [applyRemoteFlows, applyRemoteIntegrations, currentUser.isDemo, currentUser.workspaceId, userLoading])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -328,12 +334,24 @@ export default function SettingsPage() {
         : reason === 'state_mismatch'
           ? 'Error de seguridad en el flujo OAuth. Cierra sesion, vuelve a entrar e intentalo de nuevo.'
           : reason === 'no_refresh_token'
-            ? 'Google no concedio permiso permanente. Revoca el acceso en myaccount.google.com y vuelve a autorizar.'
-            : reason === 'db_error'
-              ? 'Error al guardar la conexion. Contacta con el equipo tecnico de NowCRM.'
-              : reason === 'unauthenticated'
-                ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
-                : 'No se pudo completar la autorizacion. Intentalo de nuevo o contacta con NowCRM.'
+            ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca NowCRM y vuelve a autorizar.'
+            : reason === 'missing_schema'
+              ? 'La tabla google_calendar_connections no existe o le faltan columnas en Supabase. Aplica el SQL de schema y vuelve a intentarlo.'
+              : reason === 'missing_unique_index'
+                ? 'Falta un indice UNIQUE en workspace_id de google_calendar_connections. Ejecuta el SQL de indice en Supabase y vuelve a intentarlo.'
+              : reason === 'missing_grant'
+                ? 'El rol service_role no tiene permisos GRANT en google_calendar_connections. Ejecuta: GRANT SELECT, INSERT, UPDATE, DELETE ON public.google_calendar_connections TO service_role;'
+              : reason === 'rls_blocked'
+                ? 'La base de datos bloqueo el guardado (RLS activo aunque hay service_role). Revisa las politicas RLS de google_calendar_connections.'
+                : reason === 'missing_service_role'
+                  ? 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor. Añadela a .env.local y reinicia el servidor de desarrollo.'
+                  : reason === 'db_upsert_failed' || reason === 'db_error'
+                    ? 'Google autorizo correctamente pero NowCRM no pudo guardar la conexion. Revisa los logs del servidor y el schema de google_calendar_connections.'
+                    : reason === 'unauthenticated'
+                      ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
+                      : reason === 'no_workspace'
+                        ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo tecnico de NowCRM.'
+                        : 'No se pudo completar la autorizacion. Intentalo de nuevo o contacta con NowCRM.'
       toast.error('No se pudo conectar Google Calendar', { description: desc })
     } else if (status === 'pending') {
       toast.info('Google Calendar pendiente', { description: 'La conexion OAuth esta pendiente. Contacta con el equipo tecnico de NowCRM.' })
@@ -741,7 +759,7 @@ export default function SettingsPage() {
     }
   }
 
-  const settingsMode = currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Local'
+  const settingsMode = userLoading ? 'Cargando' : currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Local'
 
   return (
     <motion.div
@@ -753,7 +771,7 @@ export default function SettingsPage() {
       <PageHeader
         title="Configuracion"
         description="Conecta tus integraciones y gestiona la configuracion de tu workspace"
-        action={<Badge variant={currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
+        action={<Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -792,14 +810,14 @@ export default function SettingsPage() {
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
-                  {currentUser.initials}
+                  {userLoading ? '..' : currentUser.initials}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{currentUser.workspaceName}</p>
-                  <p className="text-xs text-gray-500">{currentUser.email}</p>
+                  <p className="text-sm font-semibold text-gray-900">{userLoading ? 'Cargando workspace...' : currentUser.workspaceName}</p>
+                  <p className="text-xs text-gray-500">{userLoading ? 'Cargando usuario...' : currentUser.email}</p>
                 </div>
               </div>
-              <Badge variant={currentUser.isDemo ? 'indigo' : 'success'}>{currentUser.trialLabel}</Badge>
+              <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'}>{userLoading ? 'Cargando' : currentUser.trialLabel}</Badge>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -929,7 +947,7 @@ export default function SettingsPage() {
                     <Badge variant={assistantAgentActive ? 'success' : 'warning'} dot>{assistantAgentActive ? 'n8n externo activo' : 'Pendiente de configurar'}</Badge>
                   </div>
                   <p className="text-xs leading-5 text-gray-600">
-                    Brazo externo opcional para automatizaciones. NowLabs AI no usa n8n como cerebro: responde por `/api/assistant/chat` y tools backend.
+                    Brazo externo opcional para automatizaciones. NowLabs AI no usa n8n como cerebro: responde por `/api/assistant/v2` y tools backend.
                   </p>
                   <p className="mt-2 truncate rounded-lg bg-white/80 px-2.5 py-1.5 font-mono text-[10px] text-emerald-700 ring-1 ring-emerald-100">
                     {assistantAgentUrl || 'Pendiente de endpoint n8n externo'}
@@ -1529,7 +1547,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               {[
                 { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
-                { title: '2. IA real', desc: 'Mantener /api/assistant/chat con tools backend y OpenAI server-side.' },
+                { title: '2. IA real', desc: 'Mantener /api/assistant/v2 con tools backend y OpenAI server-side.' },
                 { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows externos.' },
                 { title: '4. Deploy', desc: 'Vercel o Hostinger con variables seguras.' },
               ].map((item) => (

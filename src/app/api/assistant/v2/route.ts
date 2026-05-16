@@ -50,12 +50,24 @@ export async function POST(req: NextRequest) {
       lastReferencedClientId?: unknown
       lastReferencedClientName?: unknown
       lastResults?: unknown
+      lastCalendarResults?: unknown
+      lastPreparedAction?: unknown
+      lastConfirmedEventId?: unknown
+      lastConfirmedClientName?: unknown
+      lastConfirmedDate?: unknown
     }
     message = typeof body.message === 'string' ? body.message.trim() : ''
     context = {
       lastReferencedClientId: typeof body.lastReferencedClientId === 'string' ? body.lastReferencedClientId : undefined,
       lastReferencedClientName: typeof body.lastReferencedClientName === 'string' ? body.lastReferencedClientName : undefined,
       lastResults: Array.isArray(body.lastResults) ? body.lastResults as Record<string, unknown>[] : [],
+      lastCalendarResults: Array.isArray(body.lastCalendarResults) ? body.lastCalendarResults as Record<string, unknown>[] : [],
+      lastPreparedAction: body.lastPreparedAction && typeof body.lastPreparedAction === 'object'
+        ? body.lastPreparedAction as AgentContext['lastPreparedAction']
+        : undefined,
+      lastConfirmedEventId: typeof body.lastConfirmedEventId === 'string' ? body.lastConfirmedEventId : undefined,
+      lastConfirmedClientName: typeof body.lastConfirmedClientName === 'string' ? body.lastConfirmedClientName : undefined,
+      lastConfirmedDate: typeof body.lastConfirmedDate === 'string' ? body.lastConfirmedDate : undefined,
     }
   } catch {
     return NextResponse.json({ ok: false, error: 'Body JSON inválido' }, { status: 400 })
@@ -76,6 +88,7 @@ export async function POST(req: NextRequest) {
     referencedClientId: result.referencedClientId ?? null,
     referencedClientName: result.referencedClientName ?? null,
     referencedList: result.referencedList ?? null,
+    referencedCalendarList: result.referencedCalendarList ?? null,
     dataPreview: result.dataPreview ?? null,
     preparedAction: result.preparedAction ?? null,
     ...(result.error ? { error: result.error } : {}),

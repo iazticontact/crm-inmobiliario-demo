@@ -140,7 +140,7 @@ async function selectWorkspaceData(supabase: NonNullable<ReturnType<typeof getSe
   const [clients, invoices, events, conversations, activities] = await Promise.all([
     supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
     supabase.from('invoices').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
-    supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('start_at', { ascending: true }),
+    supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).neq('status', 'cancelled').order('start_at', { ascending: true }),
     supabase.from('conversations').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
     supabase.from('activities').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(8),
   ])
@@ -261,7 +261,7 @@ export async function POST(request: Request) {
       const clientName = String(client.name ?? '')
       const [invoices, events, conversationsRaw, activities] = await Promise.all([
         supabase.from('invoices').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).limit(20),
-        supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).limit(20),
+        supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).neq('status', 'cancelled').limit(20),
         supabase.from('conversations').select('*').eq('workspace_id', workspaceId).limit(100),
         supabase.from('activities').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).limit(20),
       ])
@@ -401,7 +401,7 @@ export async function POST(request: Request) {
     }
 
     if (tool === 'list_calendar_events') {
-      const { data, error } = await supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).order('start_at', { ascending: true }).limit(80)
+      const { data, error } = await supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(80)
       if (error) throw error
       const from = str(input.from)
       const to = str(input.to)

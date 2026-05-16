@@ -15,8 +15,10 @@ import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } fro
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
+  cancelCalendarEvent,
   createActivity,
   createCalendarEvent,
+  updateCalendarEvent,
   createAssistantConversation,
   createInvoice,
   createMessage,
@@ -272,6 +274,53 @@ type PreparedAction =
       amount?: number
       currency?: string
       invoiceText?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'cancel_booking'
+      title: string
+      assistantMode: AssistantMode
+      eventId?: string
+      clientId?: string
+      clientName?: string
+      date?: string
+      time?: string
+      reason?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'reschedule_booking'
+      title: string
+      assistantMode: AssistantMode
+      eventId?: string
+      clientId?: string
+      clientName?: string
+      date?: string
+      time?: string
+      duration?: number
+      oldDate?: string
+      oldTime?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'cancel_multiple_bookings'
+      title: string
+      assistantMode: AssistantMode
+      events: Array<{ eventId: string; clientName?: string; date?: string; time?: string; title?: string }>
+      reason?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'cleanup_duplicate_bookings'
+      title: string
+      assistantMode: AssistantMode
+      events: Array<{ eventId: string; clientName?: string; date?: string; time?: string; title?: string }>
+      keepEventId?: string
+      cancelEventIds: string[]
       missingFields: string[]
     }
 
@@ -731,7 +780,7 @@ function safeErrorMessage(error: unknown) {
 }
 
 export default function AssistantPage() {
-  const { currentUser } = useCurrentUser()
+  const { currentUser, isLoading: userLoading } = useCurrentUser()
   const userWorkspaceId = currentUser.workspaceId
   const [assistantReady, setAssistantReady] = useState(false)
   const [conversationList, setConversationList] = useState<Conversation[]>([])
@@ -766,6 +815,10 @@ export default function AssistantPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [detectedIntent, setDetectedIntent] = useState('')
   const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null)
+  const [lastConfirmedEventId, setLastConfirmedEventId] = useState<string | null>(null)
+  const [lastConfirmedClientName, setLastConfirmedClientName] = useState<string | null>(null)
+  const [lastConfirmedDate, setLastConfirmedDate] = useState<string | null>(null)
+  const [lastCalendarResultsMap, setLastCalendarResultsMap] = useState<Record<string, Record<string, unknown>[]>>({})
   const [lastResultsMap, setLastResultsMap] = useState<Record<string, Record<string, unknown>[]>>({})
   const [confirmingAction, setConfirmingAction] = useState(false)
   const [editingAction, setEditingAction] = useState(false)
@@ -779,6 +832,7 @@ export default function AssistantPage() {
   }, [])
 
   const loadConversations = useCallback(async () => {
+    if (userLoading) return
     setLoadingConversations(true)
     setAssistantReady(false)
     try {
@@ -819,22 +873,28 @@ export default function AssistantPage() {
       const resolvedWorkspaceId = context?.profile?.workspace_id || context?.workspace?.id || userWorkspaceId
       if (!hasRealSession) {
         const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-        const demoConversations = mockConversations.map((conversation, index) => ({
-          ...conversation,
-          assistantMode: index === 0 ? 'copilot' as AssistantMode : 'inbox' as AssistantMode,
-          metadata: { assistant_mode: index === 0 ? 'copilot' : 'inbox', source: 'demo' },
-        }))
-        setConversationList(demoConversations)
-        setSelectedIds({
-          inbox: demoConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
-          copilot: demoConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
-        })
+        if (isDemoMode) {
+          const demoConversations = mockConversations.map((conversation, index) => ({
+            ...conversation,
+            assistantMode: index === 0 ? 'copilot' as AssistantMode : 'inbox' as AssistantMode,
+            metadata: { assistant_mode: index === 0 ? 'copilot' : 'inbox', source: 'demo' },
+          }))
+          setConversationList(demoConversations)
+          setSelectedIds({
+            inbox: demoConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
+            copilot: demoConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
+          })
+          setLocalMessages(mockMessages)
+        } else {
+          setConversationList([])
+          setSelectedIds({ inbox: '', copilot: '' })
+          setLocalMessages({})
+        }
         setWorkspaceId(null)
         setIsRealMode(false)
         setAssistantWebhookUrl('')
         setAssistantFlowFound(false)
         setAssistantFlowStatus('demo')
-        setLocalMessages(mockMessages)
         updateDiagnostics({
           lastReadConversationsStatus: 'Sin sesión real',
           lastReadMessagesStatus: 'Sin sesión real',
@@ -849,7 +909,7 @@ export default function AssistantPage() {
           filteredConversationsForMode: 0,
           queryMode: isDemoMode ? 'demo' : 'no-session',
         })
-        if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se ha encontrado un workspace real.' })
+        if (!isDemoMode) toast.warning('Assistant sin sesión real', { description: 'No se muestran conversaciones demo en modo real.' })
         return
       }
 
@@ -956,7 +1016,7 @@ export default function AssistantPage() {
       setLoadingConversations(false)
       setAssistantReady(true)
     }
-  }, [updateDiagnostics, userWorkspaceId])
+  }, [updateDiagnostics, userLoading, userWorkspaceId])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -1313,6 +1373,13 @@ export default function AssistantPage() {
               lastReferencedClientId,
               lastReferencedClientName,
               lastResults: lastResultsMap[conversationId] ?? [],
+              lastCalendarResults: lastCalendarResultsMap[conversationId] ?? [],
+              lastPreparedAction: preparedAction
+                ? { type: preparedAction.type, eventId: 'eventId' in preparedAction ? preparedAction.eventId : undefined, clientId: 'clientId' in preparedAction ? preparedAction.clientId : undefined, clientName: 'clientName' in preparedAction ? preparedAction.clientName : undefined, date: 'date' in preparedAction ? preparedAction.date : undefined, time: 'time' in preparedAction ? preparedAction.time : undefined, title: preparedAction.title, service: 'service' in preparedAction ? preparedAction.service : undefined }
+                : undefined,
+              lastConfirmedEventId: lastConfirmedEventId ?? undefined,
+              lastConfirmedClientName: lastConfirmedClientName ?? undefined,
+              lastConfirmedDate: lastConfirmedDate ?? undefined,
             }),
           })
           type V2Response = {
@@ -1323,20 +1390,32 @@ export default function AssistantPage() {
             referencedClientId?: string | null
             referencedClientName?: string | null
             referencedList?: Record<string, unknown>[] | null
+            referencedCalendarList?: Record<string, unknown>[] | null
             dataPreview?: unknown
             preparedAction?: {
-              type: 'booking' | 'invoice' | 'task'
+              type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings'
               clientId?: string
               clientName?: string
               service?: string
               date?: string
               time?: string
+              duration?: number
               amount?: number
               concept?: string
               dueDate?: string
               taskTitle?: string
               description?: string
               missingFields: string[]
+              // cancel_booking / reschedule_booking
+              eventId?: string
+              title?: string
+              reason?: string
+              oldDate?: string
+              oldTime?: string
+              // cancel_multiple_bookings / cleanup_duplicate_bookings
+              events?: Array<{ eventId: string; clientName?: string; date?: string; time?: string; title?: string }>
+              keepEventId?: string
+              cancelEventIds?: string[]
             }
             error?: string
           }
@@ -1361,6 +1440,9 @@ export default function AssistantPage() {
             if (listToStore) {
               setLastResultsMap((prev) => ({ ...prev, [conversationId]: listToStore }))
             }
+            if (v2Data.referencedCalendarList?.length) {
+              setLastCalendarResultsMap((prev) => ({ ...prev, [conversationId]: v2Data.referencedCalendarList! }))
+            }
             if (v2Data.preparedAction) {
               const pa = v2Data.preparedAction
               const paId = `v2-${createUuid()}`
@@ -1369,6 +1451,14 @@ export default function AssistantPage() {
                 frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
               } else if (pa.type === 'invoice') {
                 frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
+              } else if (pa.type === 'cancel_booking') {
+                frontendAction = { id: paId, type: 'cancel_booking', title: pa.title ?? `Cancelar cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', eventId: pa.eventId, clientId: pa.clientId, clientName: pa.clientName, date: pa.date, time: pa.time, reason: pa.reason, missingFields: pa.missingFields }
+              } else if (pa.type === 'reschedule_booking') {
+                frontendAction = { id: paId, type: 'reschedule_booking', title: pa.title ?? `Reprogramar cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', eventId: pa.eventId, clientId: pa.clientId, clientName: pa.clientName, date: pa.date, time: pa.time, duration: pa.duration, oldDate: pa.oldDate, oldTime: pa.oldTime, missingFields: pa.missingFields }
+              } else if (pa.type === 'cancel_multiple_bookings') {
+                frontendAction = { id: paId, type: 'cancel_multiple_bookings', title: `Cancelar ${pa.events?.length ?? 0} cita(s)`, assistantMode: 'copilot', events: pa.events ?? [], reason: pa.reason, missingFields: pa.missingFields }
+              } else if (pa.type === 'cleanup_duplicate_bookings') {
+                frontendAction = { id: paId, type: 'cleanup_duplicate_bookings', title: `Limpiar ${pa.cancelEventIds?.length ?? 0} duplicada(s)`, assistantMode: 'copilot', events: pa.events ?? [], keepEventId: pa.keepEventId, cancelEventIds: pa.cancelEventIds ?? [], missingFields: pa.missingFields }
               } else {
                 frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? pa.description ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
               }
@@ -1571,6 +1661,10 @@ export default function AssistantPage() {
             : 'Cita creada en Calendario'
         toast.success(bookingToast)
         setLastActionStatus('Última acción confirmada: cita creada')
+        // Store confirmed event context for potential cancellation in same conversation
+        setLastConfirmedEventId(createdEvent.id)
+        setLastConfirmedClientName(preparedAction.clientName ?? null)
+        setLastConfirmedDate(preparedAction.date ?? null)
       }
 
       if (preparedAction.type === 'invoice') {
@@ -1650,6 +1744,166 @@ export default function AssistantPage() {
         })
         toast.success('Tarea creada')
         setLastActionStatus('Última acción confirmada: tarea creada')
+      }
+
+      if (preparedAction.type === 'cancel_booking') {
+        if (!preparedAction.eventId) {
+          toast.warning('No tengo el ID del evento', { description: 'El agente no encontró el evento exacto. Inténtalo especificando cliente y fecha.' })
+          return
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(preparedAction.eventId)) {
+          toast.warning('ID de evento inválido', { description: 'Vuelve a buscar la cita e inténtalo de nuevo.' })
+          return
+        }
+        if (!workspaceId) throw new Error('No hay workspace real para cancelar el evento.')
+        await cancelCalendarEvent(preparedAction.eventId, workspaceId)
+        void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: preparedAction.eventId }) }).catch(() => null)
+
+        const clientLabel = preparedAction.clientName ? ` con ${preparedAction.clientName}` : ''
+        const dateLabel = preparedAction.date ? ` del ${preparedAction.date}` : ''
+        const timeLabel = preparedAction.time ? ` a las ${preparedAction.time}` : ''
+        const cancelMsg = `Cita${clientLabel}${dateLabel}${timeLabel} cancelada correctamente.`
+        await appendAssistantMessage(activeConversation.id, cancelMsg, preparedAction.clientName).catch(() => null)
+        if (workspaceId) {
+          void createActivity(workspaceId, { type: 'note', description: `Cita cancelada desde NowLabs AI${clientLabel}${dateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
+        }
+        // Clear confirmed event context and stale calendar cache
+        setLastConfirmedEventId(null)
+        setLastConfirmedClientName(null)
+        setLastConfirmedDate(null)
+        setLastCalendarResultsMap((prev) => { const n = { ...prev }; delete n[activeConversation.id]; return n })
+        toast.success('Cita cancelada')
+        setLastActionStatus('Última acción confirmada: cita cancelada')
+      }
+
+      if (preparedAction.type === 'reschedule_booking') {
+        if (!preparedAction.eventId) {
+          toast.warning('No tengo el ID del evento', { description: 'El agente no encontró el evento exacto. Inténtalo especificando cliente y fecha.' })
+          return
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(preparedAction.eventId)) {
+          toast.warning('ID de evento inválido', { description: 'Vuelve a buscar la cita e inténtalo de nuevo.' })
+          return
+        }
+        if (!preparedAction.date || !preparedAction.time) {
+          toast.warning('Faltan la nueva fecha o la nueva hora', { description: 'Especifica cuándo quieres mover la cita.' })
+          return
+        }
+        if (!workspaceId) throw new Error('No hay workspace real para reprogramar el evento.')
+        await updateCalendarEvent(preparedAction.eventId, workspaceId, {
+          title: preparedAction.title ?? `Cita con ${preparedAction.clientName ?? ''}`,
+          clientId: preparedAction.clientId,
+          clientName: preparedAction.clientName,
+          date: preparedAction.date,
+          time: preparedAction.time,
+          duration: preparedAction.duration ?? 60,
+        })
+        void fetch('/api/integrations/google/calendar/update-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: preparedAction.eventId }) }).catch(() => null)
+        const clientLabel = preparedAction.clientName ? ` con ${preparedAction.clientName}` : ''
+        const newDateLabel = preparedAction.date ? ` al ${preparedAction.date}` : ''
+        const newTimeLabel = preparedAction.time ? ` a las ${preparedAction.time}` : ''
+        const rescheduleMsg = `Cita${clientLabel} reprogramada${newDateLabel}${newTimeLabel}.`
+        await appendAssistantMessage(activeConversation.id, rescheduleMsg, preparedAction.clientName).catch(() => null)
+        if (workspaceId) {
+          void createActivity(workspaceId, { type: 'note', description: `Cita reprogramada desde NowLabs AI${clientLabel}${newDateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
+        }
+        // Update confirmed event context; clear stale calendar cache
+        setLastConfirmedEventId(preparedAction.eventId)
+        setLastConfirmedClientName(preparedAction.clientName ?? null)
+        setLastConfirmedDate(preparedAction.date ?? null)
+        setLastCalendarResultsMap((prev) => { const n = { ...prev }; delete n[activeConversation.id]; return n })
+        toast.success('Cita reprogramada')
+        setLastActionStatus('Última acción confirmada: cita reprogramada')
+      }
+
+      if (preparedAction.type === 'cancel_multiple_bookings') {
+        if (!preparedAction.events.length) {
+          toast.warning('No hay citas para cancelar.')
+          return
+        }
+        if (!workspaceId) throw new Error('No hay workspace real para cancelar los eventos.')
+        const invalidEvent = preparedAction.events.find((ev) => !isUuid(ev.eventId))
+        if (invalidEvent) {
+          toast.warning('Hay una cita con ID inválido. Vuelve a buscar las citas antes de confirmar.')
+          return
+        }
+        let cancelled = 0
+        for (const ev of preparedAction.events) {
+          try {
+            await cancelCalendarEvent(ev.eventId, workspaceId)
+            cancelled++
+            void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: ev.eventId }) }).catch(() => null)
+          } catch {
+            // continuar con el resto
+          }
+        }
+        const total = preparedAction.events.length
+        const summary = cancelled === 0
+          ? `No he podido cancelar esas citas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo o revisa que los IDs sean correctos.`
+          : cancelled === total
+          ? `${total} cita(s) canceladas correctamente.`
+          : `Se cancelaron ${cancelled} de ${total} citas. Las ${total - cancelled} restantes no se pudieron cancelar — compruébalas manualmente.`
+        await appendAssistantMessage(activeConversation.id, summary, preparedAction.events[0]?.clientName).catch(() => null)
+        if (workspaceId && cancelled > 0) {
+          void createActivity(workspaceId, { type: 'note', description: `${cancelled} cita(s) canceladas desde NowLabs AI (acción múltiple)` }).catch(() => null)
+        }
+        setLastConfirmedEventId(null)
+        setLastConfirmedClientName(null)
+        setLastConfirmedDate(null)
+        setLastCalendarResultsMap((prev) => { const n = { ...prev }; delete n[activeConversation.id]; return n })
+        if (cancelled > 0) {
+          toast.success(`${cancelled} de ${total} cita(s) canceladas`)
+        } else {
+          toast.error('No se canceló ninguna cita')
+        }
+        setLastActionStatus(`Última acción confirmada: ${cancelled} de ${total} cita(s) canceladas`)
+      }
+
+      if (preparedAction.type === 'cleanup_duplicate_bookings') {
+        if (!preparedAction.cancelEventIds.length) {
+          toast.warning('No hay duplicados para limpiar.')
+          return
+        }
+        if (!workspaceId) throw new Error('No hay workspace real para cancelar los duplicados.')
+        if (preparedAction.keepEventId && !isUuid(preparedAction.keepEventId)) {
+          toast.warning('La cita que se conserva tiene un ID inválido. Vuelve a buscar las citas antes de confirmar.')
+          return
+        }
+        const invalidEventId = preparedAction.cancelEventIds.find((eventId) => !isUuid(eventId))
+        if (invalidEventId) {
+          toast.warning('Hay una cita duplicada con ID inválido. Vuelve a buscar las citas antes de confirmar.')
+          return
+        }
+        let cancelled = 0
+        for (const eventId of preparedAction.cancelEventIds) {
+          try {
+            await cancelCalendarEvent(eventId, workspaceId)
+            cancelled++
+            void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: eventId }) }).catch(() => null)
+          } catch {
+            // continuar con el resto
+          }
+        }
+        const total = preparedAction.cancelEventIds.length
+        const summary = cancelled === 0
+          ? `No he podido cancelar las citas duplicadas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo.`
+          : cancelled === total
+          ? `Se cancelaron ${total} cita(s) duplicada(s). Queda una cita activa.`
+          : `Se cancelaron ${cancelled} de ${total} duplicadas. Revisa el calendario.`
+        await appendAssistantMessage(activeConversation.id, summary, undefined).catch(() => null)
+        if (workspaceId && cancelled > 0) {
+          void createActivity(workspaceId, { type: 'note', description: `Limpieza de ${cancelled} cita(s) duplicada(s) desde NowLabs AI` }).catch(() => null)
+        }
+        setLastConfirmedEventId(preparedAction.keepEventId ?? null)
+        setLastConfirmedClientName(null)
+        setLastConfirmedDate(null)
+        setLastCalendarResultsMap((prev) => { const n = { ...prev }; delete n[activeConversation.id]; return n })
+        if (cancelled > 0) {
+          toast.success(`${cancelled} duplicada(s) eliminada(s)`)
+        } else {
+          toast.error('No se eliminó ningún duplicado')
+        }
+        setLastActionStatus(`Última acción confirmada: ${cancelled} duplicado(s) limpiado(s)`)
       }
 
       if (preparedAction.type === 'prepare_pdf') {
@@ -1848,7 +2102,7 @@ export default function AssistantPage() {
 
   const startEditingAction = () => {
     if (!preparedAction) return
-    const d: Record<string, string> = { clientName: preparedAction.clientName ?? '' }
+    const d: Record<string, string> = { clientName: ('clientName' in preparedAction ? preparedAction.clientName : undefined) ?? '' }
     if (preparedAction.type === 'booking') {
       d.service = preparedAction.service ?? ''
       d.date = preparedAction.date ?? ''
@@ -2537,18 +2791,18 @@ export default function AssistantPage() {
                     <div className="max-w-[78%] rounded-2xl rounded-tl-sm border border-violet-100 bg-gradient-to-br from-white via-violet-50 to-indigo-50 p-4 shadow-md shadow-indigo-950/[0.05]">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm shadow-violet-600/20">
-                            {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : preparedAction.type === 'task' ? <CheckCircle className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                          <div className={cn('flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm', (preparedAction.type === 'cancel_booking' || preparedAction.type === 'cancel_multiple_bookings' || preparedAction.type === 'cleanup_duplicate_bookings') ? 'bg-red-500 shadow-red-500/20' : preparedAction.type === 'reschedule_booking' ? 'bg-amber-500 shadow-amber-500/20' : 'bg-violet-600 shadow-violet-600/20')}>
+                            {preparedAction.type === 'booking' ? <CalendarDays className="h-4 w-4" /> : (preparedAction.type === 'cancel_booking' || preparedAction.type === 'cancel_multiple_bookings' || preparedAction.type === 'cleanup_duplicate_bookings') ? <X className="h-4 w-4" /> : preparedAction.type === 'reschedule_booking' ? <ArrowRight className="h-4 w-4" /> : preparedAction.type === 'task' ? <CheckCircle className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-950">
-                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
+                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
                             </p>
                             <p className="text-[11px] text-gray-500">{preparedAction.title} · NowLabs AI</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {preparedAction.type !== 'prepare_pdf' && preparedAction.type !== 'generate_invoice_pdf' && !editingAction && (
+                          {preparedAction.type !== 'prepare_pdf' && preparedAction.type !== 'generate_invoice_pdf' && preparedAction.type !== 'cancel_booking' && preparedAction.type !== 'reschedule_booking' && preparedAction.type !== 'cancel_multiple_bookings' && preparedAction.type !== 'cleanup_duplicate_bookings' && !editingAction && (
                             <button onClick={startEditingAction} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-500 transition-colors hover:bg-white/70 hover:text-indigo-600">
                               <Pencil className="h-3 w-3" />
                               Editar
@@ -2627,7 +2881,7 @@ export default function AssistantPage() {
                         </div>
                       ) : (
                         <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-2">
-                          {preparedAction.clientName && (
+                          {'clientName' in preparedAction && preparedAction.clientName && (
                             <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Cliente</span>
                               {preparedAction.clientName}
@@ -2685,6 +2939,98 @@ export default function AssistantPage() {
                               )}
                             </>
                           )}
+                          {preparedAction.type === 'cancel_booking' && (
+                            <>
+                              {preparedAction.date && (
+                                <div className="rounded-lg bg-red-50/80 p-2 ring-1 ring-red-100">
+                                  <span className="block text-[10px] font-semibold uppercase text-red-400">Fecha</span>
+                                  {preparedAction.date}{preparedAction.time ? ` · ${preparedAction.time}` : ''}
+                                </div>
+                              )}
+                              {preparedAction.reason && (
+                                <div className="col-span-2 rounded-lg bg-red-50/80 p-2 ring-1 ring-red-100">
+                                  <span className="block text-[10px] font-semibold uppercase text-red-400">Motivo</span>
+                                  {preparedAction.reason}
+                                </div>
+                              )}
+                              <div className="col-span-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-600">
+                                Esta acción cancelará la cita en NowCRM. No se puede deshacer.
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'reschedule_booking' && (
+                            <>
+                              {(preparedAction.oldDate || preparedAction.oldTime) && (
+                                <div className="rounded-lg bg-amber-50/80 p-2 ring-1 ring-amber-100">
+                                  <span className="block text-[10px] font-semibold uppercase text-amber-500">Fecha actual</span>
+                                  {preparedAction.oldDate ?? '—'}{preparedAction.oldTime ? ` · ${preparedAction.oldTime}` : ''}
+                                </div>
+                              )}
+                              {(preparedAction.date || preparedAction.time) && (
+                                <div className="rounded-lg bg-amber-50/80 p-2 ring-1 ring-amber-100">
+                                  <span className="block text-[10px] font-semibold uppercase text-amber-500">Nueva fecha</span>
+                                  {preparedAction.date ?? '—'}{preparedAction.time ? ` · ${preparedAction.time}` : ''}
+                                </div>
+                              )}
+                              <div className="col-span-2 rounded-lg border border-amber-100 bg-amber-50 p-2 text-[11px] text-amber-700">
+                                Se actualizará la fecha y hora de la cita en NowCRM.
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'cancel_multiple_bookings' && (
+                            <>
+                              <div className="col-span-2 rounded-lg bg-red-50/80 p-2 ring-1 ring-red-100">
+                                <span className="block text-[10px] font-semibold uppercase text-red-400">Citas a cancelar ({preparedAction.events.length})</span>
+                                <div className="mt-1 space-y-0.5">
+                                  {preparedAction.events.slice(0, 5).map((ev, i) => (
+                                    <div key={`cancel-multi-${ev.eventId}-${i}`} className="text-xs text-gray-700">
+                                      {i + 1}. {[ev.clientName, ev.date, ev.time].filter(Boolean).join(' · ') || `Cita ${i + 1}`}
+                                    </div>
+                                  ))}
+                                  {preparedAction.events.length > 5 && (
+                                    <div className="text-[11px] text-red-400">+{preparedAction.events.length - 5} más</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="col-span-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-600">
+                                Se cancelarán las {preparedAction.events.length} citas en NowCRM. No se puede deshacer.
+                              </div>
+                            </>
+                          )}
+                          {preparedAction.type === 'cleanup_duplicate_bookings' && (
+                            <>
+                              {(() => {
+                                const keepEv = preparedAction.events.find(e => e.eventId === preparedAction.keepEventId)
+                                return (
+                                  <div className="rounded-lg bg-green-50/80 p-2 ring-1 ring-green-100">
+                                    <span className="block text-[10px] font-semibold uppercase text-green-500">Se conserva</span>
+                                    <span className="text-xs text-gray-700">
+                                      {keepEv ? [keepEv.clientName, keepEv.date, keepEv.time].filter(Boolean).join(' · ') : 'Primera cita'}
+                                    </span>
+                                  </div>
+                                )
+                              })()}
+                              <div className="rounded-lg bg-red-50/80 p-2 ring-1 ring-red-100">
+                                <span className="block text-[10px] font-semibold uppercase text-red-400">Se cancelan ({preparedAction.cancelEventIds.length})</span>
+                                <div className="mt-1 space-y-0.5">
+                                  {preparedAction.events
+                                    .filter(e => preparedAction.cancelEventIds.includes(e.eventId))
+                                    .slice(0, 3)
+                                    .map((ev, i) => (
+                                      <div key={`cleanup-cancel-${ev.eventId}-${i}`} className="text-xs text-gray-700">
+                                        {i + 1}. {[ev.clientName, ev.date, ev.time].filter(Boolean).join(' · ') || `Cita ${i + 1}`}
+                                      </div>
+                                    ))}
+                                  {preparedAction.cancelEventIds.length > 3 && (
+                                    <div className="text-[11px] text-red-400">+{preparedAction.cancelEventIds.length - 3} más</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="col-span-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-600">
+                                Se cancelarán {preparedAction.cancelEventIds.length} cita(s) duplicada(s) y se conservará una.
+                              </div>
+                            </>
+                          )}
                           {preparedAction.type === 'prepare_pdf' && preparedAction.reportText && (
                             <div className="col-span-2 max-h-32 overflow-y-auto rounded-lg bg-white/75 p-2 ring-1 ring-white">
                               <span className="block text-[10px] font-semibold uppercase text-gray-400">Vista previa del informe</span>
@@ -2728,14 +3074,24 @@ export default function AssistantPage() {
                       <div className="mt-3 flex items-center justify-end gap-2">
                         <Button variant="ghost" size="sm" onClick={cancelPreparedAction} disabled={confirmingAction || editingAction}>
                           <X className="h-3.5 w-3.5" />
-                          Cancelar
+                          {preparedAction.type === 'cancel_booking' ? 'Mantener cita' : preparedAction.type === 'reschedule_booking' ? 'No reprogramar' : (preparedAction.type === 'cancel_multiple_bookings' || preparedAction.type === 'cleanup_duplicate_bookings') ? 'Mantener citas' : 'Cancelar'}
                         </Button>
-                        <Button size="sm" onClick={() => void confirmPreparedAction()} loading={confirmingAction} disabled={preparedAction.missingFields.length > 0 || editingAction}>
-                          <CheckCircle className="h-3.5 w-3.5" />
+                        <Button
+                          size="sm"
+                          onClick={() => void confirmPreparedAction()}
+                          loading={confirmingAction}
+                          disabled={preparedAction.missingFields.length > 0 || editingAction || confirmingAction}
+                          className={(preparedAction.type === 'cancel_booking' || preparedAction.type === 'cancel_multiple_bookings' || preparedAction.type === 'cleanup_duplicate_bookings') ? 'bg-red-600 hover:bg-red-700 focus-visible:ring-red-500' : preparedAction.type === 'reschedule_booking' ? 'bg-amber-500 hover:bg-amber-600 focus-visible:ring-amber-400' : ''}
+                        >
+                          {(preparedAction.type === 'cancel_booking' || preparedAction.type === 'cancel_multiple_bookings' || preparedAction.type === 'cleanup_duplicate_bookings') ? <X className="h-3.5 w-3.5" /> : preparedAction.type === 'reschedule_booking' ? <ArrowRight className="h-3.5 w-3.5" /> : <CheckCircle className="h-3.5 w-3.5" />}
                           {preparedAction.missingFields.length ? 'Faltan datos' :
                             preparedAction.type === 'booking' ? 'Confirmar cita' :
                             preparedAction.type === 'invoice' ? 'Confirmar factura' :
                             preparedAction.type === 'task' ? 'Crear tarea' :
+                            preparedAction.type === 'cancel_booking' ? 'Confirmar cancelación' :
+                            preparedAction.type === 'reschedule_booking' ? 'Confirmar reprogramación' :
+                            preparedAction.type === 'cancel_multiple_bookings' ? 'Confirmar cancelación' :
+                            preparedAction.type === 'cleanup_duplicate_bookings' ? 'Confirmar limpieza' :
                             preparedAction.type === 'generate_invoice_pdf' ? 'Guardar factura PDF' :
                             'Guardar informe'}
                         </Button>

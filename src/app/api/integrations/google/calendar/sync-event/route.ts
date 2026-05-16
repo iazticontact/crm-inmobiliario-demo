@@ -14,6 +14,10 @@ type SyncResult =
   | { ok: true; synced: false; reason: string }
   | { ok: false; error: string }
 
+function isUuid(value?: string | null) {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
+}
+
 async function buildSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
   const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
@@ -61,6 +65,9 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
   if (!eventId) {
     return NextResponse.json({ ok: false, error: 'eventId requerido' }, { status: 400 })
   }
+  if (!isUuid(eventId)) {
+    return NextResponse.json({ ok: false, error: 'eventId inválido' }, { status: 400 })
+  }
 
   // Check Google Calendar connection
   const { data: gcConn } = await supabase
@@ -85,10 +92,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     return NextResponse.json({ ok: true, synced: false, reason: 'credentials_not_configured' })
   }
 
-  // Load the local calendar event
+  // Load the local calendar event — select * to be resilient to schema differences
   const { data: eventRow } = await supabase
     .from('calendar_events')
-    .select('id, title, start_at, end_at, description, notes, client_name, location')
+    .select('id, title, start_at, end_at, date, start_hour, start_minute, duration, description, notes, client_name, location, google_event_id, google_calendar_id')
     .eq('id', eventId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -96,6 +103,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
   if (!eventRow) {
     return NextResponse.json({ ok: false, error: 'Evento no encontrado' }, { status: 404 })
   }
+
+  // If the event already has a google_event_id, this is a re-sync (e.g. user confirmed twice
+  // or page reload re-triggered). Don't create a duplicate in Google — PATCH the existing one.
+  const existingGoogleId = eventRow.google_event_id as string | null | undefined
+  const existingGoogleCalendarId = eventRow.google_calendar_id as string | null | undefined
 
   // Refresh access token — we always refresh since we only store the token hash, not the token itself
   let accessToken: string
@@ -125,10 +137,29 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     return NextResponse.json({ ok: true, synced: false, reason: 'token_refresh_error' })
   }
 
+  // Build ISO datetimes: prefer start_at/end_at, fall back to date + hour fields
+  let startAt: string
+  let endAt: string
+  if (eventRow.start_at && eventRow.end_at) {
+    startAt = String(eventRow.start_at)
+    endAt = String(eventRow.end_at)
+  } else {
+    const date = String(eventRow.date ?? '')
+    const hour = Number(eventRow.start_hour ?? 10)
+    const minute = Number(eventRow.start_minute ?? 0)
+    const duration = Number(eventRow.duration ?? 60)
+    const start = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+02:00`)
+    const end = new Date(start.getTime() + duration * 60_000)
+    startAt = start.toISOString()
+    endAt = end.toISOString()
+  }
+
+  if (!startAt || !endAt) {
+    return NextResponse.json({ ok: true, synced: false, reason: 'missing_event_times' })
+  }
+
   // Build Google Calendar event payload
-  const calendarId = (gcConn.calendar_id as string | null) || 'primary'
-  const startAt = String(eventRow.start_at ?? '')
-  const endAt = String(eventRow.end_at ?? '')
+  const calendarId = existingGoogleCalendarId || (gcConn.calendar_id as string | null) || 'primary'
   const gcalPayload = {
     summary: String(eventRow.title ?? ''),
     description: String(eventRow.description ?? eventRow.notes ?? ''),
@@ -137,24 +168,45 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     end: { dateTime: endAt, timeZone: 'Europe/Madrid' },
   }
 
-  // Insert into Google Calendar
+  // POST creates a new Google event. PATCH updates an existing one (idempotent re-sync).
+  // This prevents duplicates when the same NowCRM event is synced more than once.
+  const isUpdate = Boolean(existingGoogleId)
+  const gcalUrl = isUpdate
+    ? `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingGoogleId!)}`
+    : `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`
+
   let googleEventId: string
   try {
-    const gcalRes = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(gcalPayload),
-      }
-    )
+    const gcalRes = await fetch(gcalUrl, {
+      method: isUpdate ? 'PATCH' : 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(gcalPayload),
+    })
     const gcalData = await gcalRes.json() as { id?: string; error?: { message?: string } }
-    if (!gcalRes.ok || !gcalData.id) {
+    // If PATCH on a deleted/missing event fails with 404/410, retry as POST so we recover gracefully.
+    if (isUpdate && (gcalRes.status === 404 || gcalRes.status === 410)) {
+      console.warn('[sync-event] Existing Google event missing, falling back to POST')
+      const retryRes = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(gcalPayload),
+        }
+      )
+      const retryData = await retryRes.json() as { id?: string; error?: { message?: string } }
+      if (!retryRes.ok || !retryData.id) {
+        console.error('[sync-event] POST retry failed:', retryData.error?.message)
+        return NextResponse.json({ ok: true, synced: false, reason: 'google_api_error' })
+      }
+      googleEventId = retryData.id
+    } else if (!gcalRes.ok || !gcalData.id) {
       const msg = gcalData.error?.message ?? gcalRes.statusText
-      console.error('[sync-event] Google Calendar insert failed:', msg)
+      console.error(`[sync-event] Google Calendar ${isUpdate ? 'PATCH' : 'POST'} failed:`, msg)
       return NextResponse.json({ ok: true, synced: false, reason: 'google_api_error' })
+    } else {
+      googleEventId = gcalData.id
     }
-    googleEventId = gcalData.id
   } catch (err) {
     console.error('[sync-event] Google Calendar fetch error:', err instanceof Error ? err.message : err)
     return NextResponse.json({ ok: true, synced: false, reason: 'google_fetch_error' })

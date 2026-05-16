@@ -1,4 +1,4 @@
-// Server-side CRM tools for the /api/assistant/chat route.
+// Server-side CRM tools for assistant API routes.
 // Each tool accepts a Supabase server client (anon key) + workspaceId.
 // Never uses getSupabaseBrowserClient — that's browser-only.
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -47,7 +47,7 @@ export async function toolCrmOverview(supabase: SupabaseClient, workspaceId: str
   const [clients, invoices, events, tasks] = await Promise.all([
     supabase.from('clients').select('status, lead_score').eq('workspace_id', workspaceId),
     supabase.from('invoices').select('status, amount').eq('workspace_id', workspaceId),
-    supabase.from('calendar_events').select('date').eq('workspace_id', workspaceId).gte('date', today).limit(20),
+    supabase.from('calendar_events').select('date').eq('workspace_id', workspaceId).neq('status', 'cancelled').gte('date', today).limit(20),
     supabase.from('tasks').select('status').eq('workspace_id', workspaceId).eq('status', 'pending').limit(50),
   ])
 
@@ -158,7 +158,7 @@ export async function toolGetClientContext(
   const name = String(clientRow.name)
   const [invoices, events] = await Promise.all([
     supabase.from('invoices').select('amount, status, due_date, plan').eq('workspace_id', workspaceId).eq('client_name', name).order('created_at', { ascending: false }).limit(5),
-    supabase.from('calendar_events').select('title, date, start_hour').eq('workspace_id', workspaceId).eq('client_name', name).order('date', { ascending: false }).limit(3),
+    supabase.from('calendar_events').select('title, date, start_hour').eq('workspace_id', workspaceId).eq('client_name', name).neq('status', 'cancelled').order('date', { ascending: false }).limit(3),
   ])
 
   const lines = [fmtClient(clientRow)]
@@ -304,7 +304,7 @@ export async function toolOverdueInvoices(supabase: SupabaseClient, workspaceId:
 export async function toolUpcomingEvents(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
   const today = new Date().toISOString().slice(0, 10)
   const { data } = await supabase
-    .from('calendar_events').select('*').eq('workspace_id', workspaceId)
+    .from('calendar_events').select('*').eq('workspace_id', workspaceId).neq('status', 'cancelled')
     .gte('date', today).order('date', { ascending: true }).order('start_hour', { ascending: true }).limit(10)
 
   const rows = data ?? []
@@ -400,7 +400,7 @@ export async function toolRecommendedActions(supabase: SupabaseClient, workspace
   const [overdueRes, pendingRes, eventsRes, hotRes] = await Promise.all([
     supabase.from('invoices').select('client_name, amount').eq('workspace_id', workspaceId).eq('status', 'overdue').limit(5),
     supabase.from('invoices').select('client_name, amount').eq('workspace_id', workspaceId).eq('status', 'pending').limit(10),
-    supabase.from('calendar_events').select('title, date, client_name').eq('workspace_id', workspaceId).gte('date', today).order('date').limit(3),
+    supabase.from('calendar_events').select('title, date, client_name').eq('workspace_id', workspaceId).neq('status', 'cancelled').gte('date', today).order('date').limit(3),
     supabase.from('clients').select('name, lead_score').eq('workspace_id', workspaceId).in('status', ['lead', 'active']).gte('lead_score', 70).order('lead_score', { ascending: false }).limit(3),
   ])
 

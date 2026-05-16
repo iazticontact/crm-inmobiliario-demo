@@ -876,6 +876,7 @@ export function mapSupabaseCalendarEvent(row: DataRecord): CalendarEvent {
     googleCalendarId: asString(row.google_calendar_id) || undefined,
     syncSource: asString(row.sync_source) || undefined,
     lastSyncedAt: asString(row.last_synced_at) || undefined,
+    isReadOnly: row.is_read_only === true,
   }
 }
 
@@ -910,6 +911,7 @@ export async function getCalendarEvents(workspaceId: string) {
     .from('calendar_events')
     .select('*')
     .eq('workspace_id', workspaceId)
+    .neq('status', 'cancelled')
     .order('start_at', { ascending: true })
 
   if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'start_at')) {
@@ -917,6 +919,7 @@ export async function getCalendarEvents(workspaceId: string) {
       .from('calendar_events')
       .select('*')
       .eq('workspace_id', workspaceId)
+      .neq('status', 'cancelled')
       .order('date', { ascending: true })
   }
 
@@ -1230,6 +1233,7 @@ export async function getUpcomingCalendarEvents(workspaceId: string) {
     .from('calendar_events')
     .select('*')
     .eq('workspace_id', workspaceId)
+    .neq('status', 'cancelled')
     .gte('start_at', nowIso)
     .order('start_at', { ascending: true })
     .limit(20)
@@ -1240,6 +1244,7 @@ export async function getUpcomingCalendarEvents(workspaceId: string) {
       .from('calendar_events')
       .select('*')
       .eq('workspace_id', workspaceId)
+      .neq('status', 'cancelled')
       .gte('date', today)
       .order('date', { ascending: true })
       .limit(20)
@@ -1347,6 +1352,46 @@ export async function deleteCalendarEvent(id: string, workspaceId?: string) {
   if (workspaceId) query = query.eq('workspace_id', workspaceId)
   const { error } = await query
   if (error) throw error
+}
+
+// Cancels a calendar event by setting status='cancelled'.
+// Verifies that at least 1 row was affected. Falls back to hard delete if status column doesn't exist.
+// Throws if 0 rows affected after both attempts — never silently reports success on a no-op.
+export async function cancelCalendarEvent(id: string, workspaceId?: string): Promise<void> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no esta configurado')
+
+  // Attempt 1: UPDATE status='cancelled', using .select('id') to count affected rows
+  let uq = supabase.from('calendar_events').update({ status: 'cancelled' }).eq('id', id)
+  if (workspaceId) uq = uq.eq('workspace_id', workspaceId)
+  const { data: updData, error: updError } = await uq.select('id')
+
+  if (!updError && updData && updData.length > 0) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[cancelCalendarEvent] update ok', { id, rowsAffected: updData.length, operation: 'update' })
+    }
+    return
+  }
+
+  // Attempt 2: DELETE — fallback when status column doesn't exist or update matched 0 rows
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[cancelCalendarEvent] update insufficient, trying delete', {
+      id, updateError: updError?.message ?? null, updateRows: updData?.length ?? 0,
+    })
+  }
+  let dq = supabase.from('calendar_events').delete().eq('id', id)
+  if (workspaceId) dq = dq.eq('workspace_id', workspaceId)
+  const { data: delData, error: delError } = await dq.select('id')
+
+  if (delError) throw delError
+
+  const deleted = delData?.length ?? 0
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[cancelCalendarEvent] delete result', { id, rowsAffected: deleted, operation: 'delete', success: deleted > 0 })
+  }
+  if (deleted === 0) {
+    throw new Error(`No se pudo cancelar el evento ${id}: no se encontró en la base de datos (0 filas afectadas).`)
+  }
 }
 
 export function mapSupabaseConversation(row: DataRecord): Conversation {

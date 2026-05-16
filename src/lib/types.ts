@@ -104,6 +104,7 @@ export type CalendarEvent = {
   googleCalendarId?: string
   syncSource?: string
   lastSyncedAt?: string
+  isReadOnly?: boolean
 }
 
 export type Invoice = {
@@ -238,6 +239,18 @@ export type GoogleCalendarConnectionConfig = {
   lastSyncAt?: string
   tokenStatus?: 'valid' | 'expired' | 'missing'
   updatedAt?: string
+  selectedCalendarIds?: string[]
+  calendarMetadata?: Record<string, { summary?: string; accessRole?: string; backgroundColor?: string; primary?: boolean }>
+}
+
+export type GoogleCalendarListItem = {
+  id: string
+  summary: string
+  primary: boolean
+  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader' | string
+  backgroundColor?: string
+  foregroundColor?: string
+  selected: boolean
 }
 
 // ─── Automation catalog (richer type for n8n-ready automations) ───────────────

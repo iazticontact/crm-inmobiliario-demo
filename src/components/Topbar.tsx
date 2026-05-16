@@ -30,7 +30,7 @@ const mockNotifications = [
 export function Topbar() {
   const pathname = usePathname()
   const page = pageLabels[pathname] ?? { title: 'NowCRM', description: '' }
-  const { currentUser } = useCurrentUser()
+  const { currentUser, isLoading } = useCurrentUser()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -65,9 +65,10 @@ export function Topbar() {
     return () => clearTimeout(t)
   }, [query, runSearch])
 
-  const unreadCount = mockNotifications.filter((n) => n.unread && !readNotifs.has(n.id)).length
+  const visibleNotifications = !isLoading && currentUser.isDemo ? mockNotifications : []
+  const unreadCount = visibleNotifications.filter((n) => n.unread && !readNotifs.has(n.id)).length
 
-  const markAllRead = () => setReadNotifs(new Set(mockNotifications.map((n) => n.id)))
+  const markAllRead = () => setReadNotifs(new Set(visibleNotifications.map((n) => n.id)))
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/88 px-6 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl">
@@ -148,7 +149,7 @@ export function Topbar() {
                 </div>
               </div>
               <ul>
-                {mockNotifications.map((n) => {
+                {visibleNotifications.map((n) => {
                   const isRead = readNotifs.has(n.id)
                   return (
                     <li
@@ -165,6 +166,11 @@ export function Topbar() {
                     </li>
                   )
                 })}
+                {visibleNotifications.length === 0 && (
+                  <li className="px-4 py-6 text-center text-xs text-gray-400">
+                    Sin notificaciones nuevas
+                  </li>
+                )}
               </ul>
               <div className="border-t border-gray-100 px-4 py-2.5 text-center">
                 <button onClick={() => { setNotifOpen(false); toast.info('Centro de notificaciones próximamente') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
@@ -183,14 +189,18 @@ export function Topbar() {
           <HelpCircle className="h-4 w-4" />
         </button>
 
-        <Link
-          href="/settings"
-          aria-label="Abrir ajustes de usuario"
-          className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
-          title={`${currentUser.name} · ${currentUser.trialLabel}`}
-        >
-          {currentUser.initials}
-        </Link>
+        {isLoading ? (
+          <div className="ml-1 h-8 w-8 shrink-0 animate-pulse rounded-full bg-indigo-200/60 ring-2 ring-indigo-100" />
+        ) : (
+          <Link
+            href="/settings"
+            aria-label="Abrir ajustes de usuario"
+            className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
+            title={`${currentUser.name} · ${currentUser.trialLabel}`}
+          >
+            {currentUser.initials}
+          </Link>
+        )}
       </div>
     </header>
   )

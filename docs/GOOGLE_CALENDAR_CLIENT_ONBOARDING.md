@@ -73,6 +73,24 @@ Esto lo hace **cada cliente** desde su panel de NowCRM. No requiere conocimiento
 | "Google no concedió permiso permanente" | Google no devolvió un token de larga duración | Ir a myaccount.google.com → Seguridad → Apps con acceso → Revocar NowCRM → Volver a autorizar |
 | "Tu sesión expiró durante la autorización" | La sesión de NowCRM caducó mientras estabas en Google | Cerrar sesión, volver a entrar e intentarlo de nuevo |
 | "Error al guardar la conexión" | Problema técnico en el servidor | Contactar con el equipo técnico de NowCRM |
+| **"Acceso bloqueado: NowCRM no ha completado el proceso de verificación de Google" / Error 403: access_denied** | La app OAuth está en modo **Testing** y el email probador no está añadido como usuario de prueba | Ver sección siguiente |
+
+### Error 403: access_denied — App en modo Testing
+
+Esto ocurre cuando la app OAuth de Google está en modo **Testing** (pendiente de verificación) y el email con el que se intenta autorizar no está en la lista de testers.
+
+**Cómo resolverlo (equipo técnico, Google Cloud Console):**
+
+1. Ir a [Google Cloud Console](https://console.cloud.google.com/)
+2. Seleccionar el proyecto de NowCRM
+3. Ir a **APIs & Services → OAuth consent screen** (o **Google Auth Platform → Audience**)
+4. En la sección **Test users**, pulsar **Add users**
+5. Añadir el email del probador (por ejemplo: `odunabeitia14@gmail.com`, `oier.dunabeitia@opendeusto.es`)
+6. Guardar
+
+El usuario podrá autorizar inmediatamente después sin necesidad de que la app esté verificada.
+
+**Nota:** En producción con usuarios reales, la app debe pasar la verificación de Google. Esto se gestiona desde la misma pantalla de OAuth consent screen pulsando "Publish app" o enviando la solicitud de verificación.
 
 ### El cliente nunca debe
 
