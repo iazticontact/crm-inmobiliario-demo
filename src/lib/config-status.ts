@@ -20,6 +20,8 @@ export type MetaConfigStatus =
   | 'pending_webhook_secret'
   | 'misconfigured'
 
+export type InstagramConfigStatus = 'ready' | 'pending_config' | 'disabled'
+
 export type OpenAiConfigStatus = 'ready' | 'pending_openai_key' | 'disabled'
 
 export type N8nConfigStatus = 'ready' | 'pending_config' | 'disabled'
@@ -37,6 +39,14 @@ export type ConfigSnapshot = {
     graphVersion: string
     status: MetaConfigStatus
     missingVariables: string[]
+  }
+  instagram: {
+    hasAccessToken: boolean
+    hasAppSecret: boolean
+    hasWebhookVerifyToken: boolean
+    status: InstagramConfigStatus
+    missingVariables: string[]
+    note: string
   }
   openai: {
     hasApiKey: boolean
@@ -90,6 +100,22 @@ function getMetaStatus(): { status: MetaConfigStatus; missing: string[] } {
   return { status: 'misconfigured', missing }
 }
 
+function getInstagramStatus(): { status: InstagramConfigStatus; missing: string[]; note: string } {
+  // Instagram Messaging API piggybacks on the Meta Graph API: it uses the
+  // same App Secret and the same access-token mechanism, plus an Instagram
+  // Business Account ID linked to a Facebook Page. We surface its readiness
+  // separately so the UI can show it as its own channel without misleading
+  // anyone into thinking WhatsApp readiness implies Instagram readiness.
+  const missing: string[] = []
+  if (!has('INSTAGRAM_ACCESS_TOKEN') && !has('META_WHATSAPP_ACCESS_TOKEN')) missing.push('INSTAGRAM_ACCESS_TOKEN')
+  if (!has('META_APP_SECRET')) missing.push('META_APP_SECRET')
+  if (!has('INSTAGRAM_WEBHOOK_VERIFY_TOKEN') && !has('META_WEBHOOK_VERIFY_TOKEN')) missing.push('INSTAGRAM_WEBHOOK_VERIFY_TOKEN')
+
+  const note = 'Instagram Messaging se conectará vía Meta. Requiere una cuenta profesional vinculada a una Página de Facebook y permisos instagram_basic + instagram_manage_messages.'
+  if (missing.length === 0) return { status: 'ready', missing, note }
+  return { status: 'pending_config', missing, note }
+}
+
 function getOpenAiStatus(): { status: OpenAiConfigStatus; missing: string[] } {
   if (has('OPENAI_API_KEY')) return { status: 'ready', missing: [] }
   return { status: 'pending_openai_key', missing: ['OPENAI_API_KEY'] }
@@ -134,6 +160,7 @@ function getGoogleStatus(): { status: GoogleConfigStatus; missing: string[] } {
 
 export function getConfigSnapshot(): ConfigSnapshot {
   const meta = getMetaStatus()
+  const instagram = getInstagramStatus()
   const openai = getOpenAiStatus()
   const n8n = getN8nStatus()
   const supabase = getSupabaseStatus()
@@ -151,6 +178,14 @@ export function getConfigSnapshot(): ConfigSnapshot {
       graphVersion: process.env.META_GRAPH_VERSION?.trim() || 'v21.0',
       status: meta.status,
       missingVariables: meta.missing,
+    },
+    instagram: {
+      hasAccessToken: has('INSTAGRAM_ACCESS_TOKEN') || has('META_WHATSAPP_ACCESS_TOKEN'),
+      hasAppSecret: has('META_APP_SECRET'),
+      hasWebhookVerifyToken: has('INSTAGRAM_WEBHOOK_VERIFY_TOKEN') || has('META_WEBHOOK_VERIFY_TOKEN'),
+      status: instagram.status,
+      missingVariables: instagram.missing,
+      note: instagram.note,
     },
     openai: {
       hasApiKey: has('OPENAI_API_KEY'),

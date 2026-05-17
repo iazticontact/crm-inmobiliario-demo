@@ -130,7 +130,10 @@ export default function DashboardPage() {
     return dashboardMetrics.map((metric) => {
       if (metric.label === 'Clientes activos') return { ...metric, value: String(realStats.total), changeLabel: 'clientes reales' }
       if (metric.label === 'Ingresos del mes') return { ...metric, value: `€${Math.round(realStats.revenue).toLocaleString('es-ES')}`, changeLabel: 'facturación real' }
-      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.conversations}`, label: 'Conversaciones', changeLabel: 'persistentes' }
+      // Renombrado: el conteo incluye conversaciones reales + internas (Copilot
+      // y Assistant), por eso lo llamamos "Interacciones" en vez de
+      // "Conversaciones" para no insinuar que son todas con clientes.
+      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.conversations}`, label: 'Interacciones', changeLabel: 'inbox + copilot' }
       if (metric.label === 'Emails enviados') return { ...metric, value: String(realStats.events), label: 'Eventos próximos', changeLabel: 'calendario real' }
       return metric
     })
@@ -204,13 +207,26 @@ export default function DashboardPage() {
           {realStats && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[
-                { label: 'NowLabs AI activo', pending: false },
-                { label: 'Calendario interno activo', pending: false },
-                { label: 'Google Calendar · pendiente OAuth', pending: true },
-                { label: 'WhatsApp · pendiente verificacion', pending: true },
-                { label: 'n8n · pendiente configurar', pending: true },
-              ].map(({ label, pending }) => (
-                <span key={label} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', pending ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-indigo-100 bg-indigo-50 text-indigo-700')}>{label}</span>
+                { label: 'NowLabs AI', state: 'ready' },
+                { label: 'Inbox omnicanal', state: 'ready' },
+                { label: 'Calendar interno', state: 'ready' },
+                { label: 'Google Calendar', state: 'pending', detail: 'pendiente OAuth' },
+                { label: 'WhatsApp Meta', state: 'pending', detail: 'pendiente claves' },
+                { label: 'Instagram', state: 'pending', detail: 'proxima integracion' },
+                { label: 'n8n', state: 'pending', detail: 'pendiente VPS' },
+              ].map(({ label, state, detail }) => (
+                <span
+                  key={label}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                    state === 'ready'
+                      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                      : 'border-amber-100 bg-amber-50 text-amber-700',
+                  )}
+                >
+                  <span>{label}</span>
+                  {detail && <span className="text-[9px] font-normal opacity-80">· {detail}</span>}
+                </span>
               ))}
             </div>
           )}

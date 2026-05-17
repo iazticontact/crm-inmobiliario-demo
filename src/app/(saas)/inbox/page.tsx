@@ -25,6 +25,18 @@ import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
+import {
+  classifyConversation,
+  classifyMessageOrigin,
+  getConversationDisplay,
+  CHANNEL_DESCRIPTORS,
+  SOURCE_PILL,
+  INBOX_TABS,
+  tabMatches,
+  type ChannelType,
+  type SourceType,
+  type InboxTab,
+} from '@/lib/inbox-classify'
 
 type ConversationRow = {
   id: string
@@ -118,14 +130,6 @@ const SENTIMENT_TONE: Record<string, string> = {
   urgent: 'text-amber-700 bg-amber-50 border-amber-100',
 }
 
-const CHANNEL_LABEL: Record<string, string> = {
-  whatsapp: 'WhatsApp',
-  email: 'Email',
-  web: 'Web',
-  instagram: 'Instagram',
-  crm: 'CRM',
-}
-
 function formatTime(value: string) {
   try {
     const d = new Date(value)
@@ -157,7 +161,7 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
-  const [channelFilter, setChannelFilter] = useState<string>('all')
+  const [activeTab, setActiveTab] = useState<InboxTab>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const [conversation, setConversation] = useState<ConversationRow | null>(null)
@@ -183,7 +187,6 @@ export default function InboxPage() {
     try {
       const params = new URLSearchParams()
       if (statusFilter !== 'all') params.set('status', statusFilter)
-      if (channelFilter !== 'all') params.set('channel', channelFilter)
       params.set('limit', '60')
 
       const res = await fetch(`/api/inbox/conversations?${params.toString()}`)
@@ -200,7 +203,7 @@ export default function InboxPage() {
     } finally {
       setLoadingList(false)
     }
-  }, [statusFilter, channelFilter])
+  }, [statusFilter])
 
   useEffect(() => {
     queueMicrotask(() => { void loadConversations() })
@@ -224,15 +227,57 @@ export default function InboxPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Auto-select first conversation when list loads
+  // Decorate every conversation with its channel + source lanes so we can
+  // filter the list and render the right badge without re-deriving it.
+  const decoratedConversations = useMemo(() => {
+    return conversations.map((c) => {
+      const classification = classifyConversation(c.channel, c.metadata)
+      const meta = (c.metadata ?? {}) as Record<string, unknown>
+      const display = getConversationDisplay({
+        clientName: c.client_name,
+        clientId: c.client_id,
+        phoneFromMetadata: typeof meta.phone === 'string' ? meta.phone : null,
+        channelType: classification.channelType,
+      })
+      return { conv: c, classification, display }
+    })
+  }, [conversations])
+
+  const tabCounts = useMemo(() => {
+    const out: Record<InboxTab, number> = { all: 0, whatsapp: 0, instagram: 0, web: 0, internal: 0 }
+    for (const { classification } of decoratedConversations) {
+      for (const tab of INBOX_TABS) {
+        if (tabMatches(tab.key, classification)) out[tab.key] += 1
+      }
+    }
+    return out
+  }, [decoratedConversations])
+
+  const filteredConversations = useMemo(() => {
+    return decoratedConversations
+      .filter(({ classification }) => tabMatches(activeTab, classification))
+      .map(({ conv, classification, display }) => ({
+        ...conv,
+        _channel: classification.channelType,
+        _source: classification.sourceType,
+        _display: display,
+      }))
+  }, [decoratedConversations, activeTab])
+
+  // Auto-select first conversation in the current tab. If the user changes the
+  // tab away from where the selected conversation lives, fall back to the first
+  // one in the new tab (or clear the selection).
   useEffect(() => {
-    const needsAutoSelect = (!selectedId && conversations.length > 0)
-      || (selectedId && conversations.length > 0 && !conversations.find((c) => c.id === selectedId))
-    if (needsAutoSelect) {
-      const first = conversations[0]?.id ?? null
+    if (filteredConversations.length === 0) {
+      if (selectedId) queueMicrotask(() => setSelectedId(null))
+      return
+    }
+    const stillVisible = selectedId && filteredConversations.find((c) => c.id === selectedId)
+    if (!stillVisible) {
+      const first = filteredConversations[0]?.id ?? null
       queueMicrotask(() => setSelectedId(first))
     }
-  }, [conversations, selectedId])
+  }, [filteredConversations, selectedId])
 
   // Load conversation detail
   const loadDetail = useCallback(async (id: string) => {
@@ -385,12 +430,6 @@ export default function InboxPage() {
     }
   }
 
-  const channels = useMemo(() => {
-    const set = new Set<string>(['whatsapp', 'email', 'web', 'instagram', 'crm'])
-    conversations.forEach((c) => c.channel && set.add(c.channel.toLowerCase()))
-    return Array.from(set)
-  }, [conversations])
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -422,10 +461,11 @@ export default function InboxPage() {
         <div className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="font-semibold">WhatsApp Meta pendiente de configuración en el servidor.</p>
+            <p className="font-semibold">WhatsApp Meta pendiente de configuración.</p>
             <p className="mt-0.5 text-indigo-700">
-              Faltan variables: <code className="rounded bg-white px-1 text-[10px]">{config.meta.missingVariables.join(', ') || '—'}</code>.
-              Hasta entonces el composer guardará los mensajes como borrador en NowCRM, sin enviarlos a WhatsApp.
+              Faltan variables en el servidor: <code className="rounded bg-white px-1 text-[10px]">{config.meta.missingVariables.join(', ') || '—'}</code>.
+              Además, Meta requiere una URL pública HTTPS para el webhook (Vercel, ngrok o cloudflared).
+              Hasta entonces los envíos manuales se guardarán como borrador.
             </p>
           </div>
         </div>
@@ -443,9 +483,35 @@ export default function InboxPage() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px,1fr,320px]">
-        {/* LEFT — conversations list */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[320px,1fr,300px]">
+        {/* LEFT — channel tabs + conversations list */}
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="shrink-0 border-b border-gray-100 px-2 pt-2">
+            <div className="flex items-center gap-0.5" role="tablist" aria-label="Canal">
+              {INBOX_TABS.map((tab) => {
+                const active = activeTab === tab.key
+                const count = tabCounts[tab.key]
+                return (
+                  <button
+                    key={tab.key}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveTab(tab.key)}
+                    title={tab.description}
+                    className={cn(
+                      'flex flex-1 items-center justify-center gap-1 rounded-t-md border-b-2 px-1.5 py-1.5 text-[11px] font-semibold transition-colors',
+                      active
+                        ? 'border-indigo-600 text-indigo-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-700',
+                    )}
+                  >
+                    {tab.label}
+                    <span className={cn('rounded-full px-1.5 text-[10px]', active ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500')}>{count}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
           <div className="flex shrink-0 items-center gap-2 border-b border-gray-100 px-3 py-2">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
             <select
@@ -453,60 +519,81 @@ export default function InboxPage() {
               onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
               className="h-7 rounded-md border border-gray-200 bg-white px-2 text-xs"
             >
-              <option value="all">Todas</option>
+              <option value="all">Todos los estados</option>
               <option value="open">Abiertas</option>
               <option value="pending">Pendientes</option>
               <option value="resolved">Resueltas</option>
               <option value="archived">Archivadas</option>
             </select>
-            <select
-              value={channelFilter}
-              onChange={(e) => setChannelFilter(e.target.value)}
-              className="h-7 rounded-md border border-gray-200 bg-white px-2 text-xs"
-            >
-              <option value="all">Canales</option>
-              {channels.map((c) => (
-                <option key={c} value={c}>{CHANNEL_LABEL[c] || c}</option>
-              ))}
-            </select>
+            <span className="ml-auto text-[10px] text-gray-400">{filteredConversations.length} conv.</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {loadingList ? (
               <div className="flex h-full items-center justify-center text-xs text-gray-400">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
               </div>
-            ) : conversations.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <EmptyState
                 icon={<Inbox className="h-6 w-6 text-gray-300" />}
-                title="Todavía no hay conversaciones"
+                title={
+                  activeTab === 'whatsapp'  ? 'Aún no hay mensajes reales de WhatsApp'
+                  : activeTab === 'instagram' ? 'Instagram preparado, pendiente de conectar'
+                  : activeTab === 'web'      ? 'Sin conversaciones del chat web'
+                  : activeTab === 'internal' ? 'Sin consultas internas recientes'
+                  : 'Aún no hay conversaciones externas'
+                }
                 description={
-                  config && config.meta.status !== 'ready'
-                    ? 'Configura WhatsApp Meta en Settings y en el servidor (.env / Vercel). Cuando entre el primer mensaje real aparecerá aquí.'
-                    : 'Cuando entre un mensaje desde WhatsApp, lo verás aquí.'
+                  activeTab === 'whatsapp'
+                    ? (config && config.meta.status !== 'ready'
+                        ? 'Configura Meta Cloud API en el servidor y registra el webhook público (Vercel o cloudflared) para empezar a recibir mensajes reales aquí.'
+                        : 'Conecta tu número Meta y registra el webhook público para recibir mensajes reales aquí.')
+                    : activeTab === 'instagram'
+                      ? 'Instagram Messaging se conectará vía Meta. Necesitas una cuenta profesional vinculada a una Página de Facebook. Te avisaremos cuando esté disponible.'
+                      : activeTab === 'web'
+                        ? 'Cuando un visitante envíe un mensaje desde el chat web, lo verás aquí.'
+                        : activeTab === 'internal'
+                          ? 'Las consultas internas con NowLabs Copilot y el Assistant aparecerán aquí.'
+                          : 'Cuando entre un mensaje desde WhatsApp, Instagram, web o email, lo verás aquí.'
                 }
               />
             ) : (
               <ul className="divide-y divide-gray-100">
-                {conversations.map((c) => {
+                {filteredConversations.map((c) => {
                   const active = c.id === selectedId
-                  const channelLabel = CHANNEL_LABEL[c.channel?.toLowerCase()] || c.channel
+                  const channelDesc = CHANNEL_DESCRIPTORS[c._channel as ChannelType]
+                  const sourcePill = SOURCE_PILL[c._source as SourceType]
                   return (
                     <li key={c.id}>
                       <button
                         onClick={() => setSelectedId(c.id)}
                         className={cn(
                           'flex w-full flex-col items-start gap-1 border-l-2 px-3 py-2.5 text-left transition-colors',
-                          active ? 'border-indigo-500 bg-indigo-50/50' : 'border-transparent hover:bg-gray-50',
+                          active ? 'border-indigo-500 bg-indigo-50/60' : 'border-transparent hover:bg-gray-50',
                         )}
                       >
                         <div className="flex w-full items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-gray-900">
-                            {c.client_name || 'Sin cliente'}
+                            {c._display.title}
                           </span>
                           <span className="shrink-0 text-[10px] text-gray-400">{formatTime(c.updated_at)}</span>
                         </div>
-                        <div className="flex w-full items-center gap-1.5 text-[10px] text-gray-500">
-                          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 font-medium text-gray-600">{channelLabel}</span>
+                        {c._display.subtitle && (
+                          <p className="-mt-0.5 line-clamp-1 text-[10px] text-gray-400">{c._display.subtitle}</p>
+                        )}
+                        <div className="flex w-full flex-wrap items-center gap-1 text-[10px]">
+                          <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', channelDesc.tone)}>
+                            {channelDesc.shortLabel}
+                          </span>
+                          {c._source !== 'real' && c._source !== 'internal' && (
+                            <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', sourcePill.tone)}>
+                              {sourcePill.label}
+                            </span>
+                          )}
+                          {c._display.unlinked && (
+                            <span className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 font-medium text-gray-500">
+                              Sin vincular
+                            </span>
+                          )}
                           {c.sentiment && c.sentiment !== 'neutral' && (
                             <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', SENTIMENT_TONE[c.sentiment] || 'border-gray-100 bg-gray-50 text-gray-500')}>
                               {SENTIMENT_LABEL[c.sentiment] || c.sentiment}
@@ -553,18 +640,45 @@ export default function InboxPage() {
             <>
               <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-sm font-semibold text-gray-900">{conversation.client_name || 'Sin cliente'}</h2>
-                    <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                      {CHANNEL_LABEL[conversation.channel?.toLowerCase()] || conversation.channel}
-                    </span>
-                    {conversation.sentiment && conversation.sentiment !== 'neutral' && (
-                      <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-medium', SENTIMENT_TONE[conversation.sentiment])}>
-                        {SENTIMENT_LABEL[conversation.sentiment]}
-                      </span>
-                    )}
-                  </div>
-                  {conversation.ai_summary && <p className="line-clamp-1 text-[11px] text-gray-500">{conversation.ai_summary}</p>}
+                  {(() => {
+                    const classification = classifyConversation(conversation.channel, conversation.metadata)
+                    const meta = (conversation.metadata ?? {}) as Record<string, unknown>
+                    const display = getConversationDisplay({
+                      clientName: conversation.client_name,
+                      clientId: conversation.client_id,
+                      phoneFromMetadata: typeof meta.phone === 'string' ? meta.phone : null,
+                      channelType: classification.channelType,
+                    })
+                    const channelDesc = CHANNEL_DESCRIPTORS[classification.channelType]
+                    const sourcePill = SOURCE_PILL[classification.sourceType]
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="truncate text-sm font-semibold text-gray-900">{display.title}</h2>
+                          <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-semibold', channelDesc.tone)}>
+                            {channelDesc.label}
+                          </span>
+                          {classification.sourceType !== 'real' && classification.sourceType !== 'internal' && (
+                            <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-medium', sourcePill.tone)}>
+                              {sourcePill.label}
+                            </span>
+                          )}
+                          {display.unlinked && (
+                            <span className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+                              Sin vincular
+                            </span>
+                          )}
+                          {conversation.sentiment && conversation.sentiment !== 'neutral' && (
+                            <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-medium', SENTIMENT_TONE[conversation.sentiment])}>
+                              {SENTIMENT_LABEL[conversation.sentiment]}
+                            </span>
+                          )}
+                        </div>
+                        {display.subtitle && <p className="mt-0.5 text-[11px] text-gray-400">{display.subtitle}</p>}
+                        {conversation.ai_summary && <p className="mt-0.5 line-clamp-1 text-[11px] text-gray-500">{conversation.ai_summary}</p>}
+                      </>
+                    )
+                  })()}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <select
@@ -596,8 +710,9 @@ export default function InboxPage() {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {messages.map((m) => {
-                      const fromClient = m.sender === 'client'
+                      const origin = classifyMessageOrigin(m.metadata ?? null, m.sender)
                       const fromAi = m.is_ai || m.sender === 'ai'
+                      const fromClient = m.sender === 'client'
                       const metadata = m.metadata ?? undefined
                       const sendStatus = !fromClient ? metadata?.send_status : undefined
                       const sendStatusLabel: Record<string, string> = {
@@ -607,28 +722,53 @@ export default function InboxPage() {
                         pending_config: 'Pendiente config',
                       }
                       const sendStatusTone: Record<string, string> = {
-                        sent: 'bg-emerald-100/30 text-emerald-50',
-                        failed: 'bg-rose-200/30 text-rose-50',
-                        draft: 'bg-white/20 text-white/90',
-                        pending_config: 'bg-amber-200/30 text-amber-50',
+                        sent: 'bg-emerald-500/20 text-white',
+                        failed: 'bg-rose-400/40 text-white',
+                        draft: 'bg-white/25 text-white',
+                        pending_config: 'bg-amber-400/40 text-white',
                       }
+
+                      // System note (CRM/Copilot/Assistant). Rendered centered with
+                      // a subtle pill — never as a chat bubble. This keeps the
+                      // Inbox honest: a Copilot note never looks like a customer
+                      // WhatsApp message.
+                      if (origin === 'system_note') {
+                        return (
+                          <div key={m.id} className="flex justify-center">
+                            <div className="max-w-[72%] rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-center text-[11px] leading-snug text-slate-600">
+                              <span className="font-semibold text-slate-500">NowLabs · </span>
+                              <span className="whitespace-pre-wrap">{m.body}</span>
+                              <span className="ml-2 text-[10px] text-slate-400">{formatDateTime(m.created_at)}</span>
+                            </div>
+                          </div>
+                        )
+                      }
+
                       return (
                         <div key={m.id} className={cn('flex', fromClient ? 'justify-start' : 'justify-end')}>
                           <div
                             className={cn(
-                              'max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                              'max-w-[66%] rounded-2xl px-3 py-2 text-sm shadow-sm',
                               fromClient
-                                ? 'bg-white text-gray-900 border border-gray-100 rounded-bl-md'
+                                ? 'rounded-bl-md border border-gray-100 bg-white text-gray-900'
                                 : fromAi
-                                ? 'bg-violet-50 text-violet-900 border border-violet-100 rounded-br-md'
-                                : 'bg-indigo-600 text-white rounded-br-md',
+                                  ? 'rounded-br-md border border-violet-100 bg-violet-50 text-violet-900'
+                                  : 'rounded-br-md bg-indigo-600 text-white',
                             )}
                           >
-                            <p className="whitespace-pre-wrap leading-snug">{m.body}</p>
-                            <div className={cn('mt-1 flex items-center justify-end gap-1 text-[10px]', fromClient ? 'text-gray-400' : fromAi ? 'text-violet-700/70' : 'text-indigo-100/80')}>
+                            <p className="whitespace-pre-wrap break-words leading-snug">{m.body}</p>
+                            <div className={cn(
+                              'mt-1 flex items-center justify-end gap-1 text-[10px]',
+                              fromClient ? 'text-gray-400' : fromAi ? 'text-violet-700/70' : 'text-indigo-100/80',
+                            )}>
                               {fromAi && <Sparkles className="h-2.5 w-2.5" />}
                               {sendStatus && sendStatusLabel[sendStatus] && (
-                                <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-medium', sendStatusTone[sendStatus] ?? 'bg-white/20 text-white/90')}>
+                                <span className={cn(
+                                  'rounded-full px-1.5 py-0.5 text-[9px] font-medium',
+                                  fromAi || fromClient
+                                    ? 'bg-gray-100 text-gray-600'
+                                    : sendStatusTone[sendStatus] ?? 'bg-white/20 text-white/90',
+                                )}>
                                   {sendStatusLabel[sendStatus]}
                                 </span>
                               )}

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Bell, Search, HelpCircle, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
+import { Bell, BellOff, Search, HelpCircle, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -71,7 +71,7 @@ export function Topbar() {
   const markAllRead = () => setReadNotifs(new Set(visibleNotifications.map((n) => n.id)))
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/88 px-6 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl">
+    <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/88 px-6 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl">
       <div>
         <h1 className="text-base font-semibold text-gray-950">{page.title}</h1>
         {page.description && <p className="text-xs text-gray-400">{page.description}</p>}
@@ -134,9 +134,18 @@ export function Topbar() {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-gray-100 bg-white shadow-xl z-50 overflow-hidden">
+            <div
+              role="dialog"
+              aria-label="Notificaciones"
+              className="absolute right-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-1.5rem))] origin-top-right overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl shadow-gray-950/10 ring-1 ring-black/[0.04]"
+            >
               <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                <span className="text-sm font-semibold text-gray-900">Notificaciones</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-900">Notificaciones</span>
+                  {unreadCount > 0 && (
+                    <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">{unreadCount}</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {unreadCount > 0 && (
                     <button onClick={markAllRead} className="text-[10px] font-medium text-indigo-600 hover:text-indigo-700">
@@ -148,31 +157,37 @@ export function Topbar() {
                   </button>
                 </div>
               </div>
-              <ul>
+              <ul className="max-h-[60vh] overflow-y-auto">
                 {visibleNotifications.map((n) => {
                   const isRead = readNotifs.has(n.id)
                   return (
                     <li
                       key={n.id}
                       onClick={() => setReadNotifs((prev) => new Set([...prev, n.id]))}
-                      className={cn('flex items-start gap-3 px-4 py-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors', !isRead && 'bg-indigo-50/30')}
+                      className={cn('flex items-start gap-3 border-b border-gray-50 px-4 py-3 last:border-0 cursor-pointer transition-colors hover:bg-gray-50', !isRead && 'bg-indigo-50/30')}
                     >
                       <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${n.bg}`}>{n.icon}</div>
-                      <div className="flex-1 min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className={cn('text-xs font-medium text-gray-900', !isRead && 'font-semibold')}>{n.title}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{n.desc}</p>
+                        <p className="mt-0.5 text-[10px] text-gray-400">{n.desc}</p>
                       </div>
                       {!isRead && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />}
                     </li>
                   )
                 })}
                 {visibleNotifications.length === 0 && (
-                  <li className="px-4 py-6 text-center text-xs text-gray-400">
-                    Sin notificaciones nuevas
+                  <li className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                      <BellOff className="h-4 w-4" />
+                    </div>
+                    <p className="text-xs font-medium text-gray-600">Sin notificaciones nuevas</p>
+                    <p className="text-[10px] leading-snug text-gray-400">
+                      Te avisaremos aquí cuando NowCRM detecte leads, facturas vencidas o conversaciones urgentes.
+                    </p>
                   </li>
                 )}
               </ul>
-              <div className="border-t border-gray-100 px-4 py-2.5 text-center">
+              <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-2.5 text-center">
                 <button onClick={() => { setNotifOpen(false); toast.info('Centro de notificaciones próximamente') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
                   Ver todas las notificaciones
                 </button>

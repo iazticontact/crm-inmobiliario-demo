@@ -43,16 +43,24 @@ Decisión sanitizada                            ← UI muestra borrador; humano 
 - `GET` → responde el `hub.challenge` si `hub.verify_token === META_WEBHOOK_VERIFY_TOKEN`.
 - `POST` → verifica `X-Hub-Signature-256` con HMAC-SHA256(`META_APP_SECRET`).
   En `NODE_ENV=production` SIN `META_APP_SECRET` devuelve 503.
-- Extrae text/contact/phone_number_id y reenvía a `/api/inbox/whatsapp/inbound`.
+- Persiste cada mensaje **server-side llamando directamente a `processInboundWhatsAppMessage`**
+  desde `src/lib/whatsapp-inbound.ts`. No hay `fetch` interno, no se depende de
+  `NEXT_PUBLIC_APP_URL`. Tipos soportados: texto, imagen, audio, video, documento,
+  sticker, ubicación, contactos, botones y reacciones (los no-texto se guardan
+  como placeholder en español tipo `[nota de voz]`, `[imagen] caption…`).
+- `value.statuses` (delivered/read) se cuenta pero todavía no patchea el outbound.
 
-### 2. Inbound handler (NowCRM core)
+### 2. Inbound handler (HTTP bridge para simulador/legacy)
 
 **Ruta:** `src/app/api/inbox/whatsapp/inbound/route.ts`
 
-- Usa `service_role` para resolver workspace por `phone_number_id` o `phone_number`.
-- Crea/reutiliza `conversation` y `message`.
-- Empuja `activity` si schema lo permite.
-- Actualiza `whatsapp_connections.last_webhook_at`.
+- Existe para el simulador de Settings y como puente HTTP server-to-server con
+  un secreto interno (`NOWCRM_WEBHOOK_SECRET`). El webhook de Meta NO lo usa
+  (llama al helper directamente).
+- Comparte exactamente la misma lógica que el webhook gracias al helper
+  `processInboundWhatsAppMessage`: dedupe por `externalMessageId`, link por
+  teléfono al cliente, escritura de `metadata` en el mensaje y conversación.
+- Actualiza `whatsapp_connections.last_webhook_at` en cada inbound real.
 - **Nunca** auto-responde.
 
 ### 3. Inbox UI
@@ -60,9 +68,21 @@ Decisión sanitizada                            ← UI muestra borrador; humano 
 **Página:** `src/app/(saas)/inbox/page.tsx`
 
 - 3 columnas: lista / chat / panel cliente.
-- Filtros: status (open/pending/resolved/archived) y canal.
+- **Tabs primarios (source lanes)** — el filtro principal de la lista. Los
+  define el helper `src/lib/inbox-classify.ts`:
+  - **WhatsApp** (default) → `metadata.source='meta_cloud_api'`. Solo mensajes
+    realmente recibidos desde Meta Cloud API.
+  - **Demo** → simulador interno, `metadata.test=true`, source `demo` o
+    `settings_simulator`, o cualquier WhatsApp histórico sin marcador.
+  - **CRM** → conversaciones con NowLabs Copilot/Assistant (channel `crm`,
+    `assistant_mode=copilot` o source `assistant_*`).
+  - **Todas** → todo el workspace, sin filtrar por lane.
+- Filtros secundarios: status (open/pending/resolved/archived) y canal.
 - Composer con dos botones: **Enviar** (intenta Meta) y **Borrador** (solo guarda local).
 - Botones IA: Sugerir respuesta, Resumir, Clasificar intención, Detectar sentimiento, Análisis completo.
+- Mensajes con `metadata.source` interno (Copilot/Assistant) se renderizan
+  centrados como *system note*, no como burbuja de WhatsApp, para que nunca se
+  confundan con un mensaje real del cliente.
 
 ### 4. Inbox API
 
@@ -164,10 +184,27 @@ NOWLABS_MODEL                         # opcional override
 9. Cambiar status a "Resuelta" desde el dropdown → se persiste.
 10. Cambiar canal en filtro → solo aparecen conversaciones de ese canal.
 
+## Reparto de responsabilidades con n8n
+
+- **NowLabs WhatsApp Agent** (este módulo) es el **cerebro** del Inbox: resume,
+  clasifica, sugiere y prepara borradores. Vive dentro de NowCRM y habla con
+  OpenAI server-side.
+- **n8n** es solo el **brazo externo** de automatización: recordatorios,
+  follow-ups, resumen diario, avisos por email, integraciones externas. n8n
+  NUNCA decide la respuesta a un cliente y NUNCA llama a OpenAI por NowCRM.
+- El cliente de NowCRM pulsa "Enviar" o "Borrador". El agente nunca envía solo,
+  salvo que `inbox_agent_settings.auto_reply_enabled = true` AND `enabled = true`
+  AND Meta verificado, que es opt-in por workspace y se debería activar solo
+  después de validación manual durante al menos una semana.
+
 ## Riesgos restantes
 
 - **Refresh tokens Meta** (long-lived system user tokens): no se rotan automáticamente. Documentar en operations.
 - **Sin tests automatizados** del agente. Las respuestas dependen de OpenAI.
-- **Multimedia**: solo se procesan mensajes `type:'text'`. Audio/image/document llegan pero se ignoran.
+- **Multimedia**: texto, imagen, audio, video, documento, sticker, ubicación,
+  contactos, botones y reacciones se persisten con placeholder. El operador ve
+  que llegó algo, pero NowCRM todavía no descarga el contenido binario.
 - **Rate limit Meta**: el agente no implementa backoff exponencial; la UI muestra `rate_limited` al usuario.
 - **Auto-reply**: requiere validación manual antes de cualquier campaña real.
+- **Status updates (delivered/read)**: el webhook los cuenta pero no actualiza
+  todavía `metadata.send_status` de la fila outbound. Mejora futura.

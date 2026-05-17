@@ -1382,6 +1382,9 @@ export default function SettingsPage() {
                   <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook de NowCRM</p>
                   <p className="mb-2 text-[11px] leading-5 text-emerald-700">
                     Copia esta URL y pegala en Meta Developers → Configuracion del webhook para que Meta envie los mensajes a NowCRM.
+                    {!process.env.NEXT_PUBLIC_APP_URL && (
+                      <> <strong>Atencion:</strong> Meta solo acepta HTTPS publica. En local arranca un tunel (ngrok / cloudflared) o sube a Vercel antes de registrarla.</>
+                    )}
                   </p>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] text-emerald-800 ring-1 ring-emerald-200">
@@ -1481,6 +1484,67 @@ export default function SettingsPage() {
                     <div key={step} className="flex items-start gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
                       <span className="text-xs leading-5 text-emerald-800">{step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Instagram Business"
+            description="Mensajes directos vía Instagram Messaging API. Próxima integración, no envía mensajes todavía."
+          >
+            <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+              <div>
+                <div className="mb-4 flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pink-50 ring-1 ring-pink-100">
+                    <Globe className="h-5 w-5 text-pink-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900">Instagram Business (Meta)</p>
+                      <Badge variant="warning" dot>Proxima integracion</Badge>
+                    </div>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Configuracion preparada en el Inbox y en config-status. Faltan claves y validacion de Meta para enviar mensajes reales.
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">
+                      Instagram Messaging usa Meta Graph API. Necesitas: una <strong>cuenta profesional de Instagram</strong> vinculada a una <strong>Pagina de Facebook</strong>, el <strong>Instagram Business Account ID</strong> y los permisos <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_basic</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_manage_messages</code> y <code className="rounded bg-gray-100 px-1 text-[10px]">pages_manage_metadata</code>.
+                    </p>
+                  </div>
+                </div>
+                <div className="mb-3 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-900">Variables de servidor (cuando proceda)</p>
+                    <p className="text-[11px] leading-5 text-slate-600">
+                      <code className="rounded bg-white px-1 text-[10px]">INSTAGRAM_ACCESS_TOKEN</code>,
+                      {' '}<code className="rounded bg-white px-1 text-[10px]">INSTAGRAM_WEBHOOK_VERIFY_TOKEN</code>,
+                      reuso de <code className="rounded bg-white px-1 text-[10px]">META_APP_SECRET</code>. Los tokens viven solo en servidor; no se introducen en este panel.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <p className="text-[11px] leading-5 text-amber-800">
+                    Esta integracion todavia no envia ni recibe mensajes reales de Instagram. El Inbox ya tiene una pestaña Instagram preparada para cuando se conecte.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-pink-100 bg-pink-50 p-4">
+                <p className="text-xs font-semibold text-pink-900">Pasos previos en Meta</p>
+                <div className="mt-3 space-y-2">
+                  {[
+                    'Cuenta profesional de Instagram',
+                    'Vincular a una Pagina de Facebook',
+                    'Anadir Instagram Messaging a tu Meta App',
+                    'Permisos instagram_basic + instagram_manage_messages',
+                    'Webhook publico HTTPS (Vercel / cloudflared)',
+                  ].map((step, i) => (
+                    <div key={step} className="flex items-start gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-pink-700">{i + 1}</span>
+                      <span className="text-xs leading-5 text-pink-800">{step}</span>
                     </div>
                   ))}
                 </div>
