@@ -186,6 +186,15 @@ FROM public.google_calendar_connections;
 
 ---
 
+## Notas de hardening (rev. 2026-05)
+
+- **cancel-event acepta 410 Gone**: si el evento ya no existe en Google (borrado por el dueño desde fuera), NowCRM marca local como cancelado y devuelve `ok:true, synced:true`. Antes fallaba con `google_api_error`.
+- **Eventos read-only bloqueados**: cancel-event y update-event devuelven `ok:true, synced:false, reason:'read_only_event'` si `calendar_events.is_read_only=true`. NowLabs AI también los rechaza con mensaje claro.
+- **Calendar UI**: muestra badge "Solo lectura" + icono Lock; inputs deshabilitados.
+- **Razones nuevas que puede devolver cancel-event**: `read_only_event`, `no_google_event_id`, `not_connected`, `credentials_not_configured`, `token_refresh_failed`, `google_api_error`, `google_fetch_error`. Solo `google_api_error` y `google_fetch_error` indican un problema real.
+
+---
+
 # Checklist interno — Operador NowCRM: WhatsApp Business
 
 ---

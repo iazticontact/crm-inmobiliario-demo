@@ -942,7 +942,7 @@ async function runTool(
         else { dateFrom = dateArg; dateTo = dateArg }
       }
 
-      const cols = 'id, title, date, start_hour, start_minute, duration, client_id, client_name, status, description, notes'
+      const cols = 'id, title, date, start_hour, start_minute, duration, client_id, client_name, status, description, notes, is_read_only'
 
       const buildQuery = (withDateFilter: boolean, withClientFilter: boolean) => {
         let q = supabase
@@ -981,7 +981,8 @@ async function runTool(
           : rawDate
         const client = e.client_name ? `${String(e.client_name)} — ` : ''
         const service = (e.description || e.notes) ? ` — ${String(e.description ?? e.notes ?? '').slice(0, 40)}` : ''
-        return `${i + 1}. [ID:${String(e.id)}] ${client}${dateHuman} — ${h}:${m}${dur}${service}`
+        const readOnly = e.is_read_only === true ? ' · [solo lectura]' : ''
+        return `${i + 1}. [ID:${String(e.id)}] ${client}${dateHuman} — ${h}:${m}${dur}${service}${readOnly}`
       }).join('\n')
 
       const note = usedFallback ? ' (sin filtro de fecha)' : ''
@@ -1056,6 +1057,21 @@ async function runTool(
       const duration = typeof args.duration === 'number' ? args.duration : 60
       const title = args.title as string | undefined
 
+      if (eventId && isValidUuid(eventId)) {
+        const { data: row } = await supabase
+          .from('calendar_events')
+          .select('is_read_only')
+          .eq('workspace_id', workspaceId)
+          .eq('id', eventId)
+          .maybeSingle()
+        if ((row as { is_read_only?: boolean } | null)?.is_read_only === true) {
+          return {
+            text: 'Esa cita viene de un calendario de Google de solo lectura. La tengo en cuenta para disponibilidad, pero no puedo moverla desde NowCRM. Cámbiala directamente en Google Calendar.',
+            data: { blocked: 'read_only_event', eventId },
+          }
+        }
+      }
+
       const missingFields: string[] = []
       if (!eventId) missingFields.push('id del evento')
       if (!newDate) missingFields.push('nueva fecha')
@@ -1091,6 +1107,21 @@ async function runTool(
       const title = args.title as string | undefined
       const reason = args.reason as string | undefined
 
+      if (eventId && isValidUuid(eventId)) {
+        const { data: row } = await supabase
+          .from('calendar_events')
+          .select('is_read_only')
+          .eq('workspace_id', workspaceId)
+          .eq('id', eventId)
+          .maybeSingle()
+        if ((row as { is_read_only?: boolean } | null)?.is_read_only === true) {
+          return {
+            text: 'Esa cita viene de un calendario de Google de solo lectura. No puedo cancelarla desde NowCRM, tienes que hacerlo desde Google Calendar. La sigo teniendo en cuenta para tu disponibilidad.',
+            data: { blocked: 'read_only_event', eventId },
+          }
+        }
+      }
+
       const missingFields: string[] = []
       if (!eventId) missingFields.push('id del evento (usa search_calendar_events primero)')
 
@@ -1124,11 +1155,22 @@ async function runTool(
 
       const { data: rows } = await supabase
         .from('calendar_events')
-        .select('id, title, date, start_hour, start_minute, duration, client_name')
+        .select('id, title, date, start_hour, start_minute, duration, client_name, is_read_only')
         .eq('workspace_id', workspaceId)
         .in('id', eventIds)
 
-      const eventRows = (rows ?? []) as Row[]
+      const allRows = (rows ?? []) as Row[]
+      const readOnlyRows = allRows.filter((r) => r.is_read_only === true)
+      const eventRows = allRows.filter((r) => r.is_read_only !== true)
+      const cancellableIds = eventIds.filter((id) => eventRows.some((r) => String(r.id) === id))
+
+      if (!cancellableIds.length) {
+        const skippedNames = readOnlyRows.map((r) => String(r.client_name ?? r.title ?? 'cita')).join(', ')
+        return {
+          text: `Todas esas citas vienen de calendarios de Google de solo lectura${skippedNames ? ` (${skippedNames})` : ''}. No puedo cancelarlas desde NowCRM. Bórralas desde Google Calendar.`,
+          data: { blocked: 'all_read_only', skipped: readOnlyRows.length },
+        }
+      }
 
       const buildEventItem = (id: string): CancelEventItem => {
         const row = eventRows.find((r) => String(r.id) === id)
@@ -1147,7 +1189,7 @@ async function runTool(
         }
       }
 
-      const events = eventIds.map(buildEventItem)
+      const events = cancellableIds.map(buildEventItem)
       const action: PreparedActionDraft = { type: 'cancel_multiple_bookings', events, reason, missingFields: [] }
 
       const listText = events.map((e, i) => {
@@ -1155,8 +1197,12 @@ async function runTool(
         return `${i + 1}. ${parts || `Cita ${i + 1}`}`
       }).join('\n')
 
+      const skippedNote = readOnlyRows.length
+        ? `\n\nNo incluyo ${readOnlyRows.length} cita(s) de calendarios de Google de solo lectura — cámbialas desde Google.`
+        : ''
+
       return {
-        text: `📅 Cancelación múltiple preparada (${events.length} cita(s)):\n${listText}\nConfirma para cancelarlas todas definitivamente.`,
+        text: `📅 Cancelación múltiple preparada (${events.length} cita(s)):\n${listText}${skippedNote}\nConfirma para cancelarlas todas definitivamente.`,
         data: action,
         preparedAction: action,
         referencedList: eventRows,
@@ -1176,14 +1222,29 @@ async function runTool(
 
       const { data: rows } = await supabase
         .from('calendar_events')
-        .select('id, title, date, start_hour, start_minute, duration, client_name, created_at')
+        .select('id, title, date, start_hour, start_minute, duration, client_name, created_at, is_read_only')
         .eq('workspace_id', workspaceId)
         .in('id', eventIds)
         .order('created_at', { ascending: true })
 
-      const eventRows = (rows ?? []) as Row[]
-      const keepId = keepEventId ?? String(eventRows[0]?.id ?? eventIds[0])
-      const cancelIds = eventIds.filter((id) => id !== keepId)
+      const rawRows = (rows ?? []) as Row[]
+      const readOnlySkipped = rawRows.filter((r) => r.is_read_only === true).length
+      const eventRows = rawRows.filter((r) => r.is_read_only !== true)
+      const writableIds = eventIds.filter((id) => eventRows.some((r) => String(r.id) === id))
+
+      if (writableIds.length < 2) {
+        return {
+          text: readOnlySkipped
+            ? `Solo encuentro ${writableIds.length} cita(s) editable(s); el resto son de calendarios de solo lectura. No puedo limpiar duplicados así.`
+            : 'No encuentro al menos 2 citas editables para limpiar duplicados. Usa search_calendar_events de nuevo.',
+          data: { blocked: 'not_enough_writable_events', writable: writableIds.length, readOnlySkipped },
+        }
+      }
+
+      const keepId = keepEventId && writableIds.includes(keepEventId)
+        ? keepEventId
+        : String(eventRows[0]?.id ?? writableIds[0])
+      const cancelIds = writableIds.filter((id) => id !== keepId)
 
       const buildItem = (id: string): CancelEventItem => {
         const row = eventRows.find((r) => String(r.id) === id)
@@ -1202,7 +1263,7 @@ async function runTool(
         }
       }
 
-      const events = eventIds.map(buildItem)
+      const events = writableIds.map(buildItem)
       const keepRow = eventRows.find((r) => String(r.id) === keepId)
       const keepDisplay = [
         keepRow?.client_name ? String(keepRow.client_name) : null,

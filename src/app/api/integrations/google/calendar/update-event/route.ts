@@ -57,12 +57,16 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
   // Fetch local event with all fields needed to rebuild the Google event
   const { data: eventRow } = await supabase
     .from('calendar_events')
-    .select('title, start_at, end_at, date, start_hour, start_minute, duration, description, notes, location, google_event_id, google_calendar_id')
+    .select('title, start_at, end_at, date, start_hour, start_minute, duration, description, notes, location, google_event_id, google_calendar_id, is_read_only')
     .eq('id', localEventId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
   if (!eventRow) return NextResponse.json({ ok: false, error: 'Evento no encontrado' }, { status: 404 })
+
+  if (eventRow.is_read_only === true) {
+    return NextResponse.json({ ok: true, synced: false, reason: 'read_only_event' })
+  }
 
   const googleEventId = eventRow.google_event_id as string | null | undefined
   if (!googleEventId) return NextResponse.json({ ok: true, synced: false, reason: 'no_google_event_id' })

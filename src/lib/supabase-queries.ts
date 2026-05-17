@@ -1857,31 +1857,45 @@ export async function saveGeneratedDocument(workspaceId: string, payload: Docume
   return { uploaded, doc }
 }
 
+function requiresFromRow(row: DataRecord): N8nRequirement[] {
+  const legacy = asRequirements(row.requires ?? row.requirements)
+  if (legacy.length) return legacy
+  const out: N8nRequirement[] = []
+  if (row.requires_supabase === true) out.push('Supabase')
+  if (row.requires_whatsapp === true) out.push('WhatsApp/API')
+  if (row.requires_payment_api === true) out.push('Payment/API')
+  if (!out.length) out.push('n8n')
+  return out
+}
+
 export function mapSupabaseN8nFlow(row: DataRecord): N8nFlow {
-  const event = asString(row.event ?? row.event_type ?? row.name, 'custom_flow')
+  const event = asString(row.trigger_event ?? row.event ?? row.event_type ?? row.name, 'custom_flow')
   return {
     id: asString(row.id, event),
     event,
-    label: asString(row.label ?? row.name, event),
+    label: asString(row.name ?? row.label, event),
     description: asString(row.description, 'Flujo preparado para n8n.'),
-    trigger: asString(row.trigger, 'Evento NowCRM'),
+    trigger: asString(row.trigger_event ?? row.trigger, 'Evento NowCRM'),
     webhookUrl: asString(row.webhook_url ?? row.endpoint ?? row.url),
     status: normalizeN8nFlowStatus(row.status ?? (row.enabled === true ? 'active' : undefined)),
-    requires: asRequirements(row.requires ?? row.requirements),
+    requires: requiresFromRow(row),
     updatedAt: asString(row.updated_at ?? row.created_at) || undefined,
   }
 }
 
 function toN8nFlowRow(workspaceId: string, payload: N8nFlowPayload): DataRecord {
+  const requires = payload.requires || ['Supabase', 'n8n']
+  const name = payload.label || payload.event
   return {
     workspace_id: workspaceId,
-    event: payload.event,
-    label: payload.label || payload.event,
+    name,
+    trigger_event: payload.event,
     description: payload.description || null,
-    trigger: payload.trigger || null,
     webhook_url: payload.webhookUrl || null,
     status: normalizeN8nFlowStatus(payload.status),
-    requires: payload.requires || ['Supabase', 'n8n'],
+    requires_supabase: requires.includes('Supabase'),
+    requires_whatsapp: requires.includes('WhatsApp/API'),
+    requires_payment_api: requires.includes('Payment/API') || requires.includes('Billing/API'),
   }
 }
 
@@ -1907,14 +1921,14 @@ export async function upsertN8nFlow(workspaceId: string, payload: N8nFlowPayload
     .from('n8n_flows')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .eq('event', payload.event)
+    .eq('trigger_event', payload.event)
     .maybeSingle()
 
   const row = toN8nFlowRow(workspaceId, payload)
 
   if (existing.data) {
     delete row.workspace_id
-    delete row.event
+    delete row.trigger_event
     const { data, error } = await supabase
       .from('n8n_flows')
       .update(row)
@@ -1941,12 +1955,15 @@ export async function updateN8nFlow(id: string, payload: Partial<N8nFlowPayload>
   if (!supabase) throw new Error('Supabase no esta configurado')
 
   const row: DataRecord = {
-    label: payload.label,
+    name: payload.label,
     description: payload.description,
-    trigger: payload.trigger,
     webhook_url: payload.webhookUrl,
     status: payload.status ? normalizeN8nFlowStatus(payload.status) : undefined,
-    requires: payload.requires,
+  }
+  if (payload.requires) {
+    row.requires_supabase = payload.requires.includes('Supabase')
+    row.requires_whatsapp = payload.requires.includes('WhatsApp/API')
+    row.requires_payment_api = payload.requires.includes('Payment/API') || payload.requires.includes('Billing/API')
   }
   Object.keys(row).forEach((key) => {
     if (row[key] === undefined) delete row[key]
@@ -1972,27 +1989,30 @@ export async function seedN8nFlows(workspaceId: string, payloads: N8nFlowPayload
 }
 
 export function mapSupabaseIntegrationSetting(row: DataRecord): IntegrationSetting {
-  const key = asString(row.key ?? row.provider ?? row.slug ?? row.name, 'integration')
+  const config = asRecord(row.config)
+  const key = asString(row.provider ?? row.key ?? row.slug ?? row.name ?? config.key, 'integration')
   return {
     id: asString(row.id, key),
     key,
     name: asString(row.name ?? row.label, key),
-    description: asString(row.description, 'Integracion preparada para la fase real.'),
+    description: asString(row.description ?? config.description, 'Integracion preparada para la fase real.'),
     status: normalizeIntegrationStatus(row.status),
-    category: asString(row.category, 'Sistema'),
-    info: asString(row.info ?? row.public_label) || undefined,
+    category: asString(row.category ?? config.category, 'Sistema'),
+    info: asString(row.info ?? config.info ?? row.public_label) || undefined,
   }
 }
 
 function toIntegrationRow(workspaceId: string, payload: IntegrationPayload): DataRecord {
   return {
     workspace_id: workspaceId,
-    key: payload.key,
+    provider: payload.key,
     name: payload.name,
-    description: payload.description || null,
     status: normalizeIntegrationStatus(payload.status),
-    category: payload.category || 'Sistema',
-    info: payload.info || null,
+    config: {
+      description: payload.description || null,
+      category: payload.category || 'Sistema',
+      info: payload.info || null,
+    },
   }
 }
 
@@ -2016,7 +2036,7 @@ export async function getWhatsappConnection(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('whatsapp_connections')
-    .select('id, workspace_id, provider, phone_number, phone_number_id, whatsapp_business_account_id, meta_business_id, status, webhook_url, last_webhook_at, created_at, updated_at')
+    .select('id, workspace_id, provider, phone_number, phone_number_id, whatsapp_business_account_id, meta_business_id, connection_status, webhook_url, last_webhook_at, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -2033,7 +2053,7 @@ export async function getInboxAgentSettings(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('inbox_agent_settings')
-    .select('id, workspace_id, auto_reply_enabled, status, created_at, updated_at')
+    .select('id, workspace_id, enabled, mode, agent_name, auto_reply_enabled, handoff_enabled, business_context, tone, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -2123,7 +2143,7 @@ export async function upsertWhatsappConnection(workspaceId: string, payload: Wha
     phone_number_id: payload.phoneNumberId ?? null,
     whatsapp_business_account_id: payload.whatsappBusinessAccountId ?? null,
     meta_business_id: payload.metaBusinessId ?? null,
-    status: payload.status ?? 'pending',
+    connection_status: payload.status ?? 'pending',
     webhook_url: payload.webhookUrl ?? null,
     sync_enabled: payload.syncEnabled ?? false,
     updated_at: new Date().toISOString(),
@@ -2161,7 +2181,7 @@ export async function disconnectWhatsapp(workspaceId: string) {
 
   const { error } = await supabase
     .from('whatsapp_connections')
-    .update({ status: 'disconnected', sync_enabled: false, updated_at: new Date().toISOString() })
+    .update({ connection_status: 'disconnected', sync_enabled: false, updated_at: new Date().toISOString() })
     .eq('workspace_id', workspaceId)
 
   if (error && !isSchemaError(error)) throw error
@@ -2175,7 +2195,7 @@ export async function upsertInboxAgentSettings(workspaceId: string, payload: Inb
     workspace_id: workspaceId,
     auto_reply_enabled: payload.autoReplyEnabled ?? false,
     mode: payload.mode ?? 'manual',
-    status: payload.status ?? 'active',
+    enabled: payload.status ? payload.status === 'active' : true,
     updated_at: new Date().toISOString(),
   })
 
@@ -2291,14 +2311,14 @@ export async function upsertIntegrationSetting(workspaceId: string, payload: Int
     .from('integrations')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .eq('key', payload.key)
+    .eq('provider', payload.key)
     .maybeSingle()
 
   const row = toIntegrationRow(workspaceId, payload)
 
   if (existing.data) {
     delete row.workspace_id
-    delete row.key
+    delete row.provider
     const { data, error } = await supabase
       .from('integrations')
       .update(row)
@@ -2326,10 +2346,14 @@ export async function updateIntegrationSetting(id: string, payload: Partial<Inte
 
   const row: DataRecord = {
     name: payload.name,
-    description: payload.description,
     status: payload.status ? normalizeIntegrationStatus(payload.status) : undefined,
-    category: payload.category,
-    info: payload.info,
+  }
+  if (payload.description !== undefined || payload.category !== undefined || payload.info !== undefined) {
+    row.config = {
+      description: payload.description ?? null,
+      category: payload.category ?? 'Sistema',
+      info: payload.info ?? null,
+    }
   }
   Object.keys(row).forEach((key) => {
     if (row[key] === undefined) delete row[key]

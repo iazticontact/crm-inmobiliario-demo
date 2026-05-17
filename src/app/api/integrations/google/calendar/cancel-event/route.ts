@@ -57,10 +57,14 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
   // Fetch the local event to get google_event_id
   const { data: eventRow } = await supabase
     .from('calendar_events')
-    .select('google_event_id, google_calendar_id')
+    .select('google_event_id, google_calendar_id, is_read_only')
     .eq('id', localEventId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
+
+  if (eventRow?.is_read_only === true) {
+    return NextResponse.json({ ok: true, synced: false, reason: 'read_only_event' })
+  }
 
   const googleEventId = eventRow?.google_event_id as string | null | undefined
   if (!googleEventId) return NextResponse.json({ ok: true, synced: false, reason: 'no_google_event_id' })
@@ -105,8 +109,8 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
       { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } },
     )
-    // 204 = success, 404 = already deleted — both are acceptable
-    if (!gcalRes.ok && gcalRes.status !== 404) {
+    // 204 = success, 404 = already deleted, 410 = gone — all acceptable
+    if (!gcalRes.ok && gcalRes.status !== 404 && gcalRes.status !== 410) {
       console.error('[cancel-event] Google DELETE failed:', gcalRes.status)
       return NextResponse.json({ ok: true, synced: false, reason: 'google_api_error' })
     }

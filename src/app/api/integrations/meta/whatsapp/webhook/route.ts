@@ -137,10 +137,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const xHubSignature = request.headers.get('x-hub-signature-256')
   const appSecret = process.env.META_APP_SECRET?.trim()
+  const isProduction = process.env.NODE_ENV === 'production'
+
+  if (!appSecret && isProduction) {
+    console.error('[meta/webhook] META_APP_SECRET missing in production — refusing webhook POST')
+    return NextResponse.json({ error: 'Webhook signing not configured' }, { status: 503 })
+  }
 
   if (appSecret && !xHubSignature) {
     console.warn('[meta/webhook] Missing X-Hub-Signature-256 header')
     return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
+  }
+
+  if (!appSecret && !isProduction) {
+    console.warn('[meta/webhook] META_APP_SECRET not set — accepting unsigned POST (dev/local only)')
   }
 
   let rawBody = ''

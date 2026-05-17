@@ -31,6 +31,21 @@ type RouteResponseExtra = {
   activity_created?: boolean
   http_status?: number
   allowed_events?: readonly string[]
+  execution_id?: string
+  duration_ms?: number
+}
+
+// Whitelist a small set of safe fields from n8n response.
+// NEVER return the raw response — it can leak headers, full payload, secrets, downstream tokens.
+function sanitizeN8nResponse(value: unknown): { executionId?: string; messagePreview?: string } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const executionRaw = record.executionId ?? record.execution_id ?? record.id
+  const messageRaw = record.message ?? record.status_text ?? record.statusText
+  const out: { executionId?: string; messagePreview?: string } = {}
+  if (typeof executionRaw === 'string' && executionRaw.length < 128) out.executionId = executionRaw
+  if (typeof messageRaw === 'string' && messageRaw.length < 256) out.messagePreview = messageRaw.slice(0, 240)
+  return Object.keys(out).length ? out : undefined
 }
 
 function json(status: N8nTriggerStatus, message: string, init?: ResponseInit, extra?: RouteResponseExtra) {
@@ -168,6 +183,7 @@ export async function POST(request: Request) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (process.env.N8N_WEBHOOK_SECRET) headers['x-nowcrm-secret'] = process.env.N8N_WEBHOOK_SECRET
 
+  const startedAt = Date.now()
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -176,20 +192,24 @@ export async function POST(request: Request) {
       signal: controller.signal,
     })
     clearTimeout(timeout)
+    const durationMs = Date.now() - startedAt
 
-    const n8nResponse = await readN8nResponse(response)
-    const suggestedResponse = extractSuggestedResponse(n8nResponse)
+    const n8nResponseRaw = await readN8nResponse(response)
+    const suggestedResponse = extractSuggestedResponse(n8nResponseRaw)
+    const sanitized = sanitizeN8nResponse(n8nResponseRaw)
 
     return json(response.ok ? 'ok' : 'error', response.ok ? `Webhook "${eventType}" enviado a n8n.` : 'n8n respondio con error.', { status: response.ok ? 200 : 502 }, {
       event_type: eventType,
       mode: 'real',
       http_status: response.status,
-      n8n_response: n8nResponse,
+      n8n_response: sanitized,
       suggested_response: suggestedResponse,
+      execution_id: sanitized?.executionId,
+      duration_ms: durationMs,
       activity_created: false,
     })
   } catch {
     clearTimeout(timeout)
-    return json('error', 'No se pudo contactar con el endpoint n8n.', { status: 502 }, { event_type: eventType, mode: 'real' })
+    return json('error', 'No se pudo contactar con el endpoint n8n.', { status: 502 }, { event_type: eventType, mode: 'real', duration_ms: Date.now() - startedAt })
   }
 }

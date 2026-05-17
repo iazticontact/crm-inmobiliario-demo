@@ -142,3 +142,71 @@
 - Configurar variables en proveedor.
 - Configurar URLs de callback/reset en Supabase.
 - Activar Confirm email ON cuando exista dominio + Resend.
+
+---
+
+## Hardening checks (fase final 2026-05)
+
+Estos checks cubren los fixes del último hardening. **Ejecutarlos antes de cualquier demo o deploy.**
+
+### Google Calendar — read-only y 410 Gone
+
+- [ ] Conectar Google Calendar con cuenta que tenga al menos un calendario **compartido en solo lectura** (e.g. festivos de España).
+- [ ] Importar y verificar que aparece con badge "Solo lectura" en `/calendar`.
+- [ ] Abrir un evento read-only: el modal lo abre como "Ver evento", inputs deshabilitados, botón Guardar oculto.
+- [ ] Intentar borrar un evento read-only desde el botón Trash: debe mostrar toast informativo, no borrar.
+- [ ] Desde NowLabs AI: `cancela esa cita de los festivos` → debe responder algo como "viene de un calendario de solo lectura...".
+- [ ] Desde NowLabs AI: `muévela a otra hora` sobre un evento read-only → mismo bloqueo claro.
+- [ ] Cancelar un evento **propio** desde NowLabs AI → confirmar que aparece como cancelado en NowCRM y en Google.
+- [ ] Cancelar dos veces el mismo evento (segunda vez ya está borrado en Google): debe responder `ok:true, synced:true` o `ok:true, synced:false, reason:'google_api_error'` solo si fue otro fallo. **No debe fallar con 5xx** por el 410 Gone.
+
+### NowLabs AI — bloqueos read-only
+
+- [ ] `search_calendar_events` devuelve `[solo lectura]` en la línea de eventos importados read-only.
+- [ ] `prepare_cancel_multiple_bookings` ejecutada sobre una lista mixta (read-only + escribibles): debe cancelar solo las escribibles y avisar `No incluyo N cita(s) de calendarios de Google de solo lectura`.
+- [ ] `prepare_cleanup_duplicates` ejecutada cuando hay <2 eventos escribibles: responde `Solo encuentro X cita(s) editable(s)...`.
+
+### n8n — sanitización de respuesta
+
+- [ ] Configurar un workflow real en n8n y disparar `/api/n8n/trigger` (real_mode).
+- [ ] Verificar respuesta JSON: contiene `ok`, `status`, `event_type`, `mode`, `http_status`, `duration_ms`, opcionalmente `execution_id`, `n8n_response: { executionId?, messagePreview? }`.
+- [ ] **Asegurar que NO** aparece: headers de n8n, payload completo de workflow, tokens, ni respuesta cruda.
+
+### n8n — schema real
+
+- [ ] Activar un flow desde `/settings` con `webhookUrl` real.
+- [ ] Verificar en Supabase Studio que el row de `n8n_flows` tiene columnas `name`, `trigger_event`, `requires_supabase`, `requires_whatsapp`, `requires_payment_api` populadas.
+- [ ] Modificar el toggle del flow desde `/automations`: no debe lanzar 500.
+
+### Integrations — provider y config
+
+- [ ] Cambiar el estado de cualquier integración desde `/settings`.
+- [ ] Verificar en Supabase Studio que el row de `integrations` tiene `provider` (no `key`) y `config` jsonb con `description/category/info`.
+
+### WhatsApp Meta — HMAC y production guard
+
+- [ ] `GET /api/integrations/meta/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=<correct>&hub.challenge=abc` → devuelve `abc` con status 200.
+- [ ] Mismo GET con token incorrecto → 403.
+- [ ] `POST` con `META_APP_SECRET` configurado y sin header `X-Hub-Signature-256` → 401.
+- [ ] `POST` con `META_APP_SECRET` configurado y header inválido → 401.
+- [ ] `POST` con firma válida → 200, mensaje encolado a `/api/inbox/whatsapp/inbound`.
+- [ ] **Producción** (`NODE_ENV=production`) sin `META_APP_SECRET` configurado → POST debe devolver **503** ("Webhook signing not configured"). En dev/local solo logguea warning.
+- [ ] `GET /api/integrations/meta/whatsapp/status` resuelve usando `connection_status` y devuelve estado coherente.
+
+### Inbox Agent Settings
+
+- [ ] Activar/desactivar auto-reply desde `/settings` → persiste tras recargar.
+- [ ] Verificar en Supabase Studio que el row de `inbox_agent_settings` tiene `enabled` y `auto_reply_enabled` (no `status`).
+
+### Service role GRANTs (Supabase)
+
+- [ ] `/api/debug/google-calendar-connection?probe=write` (sin conexión real existente) → `probe.ran:true` y todas las operaciones devuelven ok.
+- [ ] Disparar `/api/agent/tool` con `create_client` (si secret configurado) → no falla por `42501` permission denied.
+- [ ] `/api/inbox/whatsapp/inbound` con un payload de prueba → crea conversation+message en Supabase sin error de grant.
+
+### Build & lint
+
+- [ ] `npm run lint -- --max-warnings=0` ✅ sin warnings.
+- [ ] `npx tsc --noEmit` ✅ sin errores.
+- [ ] `npm run build` ✅ todas las páginas generadas.
+
