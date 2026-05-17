@@ -1,6 +1,25 @@
 # NowCRM / NowLabs AI — Production Readiness
 
-Estado de la rama `final-functional-polish` tras la fase de hardening final.
+Estado de la rama `final-functional-polish` tras el **cierre quirúrgico**
+(n8n trigger seguro, Meta webhook server-side, dedupe inbound, outbound
+persistido, config status integrado).
+
+## 0. Resumen ejecutivo — qué falta para producción
+
+| Ítem                                            | Estado | Quién |
+| ----------------------------------------------- | :----: | ----- |
+| Código de cierre WhatsApp/Inbox/Meta/n8n        | ✅     | hecho |
+| Lint / tsc / build verdes                       | ✅     | hecho |
+| Crear cuenta Meta Business real (no "Now AI")   | ⏳     | usuario |
+| Generar tokens Meta (`META_*`, `NOWCRM_*`)      | ⏳     | usuario |
+| Configurar variables en Vercel                  | ⏳     | usuario |
+| URL pública (Vercel domain o tunel para test)   | ⏳     | usuario |
+| Registrar webhook en Meta Developers            | ⏳     | usuario |
+| Probar primer mensaje real                      | ⏳     | usuario |
+| Auto-reply OFF                                  | ✅     | default |
+| Conexión n8n MCP                                | ❌     | fase posterior — no antes de probar todo lo anterior |
+
+**No hacer deploy hasta haber validado los 4 ítems con ⏳ contra Meta real.**
 
 ## 1. Variables de entorno requeridas (solo nombres)
 
@@ -16,10 +35,10 @@ GOOGLE_CLIENT_SECRET
 GOOGLE_REDIRECT_URI
 
 # Meta WhatsApp Cloud API
-META_WEBHOOK_VERIFY_TOKEN
-META_APP_SECRET                       # obligatorio en producción para HMAC
-META_WHATSAPP_PHONE_NUMBER_ID         # opcional, default por workspace
-META_WHATSAPP_ACCESS_TOKEN            # solo server-side
+META_WEBHOOK_VERIFY_TOKEN             # UUID generado por ti, registrado en Meta
+META_APP_SECRET                       # obligatorio en producción (HMAC X-Hub-Signature-256)
+META_WHATSAPP_ACCESS_TOKEN            # System User token (no temporal). Server-only.
+META_GRAPH_VERSION                    # opcional, default v21.0
 
 # n8n
 N8N_BASE_URL

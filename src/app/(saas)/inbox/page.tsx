@@ -43,6 +43,18 @@ type ConversationRow = {
   metadata: Record<string, unknown> | null
 }
 
+type MessageMetadata = {
+  mode?: string
+  send_status?: 'sent' | 'failed' | 'draft' | 'pending_config' | string
+  provider?: string
+  provider_message_id?: string
+  reason?: string
+  sent_at?: string
+  failed_at?: string
+  requested_at?: string
+  direction?: string
+} | null
+
 type MessageRow = {
   id: string
   conversation_id: string
@@ -50,6 +62,7 @@ type MessageRow = {
   body: string
   is_ai: boolean
   created_at: string
+  metadata?: MessageMetadata
 }
 
 type ClientRow = {
@@ -76,6 +89,13 @@ type AgentDecision = {
 }
 
 type StatusFilter = 'all' | 'open' | 'pending' | 'resolved' | 'archived'
+
+type ConfigSnapshot = {
+  meta: { status: string; missingVariables: string[]; hasAccessToken: boolean }
+  openai: { status: 'ready' | 'pending_openai_key' | 'disabled'; missingVariables: string[]; hasApiKey: boolean }
+  n8n: { status: string; missingVariables: string[] }
+  publicAppUrl: string | null
+}
 
 const STATUS_LABEL: Record<string, string> = {
   open: 'Abierta',
@@ -153,6 +173,8 @@ export default function InboxPage() {
   const [agentBusy, setAgentBusy] = useState<null | 'summarize' | 'classify_intent' | 'detect_sentiment' | 'suggest_reply' | 'full_review'>(null)
   const [agentDecision, setAgentDecision] = useState<AgentDecision | null>(null)
 
+  const [config, setConfig] = useState<ConfigSnapshot | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Load conversations
@@ -183,6 +205,24 @@ export default function InboxPage() {
   useEffect(() => {
     queueMicrotask(() => { void loadConversations() })
   }, [loadConversations])
+
+  // Load platform config snapshot once — drives banners and disabled buttons.
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/config/status')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (data?.snapshot) setConfig(data.snapshot as ConfigSnapshot)
+      } catch {
+        // silent — UI just won't show banners
+      }
+    }
+    queueMicrotask(() => { void load() })
+    return () => { cancelled = true }
+  }, [])
 
   // Auto-select first conversation when list loads
   useEffect(() => {
@@ -252,15 +292,18 @@ export default function InboxPage() {
         }
         return
       }
-      setMessages((prev) => [...prev, data.message])
+      setMessages((prev) => [...prev, data.message as MessageRow])
       setComposer('')
       setAgentDecision(null)
 
-      if (mode === 'send' && data.send?.ok) {
+      const sendStatus = data.send_status as 'sent' | 'failed' | 'draft' | 'pending_config' | undefined
+      if (sendStatus === 'sent') {
         toast.success('Mensaje enviado a WhatsApp')
-      } else if (mode === 'send' && data.send && !data.send.ok) {
+      } else if (sendStatus === 'failed') {
+        toast.error('Meta rechazó el envío', { description: data.send?.message || 'Revisa el número o el estado del token.' })
+      } else if (sendStatus === 'pending_config') {
         setDraftSimulated(true)
-        toast.warning('Guardado como borrador', { description: data.send.message || 'Outbound no está disponible ahora mismo.' })
+        toast.warning('Guardado como borrador', { description: data.send?.message || 'WhatsApp Meta no está configurado en el servidor.' })
       } else {
         toast.success('Mensaje guardado como borrador')
       }
@@ -375,6 +418,31 @@ export default function InboxPage() {
         </div>
       )}
 
+      {!isDemo && config && config.meta.status !== 'ready' && (
+        <div className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-semibold">WhatsApp Meta pendiente de configuración en el servidor.</p>
+            <p className="mt-0.5 text-indigo-700">
+              Faltan variables: <code className="rounded bg-white px-1 text-[10px]">{config.meta.missingVariables.join(', ') || '—'}</code>.
+              Hasta entonces el composer guardará los mensajes como borrador en NowCRM, sin enviarlos a WhatsApp.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isDemo && config && config.openai.status !== 'ready' && (
+        <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-semibold">NowLabs AI no está activo.</p>
+            <p className="mt-0.5 text-violet-700">
+              Falta <code className="rounded bg-white px-1 text-[10px]">OPENAI_API_KEY</code> en el servidor. Los botones IA estarán desactivados hasta que se configure.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px,1fr,320px]">
         {/* LEFT — conversations list */}
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -410,8 +478,12 @@ export default function InboxPage() {
             ) : conversations.length === 0 ? (
               <EmptyState
                 icon={<Inbox className="h-6 w-6 text-gray-300" />}
-                title="Sin conversaciones"
-                description="Cuando entre un mensaje desde WhatsApp, lo verás aquí."
+                title="Todavía no hay conversaciones"
+                description={
+                  config && config.meta.status !== 'ready'
+                    ? 'Configura WhatsApp Meta en Settings y en el servidor (.env / Vercel). Cuando entre el primer mensaje real aparecerá aquí.'
+                    : 'Cuando entre un mensaje desde WhatsApp, lo verás aquí.'
+                }
               />
             ) : (
               <ul className="divide-y divide-gray-100">
@@ -526,6 +598,20 @@ export default function InboxPage() {
                     {messages.map((m) => {
                       const fromClient = m.sender === 'client'
                       const fromAi = m.is_ai || m.sender === 'ai'
+                      const metadata = m.metadata ?? undefined
+                      const sendStatus = !fromClient ? metadata?.send_status : undefined
+                      const sendStatusLabel: Record<string, string> = {
+                        sent: 'Enviado',
+                        failed: 'Fallido',
+                        draft: 'Borrador',
+                        pending_config: 'Pendiente config',
+                      }
+                      const sendStatusTone: Record<string, string> = {
+                        sent: 'bg-emerald-100/30 text-emerald-50',
+                        failed: 'bg-rose-200/30 text-rose-50',
+                        draft: 'bg-white/20 text-white/90',
+                        pending_config: 'bg-amber-200/30 text-amber-50',
+                      }
                       return (
                         <div key={m.id} className={cn('flex', fromClient ? 'justify-start' : 'justify-end')}>
                           <div
@@ -541,6 +627,11 @@ export default function InboxPage() {
                             <p className="whitespace-pre-wrap leading-snug">{m.body}</p>
                             <div className={cn('mt-1 flex items-center justify-end gap-1 text-[10px]', fromClient ? 'text-gray-400' : fromAi ? 'text-violet-700/70' : 'text-indigo-100/80')}>
                               {fromAi && <Sparkles className="h-2.5 w-2.5" />}
+                              {sendStatus && sendStatusLabel[sendStatus] && (
+                                <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-medium', sendStatusTone[sendStatus] ?? 'bg-white/20 text-white/90')}>
+                                  {sendStatusLabel[sendStatus]}
+                                </span>
+                              )}
                               {formatDateTime(m.created_at)}
                             </div>
                           </div>
@@ -572,21 +663,29 @@ export default function InboxPage() {
 
               <div className="shrink-0 border-t border-gray-100 bg-white px-4 py-3">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <Button variant="secondary" size="sm" loading={agentBusy === 'suggest_reply'} onClick={() => void runAgent('suggest_reply')}>
-                    <Wand2 className="h-3.5 w-3.5" /> Sugerir respuesta
-                  </Button>
-                  <Button variant="secondary" size="sm" loading={agentBusy === 'summarize'} onClick={() => void runAgent('summarize', true)}>
-                    <Sparkles className="h-3.5 w-3.5" /> Resumir
-                  </Button>
-                  <Button variant="secondary" size="sm" loading={agentBusy === 'classify_intent'} onClick={() => void runAgent('classify_intent', true)}>
-                    Clasificar intención
-                  </Button>
-                  <Button variant="secondary" size="sm" loading={agentBusy === 'detect_sentiment'} onClick={() => void runAgent('detect_sentiment', true)}>
-                    Detectar sentimiento
-                  </Button>
-                  <Button variant="secondary" size="sm" loading={agentBusy === 'full_review'} onClick={() => void runAgent('full_review', true)}>
-                    Análisis completo
-                  </Button>
+                  {(() => {
+                    const aiDisabled = config ? config.openai.status !== 'ready' : false
+                    const aiTitle = aiDisabled ? 'Configura OPENAI_API_KEY en el servidor para activar el agente IA.' : undefined
+                    return (
+                      <>
+                        <Button variant="secondary" size="sm" loading={agentBusy === 'suggest_reply'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('suggest_reply')}>
+                          <Wand2 className="h-3.5 w-3.5" /> Sugerir respuesta
+                        </Button>
+                        <Button variant="secondary" size="sm" loading={agentBusy === 'summarize'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('summarize', true)}>
+                          <Sparkles className="h-3.5 w-3.5" /> Resumir
+                        </Button>
+                        <Button variant="secondary" size="sm" loading={agentBusy === 'classify_intent'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('classify_intent', true)}>
+                          Clasificar intención
+                        </Button>
+                        <Button variant="secondary" size="sm" loading={agentBusy === 'detect_sentiment'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('detect_sentiment', true)}>
+                          Detectar sentimiento
+                        </Button>
+                        <Button variant="secondary" size="sm" loading={agentBusy === 'full_review'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('full_review', true)}>
+                          Análisis completo
+                        </Button>
+                      </>
+                    )
+                  })()}
                 </div>
                 <div className="flex items-end gap-2">
                   <textarea

@@ -190,6 +190,9 @@ export default function SettingsPage() {
   const [waPhoneNumberId, setWaPhoneNumberId] = useState('')
   const [waBusinessAccountId, setWaBusinessAccountId] = useState('')
   const [waMetaBusinessId, setWaMetaBusinessId] = useState('')
+  const [metaServerConfig, setMetaServerConfig] = useState<{ status: string; missingVariables: string[]; hasAccessToken: boolean } | null>(null)
+  const [openaiServerConfig, setOpenaiServerConfig] = useState<{ status: string; missingVariables: string[]; hasApiKey: boolean } | null>(null)
+  const [n8nServerConfig, setN8nServerConfig] = useState<{ status: string; missingVariables: string[] } | null>(null)
   const [gcalOauthStatus] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     const p = new URLSearchParams(window.location.search)
@@ -319,6 +322,32 @@ export default function SettingsPage() {
     }, 0)
     return () => window.clearTimeout(timeout)
   }, [loadControlCenter])
+
+  // Fetch server config readiness once. Drives banners under the WhatsApp,
+  // Inbox Assistant and n8n cards so the operator knows which env vars must
+  // still be set on the server before a real send/trigger is possible.
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        const res = await fetch('/api/config/status')
+        if (!res.ok) return
+        const data = await res.json() as {
+          snapshot?: {
+            meta: { status: string; missingVariables: string[]; hasAccessToken: boolean }
+            openai: { status: string; missingVariables: string[]; hasApiKey: boolean }
+            n8n: { status: string; missingVariables: string[] }
+          }
+        }
+        if (cancelled || !data.snapshot) return
+        setMetaServerConfig(data.snapshot.meta)
+        setOpenaiServerConfig(data.snapshot.openai)
+        setN8nServerConfig(data.snapshot.n8n)
+      } catch { /* silent — UI keeps working without banners */ }
+    }
+    queueMicrotask(() => { void run() })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -927,8 +956,12 @@ export default function SettingsPage() {
               </div>
               <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
                 <p className="text-xs font-semibold text-indigo-900">Modo n8n</p>
-                <p className="mt-1 text-lg font-bold text-indigo-700">{settingsPersisted ? 'Persistente' : 'Simulado'}</p>
-                <p className="text-[11px] text-indigo-700">Si la URL sigue en tudominio.com, el trigger se simula.</p>
+                <p className="mt-1 text-lg font-bold text-indigo-700">{n8nServerConfig?.status === 'ready' ? 'Persistente' : 'Simulado'}</p>
+                <p className="text-[11px] text-indigo-700">
+                  {n8nServerConfig?.status === 'ready'
+                    ? 'Servidor configurado con N8N_BASE_URL y N8N_API_KEY. Los webhooks reales se envian a la instancia interna.'
+                    : `Pendiente: ${n8nServerConfig?.missingVariables.join(', ') || 'N8N_BASE_URL, N8N_API_KEY'}. Los triggers se simulan hasta que el servidor este configurado.`}
+                </p>
               </div>
             </div>
 
@@ -1218,31 +1251,57 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Respuesta automatica</p>
-                    <p className="text-xs text-gray-500">Requiere WhatsApp Business conectado</p>
-                  </div>
-                  <button
-                    onClick={() => setInboxAutoReply((v) => !v)}
-                    className={cn(
-                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                      inboxAutoReply ? 'bg-indigo-600' : 'bg-gray-200'
-                    )}
-                  >
-                    <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', inboxAutoReply ? 'translate-x-4' : 'translate-x-0')} />
-                  </button>
-                </div>
-                {inboxAutoReply && String(waConnection?.status ?? '') !== 'connected' && (
-                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
-                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <p className="text-xs leading-5 text-amber-800">
-                      {!waConnection || String(waConnection.status ?? '') === 'disconnected'
-                        ? 'El modo automatico requiere WhatsApp conectado. Registra el numero en la seccion de abajo.'
-                        : 'La respuesta automatica se activara cuando WhatsApp este verificado y conectado.'}
-                    </p>
-                  </div>
-                )}
+                {(() => {
+                  const metaReady = metaServerConfig ? metaServerConfig.status === 'ready' : true
+                  const openaiReady = openaiServerConfig ? openaiServerConfig.status === 'ready' : true
+                  const canEnableAuto = metaReady && openaiReady && String(waConnection?.status ?? '') === 'connected'
+                  return (
+                    <>
+                      <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Respuesta automatica</p>
+                          <p className="text-xs text-gray-500">Requiere WhatsApp Business conectado y server config completo</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!canEnableAuto && !inboxAutoReply) {
+                              toast.warning('Auto-reply bloqueado', {
+                                description: !metaReady
+                                  ? `Falta server config Meta: ${metaServerConfig?.missingVariables.join(', ') || '—'}`
+                                  : !openaiReady
+                                    ? 'Falta OPENAI_API_KEY en el servidor.'
+                                    : 'Conecta WhatsApp Business antes de activar el modo automatico.',
+                              })
+                              return
+                            }
+                            setInboxAutoReply((v) => !v)
+                          }}
+                          className={cn(
+                            'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors',
+                            inboxAutoReply ? 'bg-indigo-600' : 'bg-gray-200',
+                            !canEnableAuto && !inboxAutoReply ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                          )}
+                        >
+                          <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', inboxAutoReply ? 'translate-x-4' : 'translate-x-0')} />
+                        </button>
+                      </div>
+                      {!canEnableAuto && (
+                        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                          <p className="text-xs leading-5 text-amber-800">
+                            {!metaReady
+                              ? `Servidor WhatsApp pendiente: ${metaServerConfig?.missingVariables.join(', ') || '—'}.`
+                              : !openaiReady
+                                ? 'NowLabs AI pendiente: falta OPENAI_API_KEY en el servidor.'
+                                : !waConnection || String(waConnection.status ?? '') === 'disconnected'
+                                  ? 'El modo automatico requiere WhatsApp conectado. Registra el numero en la seccion de abajo.'
+                                  : 'La respuesta automatica se activara cuando WhatsApp este verificado y conectado.'}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 <Button size="sm" onClick={() => void handleInboxSettingsSave()}>
                   Guardar configuracion
                 </Button>
@@ -1310,8 +1369,13 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-xs font-semibold text-slate-900">Configuracion de plataforma — gestionada por NowCRM</p>
                     <p className="text-[11px] leading-5 text-slate-600">
-                      META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y META_ACCESS_TOKEN estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo.
+                      META_WHATSAPP_ACCESS_TOKEN, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y NOWCRM_WEBHOOK_SECRET estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo. No introduzcas tokens ni claves API aqui.
                     </p>
+                    {metaServerConfig && metaServerConfig.status !== 'ready' && (
+                      <p className="mt-2 text-[11px] leading-5 text-amber-700">
+                        Pendiente en servidor: <code className="rounded bg-white px-1 font-mono text-[10px] text-amber-900">{metaServerConfig.missingVariables.join(', ') || '—'}</code>. Hasta entonces el envio real esta deshabilitado y los mensajes salientes se guardan como borrador.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">

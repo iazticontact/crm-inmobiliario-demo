@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import type { MetaWhatsAppConnection, MetaWhatsAppConnectionStatus } from '@/lib/types'
+import { getConfigSnapshot, getMetaReadinessRecommendation } from '@/lib/config-status'
 
 export const runtime = 'nodejs'
 
@@ -47,14 +48,20 @@ export async function GET() {
       .eq('provider', 'meta')
       .maybeSingle()
 
+    const cfgSnapshot = getConfigSnapshot()
+    const serverConfig = {
+      ...cfgSnapshot.meta,
+      recommendation: getMetaReadinessRecommendation(cfgSnapshot),
+    }
+
     if (!row) {
       const status: MetaWhatsAppConnection = {
         workspaceId,
         provider: 'meta',
-        webhookVerifyTokenConfigured: false,
+        webhookVerifyTokenConfigured: cfgSnapshot.meta.hasWebhookVerifyToken,
         connectionStatus: 'not_configured',
       }
-      return NextResponse.json({ ok: true, connection: status })
+      return NextResponse.json({ ok: true, connection: status, serverConfig })
     }
 
     const connection: MetaWhatsAppConnection = {
@@ -65,7 +72,7 @@ export async function GET() {
       whatsappBusinessAccountId: row.whatsapp_business_account_id ? String(row.whatsapp_business_account_id) : undefined,
       phoneNumberId: row.phone_number_id ? String(row.phone_number_id) : undefined,
       displayPhoneNumber: row.phone_number ? String(row.phone_number) : undefined,
-      webhookVerifyTokenConfigured: Boolean(row.webhook_verify_token_configured ?? false),
+      webhookVerifyTokenConfigured: cfgSnapshot.meta.hasWebhookVerifyToken,
       webhookUrl: row.webhook_url ? String(row.webhook_url) : undefined,
       connectionStatus: deriveStatus(row as Record<string, unknown>),
       lastWebhookAt: row.last_webhook_at ? String(row.last_webhook_at) : undefined,
@@ -73,7 +80,7 @@ export async function GET() {
       updatedAt: row.updated_at ? String(row.updated_at) : undefined,
     }
 
-    return NextResponse.json({ ok: true, connection })
+    return NextResponse.json({ ok: true, connection, serverConfig })
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Error desconocido'
     console.error('[meta/whatsapp/status]', msg.slice(0, 100))

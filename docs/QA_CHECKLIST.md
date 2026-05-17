@@ -330,3 +330,65 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 - [ ] `/settings` sin 500.
 - [ ] `/automations` sin 500.
 
+---
+
+## Hardening checks (cierre WhatsApp/Inbox/n8n — 2026-05-17 night)
+
+Estos cubren los fixes críticos del cierre: n8n trigger seguro, Meta webhook
+sin fire-and-forget, dedupe inbound, outbound persistido, config server-side.
+
+### n8n trigger seguro
+
+- [ ] `POST /api/n8n/trigger` sin sesión → **401** (antes era 200 simulado).
+- [ ] `POST /api/n8n/trigger` con sesión válida + `webhook_url: 'https://attacker.example.com/x'` en el body → **el servidor IGNORA el body** y resuelve internamente. La respuesta indica `workflow_slug` real y nunca llama a attacker.
+- [ ] `POST /api/n8n/trigger` con `event_type` que no está en la allowlist → **400** "event_type no reconocido".
+- [ ] Sin `N8N_BASE_URL` → respuesta `status:'simulated'` con `reason:'n8n_base_url_missing'` y no se hace fetch.
+- [ ] Con `N8N_BASE_URL=https://n8n.tu-dominio.com` y workflow inexistente → respuesta `status:'error'` con `http_status:404`. **No** se filtran headers ni payload de n8n.
+- [ ] `workspace_id` distinto del workspace del usuario → **403**.
+- [ ] Inspeccionar log servidor: NUNCA debe aparecer `N8N_WEBHOOK_SECRET` ni `N8N_API_KEY`.
+
+### Meta webhook fiable (sin fire-and-forget)
+
+- [ ] Logs servidor: `[meta/webhook] persisted batch { received: N, inserted: N, deduped: 0, failed: 0 }` después de un POST real.
+- [ ] Dejar de configurar `NEXT_PUBLIC_APP_URL` → el webhook **sigue funcionando** (ya no depende de él).
+- [ ] Quitar `SUPABASE_SERVICE_ROLE_KEY` → el webhook responde 200 con `persisted:false, reason:'service_role_missing'` y log de error claro. **Restaurar inmediatamente.**
+
+### Dedupe inbound
+
+- [ ] Enviar el mismo `messages[].id` dos veces (manualmente con curl) → segundo POST devuelve `deduped:true`, **no** inserta un mensaje duplicado.
+- [ ] Si el schema NO tiene `messages.metadata`, el dedupe degrada a best-effort: la doble inserción es posible pero solo dentro de la misma race.
+
+### Phone-based client linking
+
+- [ ] Crear cliente con teléfono `+34 600 000 001`. Enviar inbound desde `34600000001`. Verificar que la conversación queda vinculada al cliente (panel derecho del Inbox muestra el cliente).
+- [ ] Crear dos clientes con el mismo número → inbound desde ese número **no** vincula automáticamente (match ambiguo).
+- [ ] Inbound de número sin cliente → conversación se crea sin `client_id` y NO se crea cliente automáticamente.
+
+### Outbound persistence
+
+- [ ] Pulsar "Borrador" → `messages.metadata.send_status = 'draft'`, badge "Borrador" en la burbuja.
+- [ ] Pulsar "Enviar" sin `META_WHATSAPP_ACCESS_TOKEN` → toast "Guardado como borrador", `send_status:'pending_config'`, badge "Pendiente config".
+- [ ] Pulsar "Enviar" con token configurado y `phone_number_id` válido → `send_status:'sent'`, `provider_message_id` presente, badge "Enviado".
+- [ ] Pulsar "Enviar" con número inválido → `send_status:'failed'`, badge "Fallido".
+- [ ] Response JSON nunca contiene `Authorization` header ni el JSON crudo de Meta.
+
+### Config status
+
+- [ ] `GET /api/config/status` sin sesión → 401.
+- [ ] Con sesión → devuelve booleans (`hasAccessToken`, `hasAppSecret`, …) y `missingVariables: ['NAMES_ONLY']`. **Ningún valor.**
+- [ ] Quitar `OPENAI_API_KEY` → Inbox muestra banner "NowLabs AI no está activo", botones IA disabled, toggle de auto-reply bloqueado en Settings.
+- [ ] Quitar `META_APP_SECRET` → Settings/WhatsApp muestra "Pendiente en servidor: META_APP_SECRET".
+- [ ] Cuando todo está ready, los banners desaparecen.
+
+### Webhook URL pública
+
+- [ ] Probar en local con `cloudflared tunnel --url http://localhost:3000` o `ngrok http 3000`.
+- [ ] Pegar `https://TUNEL/api/integrations/meta/whatsapp/webhook` en Meta Developers → Verify → OK.
+- [ ] Enviar mensaje real al test number → aparece en `/inbox` en ≤ 5 segundos.
+
+### Lo que NO se debe probar todavía
+
+- ❌ Auto-reply activo enviando mensajes reales (sigue OFF por defecto).
+- ❌ Workflows n8n nuevos sin haber actualizado primero `EVENT_TO_WORKFLOW_SLUG`.
+- ❌ Conexión n8n MCP — fase posterior, no abrir esa superficie aún.
+

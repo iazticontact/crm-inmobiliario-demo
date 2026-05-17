@@ -60,16 +60,46 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   }
   if (!convRes.data) return NextResponse.json({ ok: false, error: 'Conversación no encontrada' }, { status: 404 })
 
-  const msgsRes = await supabase
+  // Prefer to fetch metadata so the UI can render send_status badges; if the
+  // schema doesn't have a metadata column yet, fall back to the basic select.
+  type MessageRow = Record<string, unknown>
+  let messages: MessageRow[] = []
+  let msgError: { message: string; code?: string } | null = null
+
+  const firstRes = await supabase
     .from('messages')
-    .select('id, conversation_id, sender, body, is_ai, created_at')
+    .select('id, conversation_id, sender, body, is_ai, created_at, metadata')
     .eq('workspace_id', workspaceId)
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
     .limit(200)
 
-  if (msgsRes.error) {
-    console.error('[inbox/conversations:get] messages error', msgsRes.error.message)
+  if (firstRes.error) {
+    const code = String((firstRes.error as { code?: string }).code ?? '')
+    const message = String(firstRes.error.message ?? '').toLowerCase()
+    const isSchema = code === 'PGRST204' || code === '42703' || message.includes('column') || message.includes('schema cache')
+    if (isSchema) {
+      const fallback = await supabase
+        .from('messages')
+        .select('id, conversation_id, sender, body, is_ai, created_at')
+        .eq('workspace_id', workspaceId)
+        .eq('conversation_id', id)
+        .order('created_at', { ascending: true })
+        .limit(200)
+      if (fallback.error) {
+        msgError = { message: fallback.error.message, code: (fallback.error as { code?: string }).code }
+      } else {
+        messages = (fallback.data ?? []) as MessageRow[]
+      }
+    } else {
+      msgError = { message: firstRes.error.message, code: (firstRes.error as { code?: string }).code }
+    }
+  } else {
+    messages = (firstRes.data ?? []) as MessageRow[]
+  }
+
+  if (msgError) {
+    console.error('[inbox/conversations:get] messages error', msgError.message)
     return NextResponse.json({ ok: false, error: 'Error leyendo mensajes' }, { status: 500 })
   }
 
@@ -88,7 +118,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   return NextResponse.json({
     ok: true,
     conversation: convRes.data,
-    messages: msgsRes.data ?? [],
+    messages,
     client,
   })
 }
