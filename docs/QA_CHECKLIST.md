@@ -210,3 +210,62 @@ Estos checks cubren los fixes del último hardening. **Ejecutarlos antes de cual
 - [ ] `npx tsc --noEmit` ✅ sin errores.
 - [ ] `npm run build` ✅ todas las páginas generadas.
 
+---
+
+## Hardening checks (sesión nocturna 2026-05-17) — Calendar cancel sync
+
+Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el evento en Google Calendar".
+
+### Causa raíz reparada
+
+- La UI hacía soft-cancel local (o DELETE en fallback) ANTES de llamar a la route Google.
+- La llamada a Google se hacía como `void fetch(...)` (fire-and-forget): los errores nunca llegaban al usuario.
+- Si el fallback hacía HARD DELETE, el row se eliminaba y la route no podía leer `google_event_id` → Google nunca recibía DELETE.
+- Toast siempre decía "Evento cancelado correctamente" aunque Google fallase.
+
+### Reparación
+
+- `POST /api/integrations/google/calendar/cancel-event` ahora es atómica: hace Google DELETE y soft-cancel local en la misma transacción lógica.
+- Devuelve un contrato JSON estable: `{ ok, localCancelled, googleCancelled, googleAlreadyGone, reason, message, synced }`.
+- Calendar UI y Assistant page ahora llaman esta route con `await` y muestran toast según el resultado real.
+- Multi-calendar: cancel-event/update-event/sync-event ahora consideran `default_calendar_id` antes del fallback a `primary`.
+
+### Checklist Calendar UI
+
+- [ ] Crear evento desde NowCRM en el calendario por defecto. Aparece en Google.
+- [ ] Cancelar el mismo evento desde el botón Trash. Toast: "Evento cancelado: ... También se eliminó en Google Calendar."
+- [ ] Verificar en Google: el evento ha desaparecido del calendario por defecto.
+- [ ] Crear evento desde NowCRM cuando el usuario tiene **default_calendar_id** distinto de primary. Verificar que se crea en el calendario correcto en Google.
+- [ ] Cancelar ese evento desde NowCRM. Verificar que desaparece del calendario correcto (no del primary).
+- [ ] Borrar manualmente un evento en Google → cancelarlo desde NowCRM → toast: "Evento cancelado: ... En Google ya no existía." y no aparece error 500.
+- [ ] Importar evento read-only (festivos) → intentar cancelar desde Trash → toast: "Este evento es solo lectura. Cancélalo desde Google Calendar."
+- [ ] Forzar token inválido (rotar refresh_token en Google) → cancelar → toast: "Google requiere reconexión. Reconecta Google Calendar desde Configuración." y el evento NO debe quedar cancelado en NowCRM.
+- [ ] Desconectar Google → cancelar evento que tenía `google_event_id` → toast: "Evento cancelado: ... Google Calendar no está conectado — reconéctalo..."
+- [ ] Doble click sobre Trash: el segundo click debe estar bloqueado por `deleting=true`.
+
+### Checklist Assistant cancel sync
+
+- [ ] Crear cita con NowLabs AI → Google la recibe.
+- [ ] Cancelar con NowLabs AI ("cancela esa cita") → confirmar → mensaje: "Cita ... cancelada (también en Google)."
+- [ ] Cancelar cita ya borrada en Google → mensaje: "... cancelada (en Google ya no existía)."
+- [ ] Pedir cancelar todas las citas del día con read-only entre medias → resumen: "X canceladas correctamente (Y sincronizada(s) con Google, Z omitida(s) por solo lectura)".
+- [ ] Cleanup duplicates con read-only entre los duplicados → resumen incluye "N omitida(s) por solo lectura".
+- [ ] Si Google requiere reconexión, ninguna cita queda cancelada localmente y se reporta `needs_reconnect`.
+
+### Reasons que la route puede devolver
+
+| reason | significado | acción esperada |
+|---|---|---|
+| `cancelled` | Google + local OK | success completo |
+| `not_synced_to_google` | sin google_event_id | success local |
+| `not_connected` | sin connection activa | success local + sugerir reconectar |
+| `credentials_not_configured` | faltan GOOGLE_CLIENT_* en server | success local + alerta operador |
+| `read_only_event` | is_read_only=true | bloqueo claro |
+| `event_not_found` | no existe en workspace | 404 informativo |
+| `needs_reconnect` | invalid_grant o 401 Google | NO cancela local; pedir reconectar |
+| `google_forbidden` | 403 Google | NO cancela local; problema de permisos |
+| `rate_limited` | 429 Google | NO cancela local; reintentar |
+| `google_api_error` | otros 5xx Google | NO cancela local; reintentar |
+| `google_fetch_error` | fallo de red al llamar Google | NO cancela local |
+| `local_cancel_failed` | UPDATE Supabase falló | error 500 honesto |
+

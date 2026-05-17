@@ -188,10 +188,64 @@ FROM public.google_calendar_connections;
 
 ## Notas de hardening (rev. 2026-05)
 
-- **cancel-event acepta 410 Gone**: si el evento ya no existe en Google (borrado por el dueño desde fuera), NowCRM marca local como cancelado y devuelve `ok:true, synced:true`. Antes fallaba con `google_api_error`.
-- **Eventos read-only bloqueados**: cancel-event y update-event devuelven `ok:true, synced:false, reason:'read_only_event'` si `calendar_events.is_read_only=true`. NowLabs AI también los rechaza con mensaje claro.
+- **cancel-event acepta 410 Gone**: si el evento ya no existe en Google (borrado por el dueño desde fuera), NowCRM marca local como cancelado y devuelve `ok:true, googleCancelled:true, googleAlreadyGone:true`. Antes fallaba con `google_api_error`.
+- **Eventos read-only bloqueados**: cancel-event y update-event devuelven `ok:false, reason:'read_only_event'` si `calendar_events.is_read_only=true`. NowLabs AI también los rechaza con mensaje claro.
 - **Calendar UI**: muestra badge "Solo lectura" + icono Lock; inputs deshabilitados.
-- **Razones nuevas que puede devolver cancel-event**: `read_only_event`, `no_google_event_id`, `not_connected`, `credentials_not_configured`, `token_refresh_failed`, `google_api_error`, `google_fetch_error`. Solo `google_api_error` y `google_fetch_error` indican un problema real.
+
+## Hardening rev. 2026-05-17 — Cancelación NowCRM → Google sincronizada
+
+**Bug que se arregló:** Cancelar/eliminar un evento desde el Calendar del CRM **no** eliminaba el evento en Google Calendar.
+
+**Causa raíz:**
+- La UI hacía `cancelCalendarEvent` (soft-cancel o hard-delete fallback) **antes** de llamar a la route Google.
+- Luego llamaba Google con `void fetch(...)` (fire-and-forget): si Google fallaba, nadie se enteraba.
+- En el fallback de HARD DELETE, el row local se borraba antes de que la route pudiera leer `google_event_id`.
+
+**Reparación:**
+- `cancel-event` ahora es **atómica**: hace Google DELETE primero (si procede) y luego soft-cancel local. Devuelve un contrato JSON estable.
+- Calendar UI y Assistant page ahora **esperan** la respuesta y muestran toast honesto.
+- Multi-calendar: incorporado `default_calendar_id` en la cadena de fallback en `cancel-event`, `update-event` y `sync-event`.
+
+**Contrato de respuesta de `/api/integrations/google/calendar/cancel-event`:**
+
+```jsonc
+{
+  "ok": true,                  // operación útil completa
+  "localCancelled": true,      // status='cancelled' en Supabase
+  "googleCancelled": true,     // DELETE OK en Google (o 404/410)
+  "googleAlreadyGone": false,  // true si Google devolvió 404/410
+  "calendarIdUsed": "primary",
+  "reason": "cancelled",       // ver tabla abajo
+  "message": "...",
+  "synced": true               // alias legacy de googleCancelled
+}
+```
+
+**Reasons posibles:**
+
+| reason | local | google | acción operador |
+|---|---|---|---|
+| `cancelled` | ✓ | ✓ | nada — todo OK |
+| `not_synced_to_google` | ✓ | — | nada — evento nunca tuvo google_event_id |
+| `not_connected` | ✓ | — | reconectar Google desde Settings |
+| `credentials_not_configured` | ✓ | — | añadir `GOOGLE_CLIENT_ID/SECRET` en Vercel |
+| `read_only_event` | ✗ | ✗ | el usuario debe borrarlo desde Google |
+| `event_not_found` | ✗ | ✗ | evento no pertenece al workspace |
+| `needs_reconnect` | ✗ | ✗ | reconectar Google (refresh_token invalid_grant o 401) |
+| `google_forbidden` | ✗ | ✗ | revisar permisos del calendario en Google |
+| `rate_limited` | ✗ | ✗ | reintentar en unos minutos |
+| `google_api_error` | ✗ | ✗ | revisar logs server, reintentar |
+| `google_fetch_error` | ✗ | ✗ | problema de red, reintentar |
+| `local_cancel_failed` | ✗ | depende | revisar RLS / GRANTs Supabase |
+
+**Logs server seguros (sin tokens):**
+
+```
+[google/cancel-event:start] { localEventId, hasGoogleEventId, wasAlreadyCancelled }
+[google/cancel-event:calendar-id] { calendarId, source }
+[google/cancel-event:google-delete] { status, calendarId }
+[google/cancel-event:result] { localOk, googleStatus, googleAlreadyGone }
+```
 
 ---
 

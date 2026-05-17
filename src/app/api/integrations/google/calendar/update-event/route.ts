@@ -91,7 +91,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
   // Get Google connection
   const { data: gcConn } = await supabase
     .from('google_calendar_connections')
-    .select('status, calendar_id, refresh_token_enc')
+    .select('status, calendar_id, default_calendar_id, refresh_token_enc')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -120,7 +120,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     return NextResponse.json({ ok: true, synced: false, reason: 'token_refresh_failed' })
   }
   const accessToken = tokenData.access_token
-  const calendarId = (eventRow.google_calendar_id as string | null) || (gcConn.calendar_id as string | null) || 'primary'
+  const calendarId =
+    (eventRow.google_calendar_id as string | null) ||
+    (gcConn.default_calendar_id as string | null) ||
+    (gcConn.calendar_id as string | null) ||
+    'primary'
 
   // PATCH Google Calendar event
   const patchBody = {

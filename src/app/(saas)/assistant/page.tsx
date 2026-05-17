@@ -15,7 +15,6 @@ import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } fro
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
-  cancelCalendarEvent,
   createActivity,
   createCalendarEvent,
   updateCalendarEvent,
@@ -368,6 +367,39 @@ function nowTime() {
 
 function isUuid(value?: string | null) {
   return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
+}
+
+type CancelRouteResult = {
+  ok: boolean
+  localCancelled: boolean
+  googleCancelled: boolean
+  googleAlreadyGone: boolean
+  reason: string
+  message: string
+}
+
+// Unified cancellation: the cancel-event route handles Google DELETE + local soft-cancel
+// atomically. NEVER call cancelCalendarEvent before this — the old order deleted the row
+// locally first, leaving Google with the orphaned event.
+async function cancelEventAtomically(localEventId: string): Promise<CancelRouteResult> {
+  try {
+    const res = await fetch('/api/integrations/google/calendar/cancel-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localEventId }),
+    })
+    const data = await res.json().catch(() => ({})) as Partial<CancelRouteResult>
+    return {
+      ok: Boolean(data.ok),
+      localCancelled: Boolean(data.localCancelled),
+      googleCancelled: Boolean(data.googleCancelled),
+      googleAlreadyGone: Boolean(data.googleAlreadyGone),
+      reason: typeof data.reason === 'string' ? data.reason : 'unknown',
+      message: typeof data.message === 'string' ? data.message : '',
+    }
+  } catch {
+    return { ok: false, localCancelled: false, googleCancelled: false, googleAlreadyGone: false, reason: 'network_error', message: '' }
+  }
 }
 
 function getInitials(name: string) {
@@ -1756,13 +1788,27 @@ export default function AssistantPage() {
           return
         }
         if (!workspaceId) throw new Error('No hay workspace real para cancelar el evento.')
-        await cancelCalendarEvent(preparedAction.eventId, workspaceId)
-        void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: preparedAction.eventId }) }).catch(() => null)
+        const cancelResult = await cancelEventAtomically(preparedAction.eventId)
+        if (!cancelResult.ok) {
+          if (cancelResult.reason === 'read_only_event') {
+            toast.info('Cita solo lectura', { description: cancelResult.message || 'Cancélala desde Google Calendar.' })
+          } else if (cancelResult.reason === 'needs_reconnect') {
+            toast.error('Google requiere reconexión', { description: cancelResult.message })
+          } else if (cancelResult.reason === 'google_forbidden' || cancelResult.reason === 'google_api_error' || cancelResult.reason === 'google_fetch_error' || cancelResult.reason === 'rate_limited') {
+            toast.error('No se pudo cancelar en Google', { description: cancelResult.message || 'NowCRM no marcó la cita como cancelada para evitar inconsistencia.' })
+          } else {
+            toast.error('No se pudo cancelar la cita', { description: cancelResult.message })
+          }
+          return
+        }
 
         const clientLabel = preparedAction.clientName ? ` con ${preparedAction.clientName}` : ''
         const dateLabel = preparedAction.date ? ` del ${preparedAction.date}` : ''
         const timeLabel = preparedAction.time ? ` a las ${preparedAction.time}` : ''
-        const cancelMsg = `Cita${clientLabel}${dateLabel}${timeLabel} cancelada correctamente.`
+        const syncNote = cancelResult.googleCancelled
+          ? cancelResult.googleAlreadyGone ? ' (en Google ya no existía)' : ' (también en Google)'
+          : ''
+        const cancelMsg = `Cita${clientLabel}${dateLabel}${timeLabel} cancelada${syncNote}.`
         await appendAssistantMessage(activeConversation.id, cancelMsg, preparedAction.clientName).catch(() => null)
         if (workspaceId) {
           void createActivity(workspaceId, { type: 'note', description: `Cita cancelada desde NowLabs AI${clientLabel}${dateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
@@ -1828,21 +1874,36 @@ export default function AssistantPage() {
           return
         }
         let cancelled = 0
+        let googleSynced = 0
+        let skippedReadOnly = 0
+        let needsReconnect = 0
         for (const ev of preparedAction.events) {
           try {
-            await cancelCalendarEvent(ev.eventId, workspaceId)
-            cancelled++
-            void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: ev.eventId }) }).catch(() => null)
+            const r = await cancelEventAtomically(ev.eventId)
+            if (r.ok && r.localCancelled) {
+              cancelled++
+              if (r.googleCancelled) googleSynced++
+            } else if (r.reason === 'read_only_event') {
+              skippedReadOnly++
+            } else if (r.reason === 'needs_reconnect') {
+              needsReconnect++
+            }
           } catch {
             // continuar con el resto
           }
         }
         const total = preparedAction.events.length
+        const detail = [
+          googleSynced > 0 ? `${googleSynced} sincronizada(s) con Google` : null,
+          skippedReadOnly > 0 ? `${skippedReadOnly} omitida(s) por solo lectura` : null,
+          needsReconnect > 0 ? `${needsReconnect} requieren reconectar Google` : null,
+        ].filter(Boolean).join(', ')
+        const detailSuffix = detail ? ` (${detail})` : ''
         const summary = cancelled === 0
-          ? `No he podido cancelar esas citas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo o revisa que los IDs sean correctos.`
+          ? `No he podido cancelar esas citas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo o revisa que los IDs sean correctos.${detailSuffix}`
           : cancelled === total
-          ? `${total} cita(s) canceladas correctamente.`
-          : `Se cancelaron ${cancelled} de ${total} citas. Las ${total - cancelled} restantes no se pudieron cancelar — compruébalas manualmente.`
+          ? `${total} cita(s) canceladas correctamente${detailSuffix}.`
+          : `Se cancelaron ${cancelled} de ${total} citas. Las ${total - cancelled} restantes no se pudieron cancelar — compruébalas manualmente${detailSuffix}.`
         await appendAssistantMessage(activeConversation.id, summary, preparedAction.events[0]?.clientName).catch(() => null)
         if (workspaceId && cancelled > 0) {
           void createActivity(workspaceId, { type: 'note', description: `${cancelled} cita(s) canceladas desde NowLabs AI (acción múltiple)` }).catch(() => null)
@@ -1875,21 +1936,32 @@ export default function AssistantPage() {
           return
         }
         let cancelled = 0
+        let googleSynced = 0
+        let skippedReadOnly = 0
         for (const eventId of preparedAction.cancelEventIds) {
           try {
-            await cancelCalendarEvent(eventId, workspaceId)
-            cancelled++
-            void fetch('/api/integrations/google/calendar/cancel-event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localEventId: eventId }) }).catch(() => null)
+            const r = await cancelEventAtomically(eventId)
+            if (r.ok && r.localCancelled) {
+              cancelled++
+              if (r.googleCancelled) googleSynced++
+            } else if (r.reason === 'read_only_event') {
+              skippedReadOnly++
+            }
           } catch {
             // continuar con el resto
           }
         }
         const total = preparedAction.cancelEventIds.length
+        const detail = [
+          googleSynced > 0 ? `${googleSynced} sincronizada(s) con Google` : null,
+          skippedReadOnly > 0 ? `${skippedReadOnly} omitida(s) por solo lectura` : null,
+        ].filter(Boolean).join(', ')
+        const detailSuffix = detail ? ` (${detail})` : ''
         const summary = cancelled === 0
-          ? `No he podido cancelar las citas duplicadas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo.`
+          ? `No he podido cancelar las citas duplicadas. No voy a marcarlas como canceladas hasta confirmarlo en la base de datos. Inténtalo de nuevo.${detailSuffix}`
           : cancelled === total
-          ? `Se cancelaron ${total} cita(s) duplicada(s). Queda una cita activa.`
-          : `Se cancelaron ${cancelled} de ${total} duplicadas. Revisa el calendario.`
+          ? `Se cancelaron ${total} cita(s) duplicada(s). Queda una cita activa${detailSuffix}.`
+          : `Se cancelaron ${cancelled} de ${total} duplicadas${detailSuffix}. Revisa el calendario.`
         await appendAssistantMessage(activeConversation.id, summary, undefined).catch(() => null)
         if (workspaceId && cancelled > 0) {
           void createActivity(workspaceId, { type: 'note', description: `Limpieza de ${cancelled} cita(s) duplicada(s) desde NowLabs AI` }).catch(() => null)

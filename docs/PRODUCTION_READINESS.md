@@ -56,6 +56,18 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
 - `cancel-event` y `update-event` bloquean eventos con `is_read_only=true`
   y devuelven `reason: 'read_only_event'` en vez de tocar Google.
 
+### Google Calendar — cancelación atómica (rev. 2026-05-17)
+- **Bug arreglado**: cancelar desde Calendar UI / Assistant no eliminaba el evento en Google.
+- Causa: la UI hacía soft-cancel local y luego llamaba Google como `void fetch` (fire-and-forget).
+  Si el fallback hacía hard-delete, la route no podía leer `google_event_id` y Google nunca recibía DELETE.
+- Fix: `cancel-event` ahora es **fuente única**: Google DELETE + local soft-cancel en una sola llamada.
+- Contrato JSON estable: `{ ok, localCancelled, googleCancelled, googleAlreadyGone, reason, message, synced }`.
+- Multi-calendar: `cancel-event`, `update-event` y `sync-event` ahora usan
+  `event.google_calendar_id || conn.default_calendar_id || conn.calendar_id || 'primary'`
+  en lugar de saltar directo a `primary`.
+- UI y agente reportan resultado real con razón legible (read-only, needs_reconnect,
+  google_forbidden, rate_limited, etc.).
+
 ### NowLabs AI v2 (`nowlabs-main-agent.ts`)
 - `search_calendar_events` selecciona `is_read_only` y lo muestra como
   `[solo lectura]` en la lista.

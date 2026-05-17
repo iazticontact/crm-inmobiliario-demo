@@ -523,18 +523,33 @@ export default function CalendarPage() {
     }
   }, [googleConnected])
 
-  const cancelEventInGoogle = useCallback(async (localEventId: string) => {
-    if (!googleConnected) return
+  type CancelRouteResponse = {
+    ok?: boolean
+    localCancelled?: boolean
+    googleCancelled?: boolean
+    googleAlreadyGone?: boolean
+    reason?: string
+    message?: string
+  }
+
+  // Calls the unified cancel-event route. This route handles BOTH Google DELETE and
+  // local soft-cancel atomically when there's an active Google connection, so the UI
+  // should NOT call cancelCalendarEvent locally first — that order caused the
+  // previous bug where the local row was deleted before the Google call read it.
+  const cancelEventViaRoute = useCallback(async (localEventId: string): Promise<CancelRouteResponse> => {
     try {
-      await fetch('/api/integrations/google/calendar/cancel-event', {
+      const res = await fetch('/api/integrations/google/calendar/cancel-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ localEventId }),
       })
+      const data = await res.json().catch(() => ({})) as CancelRouteResponse
+      return data
     } catch (err) {
-      if (process.env.NODE_ENV === 'development') console.warn('[calendar/cancelEventInGoogle]', err)
+      if (process.env.NODE_ENV === 'development') console.warn('[calendar/cancelEventViaRoute]', err)
+      return { ok: false, reason: 'network_error', message: 'No se pudo contactar con NowCRM.' }
     }
-  }, [googleConnected])
+  }, [])
 
   const handleSave = async () => {
     if (form.isReadOnly) {
@@ -622,18 +637,60 @@ export default function CalendarPage() {
     }
     setDeleting(true)
     const idToCancel = form.id
+    const title = form.title || 'Evento'
     const hadGoogleEvent = Boolean(form.googleEventId)
+    const useUnifiedRoute = isRealMode && Boolean(workspaceId) && (hadGoogleEvent || googleConnected)
     try {
-      if (isRealMode && workspaceId) {
-        await cancelCalendarEvent(idToCancel, workspaceId)
-        if (hadGoogleEvent) void cancelEventInGoogle(idToCancel)
+      if (useUnifiedRoute) {
+        // Unified flow: the route handles Google DELETE + local soft-cancel atomically.
+        // Do NOT call cancelCalendarEvent first — the previous order caused the row to be deleted
+        // before the route could read its google_event_id.
+        const result = await cancelEventViaRoute(idToCancel)
         await loadEvents()
+
+        if (result.ok && result.googleCancelled && !result.googleAlreadyGone) {
+          toast.success(`Evento cancelado: ${title}`, { description: 'También se eliminó en Google Calendar.' })
+          setModalOpen(false)
+          setForm(emptyEventForm)
+        } else if (result.ok && result.googleCancelled && result.googleAlreadyGone) {
+          toast.success(`Evento cancelado: ${title}`, { description: 'En Google ya no existía.' })
+          setModalOpen(false)
+          setForm(emptyEventForm)
+        } else if (result.ok && result.localCancelled && !result.googleCancelled) {
+          // Local OK, Google not done (not_synced_to_google, not_connected, credentials_not_configured)
+          const desc = result.message || 'Cancelado en NowCRM. Google no se actualizó.'
+          toast.success(`Evento cancelado: ${title}`, { description: desc })
+          setModalOpen(false)
+          setForm(emptyEventForm)
+        } else if (result.reason === 'read_only_event') {
+          toast.info('Este evento es solo lectura', { description: result.message || 'Cancélalo desde Google Calendar.' })
+        } else if (result.reason === 'needs_reconnect') {
+          toast.error('Google requiere reconexión', { description: result.message || 'Reconecta Google Calendar desde Configuración.' })
+        } else if (result.reason === 'google_forbidden') {
+          toast.error('Google rechazó el borrado', { description: result.message || 'Comprueba permisos del calendario en Google.' })
+        } else if (result.reason === 'rate_limited') {
+          toast.error('Google está limitando peticiones', { description: result.message || 'Inténtalo en unos minutos.' })
+        } else if (result.reason === 'google_api_error' || result.reason === 'google_fetch_error') {
+          toast.error('No se pudo cancelar en Google', { description: result.message || 'NowCRM no canceló el evento local para mantener la coherencia. Inténtalo de nuevo.' })
+        } else if (result.reason === 'event_not_found') {
+          toast.error('Evento no encontrado', { description: 'Quizá ya estaba cancelado. Refrescando lista.' })
+        } else {
+          toast.error('No se pudo cancelar el evento', { description: result.message || 'Inténtalo otra vez.' })
+        }
+      } else if (isRealMode && workspaceId) {
+        // Local-only mode (no Google connection at all and no googleEventId on the row)
+        await cancelCalendarEvent(idToCancel, workspaceId)
+        await loadEvents()
+        toast.success(`Evento cancelado: ${title}`)
+        setModalOpen(false)
+        setForm(emptyEventForm)
       } else {
+        // Demo / offline mode
         setEvents((prev) => prev.filter((event) => event.id !== idToCancel))
+        toast.success(`Evento cancelado: ${title}`)
+        setModalOpen(false)
+        setForm(emptyEventForm)
       }
-      toast.success(`Evento cancelado: ${form.title}`, hadGoogleEvent ? { description: 'Eliminando también de Google Calendar…' } : undefined)
-      setModalOpen(false)
-      setForm(emptyEventForm)
     } catch (error) {
       toast.error('No se pudo cancelar el evento', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
     } finally {

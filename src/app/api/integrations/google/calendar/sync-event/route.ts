@@ -72,7 +72,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
   // Check Google Calendar connection
   const { data: gcConn } = await supabase
     .from('google_calendar_connections')
-    .select('status, calendar_id, refresh_token_enc, token_expiry')
+    .select('status, calendar_id, default_calendar_id, refresh_token_enc, token_expiry')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -158,8 +158,14 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     return NextResponse.json({ ok: true, synced: false, reason: 'missing_event_times' })
   }
 
-  // Build Google Calendar event payload
-  const calendarId = existingGoogleCalendarId || (gcConn.calendar_id as string | null) || 'primary'
+  // Build Google Calendar event payload.
+  // For existing events: keep the original calendar to avoid orphaning.
+  // For new events: prefer user-selected default calendar before falling back to "primary".
+  const calendarId =
+    existingGoogleCalendarId ||
+    (gcConn.default_calendar_id as string | null) ||
+    (gcConn.calendar_id as string | null) ||
+    'primary'
   const gcalPayload = {
     summary: String(eventRow.title ?? ''),
     description: String(eventRow.description ?? eventRow.notes ?? ''),
