@@ -276,6 +276,51 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Vertical Pack quick links — points at /opportunities for any
+          workspace that wants to operate the real-estate / immigration
+          pipelines. Empty by default; loads counts lazily there. */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <a
+          href="/opportunities"
+          className="group rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm ring-1 ring-indigo-100">
+              <Star className="h-4 w-4" />
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Pipeline & oportunidades</p>
+          <p className="text-[11px] text-gray-500">Inmobiliaria · Extranjería · Servicios. Pipeline por vertical.</p>
+        </a>
+        <a
+          href="/opportunities"
+          className="group rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-violet-600 shadow-sm ring-1 ring-violet-100">
+              <FileText className="h-4 w-4" />
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-violet-400 transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes</p>
+          <p className="text-[11px] text-gray-500">Trámites de extranjería y casos de servicios profesionales con checklist.</p>
+        </a>
+        <a
+          href="/opportunities"
+          className="group rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-sky-600 shadow-sm ring-1 ring-sky-100">
+              <Globe className="h-4 w-4" />
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-sky-400 transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Propiedades</p>
+          <p className="text-[11px] text-gray-500">Captaciones, ventas y alquileres del vertical inmobiliario.</p>
+        </a>
+      </div>
+
       {/* Insights + Activity */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
         <SectionCard title="Insights de IA" description="Recomendaciones generadas automáticamente" action={<Badge variant={visibleInsights.length ? 'indigo' : 'default'} dot>{visibleInsights.length} alertas</Badge>}>

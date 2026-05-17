@@ -12,8 +12,10 @@ import type { Client } from '@/lib/types'
 
 const pageLabels: Record<string, { title: string; description: string }> = {
   '/dashboard': { title: 'Dashboard', description: 'Vista general de tu negocio' },
-  '/assistant': { title: 'Asistente IA', description: 'Conversaciones y análisis inteligente' },
+  '/inbox': { title: 'Inbox', description: 'Mensajes reales de canales externos' },
+  '/assistant': { title: 'NowLabs AI', description: 'Asistente operativo del CRM' },
   '/clients': { title: 'Clientes', description: 'Gestión de leads y clientes' },
+  '/opportunities': { title: 'Oportunidades', description: 'Pipeline, expedientes y propiedades' },
   '/automations': { title: 'Automatizaciones', description: 'Flujos y secuencias automáticas' },
   '/calendar': { title: 'Calendario', description: 'Reuniones y eventos' },
   '/billing': { title: 'Facturación', description: 'Facturas e ingresos' },

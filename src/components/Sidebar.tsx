@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
   Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
-  Inbox,
+  Inbox, Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/assistant', label: 'Asistente IA', icon: Bot },
   { href: '/clients', label: 'Clientes', icon: Users },
+  { href: '/opportunities', label: 'Oportunidades', icon: Target },
   { href: '/automations', label: 'Automatizaciones', icon: Zap },
   { href: '/calendar', label: 'Calendario', icon: Calendar },
   { href: '/billing', label: 'Facturación', icon: CreditCard },
