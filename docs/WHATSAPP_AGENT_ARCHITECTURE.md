@@ -63,23 +63,32 @@ Decisión sanitizada                            ← UI muestra borrador; humano 
 - Actualiza `whatsapp_connections.last_webhook_at` en cada inbound real.
 - **Nunca** auto-responde.
 
-### 3. Inbox UI
+### 3. Inbox UI — **solo canales externos**
 
 **Página:** `src/app/(saas)/inbox/page.tsx`
 
-- 3 columnas: lista / chat / panel cliente.
-- **Tabs primarios (source lanes)** — el filtro principal de la lista. Los
-  define el helper `src/lib/inbox-classify.ts`:
-  - **WhatsApp** (default) → `metadata.source='meta_cloud_api'`. Solo mensajes
-    realmente recibidos desde Meta Cloud API.
-  - **Demo** → simulador interno, `metadata.test=true`, source `demo` o
-    `settings_simulator`, o cualquier WhatsApp histórico sin marcador.
-  - **CRM** → conversaciones con NowLabs Copilot/Assistant (channel `crm`,
-    `assistant_mode=copilot` o source `assistant_*`).
-  - **Todas** → todo el workspace, sin filtrar por lane.
-- Filtros secundarios: status (open/pending/resolved/archived) y canal.
-- Composer con dos botones: **Enviar** (intenta Meta) y **Borrador** (solo guarda local).
-- Botones IA: Sugerir respuesta, Resumir, Clasificar intención, Detectar sentimiento, Análisis completo.
+> El Inbox es exclusivamente la bandeja de entrada de **mensajes reales de
+> clientes desde canales externos**. Las conversaciones internas con NowLabs
+> Copilot/Assistant viven en `/assistant` y el dashboard. El API
+> `/api/inbox/conversations` excluye CRM internal por defecto
+> (`?includeInternal=1` para opt-in en debugging).
+
+- 3 columnas: lista / chat / panel cliente compacto.
+- **Tabs externos (channelType)** — definidos en `src/lib/inbox-classify.ts`:
+  - **Todos** (default) → cualquier canal externo: WhatsApp / Instagram / Web / Email / unknown.
+  - **WhatsApp** → solo `channelType='whatsapp'`. Real si source = `meta_cloud_api`.
+  - **Instagram** → preparado, pendiente de conectar (`future:true`).
+  - **Web** → conversaciones del chat web / formularios.
+  - **Email** → integración Gmail/Email futura (`future:true`).
+- Filtros secundarios: status (open/pending/resolved/archived).
+- Composer: **"Enviar"** se reemplaza por **"Guardar borrador"** cuando el
+  canal no está conectado (config Meta no ready). Nunca dice "Enviado" si no
+  hay envío real.
+- Botones IA: Sugerir respuesta, Resumir, Clasificar intención, Detectar
+  sentimiento, Análisis completo.
+- Mensajes con `metadata.source` interno (Copilot/Assistant) se renderizan
+  centrados como *system note*, no como burbuja de WhatsApp. Aunque por
+  defecto el Inbox ya filtra esos hilos en el API.
 - Mensajes con `metadata.source` interno (Copilot/Assistant) se renderizan
   centrados como *system note*, no como burbuja de WhatsApp, para que nunca se
   confundan con un mensaje real del cliente.

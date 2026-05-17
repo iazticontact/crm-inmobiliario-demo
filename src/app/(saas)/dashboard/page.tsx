@@ -68,7 +68,7 @@ export default function DashboardPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
   const [activity, setActivity] = useState<CRMActivity[]>([])
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
-  const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number } | null>(null)
+  const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number; externalConversations: number; internalConversations: number } | null>(null)
   const [dashboardLoadError, setDashboardLoadError] = useState('')
 
   useEffect(() => {
@@ -96,6 +96,14 @@ export default function DashboardPage() {
           getActivities(workspaceId).catch(() => [] as CRMActivity[]),
         ])
         const averageScore = clients.length ? Math.round(clients.reduce((sum, client) => sum + client.leadScore, 0) / clients.length) : 0
+        // Split conversations by channel so the dashboard can show external
+        // customer traffic separately from internal Copilot/Assistant activity.
+        const isInternalConv = (c: { channel?: string | null }) => {
+          const ch = String(c.channel ?? '').toLowerCase()
+          return ch === 'crm' || ch === 'crm_internal' || ch === '' || ch === 'web'
+        }
+        const externalConvs = conversations.filter((c) => !isInternalConv(c))
+        const internalConvs = conversations.filter((c) => isInternalConv(c))
         setRealStats({
           total: clients.length,
           leads: clients.filter((client) => client.status === 'lead').length,
@@ -104,6 +112,8 @@ export default function DashboardPage() {
           pending: invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + invoice.amount, 0),
           events: events.filter((event) => event.date >= new Date().toISOString().slice(0, 10)).length,
           conversations: conversations.length,
+          externalConversations: externalConvs.length,
+          internalConversations: internalConvs.length,
         })
         setActivity(activities)
         setDashboardLoadError('')
@@ -130,10 +140,10 @@ export default function DashboardPage() {
     return dashboardMetrics.map((metric) => {
       if (metric.label === 'Clientes activos') return { ...metric, value: String(realStats.total), changeLabel: 'clientes reales' }
       if (metric.label === 'Ingresos del mes') return { ...metric, value: `€${Math.round(realStats.revenue).toLocaleString('es-ES')}`, changeLabel: 'facturación real' }
-      // Renombrado: el conteo incluye conversaciones reales + internas (Copilot
-      // y Assistant), por eso lo llamamos "Interacciones" en vez de
-      // "Conversaciones" para no insinuar que son todas con clientes.
-      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.conversations}`, label: 'Interacciones', changeLabel: 'inbox + copilot' }
+      // Mostramos solo las **conversaciones externas** (WhatsApp/Instagram/etc.).
+      // Las internas (Copilot/Assistant) viven en /assistant y aparecen abajo
+      // como "Actividad interna".
+      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.externalConversations}`, label: 'Inbox externo', changeLabel: `${realStats.internalConversations} consultas internas` }
       if (metric.label === 'Emails enviados') return { ...metric, value: String(realStats.events), label: 'Eventos próximos', changeLabel: 'calendario real' }
       return metric
     })

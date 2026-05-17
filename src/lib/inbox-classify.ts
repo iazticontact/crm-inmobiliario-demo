@@ -295,28 +295,36 @@ export function getConversationDisplay(opts: {
 
 // -----------------------------------------------------------------------------
 // Tabs — primary lane filter for /inbox.
+//
+// CRM internal (NowLabs Copilot / Assistant) does NOT appear here on purpose.
+// Internal conversations live in /assistant and the dashboard timeline. The
+// Inbox is the operator's channel for **external customer traffic only**.
 // -----------------------------------------------------------------------------
 
-export type InboxTab = 'all' | 'whatsapp' | 'instagram' | 'web' | 'internal'
+export type InboxTab = 'all' | 'whatsapp' | 'instagram' | 'web' | 'email'
 
 export type InboxTabDescriptor = {
   key: InboxTab
   label: string
   description: string
+  /** When true, this tab points at a channel NowCRM cannot deliver real
+   *  messages to yet. The UI renders the tab but with a "próxima" hint. */
+  future?: boolean
 }
 
 export const INBOX_TABS: InboxTabDescriptor[] = [
-  { key: 'all',       label: 'Todos',     description: 'Conversaciones externas reales (WhatsApp · Instagram · Web · Email).' },
+  { key: 'all',       label: 'Todos',     description: 'Mensajes reales desde tus canales externos.' },
   { key: 'whatsapp',  label: 'WhatsApp',  description: 'Mensajes desde Meta Cloud API.' },
-  { key: 'instagram', label: 'Instagram', description: 'Mensajes desde Instagram Messaging (próximamente).' },
+  { key: 'instagram', label: 'Instagram', description: 'Mensajes desde Instagram Messaging (próximamente).', future: true },
   { key: 'web',       label: 'Web',       description: 'Conversaciones del chat web y formularios.' },
-  { key: 'internal',  label: 'Interno',   description: 'Conversaciones internas con NowLabs (Copilot/Assistant).' },
+  { key: 'email',     label: 'Email',     description: 'Integración Email/Gmail — próximamente.', future: true },
 ]
 
-/** Does a classified conversation belong to the given tab? */
+/** Does a classified conversation belong to the given tab? CRM internal is
+ *  intentionally hidden from every tab in this list. */
 export function tabMatches(tab: InboxTab, c: ConversationClassification): boolean {
-  if (tab === 'all') return c.channelType !== 'crm_internal' // "Todos" = external lanes
-  if (tab === 'internal') return c.channelType === 'crm_internal'
+  if (c.channelType === 'crm_internal') return false
+  if (tab === 'all') return c.channelType !== 'unknown'
   return c.channelType === (tab as ChannelType)
 }
 

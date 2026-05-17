@@ -244,7 +244,7 @@ export default function InboxPage() {
   }, [conversations])
 
   const tabCounts = useMemo(() => {
-    const out: Record<InboxTab, number> = { all: 0, whatsapp: 0, instagram: 0, web: 0, internal: 0 }
+    const out: Record<InboxTab, number> = { all: 0, whatsapp: 0, instagram: 0, web: 0, email: 0 }
     for (const { classification } of decoratedConversations) {
       for (const tab of INBOX_TABS) {
         if (tabMatches(tab.key, classification)) out[tab.key] += 1
@@ -536,24 +536,22 @@ export default function InboxPage() {
               <EmptyState
                 icon={<Inbox className="h-6 w-6 text-gray-300" />}
                 title={
-                  activeTab === 'whatsapp'  ? 'Aún no hay mensajes reales de WhatsApp'
-                  : activeTab === 'instagram' ? 'Instagram preparado, pendiente de conectar'
-                  : activeTab === 'web'      ? 'Sin conversaciones del chat web'
-                  : activeTab === 'internal' ? 'Sin consultas internas recientes'
-                  : 'Aún no hay conversaciones externas'
+                  activeTab === 'whatsapp'  ? 'WhatsApp aún no está conectado'
+                  : activeTab === 'instagram' ? 'Instagram preparado para conectarse'
+                  : activeTab === 'web'      ? 'Web Chat todavía no tiene conversaciones'
+                  : activeTab === 'email'    ? 'Email/Gmail será una integración futura'
+                  : 'No hay conversaciones externas todavía'
                 }
                 description={
                   activeTab === 'whatsapp'
-                    ? (config && config.meta.status !== 'ready'
-                        ? 'Configura Meta Cloud API en el servidor y registra el webhook público (Vercel o cloudflared) para empezar a recibir mensajes reales aquí.'
-                        : 'Conecta tu número Meta y registra el webhook público para recibir mensajes reales aquí.')
+                    ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook público (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecerá aquí.'
                     : activeTab === 'instagram'
-                      ? 'Instagram Messaging se conectará vía Meta. Necesitas una cuenta profesional vinculada a una Página de Facebook. Te avisaremos cuando esté disponible.'
+                      ? 'Necesitarás una cuenta profesional de Instagram vinculada a una Página de Facebook y permisos de Meta. Te avisaremos cuando esté disponible.'
                       : activeTab === 'web'
                         ? 'Cuando un visitante envíe un mensaje desde el chat web, lo verás aquí.'
-                        : activeTab === 'internal'
-                          ? 'Las consultas internas con NowLabs Copilot y el Assistant aparecerán aquí.'
-                          : 'Cuando entre un mensaje desde WhatsApp, Instagram, web o email, lo verás aquí.'
+                        : activeTab === 'email'
+                          ? 'Estamos preparando la conexión con Email/Gmail. Mientras tanto, NowCRM ya recibe leads desde WhatsApp y otros canales.'
+                          : 'Cuando conectes WhatsApp, Instagram o Web Chat, los mensajes de tus clientes aparecerán aquí. Las consultas internas con NowLabs viven en /assistant.'
                 }
               />
             ) : (
@@ -827,76 +825,138 @@ export default function InboxPage() {
                     )
                   })()}
                 </div>
-                <div className="flex items-end gap-2">
-                  <textarea
-                    rows={2}
-                    value={composer}
-                    onChange={(e) => setComposer(e.target.value)}
-                    placeholder="Escribe una respuesta para el cliente…"
-                    className="min-h-[60px] flex-1 resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <div className="flex shrink-0 flex-col gap-1.5">
-                    <Button size="sm" loading={sending} onClick={() => void sendMessage('send')} disabled={!composer.trim()}>
-                      <Send className="h-3.5 w-3.5" /> Enviar
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={() => void sendMessage('draft')} disabled={!composer.trim() || sending}>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Borrador
-                    </Button>
-                  </div>
-                </div>
-                {draftSimulated && (
-                  <p className="mt-1 text-[10px] text-amber-700">
-                    Último envío quedó como borrador (outbound no configurado). Configura phone_number_id y token de Meta para envíos reales.
-                  </p>
-                )}
+                {(() => {
+                  const convClassification = classifyConversation(conversation.channel, conversation.metadata)
+                  const channelReady = convClassification.channelType === 'whatsapp' && config?.meta.status === 'ready'
+                  const sendDisabled = !composer.trim() || sending
+                  const sendTitle = !channelReady
+                    ? 'WhatsApp Meta no está conectado todavía. El mensaje se guardará como borrador.'
+                    : undefined
+                  return (
+                    <>
+                      <div className="flex items-end gap-2">
+                        <textarea
+                          rows={2}
+                          value={composer}
+                          onChange={(e) => setComposer(e.target.value)}
+                          placeholder={channelReady ? 'Escribe una respuesta para el cliente…' : 'Aquí solo se guardan borradores hasta que conectes el canal real…'}
+                          className="min-h-[60px] flex-1 resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <div className="flex shrink-0 flex-col gap-1.5">
+                          {channelReady ? (
+                            <Button size="sm" loading={sending} onClick={() => void sendMessage('send')} disabled={sendDisabled} title={sendTitle}>
+                              <Send className="h-3.5 w-3.5" /> Enviar
+                            </Button>
+                          ) : (
+                            <Button size="sm" onClick={() => void sendMessage('draft')} disabled={sendDisabled} title={sendTitle}>
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Guardar borrador
+                            </Button>
+                          )}
+                          {channelReady && (
+                            <Button variant="secondary" size="sm" onClick={() => void sendMessage('draft')} disabled={sendDisabled}>
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Borrador
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {!channelReady && (
+                        <p className="mt-1 text-[10px] text-gray-400">
+                          El envío real estará disponible cuando conectes el canal. Hasta entonces, lo que escribas se guarda como borrador en NowCRM.
+                        </p>
+                      )}
+                      {draftSimulated && channelReady && (
+                        <p className="mt-1 text-[10px] text-amber-700">
+                          Último envío quedó como borrador. Revisa phone_number_id y token de Meta.
+                        </p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </>
           )}
         </div>
 
-        {/* RIGHT — client panel */}
-        <div className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm lg:flex">
-          <div className="flex shrink-0 items-center gap-2 border-b border-gray-100 px-4 py-3">
-            <User className="h-3.5 w-3.5 text-gray-400" />
-            <h3 className="text-sm font-semibold text-gray-900">Cliente</h3>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-xs">
-            {!conversation ? (
-              <p className="text-gray-400">Selecciona una conversación.</p>
-            ) : !client ? (
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-gray-900">{conversation.client_name || 'Sin cliente vinculado'}</p>
-                <p className="text-gray-500">Esta conversación no está vinculada a un cliente del CRM.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{client.name}</p>
-                  {client.company && <p className="text-gray-500">{client.company}</p>}
-                </div>
-                <div className="space-y-1">
-                  {client.email && (
-                    <p className="flex items-center gap-1.5 text-gray-700"><Mail className="h-3 w-3 text-gray-400" />{client.email}</p>
-                  )}
-                  {client.phone && (
-                    <p className="flex items-center gap-1.5 text-gray-700"><Phone className="h-3 w-3 text-gray-400" />{client.phone}</p>
-                  )}
-                </div>
+        {/* RIGHT — compact contact panel. Only renders when a conversation is
+            selected; otherwise the chat column already shows an empty state. */}
+        {conversation && (() => {
+          const classification = classifyConversation(conversation.channel, conversation.metadata)
+          const meta = (conversation.metadata ?? {}) as Record<string, unknown>
+          const phoneFromMeta = typeof meta.phone === 'string' ? meta.phone : null
+          const display = getConversationDisplay({
+            clientName: conversation.client_name,
+            clientId: conversation.client_id,
+            phoneFromMetadata: phoneFromMeta,
+            channelType: classification.channelType,
+          })
+          const channelDesc = CHANNEL_DESCRIPTORS[classification.channelType]
+          return (
+            <aside className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm lg:flex">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
                 <div className="flex items-center gap-2">
-                  {client.status && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{client.status}</span>}
-                  {typeof client.lead_score === 'number' && (
-                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Score {client.lead_score}</span>
-                  )}
+                  <User className="h-3.5 w-3.5 text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-900">Contacto</h3>
                 </div>
+                <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-semibold', channelDesc.tone)}>
+                  {channelDesc.shortLabel}
+                </span>
               </div>
-            )}
-          </div>
-          {conversation && (
-            <div className="shrink-0 border-t border-gray-100 px-4 py-3 text-[10px] text-gray-400">
-              Creada {formatDateTime(conversation.created_at)} · actualizada {formatDateTime(conversation.updated_at)}
-            </div>
-          )}
-        </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-xs">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-gray-900">{display.title}</p>
+                  {client?.company ? (
+                    <p className="text-gray-500">{client.company}</p>
+                  ) : display.subtitle ? (
+                    <p className="text-gray-400">{display.subtitle}</p>
+                  ) : null}
+                </div>
+
+                {(client?.email || client?.phone || phoneFromMeta) && (
+                  <div className="mt-3 space-y-1">
+                    {client?.email && (
+                      <p className="flex items-center gap-1.5 text-gray-700"><Mail className="h-3 w-3 text-gray-400" />{client.email}</p>
+                    )}
+                    {(client?.phone || phoneFromMeta) && (
+                      <p className="flex items-center gap-1.5 text-gray-700"><Phone className="h-3 w-3 text-gray-400" />{client?.phone || phoneFromMeta}</p>
+                    )}
+                  </div>
+                )}
+
+                {(client?.status || typeof client?.lead_score === 'number') && (
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {client?.status && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{client.status}</span>}
+                    {typeof client?.lead_score === 'number' && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Score {client.lead_score}</span>
+                    )}
+                  </div>
+                )}
+
+                {display.unlinked && (
+                  <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] leading-snug text-gray-500">
+                    Esta conversación no está vinculada a un cliente del CRM.
+                    <button
+                      disabled
+                      title="Disponible próximamente"
+                      className="mt-1 block text-[10px] font-semibold text-indigo-600 opacity-50"
+                    >
+                      Vincular cliente →
+                    </button>
+                  </div>
+                )}
+
+                {conversation.ai_summary && (
+                  <div className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-2.5 py-2 text-[11px] leading-snug text-violet-900">
+                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-500">Resumen IA</p>
+                    {conversation.ai_summary}
+                  </div>
+                )}
+              </div>
+              <div className="shrink-0 border-t border-gray-100 px-4 py-2 text-[10px] text-gray-400">
+                Actualizada {formatDateTime(conversation.updated_at)}
+              </div>
+            </aside>
+          )
+        })()}
       </div>
     </motion.div>
   )

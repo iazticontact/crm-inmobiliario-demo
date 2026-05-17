@@ -2633,8 +2633,8 @@ export default function AssistantPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Asistente IA"
-        description="NowLabs AI opera tu CRM: clientes, citas, facturas, cobros y próximas acciones."
+        title="NowLabs AI"
+        description="Asistente operativo del CRM: consultas internas, citas, facturas, tareas y acciones preparadas. Los mensajes reales de clientes viven en /inbox."
         action={
           <div className="flex items-center gap-2">
             <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'NowLabs AI real' : 'IA demo'}</Badge>

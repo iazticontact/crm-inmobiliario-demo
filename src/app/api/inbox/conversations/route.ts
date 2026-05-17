@@ -3,12 +3,18 @@
 // Lists conversations for the current user's workspace with optional filters.
 // Server-side, auth-aware, never exposes raw rows of other workspaces.
 //
+// Default: EXCLUDES CRM internal conversations (channel='crm' and metadata
+// sources used by NowLabs Copilot/Assistant). The Inbox is for external
+// customer channels only. Consumers that genuinely need internal threads
+// (Assistant page, debug routes) must pass ?includeInternal=1.
+//
 // Query params:
 //   channel?: whatsapp | email | web | instagram | crm
 //   status?: open | pending | resolved | archived
 //   sentiment?: positive | neutral | negative | urgent
 //   limit?: number (default 50, max 100)
 //   offset?: number
+//   includeInternal?: 1 | true (opt-in to bring back CRM internal rows)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -46,6 +52,8 @@ export async function GET(req: NextRequest) {
   const channel = sp.get('channel')?.trim() || undefined
   const status = sp.get('status')?.trim() || undefined
   const sentiment = sp.get('sentiment')?.trim() || undefined
+  const includeInternalRaw = sp.get('includeInternal')?.trim().toLowerCase()
+  const includeInternal = includeInternalRaw === '1' || includeInternalRaw === 'true'
   const limitRaw = Number(sp.get('limit'))
   const offsetRaw = Number(sp.get('offset'))
   const limit = Math.min(Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50, 100)
@@ -62,6 +70,13 @@ export async function GET(req: NextRequest) {
   if (channel) q = q.ilike('channel', channel)
   if (status) q = q.eq('status', status)
   if (sentiment) q = q.eq('sentiment', sentiment)
+
+  // Default: exclude CRM internal threads. The Inbox is for external customer
+  // channels only — Copilot/Assistant traffic belongs in /assistant and the
+  // dashboard timeline.
+  if (!includeInternal) {
+    q = q.not('channel', 'in', '("crm","crm_internal")')
+  }
 
   const { data, error } = await q
   if (error) {
