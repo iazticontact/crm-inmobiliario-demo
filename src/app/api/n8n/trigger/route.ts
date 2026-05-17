@@ -1,13 +1,34 @@
+// POST /api/n8n/trigger
+//
+// Hardened internal bridge between NowCRM and the workspace's n8n instance.
+//
+// Security model (do NOT regress):
+//   - Requires an authenticated Supabase session (cookie). Anonymous callers get 401.
+//   - The destination URL is NEVER taken from the request body. Any incoming
+//     webhook_url / endpoint fields are silently ignored. Accepting them in the
+//     past would have leaked N8N_WEBHOOK_SECRET to an attacker-controlled host.
+//   - The slug to call is resolved server-side from a fixed allowlist keyed on
+//     the event_type (which is already a closed set).
+//   - The final URL is built as `${N8N_BASE_URL}/webhook/${slug}` and re-validated
+//     to live under the configured N8N_BASE_URL host before any fetch.
+//   - If N8N_BASE_URL is missing or workspace_id does not match the user's, we
+//     return a sanitized "simulated"/"skipped" payload instead of attempting a
+//     fetch — never a success-looking response with no real call.
+//
+// Response shape is whitelisted: we never echo the raw n8n response.
+
 import { NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { normalizeN8nEventType, type N8nEventType, type N8nTriggerMode, type N8nTriggerStatus } from '@/lib/integrations'
 import type { N8nFlowStatus } from '@/lib/types'
+
+export const runtime = 'nodejs'
 
 type N8nTriggerBody = {
   event_type?: string
   workspace_id?: string
   flow_id?: string
-  webhook_url?: string
-  endpoint?: string
   mode?: N8nTriggerMode
   flow_status?: N8nFlowStatus
   payload?: Record<string, unknown>
@@ -20,6 +41,7 @@ type N8nTriggerBody = {
   metadata?: Record<string, unknown>
   assistant_mode?: string
   recent_history?: string
+  // webhook_url / endpoint are intentionally omitted — they are ignored by the server.
 }
 
 type RouteResponseExtra = {
@@ -33,10 +55,31 @@ type RouteResponseExtra = {
   allowed_events?: readonly string[]
   execution_id?: string
   duration_ms?: number
+  workflow_slug?: string
+  reason?: string
 }
 
-// Whitelist a small set of safe fields from n8n response.
-// NEVER return the raw response — it can leak headers, full payload, secrets, downstream tokens.
+// Server-side allowlist: event_type → n8n workflow slug.
+// The slug is appended to `${N8N_BASE_URL}/webhook/` and that's the only URL we
+// will ever POST to. Keep this list in sync with N8N_EVENT_TYPES in integrations.ts.
+const EVENT_TO_WORKFLOW_SLUG: Record<N8nEventType, string> = {
+  new_lead: 'new-lead',
+  client_updated: 'client-updated',
+  client_deleted: 'client-deleted',
+  whatsapp_message: 'whatsapp-message',
+  assistant_message: 'assistant-message',
+  conversation_resolved: 'conversation-resolved',
+  appointment_booked: 'appointment-booked',
+  calendar_event_created: 'calendar-event-created',
+  invoice_created: 'invoice-created',
+  invoice_paid: 'invoice-paid',
+  invoice_overdue: 'invoice-overdue',
+  reengagement_needed: 'reengagement-needed',
+  daily_summary: 'daily-summary',
+  urgent_conversation: 'urgent-conversation',
+  test_flow: 'test-flow',
+}
+
 function sanitizeN8nResponse(value: unknown): { executionId?: string; messagePreview?: string } | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const record = value as Record<string, unknown>
@@ -58,13 +101,6 @@ function json(status: N8nTriggerStatus, message: string, init?: ResponseInit, ex
     activity_created: false,
     ...extra,
   }, init)
-}
-
-function normalizeWebhookUrl(value: unknown) {
-  if (typeof value !== 'string') return ''
-  const trimmed = value.trim()
-  if (!trimmed || trimmed.includes('tudominio.com')) return ''
-  return trimmed
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -134,58 +170,165 @@ function extractSuggestedResponse(value: unknown): string | undefined {
   return extractSuggestedResponse(record.data ?? record.output ?? record.result)
 }
 
+// Validate that a constructed URL really lives under N8N_BASE_URL host and uses
+// a safe protocol. Defense-in-depth against SSRF: even though the URL is built
+// server-side from a trusted env var, we still re-check before fetching so a
+// misconfigured N8N_BASE_URL (e.g. someone pasted a loopback / metadata host)
+// can't be exploited.
+function destinationLooksSafe(target: URL, baseUrl: URL, isProduction: boolean): { ok: boolean; reason?: string } {
+  // 1) Protocol: HTTPS in prod, HTTP allowed only against localhost in dev.
+  const isLocalhostHost = target.hostname === 'localhost' || target.hostname === '127.0.0.1' || target.hostname === '::1'
+  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && isLocalhostHost && !isProduction)) {
+    return { ok: false, reason: 'unsafe_protocol' }
+  }
+
+  // 2) The constructed URL must match the configured base.
+  if (target.hostname !== baseUrl.hostname) return { ok: false, reason: 'host_mismatch' }
+  if ((target.port || '') !== (baseUrl.port || '')) return { ok: false, reason: 'port_mismatch' }
+
+  // 3) In production, refuse loopback, link-local, private IPv4, IPv6 unique-local,
+  //    IPv6 link-local, the unspecified address, and cloud metadata endpoints.
+  if (isProduction) {
+    if (isLocalhostHost) return { ok: false, reason: 'localhost_in_production' }
+    if (target.hostname === '0.0.0.0' || target.hostname === '::') {
+      return { ok: false, reason: 'unspecified_address' }
+    }
+    // IPv4 loopback / link-local / RFC1918
+    if (/^127\./.test(target.hostname)) return { ok: false, reason: 'loopback_in_production' }
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.)/.test(target.hostname)) {
+      return { ok: false, reason: 'private_ip_in_production' }
+    }
+    // IPv6: link-local fe80::/10, ULA fc00::/7, IPv4-mapped ::ffff:*
+    const lower = target.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+    if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) {
+      return { ok: false, reason: 'ipv6_private_in_production' }
+    }
+    if (lower.startsWith('::ffff:')) return { ok: false, reason: 'ipv4_mapped_ipv6_in_production' }
+    // Cloud instance metadata services — never legitimate as an n8n host.
+    if (target.hostname === '169.254.169.254' || target.hostname === 'metadata.google.internal') {
+      return { ok: false, reason: 'metadata_endpoint_in_production' }
+    }
+  }
+  return { ok: true }
+}
+
+async function getAuthenticatedWorkspace(): Promise<{ userId: string; workspaceId: string } | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
+  if (!url || !key) return null
+
+  const cookieStore = await cookies()
+  const supabase = createServerClient(url, key, {
+    cookies: { getAll: () => cookieStore.getAll(), setAll: () => { /* no-op */ } },
+  })
+
+  const { data: { user }, error: authErr } = await supabase.auth.getUser()
+  if (authErr || !user) return null
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('workspace_id')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const workspaceId = profile?.workspace_id as string | null | undefined
+  if (!workspaceId) return null
+  return { userId: user.id, workspaceId }
+}
+
 export async function POST(request: Request) {
   let body: N8nTriggerBody
-
   try {
     body = await request.json()
   } catch {
     return json('error', 'Payload JSON invalido.', { status: 400 })
   }
 
+  // 1) Validate event_type against the closed allowlist BEFORE any auth work.
   const eventType = normalizeN8nEventType(body.event_type)
   if (!eventType) {
     return json('error', 'event_type no reconocido.', { status: 400 })
   }
 
-  const workspaceId = body.workspace_id || (typeof body.payload?.workspace_id === 'string' ? body.payload.workspace_id : undefined)
+  // 2) Authenticate caller. n8n is an internal automation arm; only logged-in
+  //    workspace members can trigger it. Anonymous callers get 401.
+  const session = await getAuthenticatedWorkspace()
+  if (!session) {
+    return json('error', 'No autenticado.', { status: 401 }, { event_type: eventType })
+  }
+
+  // 3) Resolve workspace. If the caller specified one, it must match their own.
+  const requestedWorkspaceId = body.workspace_id?.trim()
+    || (typeof body.payload?.workspace_id === 'string' ? body.payload.workspace_id.trim() : '')
+    || ''
+  if (requestedWorkspaceId && requestedWorkspaceId !== session.workspaceId) {
+    return json('error', 'workspace_id no coincide con la sesion.', { status: 403 }, { event_type: eventType })
+  }
+  const workspaceId = session.workspaceId
+
+  // 4) Apply flow_status gating (a workspace flow can be "inactive").
   const flowStatus = body.flow_status || (typeof body.payload?.flow_status === 'string' ? body.payload.flow_status as N8nFlowStatus : undefined)
   if (flowStatus === 'inactive') {
     return json('skipped', `Flujo "${eventType}" omitido porque esta inactivo.`, undefined, { event_type: eventType, mode: 'demo' })
   }
 
-  const webhookUrl = normalizeWebhookUrl(body.webhook_url ?? body.endpoint)
   const requestedRealMode = body.mode === 'real'
-  if (requestedRealMode && !workspaceId) {
-    return json('error', 'workspace_id es obligatorio para ejecutar en modo real.', { status: 400 }, { event_type: eventType, mode: 'real' })
+  const payload = buildPayload({ ...body, workspace_id: workspaceId }, eventType, requestedRealMode ? 'real' : 'demo')
+
+  // 5) Look up the destination INTERNALLY. The client cannot influence this.
+  const workflowSlug = EVENT_TO_WORKFLOW_SLUG[eventType]
+  if (!workflowSlug) {
+    // Defensive: shouldn't happen if event_type is in N8N_EVENT_TYPES.
+    return json('error', 'Slug de workflow no permitido.', { status: 400 }, { event_type: eventType })
   }
 
-  const mode: N8nTriggerMode = requestedRealMode && webhookUrl ? 'real' : 'demo'
-  const payload = buildPayload({ ...body, workspace_id: workspaceId }, eventType, mode)
-
-  if (!webhookUrl) {
-    return json('simulated', `Webhook "${eventType}" simulado desde NowCRM.`, undefined, { event_type: eventType, mode: 'demo', payload })
+  const rawBase = process.env.N8N_BASE_URL?.trim()
+  if (!rawBase) {
+    // No real n8n configured → return a simulated success instead of a fake "ok".
+    return json('simulated', `Webhook "${eventType}" simulado (N8N_BASE_URL no configurada).`, undefined, {
+      event_type: eventType,
+      mode: 'demo',
+      payload,
+      workflow_slug: workflowSlug,
+      reason: 'n8n_base_url_missing',
+    })
   }
 
-  let url: URL
+  let baseUrl: URL
   try {
-    url = new URL(webhookUrl)
+    baseUrl = new URL(rawBase.replace(/\/$/, ''))
   } catch {
-    return json('skipped', 'Webhook omitido: URL n8n no valida.', { status: 200 }, { event_type: eventType, mode: 'demo', payload })
+    return json('error', 'N8N_BASE_URL invalida en el servidor.', { status: 500 }, { event_type: eventType, mode: 'demo', reason: 'n8n_base_url_invalid' })
   }
 
-  if (url.protocol !== 'https:' && url.hostname !== 'localhost') {
-    return json('skipped', 'Webhook omitido: usa HTTPS o localhost para pruebas.', { status: 200 }, { event_type: eventType, mode: 'demo', payload })
+  let target: URL
+  try {
+    target = new URL(`${baseUrl.origin}${baseUrl.pathname.replace(/\/$/, '')}/webhook/${workflowSlug}`)
+  } catch {
+    return json('error', 'No se pudo construir la URL del webhook n8n.', { status: 500 }, { event_type: eventType, mode: 'demo', workflow_slug: workflowSlug })
   }
 
+  const isProduction = process.env.NODE_ENV === 'production'
+  const safety = destinationLooksSafe(target, baseUrl, isProduction)
+  if (!safety.ok) {
+    return json('error', 'Destino n8n no autorizado.', { status: 502 }, {
+      event_type: eventType,
+      mode: 'demo',
+      workflow_slug: workflowSlug,
+      reason: safety.reason,
+    })
+  }
+
+  // 6) Real call. N8N_WEBHOOK_SECRET only goes to the validated internal URL.
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), readTimeout())
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (process.env.N8N_WEBHOOK_SECRET) headers['x-nowcrm-secret'] = process.env.N8N_WEBHOOK_SECRET
+  if (process.env.N8N_WEBHOOK_SECRET?.trim()) headers['x-nowcrm-secret'] = process.env.N8N_WEBHOOK_SECRET.trim()
+  if (process.env.N8N_API_KEY?.trim()) headers['X-N8N-API-KEY'] = process.env.N8N_API_KEY.trim()
 
   const startedAt = Date.now()
   try {
-    const response = await fetch(url, {
+    const response = await fetch(target, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -198,6 +341,17 @@ export async function POST(request: Request) {
     const suggestedResponse = extractSuggestedResponse(n8nResponseRaw)
     const sanitized = sanitizeN8nResponse(n8nResponseRaw)
 
+    // Safe log — no payload, no headers, no secrets.
+    if (process.env.NODE_ENV !== 'production' || process.env.N8N_LOG_TRIGGERS === '1') {
+      console.log('[n8n/trigger]', {
+        workspaceId,
+        event_type: eventType,
+        workflow_slug: workflowSlug,
+        http_status: response.status,
+        duration_ms: durationMs,
+      })
+    }
+
     return json(response.ok ? 'ok' : 'error', response.ok ? `Webhook "${eventType}" enviado a n8n.` : 'n8n respondio con error.', { status: response.ok ? 200 : 502 }, {
       event_type: eventType,
       mode: 'real',
@@ -206,10 +360,16 @@ export async function POST(request: Request) {
       suggested_response: suggestedResponse,
       execution_id: sanitized?.executionId,
       duration_ms: durationMs,
+      workflow_slug: workflowSlug,
       activity_created: false,
     })
   } catch {
     clearTimeout(timeout)
-    return json('error', 'No se pudo contactar con el endpoint n8n.', { status: 502 }, { event_type: eventType, mode: 'real', duration_ms: Date.now() - startedAt })
+    return json('error', 'No se pudo contactar con el endpoint n8n.', { status: 502 }, {
+      event_type: eventType,
+      mode: 'real',
+      duration_ms: Date.now() - startedAt,
+      workflow_slug: workflowSlug,
+    })
   }
 }
