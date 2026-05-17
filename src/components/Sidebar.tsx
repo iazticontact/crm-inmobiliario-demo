@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
   Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
+  Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -14,6 +15,7 @@ import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/assistant', label: 'Asistente IA', icon: Bot },
   { href: '/clients', label: 'Clientes', icon: Users },
   { href: '/automations', label: 'Automatizaciones', icon: Zap },

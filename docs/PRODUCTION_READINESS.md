@@ -39,6 +39,17 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
 
 `.env.local` está ignorado por git. Nunca commitear valores.
 
+## 1.bis Migraciones añadidas en fase WhatsApp/Inbox (2026-05-17)
+
+- `inbox_performance_indices` (idempotente):
+  - `conversations(workspace_id, updated_at DESC)`
+  - `conversations(workspace_id, channel, status)`
+  - `conversations(client_id) WHERE client_id IS NOT NULL`
+  - `messages(conversation_id, created_at)`
+  - `messages(workspace_id, created_at DESC)`
+  - `activities(workspace_id, created_at DESC)`
+  - `clients(workspace_id, phone) WHERE phone IS NOT NULL`
+
 ## 2. Migraciones Supabase aplicadas en esta fase
 
 - `service_role_grants_and_policies_hardening` (idempotente):
@@ -93,6 +104,24 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
 - Webhook POST rechaza con 503 si `META_APP_SECRET` no está configurado y
   `NODE_ENV === 'production'`.
 - En dev/local, se loggea warning y se acepta sin firma (modo desarrollo).
+
+### WhatsApp CRM (Inbox + Agent) — rev. 2026-05-17
+- Nueva página `/inbox` (3 columnas: lista, chat, panel cliente).
+- Nuevo helper `src/lib/meta-whatsapp.ts` para envío vía Meta Cloud API
+  (`v21.0` por defecto, override con `META_GRAPH_VERSION`). Si falta token o
+  phone_number_id, devuelve `pending_config`/`token_missing` y NO falla.
+- Nuevo módulo `src/lib/agents/whatsapp-agent.ts` con 5 tareas:
+  summarize, classify_intent, detect_sentiment, suggest_reply, full_review.
+  Devuelve JSON estricto; jamás auto-envía.
+- Nuevas rutas API:
+  - `GET /api/inbox/conversations` (paginada, filtrable)
+  - `GET /api/inbox/conversations/[id]` (conv + mensajes + cliente)
+  - `PATCH /api/inbox/conversations/[id]` (status, sentiment, intent, ai_summary, unread)
+  - `POST /api/inbox/conversations/[id]/messages` (draft/send; sanitizada)
+  - `POST /api/inbox/agent` (ejecuta tarea agentic, opcional persist)
+- Sidebar: añadido enlace `/inbox`.
+- Auto-reply queda OFF por defecto en `inbox_agent_settings`.
+- Arquitectura completa documentada en `docs/WHATSAPP_AGENT_ARCHITECTURE.md`.
 
 ### Schema-aware fixes
 - `getWhatsappConnection` selecciona `connection_status` (no `status`).

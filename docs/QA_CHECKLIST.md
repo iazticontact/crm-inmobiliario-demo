@@ -269,3 +269,64 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 | `google_fetch_error` | fallo de red al llamar Google | NO cancela local |
 | `local_cancel_failed` | UPDATE Supabase falló | error 500 honesto |
 
+---
+
+## Hardening checks (sesión nocturna 2026-05-17) — Inbox WhatsApp + Agent + n8n foundation
+
+### Webhook Meta
+
+- [ ] `GET /api/integrations/meta/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=<correct>&hub.challenge=abc` → devuelve `abc`.
+- [ ] Mismo GET con token incorrecto → 403.
+- [ ] `POST` en `NODE_ENV=production` sin `META_APP_SECRET` → 503.
+- [ ] `POST` con firma válida → 200, mensaje encolado a `/api/inbox/whatsapp/inbound`.
+
+### Inbox UI
+
+- [ ] `/inbox` carga sin 500.
+- [ ] Sidebar muestra "Inbox" entre Dashboard y Asistente IA.
+- [ ] Filtro de status filtra correctamente.
+- [ ] Filtro de canal filtra correctamente.
+- [ ] Click en conversación carga mensajes en orden cronológico.
+- [ ] Empty state si no hay conversaciones (no flash mock).
+- [ ] Cambiar status desde el dropdown se persiste.
+- [ ] Botón "Archivar" mueve a archived y refresca lista.
+
+### NowLabs WhatsApp Agent
+
+- [ ] Botón "Sugerir respuesta" rellena el composer con texto en español.
+- [ ] Botón "Resumir" con persist=true actualiza `ai_summary` (visible en lista).
+- [ ] Botón "Clasificar intención" actualiza `intent` y muestra confidence.
+- [ ] Botón "Detectar sentimiento" actualiza badge en la lista.
+- [ ] Botón "Análisis completo" hace los 3 (summary+intent+sentiment) en una sola llamada.
+- [ ] Si `OPENAI_API_KEY` falta → toast "Falta OPENAI_API_KEY en el servidor".
+- [ ] Si conversación vacía → toast "No hay mensajes para analizar".
+- [ ] Sentimiento `negative` o `urgent` → la decisión marca `needs_human=true` automáticamente.
+
+### Inbox API
+
+- [ ] `GET /api/inbox/conversations?status=open` solo devuelve abiertas del workspace.
+- [ ] `GET /api/inbox/conversations/<otro-workspace-id>` devuelve 404 (workspace guard).
+- [ ] `PATCH /api/inbox/conversations/<id>` con body `{ status: 'resolved' }` actualiza solo si pertenece al workspace.
+- [ ] `POST /api/inbox/conversations/<id>/messages` con `mode:'draft'` inserta `metadata.mode='draft'` y NO llama a Meta.
+- [ ] `POST .../messages` con `mode:'send'` sin token configurado → guarda como borrador con `metadata.simulated=true` y `send.reason='token_missing'`.
+- [ ] `POST .../messages` con `mode:'send'` y cliente sin teléfono → 400 con `reason:'invalid_recipient'`.
+
+### Outbound Meta helper
+
+- [ ] `META_GRAPH_VERSION` override funciona (default v21.0).
+- [ ] Respuesta nunca contiene el JSON crudo de Meta ni `Authorization` header.
+- [ ] Reasons documentadas: sent, simulated, pending_config, token_missing, phone_number_id_missing, invalid_recipient, meta_api_error, rate_limited, network_error.
+
+### Performance indices
+
+- [ ] `EXPLAIN ANALYZE` de `SELECT FROM conversations WHERE workspace_id=X ORDER BY updated_at DESC LIMIT 50` usa `conversations_workspace_updated_idx`.
+- [ ] Listado de mensajes de una conv usa `messages_conversation_created_idx`.
+
+### Regression
+
+- [ ] `/calendar` sigue funcionando.
+- [ ] Cancel-event sigue cancelando en Google.
+- [ ] `/assistant` sigue funcionando.
+- [ ] `/settings` sin 500.
+- [ ] `/automations` sin 500.
+
