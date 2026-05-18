@@ -1,6 +1,6 @@
 # NowCRM — guion de demo comercial (Andrei)
 
-> Versión 2026-05-18 · Fase D.
+> Versión 2026-05-18 · Fase E.
 > Pensado para enseñar NowCRM a un cliente real **antes** de tener VPS, n8n
 > real, WhatsApp real o Instagram real. Cada sección incluye qué decir, qué
 > mostrar y qué evitar prometer.
@@ -94,7 +94,10 @@ desplegamos el VPS del cliente; lo que vamos a ver ya funciona hoy."
   y editar.
 - Subtab **Propiedades**: crear una en captación, mostrar inline status
   y edición.
-- Subtab **Plantillas**: mostrar el catálogo de mensajes preparados.
+- Subtab **Plantillas**: mostrar el panel del workspace + catálogo base.
+  Si hay sesión real, abre "Nueva plantilla", crea una y enséñala
+  conviviendo con la base. Demuestra "Duplicar al workspace →" en una
+  plantilla base. Archivar (sin DELETE) se mantiene en BD.
 - Subtab **Automatizaciones**: mostrar las cards "Preparada" con sus
   requisitos.
 
@@ -209,18 +212,23 @@ desplegamos el VPS del cliente; lo que vamos a ver ya funciona hoy."
 ## 8. /automations — catálogo preparado
 
 **Qué enseñar:**
-- Cards de automatizaciones (lead inbound, factura vencida, recordatorio
-  de cita, etc.).
-- Cada una con `trigger`, `acción`, `canal`, `requisitos` y badge
-  "Preparada".
-- Botón disabled "Disponible cuando n8n esté conectado".
+- Leyenda de **3 categorías** arriba del todo: CRM interno (emerald),
+  Vertical Pack (violet), Integraciones pendientes (amber).
+- Cards del Vertical Pack: cada una con `trigger:` event chip,
+  vertical, canal, requisitos y badge "Preparada".
+- Botón disabled "Activar cuando n8n esté conectado".
+- Al final, sección **Contrato n8n** — abrir el accordion y mostrar el
+  payload JSON que NowCRM enviará a cada workflow (event_type,
+  workspace_id, mode, client, conversation, etc.).
 
 **Qué decir:**
-- "Estas automatizaciones están **modeladas**. El contrato JSON con
-  n8n está cerrado. Cuando montemos el VPS y conectemos n8n del
-  cliente, se activan una a una."
-- "El catálogo es por vertical: una inmobiliaria activa unas; una
-  gestoría de extranjería activa otras."
+- "Aquí separamos lo que ya controlamos hoy (CRM interno), el catálogo
+  vertical preparado (Vertical Pack) y lo que requiere el VPS
+  (integraciones pendientes)."
+- "El contrato JSON con n8n está **cerrado y documentado**. Cuando el
+  partner técnico monta los nodos, ya sabe qué espera NowCRM enviarle."
+- "Una inmobiliaria activa unas; una gestoría de extranjería activa
+  otras. El catálogo es por vertical."
 
 **Qué evitar:**
 - No pulses "Activar" como si fuera a ejecutar. El botón está
@@ -237,9 +245,10 @@ desplegamos el VPS del cliente; lo que vamos a ver ya funciona hoy."
   registradas).
 
 **Qué decir:**
-- "La preferencia de vertical se guarda local hoy (`localStorage`); la
-  persistencia multi-dispositivo llegará con la tabla
-  `workspace_settings` cuando despleguemos el backend en VPS."
+- "La preferencia de vertical se guarda en `workspace_settings` con RLS
+  por workspace — es **multi-dispositivo real**. El badge bajo la
+  selección lo deja explícito: 'Guardado en workspace' (Cloud) o
+  'Guardado localmente' (HardDrive) si la escritura cayó al fallback."
 - "Las claves de Meta / n8n nunca se piden al cliente en el frontend.
   Las metemos como variables de entorno server-side."
 
@@ -288,15 +297,25 @@ desplegamos el VPS del cliente; lo que vamos a ver ya funciona hoy."
   Meta).
 - ❌ Workflows de n8n disparándose (necesita VPS + n8n del cliente).
 - ❌ Cobros reales con Stripe/Redsys (sin pasarela conectada).
-- ❌ Persistencia multi-dispositivo del vertical (hoy en localStorage).
 - ❌ Borrado físico de entidades vía UI — sólo archivado / cierre.
-- ❌ Editor de plantillas (las plantillas son catálogo estático).
+- ❌ Auto-reply activo en WhatsApp (`auto_reply_enabled` queda en false
+  hasta que las integraciones reales estén operativas).
 
 ## 🛠 Qué falta antes del VPS
 
 - Workflows reales en n8n (los 10 del catálogo, uno a uno).
-- Persistencia del vertical en `workspace_settings`.
-- Editor de plantillas por workspace.
+- Decidir si NowLabs AI v2 lee ya `workspace_settings.ai_tone` y
+  `default_language` (helper preparado, falta enchufe).
+- Editor multi-usuario de plantillas (hoy cualquiera con acceso al
+  workspace edita; sin `created_by`).
+
+## ✨ Lo nuevo de Fase E (mostrar si encaja)
+
+- `/settings` → Vertical persiste **de verdad** en Supabase.
+- `/opportunities → Plantillas` → CRUD del workspace conviviendo con el
+  catálogo base. Sin DELETE: archivar mantiene historia.
+- `/automations` → Leyenda de 3 categorías y accordion "Contrato n8n"
+  con el payload JSON exacto que recibirá el partner técnico.
 
 ## 🚀 Qué falta tras el VPS
 

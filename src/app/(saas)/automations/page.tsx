@@ -266,6 +266,23 @@ export default function AutomationsPage() {
         }
       />
 
+      {/* Category legend — three families of automations on this page */}
+      <div className="grid gap-2 md:grid-cols-3">
+        {[
+          { tone: 'border-emerald-100 bg-emerald-50/60', dot: 'bg-emerald-500', title: 'CRM interno', desc: 'Controla NowCRM. Toggles aplican aquí sin tocar n8n real.' },
+          { tone: 'border-violet-100 bg-violet-50/60', dot: 'bg-violet-500', title: 'Vertical Pack', desc: 'Catálogo preparado para inmobiliaria, extranjería y servicios.' },
+          { tone: 'border-amber-100 bg-amber-50/60', dot: 'bg-amber-500', title: 'Integraciones pendientes', desc: 'n8n / Meta / Calendar reales. Se activan tras VPS + credenciales.' },
+        ].map((cat) => (
+          <div key={cat.title} className={cn('flex items-start gap-2 rounded-xl border px-3 py-2', cat.tone)}>
+            <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', cat.dot)} />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-gray-800">{cat.title}</p>
+              <p className="text-[10px] leading-snug text-gray-600">{cat.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="grid gap-4 md:grid-cols-3">
         {[
           { label: 'Emails enviados este mes', value: '2.614', demo: true, icon: <Mail className="h-4 w-4" />, color: 'text-indigo-600 bg-indigo-50' },
@@ -306,6 +323,10 @@ export default function AutomationsPage() {
                   {auto.requires.map((req) => (
                     <span key={req} className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">{req}</span>
                   ))}
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <span className="font-mono text-[10px] text-gray-400">trigger:</span>
+                  <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{auto.triggerEvent}</span>
                 </div>
                 <div className="mt-auto pt-2">
                   <Button
@@ -517,6 +538,47 @@ export default function AutomationsPage() {
             )
           })}
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Contrato n8n"
+        description="Payload exacto que NowCRM enviará a cada workflow. Sirve para que el operador construya los nodos en n8n antes del VPS."
+        action={<Badge variant="indigo" dot>preparado</Badge>}
+      >
+        <details className="group rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-gray-700">
+            <span>Ver payload JSON que recibirá tu workflow</span>
+            <span className="text-[10px] font-normal text-gray-400 group-open:hidden">click para expandir</span>
+            <span className="hidden text-[10px] font-normal text-gray-400 group-open:inline">click para ocultar</span>
+          </summary>
+          <pre className="mt-3 overflow-x-auto rounded-lg bg-gray-900 px-3 py-3 text-[10px] leading-relaxed text-gray-100">
+{`POST \${N8N_BASE_URL}/webhook/\${slug}
+Headers:
+  Content-Type: application/json
+  x-nowcrm-secret: <N8N_WEBHOOK_SECRET>
+
+Body:
+{
+  "event_type": "appointment_booked",
+  "workspace_id": "uuid",
+  "flow_id": "uuid | null",
+  "source": "nowcrm",
+  "mode": "real" | "demo",
+  "timestamp": "ISO-8601",
+  "client":       { "id", "name", "email", "phone" }?,
+  "conversation": { "id", "channel", "client_name", "intent", "sentiment" }?,
+  "message":      { "content" }?,
+  "invoice":      { "id", "amount", "status" }?,
+  "metadata":     { ...source-dependent fields }
+}`}
+          </pre>
+          <p className="mt-2 text-[11px] leading-snug text-gray-500">
+            Allowlist completa en{' '}
+            <code className="rounded bg-white px-1 text-[10px] text-indigo-700">src/app/api/n8n/trigger/route.ts</code>{' '}
+            (mapa <code className="rounded bg-white px-1 text-[10px]">EVENT_TO_WORKFLOW_SLUG</code>). El cliente nunca puede inyectar URLs ni paths.
+            Documentación completa en <code className="rounded bg-white px-1 text-[10px]">docs/N8N_PAYLOAD_CONTRACT.md</code>.
+          </p>
+        </details>
       </SectionCard>
 
       <SectionCard title="Emails recientes" description="Ultimos envios de todas las automatizaciones" noPadding>

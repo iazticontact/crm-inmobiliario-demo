@@ -238,6 +238,72 @@ RLS y dejan el mismo tipo de activity (cambia `metadata.source`).
 - [ ] Cambiar stage / status de las 3 entidades funciona vía NowLabs.
 - [ ] Las activities quedan asentadas con `metadata.source='nowlabs_agent'`.
 
+### Fase E — Workspace Settings + Plantillas editables + Automations preparadas (rev. 2026-05-18)
+
+- Tablas Supabase añadidas (idempotentes, RLS workspace-scoped, policies
+  separadas para `authenticated` y `service_role`):
+  - `public.workspace_settings(workspace_id UNIQUE, vertical, business_name,
+    default_language, timezone, ai_tone, auto_reply_enabled, metadata)`.
+  - `public.workspace_templates(workspace_id, type, vertical, name, channel,
+    content, status, metadata)` — sin DELETE, archivar con `status='archived'`.
+  - Índices: `workspace_settings(vertical)`,
+    `workspace_templates(workspace_id, updated_at DESC)`,
+    `workspace_templates(workspace_id, type)`,
+    `workspace_templates(workspace_id, vertical)`.
+
+- Cliente nuevo:
+  - `src/lib/workspace-settings.ts` — get/upsert por workspace + helpers
+    `readLocalVertical / writeLocalVertical` como fallback.
+  - `src/lib/workspace-templates.ts` — list / create / update / archive.
+  - `src/components/WorkspaceTemplatesPanel.tsx` — UI editable que convive
+    con el catálogo base `MESSAGE_TEMPLATES`. Sin DELETE (archive). Sin
+    workspace real, sólo muestra el catálogo base (empty state honesto).
+
+- `VerticalPreferenceCard` ahora lee/escribe `workspace_settings`. El badge
+  refleja la persistencia real:
+  - **Guardado en workspace** (Cloud) — persistencia multi-dispositivo OK.
+  - **Guardado localmente** (HardDrive) — no se pudo escribir Supabase.
+  - **Sin guardar todavía**.
+
+- `/opportunities` subtab "Plantillas" usa `WorkspaceTemplatesPanel` en
+  vez del catálogo estático recortado.
+
+- `/automations`:
+  - Leyenda de 3 categorías arriba (CRM interno · Vertical Pack ·
+    Integraciones pendientes).
+  - Vertical Pack: cada card muestra ahora el `triggerEvent` (chip mono).
+  - Sección nueva "Contrato n8n" con accordion mostrando el payload JSON
+    que NowCRM enviará; remite a `docs/N8N_PAYLOAD_CONTRACT.md`.
+  - Sin nuevas llamadas a n8n real. Botones de Vertical Pack siguen disabled.
+
+- NowLabs AI / Settings: pendiente para fase posterior leer
+  `workspace_settings` (vertical, ai_tone, default_language,
+  auto_reply_enabled). `auto_reply_enabled` queda en false hasta que las
+  integraciones reales estén operativas.
+
+#### Qué sigue antes del VPS
+- Probar end-to-end el guardado de `workspace_settings` con un usuario real.
+- Decidir si NowLabs AI v2 debe leer `ai_tone` y `default_language` antes
+  o después del VPS.
+- Sacar la decisión de quién puede editar plantillas (owner vs operadores)
+  y si conviene un campo `created_by` en `workspace_templates`.
+
+#### Qué sigue después del VPS
+- Activar workflows n8n reales (Vertical Pack toggle "Activar cuando n8n
+  esté conectado" pasa a permitirlo).
+- Cuando Meta WhatsApp esté live, encender `auto_reply_enabled` por workspace.
+- Auditar `workspace_templates` con datos reales para detectar duplicados
+  contra el catálogo base.
+
+#### Qué puede demostrar Andrei hoy
+- Ir a `/settings`, cambiar el vertical, recargar, ver el badge "Guardado en
+  workspace" y el cambio persistido.
+- En `/opportunities → Plantillas`, crear / duplicar / editar / archivar
+  plantillas del workspace conviviendo con el catálogo base.
+- En `/automations`, mostrar la leyenda de las tres categorías, abrir el
+  accordion "Contrato n8n" para enseñar el payload exacto que llegará al
+  partner técnico una vez se monte el VPS.
+
 ## 5. Riesgos abiertos
 
 - **`google_calendar_connections.refresh_token_enc`** se guarda en plaintext.

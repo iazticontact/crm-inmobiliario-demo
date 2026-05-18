@@ -440,14 +440,19 @@ paralelo (`metadata.source` = `ui_manual` vs `nowlabs_agent`).
 - [ ] Expedientes card señala los que están en documentation_pending.
 - [ ] Propiedades card distingue captación vs publicadas.
 
-### /settings
+### /settings (rev. Fase E — workspace_settings)
 
-- [ ] Nueva card "Vertical del workspace" con 5 opciones (General,
-      Inmobiliaria, Extranjería, Servicios, Mixto).
-- [ ] Seleccionar y pulsar Guardar persiste en `localStorage`
-      (`nowcrm.workspaceVertical`).
-- [ ] Tras recargar `/settings`, la opción guardada queda marcada.
-- [ ] Toast confirma el guardado y advierte que es persistencia local.
+- [ ] Card "Vertical del workspace" con 5 opciones (General, Inmobiliaria,
+      Extranjería, Servicios, Mixto).
+- [ ] Con sesión real: pulsar Guardar persiste en `public.workspace_settings`
+      (RLS workspace-scoped). Tras recargar la opción queda marcada y el
+      badge dice "Guardado en workspace" (icono Cloud).
+- [ ] Si Supabase falla al escribir, fallback `localStorage` y badge
+      "Guardado localmente" (icono HardDrive). Toast warning explícito.
+- [ ] En modo demo / sin sesión real, sólo localStorage, badge
+      "Guardado localmente", toast info honesto.
+- [ ] El badge nunca dice "multi-dispositivo" si la escritura cayó en
+      localStorage.
 
 ### Activity log paralelo
 
@@ -603,4 +608,52 @@ sin fire-and-forget, dedupe inbound, outbound persistido, config server-side.
 - ❌ Auto-reply activo enviando mensajes reales (sigue OFF por defecto).
 - ❌ Workflows n8n nuevos sin haber actualizado primero `EVENT_TO_WORKFLOW_SLUG`.
 - ❌ Conexión n8n MCP — fase posterior, no abrir esa superficie aún.
+
+---
+
+## Fase E — Workspace Settings + Plantillas + Automations preparadas (2026-05-18)
+
+### Workspace settings — persistencia real
+
+- [ ] Con sesión real, `/settings` → "Vertical del workspace": pulsar
+      Guardar escribe en `public.workspace_settings` (verificable con
+      `SELECT * FROM workspace_settings WHERE workspace_id=…`).
+- [ ] Recargar la página en otro dispositivo del mismo workspace muestra
+      la misma opción (multi-dispositivo real).
+- [ ] Si Supabase rechaza la escritura, el badge pasa a "Guardado
+      localmente" y el toast es warning honesto.
+- [ ] RLS: usuario de otro workspace NO puede leer ni modificar el row.
+
+### Workspace templates — `/opportunities → Plantillas`
+
+- [ ] Con sesión real: "Nueva plantilla" abre el SideDrawer; tras
+      Guardar la plantilla aparece en la lista del workspace con el chip
+      "del workspace".
+- [ ] "Duplicar al workspace →" en una plantilla del catálogo base
+      pre-rellena el drawer en modo crear con el contenido de la base.
+- [ ] Botón Archivar marca `status='archived'` y oculta la plantilla
+      (sin DELETE, queda en BD).
+- [ ] El catálogo base se sigue viendo aunque haya plantillas del
+      workspace (las dos secciones conviven).
+- [ ] Sin workspace activo (demo): empty state explícito "Inicia sesión
+      real para editar plantillas". Botón "Nueva plantilla" disabled.
+
+### /automations — leyenda y contrato (Fase E)
+
+- [ ] Arriba aparece la leyenda de 3 categorías: CRM interno (emerald),
+      Vertical Pack (violet), Integraciones pendientes (amber).
+- [ ] Cada card de Vertical Pack muestra el chip `trigger: <event>`
+      en mono indigo.
+- [ ] Sección "Contrato n8n" al final, con accordion `<details>` que
+      revela el payload JSON skeleton + referencia a
+      `docs/N8N_PAYLOAD_CONTRACT.md`.
+- [ ] Ningún click ejecuta n8n real ni promete activación.
+
+### Riesgos a vigilar (Fase E)
+
+- [ ] Si el usuario está autenticado pero sin workspace asignado,
+      `workspace_settings` no escribe — la UI debe degradar a local
+      sin crash.
+- [ ] El badge de persistencia es la única fuente de verdad: nunca
+      enseñar "Guardado en workspace" si la escritura no ocurrió.
 

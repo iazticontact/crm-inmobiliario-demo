@@ -130,7 +130,16 @@ Componentes nuevos:
   conversaciones / facturas / próximas citas / actividad reciente del
   cliente, más sugerencia de "próxima acción".
 - [src/components/VerticalPreferenceCard.tsx](../src/components/VerticalPreferenceCard.tsx)
-  — selector de vertical del workspace (localStorage, sin schema todavía).
+  — selector de vertical del workspace. Tras Fase E persiste en
+  `workspace_settings` con fallback `localStorage`. Badge honesto:
+  "Guardado en workspace" / "Guardado localmente".
+- [src/lib/workspace-settings.ts](../src/lib/workspace-settings.ts) —
+  helpers `getWorkspaceSettings` / `upsertWorkspaceSettings` con caída
+  silenciosa a local cuando Supabase no está disponible.
+- [src/lib/workspace-templates.ts](../src/lib/workspace-templates.ts) +
+  [src/components/WorkspaceTemplatesPanel.tsx](../src/components/WorkspaceTemplatesPanel.tsx)
+  — plantillas editables por workspace (list/create/update/archive)
+  conviviendo con el catálogo base `MESSAGE_TEMPLATES`.
 
 Cambios en páginas:
 
@@ -153,9 +162,11 @@ Cambios en páginas:
 - **/dashboard**: los 3 quick-link cards muestran contadores reales del
   workspace (oportunidades abiertas, calientes, valor pipeline; expedientes
   activos y con docs pendientes; propiedades en captación / publicadas).
-- **/settings**: nueva card "Vertical del workspace" con 5 opciones
+- **/settings**: card "Vertical del workspace" con 5 opciones
   (General / Inmobiliaria / Extranjería / Servicios / Mixto). Persistencia
-  vía `localStorage` mientras no exista `workspace_settings` en Supabase.
+  real en `public.workspace_settings` con RLS workspace-scoped (Fase E);
+  fallback `localStorage` honesto si la escritura cae. El badge indica el
+  estado real: Cloud (workspace), HardDrive (local) o "Sin guardar".
 
 ### Fase C — edición avanzada y vinculación de cliente (2026-05-18)
 
@@ -207,11 +218,14 @@ Pack y `client_id` real en el panel de Inbox.
 
 - **Workflows reales en n8n**. Los 10 catálogos están listos como contrato y
   como tarjetas; visibles en `/operaciones` y `/automations`, sin ejecutarse.
-- **Editor de plantillas**. Las plantillas son estáticas; se podrán mover a
-  `proposal_templates` cuando se quiera personalización por workspace.
-- **Persistencia multi-dispositivo del vertical del workspace**. La
-  preferencia se guarda en localStorage en Prompt B; falta una tabla
-  `workspace_settings` para que viaje entre navegadores.
+- ~~**Editor de plantillas**~~ — Fase E: `public.workspace_templates`
+  con RLS workspace-scoped y `WorkspaceTemplatesPanel` cubren CRUD
+  (create / update / archive, sin DELETE). El catálogo base de
+  `MESSAGE_TEMPLATES` sigue siendo la fuente de inspiración.
+- ~~**Persistencia multi-dispositivo del vertical del workspace**~~ —
+  Fase E: `public.workspace_settings` (RLS workspace-scoped, unique por
+  workspace) sustituye al localStorage como fuente principal. El badge
+  refleja qué camino tomó la última escritura.
 - ~~**CRUD inline avanzado**~~ — Fase C: drawers de edición para
   oportunidades, expedientes y propiedades. Cliente vinculado vía
   `ClientPicker` (id real, no string libre).
@@ -241,16 +255,18 @@ Pack y `client_id` real en el panel de Inbox.
    creación con cliente pre-cargado.
 4. ~~**Dashboard accionable**~~ — Prompt B: 3 cards con counts y métricas
    reales del Vertical Pack.
-5. ~~**Settings vertical**~~ — Prompt B: selector visual persistido en
-   localStorage. Persistencia multi-dispositivo pendiente.
+5. ~~**Settings vertical**~~ — Prompt B: selector visual. Fase E:
+   persistencia real en `workspace_settings` con fallback local.
 6. ~~**Edición avanzada**~~ — Fase C: drawers para editar título, valor,
    probabilidad, fecha de cierre, notas y cliente vinculado de las 3 entidades.
 7. ~~**Vincular cliente desde Inbox**~~ — Fase C: el panel derecho ya
    ofrece selector real de cliente; el PATCH valida UUID + ownership.
 8. **Catálogo de automatizaciones** — pasar las 10 tarjetas estáticas a un
    selector real cuando exista n8n.
-9. **Persistencia multi-dispositivo del vertical** — pendiente, sigue en
-   localStorage. La tabla `workspace_settings` se crea cuando haya VPS.
+9. ~~**Persistencia multi-dispositivo del vertical**~~ — Fase E: tabla
+   `workspace_settings` creada, RLS workspace-scoped, fallback local
+   honesto si la escritura cae. El siguiente paso es leer `ai_tone` /
+   `default_language` / `auto_reply_enabled` desde NowLabs AI v2.
 
 ### Tras tener VPS + n8n
 1. Migrar workflows del n8n antiguo o crear los 10 del catálogo, uno a uno.

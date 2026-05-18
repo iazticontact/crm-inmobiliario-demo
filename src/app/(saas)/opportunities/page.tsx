@@ -45,12 +45,12 @@ import {
   EditServiceCaseDrawer,
   EditPropertyDrawer,
 } from '@/components/VerticalEditForms'
+import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
   VERTICALS,
   getPipelineForVertical,
-  getMessageTemplatesForVertical,
   getAutomationTemplatesForVertical,
   AUTOMATION_TEMPLATES,
   CASE_TYPES,
@@ -188,11 +188,6 @@ export default function OpportunitiesPage() {
     }
     return out
   }, [visibleOpportunities, pipeline])
-
-  const messageTemplates = useMemo(() => {
-    if (vertical === 'all') return getMessageTemplatesForVertical('general').slice(0, 8)
-    return getMessageTemplatesForVertical(vertical as VerticalKey).slice(0, 8)
-  }, [vertical])
 
   const automationTemplates = useMemo(() => {
     if (vertical === 'all') return AUTOMATION_TEMPLATES
@@ -605,25 +600,7 @@ export default function OpportunitiesPage() {
 
       {/* TEMPLATES */}
       {subtab === 'templates' && (
-        <SectionCard
-          title="Plantillas IA preparadas"
-          description="Mensajes y propuestas listas para usar desde Inbox o Asistente."
-          action={<Badge variant="indigo" dot>{messageTemplates.length}</Badge>}
-        >
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {messageTemplates.map((tmpl) => (
-              <li key={tmpl.id} className="rounded-xl border border-gray-100 bg-white p-3 hover:bg-gray-50">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-900">{tmpl.title}</p>
-                  <span className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
-                    {tmpl.channel}
-                  </span>
-                </div>
-                <p className="mt-1 line-clamp-3 text-[11px] leading-snug text-gray-500">{tmpl.body}</p>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
+        <WorkspaceTemplatesPanel workspaceId={workspaceId} vertical={vertical === 'all' ? 'all' : (vertical as VerticalKey)} />
       )}
 
       {/* AUTOMATIONS */}
