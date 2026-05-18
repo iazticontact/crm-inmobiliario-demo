@@ -61,8 +61,54 @@ Cada tabla:
 - `AUTOMATION_TEMPLATES` — 10 escenarios listos para conectar a n8n.
 
 ### Helpers
-[src/lib/vertical-queries.ts](../src/lib/vertical-queries.ts) — lecturas y
-creaciones workspace-scoped para las 3 tablas nuevas.
+- [src/lib/vertical-queries.ts](../src/lib/vertical-queries.ts) — lecturas y
+  creaciones workspace-scoped para las 3 tablas nuevas, vía el cliente
+  Supabase del navegador.
+- [src/lib/vertical-server.ts](../src/lib/vertical-server.ts) — espejo
+  server-side que el agente y futuras API routes usan con el cliente SSR.
+  Incluye además `updateServiceCaseStatusServer`, `updatePropertyStatusServer`
+  y formatters reutilizables.
+
+### NowLabs AI — tools verticales
+[src/lib/agents/nowlabs-main-agent.ts](../src/lib/agents/nowlabs-main-agent.ts)
+incorpora 9 tools nuevas para el Vertical Pack:
+
+Lecturas (sin confirmación):
+- `list_opportunities` — filtros `vertical`, `stage`, `limit`.
+- `list_service_cases` — filtros `vertical`, `status`, `limit`.
+- `list_properties` — filtros `status`, `city`, `limit`.
+
+Escrituras (el agente confirma verbalmente en chat antes de disparar):
+- `create_opportunity` (requiere `title`, `vertical`).
+- `update_opportunity_stage` (requiere `opportunity_id`, `stage`).
+- `create_service_case` (requiere `title`, `case_type`).
+- `update_service_case_status` (requiere `case_id`, `status`).
+- `create_property` (requiere `title`).
+- `update_property_status` (requiere `property_id`, `status`).
+
+Cada escritura confirmada deja un row en `activities` (best-effort) con
+`type` = `opportunity_created` / `opportunity_stage_updated` /
+`service_case_created` / `service_case_status_updated` / `property_created` /
+`property_status_updated`, `metadata.source = 'nowlabs_agent'` y el
+`workspace_id` y `client_id` resueltos.
+
+Prompts soportados (ejemplos):
+- "Crea un lead inmobiliario para Ana que quiere vender un piso en Málaga."
+- "Crea una oportunidad para una asesoría que quiere automatizar WhatsApp."
+- "Enséñame oportunidades abiertas." / "Qué oportunidades tengo frías esta semana."
+- "Pasa la oportunidad de Ana a visita agendada."
+- "Abre un expediente de extranjería para renovación de NIE."
+- "Qué expedientes están pendientes de documentación."
+- "Pasa este expediente a documentación pendiente."
+- "Crea una propiedad en captación en Marbella."
+- "Registra una propiedad para vender en Málaga por 320000."
+- "Pasa esta propiedad a listed."
+
+El agente NUNCA escribe sin confirmación verbal: describe la acción con los
+datos extraídos y espera "sí" / "ok" / "créala" antes de llamar la tool.
+Cuando el usuario da una orden inequívoca con todos los datos ("crea ya la
+oportunidad de Ana, 250k, vertical inmobiliario") puede ejecutar sin doble
+confirmación y reportar la creación en la respuesta.
 
 ### UI
 - Nueva ruta `/opportunities`:
@@ -77,17 +123,17 @@ creaciones workspace-scoped para las 3 tablas nuevas.
 
 ## 4. Qué quedó preparado pero no se ejecutó
 
-- **Asistente IA con tools nuevas** (listar/crear oportunidades, expedientes,
-  propiedades). La página de NowLabs es muy grande y delicada; se pospone para
-  una fase dedicada. La lógica de creación ya vive en
-  `src/lib/vertical-queries.ts` para que el agente la pueda llamar cuando se
-  conecten las tools.
+- **Drawers de detalle por entidad** (oportunidad / expediente / propiedad).
+  En `/opportunities` se muestran como lista; el modal/drawer con timeline,
+  tareas y cliente vinculado queda para Prompt B.
 - **Workflows reales en n8n**. Los 10 catálogos están listos como contrato y
   como tarjetas, sin ejecutarse.
 - **Editor de plantillas**. Las plantillas son estáticas; se podrán mover a
   `proposal_templates` cuando se quiera personalización por workspace.
 - **Vincular cliente desde una oportunidad sin client_id**. Está como CTA
   disabled.
+- **Vista cliente 360**. Mostrar oportunidades / expedientes / propiedades de
+  un cliente en su ficha — queda para Prompt B.
 
 ## 5. Qué NO se hizo todavía
 
@@ -95,19 +141,26 @@ creaciones workspace-scoped para las 3 tablas nuevas.
 - ❌ Ningún envío real por WhatsApp / Instagram.
 - ❌ Ningún seed con datos del cliente firmado.
 - ❌ Ningún cambio en Auth / Calendar / Google Sync / Billing.
-- ❌ Ningún tool nuevo en NowLabs (se pospone).
 
 ## 6. Roadmap por fases
 
 ### Antes del VPS (lo que se puede cerrar en NowCRM solo)
-1. **Tools del agente NowLabs** — añadir `list_opportunities`, `create_opportunity`,
-   `update_opportunity_stage`, `list_cases`, `create_case`, `list_properties`,
-   `create_property`. Usar plantillas estáticas para sugerir mensaje.
-2. **Detalle por oportunidad** — modal/drawer con timeline + cliente + tareas.
-3. **CRUD de propiedades** con UI propia o desde `/clients`.
-4. **Preferencia de vertical por workspace** — Settings → tabla
+1. ~~**Tools del agente NowLabs**~~ — hecho: `list_opportunities`,
+   `list_service_cases`, `list_properties`, `create_opportunity`,
+   `update_opportunity_stage`, `create_service_case`,
+   `update_service_case_status`, `create_property`, `update_property_status`.
+   Confirmación verbal en chat, activity log workspace-scoped, RLS al fondo.
+2. **Detalle por entidad** — drawer/modal con timeline + cliente + tareas para
+   oportunidades, expedientes y propiedades.
+3. **CRUD inline** desde `/opportunities` (crear/editar sin pasar por el chat).
+4. **Cliente 360** — mostrar oportunidades / expedientes / propiedades en la
+   ficha de cliente y permitir vincular desde ahí.
+5. **Preferencia de vertical por workspace** — Settings → tabla
    `workspace_settings` o JSONB en `workspaces.metadata`.
-5. **Mejorar `/clients`** mostrando oportunidades/expedientes/propiedades del cliente.
+6. **Dashboard accionable** — KPIs y CTAs sobre oportunidades calientes,
+   expedientes vencidos y propiedades estancadas.
+7. **Catálogo de automatizaciones** — pasar las 10 tarjetas estáticas a un
+   selector real cuando exista n8n.
 
 ### Tras tener VPS + n8n
 1. Migrar workflows del n8n antiguo o crear los 10 del catálogo, uno a uno.
@@ -138,11 +191,14 @@ creaciones workspace-scoped para las 3 tablas nuevas.
 
 ## 8. Riesgos restantes
 
-- El agente NowLabs no entiende todavía las nuevas entidades. Si el operador
-  le pide "crea un lead inmobiliario para Ana", responderá con un fallback
-  genérico hasta que se conecten las tools.
+- El agente confía en la confirmación verbal del usuario. Si alguien escribe
+  una orden inequívoca ("crea ya la oportunidad de Ana, 250k") la ejecuta sin
+  doble confirmación: ese es el diseño, pero hay que avisarlo en el onboarding
+  del operador.
 - El editor de plantillas es estático; el cliente no puede crear plantillas
   propias todavía.
 - Los workflows de automatización están como contrato visual; no se disparan.
+- No hay UI para editar / archivar una oportunidad ya creada — sólo cambiar
+  etapa o estado. El borrado se reserva a Supabase Studio mientras tanto.
 - Cualquier dato realmente sensible (NIE, pasaporte) debería gestionarse con
   más cuidado de privacidad antes de operar con clientes reales.

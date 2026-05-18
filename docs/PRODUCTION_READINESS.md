@@ -150,6 +150,29 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
   agent_name, handoff_enabled, business_context, tone).
 - `upsertInboxAgentSettings` escribe `enabled` (no `status`).
 
+### Vertical Pack v1 — NowLabs AI tools (rev. 2026-05-18)
+- Nuevo helper server-side `src/lib/vertical-server.ts` con list / create /
+  updateStage / updateStatus para `opportunities`, `service_cases` y
+  `properties`. Workspace-scoped, RLS-aware, jamás lanza al cliente.
+- Cada escritura confirmada apuntla `activities` con `metadata.source =
+  'nowlabs_agent'` y `type` específico (`opportunity_created`,
+  `opportunity_stage_updated`, `service_case_created`,
+  `service_case_status_updated`, `property_created`,
+  `property_status_updated`).
+- `nowlabs-main-agent.ts` pasa de 19 a 28 tools: añade 3 lecturas
+  (`list_opportunities`, `list_service_cases`, `list_properties`) y 6
+  escrituras (`create_opportunity`, `update_opportunity_stage`,
+  `create_service_case`, `update_service_case_status`, `create_property`,
+  `update_property_status`).
+- Diseño deliberado: las escrituras NO usan prepared-action cards. El
+  agente confirma verbalmente en chat ("¿La creo?" → "sí" → tool fires)
+  para no inflar `src/app/(saas)/assistant/page.tsx` (3 198 líneas). Toda
+  la confirmación vive en el system prompt y en la respuesta natural del
+  modelo. Una orden inequívoca con todos los datos puede crear sin doble
+  confirmación.
+- Sin cambios en API route ni en `assistant/page.tsx`: la respuesta del
+  agente para una tool de escritura llega como `answer` regular.
+
 ## 4. Checklist de demo / producción
 
 ### Antes de la demo
@@ -170,6 +193,16 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
 - [ ] `refresh_token_enc` cifrado real en vez de plaintext (riesgo abierto, ver §5).
 - [ ] Lint / tsc / build verdes (esta fase: ✅).
 - [ ] Probar test de WhatsApp inbound desde Settings.
+
+### Antes de demo con clientes del Vertical Pack
+- [ ] `/opportunities` carga con datos reales del workspace (sin flash demo
+      para usuarios autenticados).
+- [ ] NowLabs AI crea oportunidad, expediente y propiedad pidiendo
+      confirmación verbal antes de cada escritura.
+- [ ] El operador entiende que una orden inequívoca ("crea ya la
+      oportunidad…") ejecuta sin segunda confirmación.
+- [ ] Cambiar stage / status de las 3 entidades funciona vía NowLabs.
+- [ ] Las activities quedan asentadas con `metadata.source='nowlabs_agent'`.
 
 ## 5. Riesgos abiertos
 

@@ -302,6 +302,71 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 - [ ] Si conversación vacía → toast "No hay mensajes para analizar".
 - [ ] Sentimiento `negative` o `urgent` → la decisión marca `needs_human=true` automáticamente.
 
+---
+
+## Vertical Pack v1 — NowLabs AI tools (2026-05-18)
+
+Cubre las 9 tools verticales (3 reads + 6 writes) sobre `opportunities`,
+`service_cases` y `properties`. Todas son workspace-scoped y RLS-aware.
+Las escrituras requieren confirmación verbal en chat.
+
+### /opportunities (UI)
+
+- [ ] `/opportunities` carga sin 500 con usuario real.
+- [ ] Tabs (Todos / Inmobiliaria / Extranjería / Servicios) cambian el filtrado.
+- [ ] KPI strip muestra contadores reales (no `—` ni `0` con datos).
+- [ ] Empty states aparecen cuando no hay rows del workspace.
+- [ ] Refrescar (botón) recarga las 3 listas.
+- [ ] Catálogos de plantillas y automatizaciones se muestran como estáticos.
+
+### NowLabs — lecturas verticales
+
+- [ ] `Enséñame oportunidades abiertas` → lista numerada, sin asteriscos.
+- [ ] `Qué oportunidades tengo en negociación` → filtra por stage.
+- [ ] `Qué expedientes están pendientes de documentación` → filtra por status.
+- [ ] `Propiedades activas en Marbella` → filtra por city.
+- [ ] Si no hay rows, responde "Sin … en ese filtro."
+
+### NowLabs — escrituras (con confirmación verbal)
+
+- [ ] `Crea un lead inmobiliario para Ana que quiere vender un piso en Málaga` →
+      el agente describe la oportunidad y pregunta "¿la creo?" antes de
+      llamar la tool.
+- [ ] Tras "sí" / "ok" / "créala" → ejecuta `create_opportunity` y confirma
+      con el título, vertical y etapa creados.
+- [ ] Tras "no" / "espera, cambia X" → no llama la tool.
+- [ ] Orden inequívoca ("crea ya la oportunidad de Ana, 250k, vertical inmobiliario")
+      → puede crear sin doble confirmación y reporta la creación.
+- [ ] `Pasa la oportunidad de Ana a visita agendada` → si no tiene UUID,
+      llama primero `list_opportunities` y luego `update_opportunity_stage`.
+- [ ] `Abre un expediente de extranjería para renovación de NIE de Ana` →
+      pregunta confirmación → `create_service_case` con `case_type=nie_renewal`
+      y `vertical=immigration` por defecto.
+- [ ] `Pasa este expediente a documentación pendiente` → `update_service_case_status`
+      con `status=documentation_pending`.
+- [ ] `Crea una propiedad en captación en Marbella` → `create_property`
+      con `status=prospecting` y `city=Marbella`.
+- [ ] `Pasa esta propiedad a listed` → `update_property_status`.
+
+### Multi-tenant y RLS
+
+- [ ] El agente NUNCA devuelve rows de otro workspace en `list_*`.
+- [ ] Crear una oportunidad desde NowLabs deja un row en `activities` con
+      `type=opportunity_created`, `workspace_id` del usuario y
+      `metadata.source='nowlabs_agent'`.
+- [ ] Cambiar stage de una oportunidad deja un row con
+      `type=opportunity_stage_updated`.
+- [ ] Los mismos tipos existen para `service_case_*` y `property_*`.
+- [ ] Si Supabase no está configurado, el agente degrada con mensaje
+      controlado, sin lanzar 5xx.
+
+### Lo que NO se prueba aquí (Prompt B)
+
+- Drawer/modal de detalle por oportunidad / expediente / propiedad.
+- CRUD inline desde `/opportunities` (sin pasar por chat).
+- Vista cliente 360 con sus oportunidades / expedientes / propiedades.
+- Ejecución real de los workflows n8n del catálogo.
+
 ### Inbox API
 
 - [ ] `GET /api/inbox/conversations?status=open` solo devuelve abiertas del workspace.

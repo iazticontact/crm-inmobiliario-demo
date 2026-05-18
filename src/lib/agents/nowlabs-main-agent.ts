@@ -1,5 +1,5 @@
 // NowLabs AI v2 — único cerebro del CRM.
-// OpenAI Responses API + 19 tools sobre Supabase real. Sin n8n, sin service_role, sin SQL libre.
+// OpenAI Responses API + 28 tools sobre Supabase real. Sin n8n, sin service_role, sin SQL libre.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   toolListClients,
@@ -20,6 +20,20 @@ import {
   toolPrepareAction,
   toolPrepareTask,
 } from '@/lib/assistant-tools'
+import {
+  listOpportunitiesServer,
+  listServiceCasesServer,
+  listPropertiesServer,
+  createOpportunityServer,
+  updateOpportunityStageServer,
+  createServiceCaseServer,
+  updateServiceCaseStatusServer,
+  createPropertyServer,
+  updatePropertyStatusServer,
+  formatOpportunityLine,
+  formatServiceCaseLine,
+  formatPropertyLine,
+} from '@/lib/vertical-server'
 
 const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini'
 const MAX_ROUNDS = 4
@@ -542,6 +556,162 @@ const TOOLS = [
       required: ['event_ids'],
     },
   },
+
+  // -------------------------------------------------------------------------
+  // Vertical Pack v1 — opportunities / service_cases / properties.
+  //
+  // Writes (create_*, update_*_stage/status) execute the action directly. The
+  // system prompt instructs the agent to ALWAYS confirm in natural language
+  // before calling them ("¿Quieres que la cree?" → user says sí → tool fires).
+  // No UI cards needed; the agent acts as the confirmation layer. Each write
+  // also appends a workspace-scoped activity log row for auditing.
+  // -------------------------------------------------------------------------
+
+  {
+    type: 'function',
+    name: 'list_opportunities',
+    description: 'Lista oportunidades del pipeline comercial. Filtros opcionales: vertical (real_estate / immigration / professional_services / general) y stage (new / contacted / qualified / visit_scheduled / offer / negotiation / won / lost / documentation / in_review / submitted / in_follow_up / resolved / closed). Para: "qué oportunidades tengo", "leads abiertos", "pipeline de inmobiliaria", "leads fríos en negociación".',
+    parameters: {
+      type: 'object',
+      properties: {
+        vertical: { type: 'string', description: 'Vertical a filtrar (opcional). Ej: real_estate, immigration.' },
+        stage: { type: 'string', description: 'Etapa a filtrar (opcional). Ej: new, qualified, offer, negotiation.' },
+        limit: { type: 'number', description: 'Máximo de resultados (default 25).' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_service_cases',
+    description: 'Lista expedientes / casos de servicio (extranjería, asesoría). Filtros opcionales: vertical y status (open / documentation_pending / in_review / submitted / resolved / closed). Para: "qué expedientes están pendientes de documentación", "casos de NIE abiertos".',
+    parameters: {
+      type: 'object',
+      properties: {
+        vertical: { type: 'string', description: 'Vertical (opcional). Suele ser immigration.' },
+        status: { type: 'string', description: 'Estado (opcional). Ej: open, documentation_pending, submitted.' },
+        limit: { type: 'number', description: 'Máximo (default 25).' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_properties',
+    description: 'Lista propiedades del vertical inmobiliario. Filtros opcionales: status (prospecting / listed / under_contract / sold / archived) y city. Para: "propiedades en captación", "qué tenemos en Marbella", "inmuebles en venta".',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Estado de la propiedad (opcional).' },
+        city: { type: 'string', description: 'Ciudad/zona (parcial, opcional).' },
+        limit: { type: 'number', description: 'Máximo (default 25).' },
+      },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_opportunity',
+    description: 'CREA UNA OPORTUNIDAD REAL en el pipeline. ANTES de llamar esta tool DEBES haber descrito la oportunidad al usuario y haber recibido confirmación natural ("sí, créala" / "ok" / "adelante"). NUNCA llames esta tool en la primera mención — primero pregunta. Para: "crea un lead inmobiliario para Ana", "abre una oportunidad de venta de chalet", "registra este lead".',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Título corto y descriptivo de la oportunidad. Ej: "Venta piso 3 hab en Málaga centro - Ana Pérez".' },
+        vertical: { type: 'string', description: 'Vertical: real_estate, immigration, professional_services o general.' },
+        stage: { type: 'string', description: 'Etapa inicial (opcional, default new). Ej: new, contacted, qualified.' },
+        client_id: { type: 'string', description: 'UUID del cliente si ya está vinculado (obtenido de search_clients).' },
+        client_name: { type: 'string', description: 'Nombre visible del cliente (string libre).' },
+        value: { type: 'number', description: 'Valor estimado en euros (opcional).' },
+        source: { type: 'string', description: 'Origen del lead: whatsapp, instagram, web, referencia, etc. (opcional).' },
+        expected_close_date: { type: 'string', description: 'Fecha estimada de cierre YYYY-MM-DD (opcional).' },
+        notes: { type: 'string', description: 'Notas adicionales (opcional).' },
+      },
+      required: ['title', 'vertical'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'update_opportunity_stage',
+    description: 'Actualiza la ETAPA de una oportunidad existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_opportunities primero para identificarla.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opportunity_id: { type: 'string', description: 'UUID exacto de la oportunidad.' },
+        stage: { type: 'string', description: 'Nueva etapa: new, contacted, qualified, visit_scheduled, offer, negotiation, won, lost, documentation, in_review, submitted, in_follow_up, resolved, closed.' },
+      },
+      required: ['opportunity_id', 'stage'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_service_case',
+    description: 'CREA UN EXPEDIENTE de servicio (extranjería / asesoría). Confirma con el usuario antes. Para: "abre expediente de renovación NIE para Ana", "registra arraigo social", "prepara expediente de reagrupación familiar".',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Título del expediente. Ej: "Renovación NIE - Ana Pérez".' },
+        case_type: { type: 'string', description: 'Tipo: nie_renewal, arraigo_social, family_reunification, student_residence, asesoria_fiscal, etc.' },
+        vertical: { type: 'string', description: 'Vertical (default immigration).' },
+        status: { type: 'string', description: 'Estado inicial: open (default), documentation_pending, in_review.' },
+        priority: { type: 'string', description: 'Prioridad: low, normal (default), high, urgent.' },
+        client_id: { type: 'string', description: 'UUID del cliente si está vinculado.' },
+        client_name: { type: 'string', description: 'Nombre visible del cliente.' },
+        opportunity_id: { type: 'string', description: 'UUID de la oportunidad relacionada (opcional).' },
+        due_date: { type: 'string', description: 'Fecha límite YYYY-MM-DD (opcional).' },
+        notes: { type: 'string', description: 'Notas (opcional).' },
+      },
+      required: ['title', 'case_type'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_property',
+    description: 'CREA UNA PROPIEDAD en cartera inmobiliaria. Confirma con el usuario antes. Para: "registra captación de piso en Marbella", "añade propiedad de Juan en alquiler", "abre captación nueva".',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Título visible. Ej: "Piso 3 hab - Marbella Centro".' },
+        property_type: { type: 'string', description: 'Tipo: apartment (default), house, villa, commercial, land, office.' },
+        operation_type: { type: 'string', description: 'Operación: sale (default) o rent.' },
+        status: { type: 'string', description: 'Estado: prospecting (default), listed, under_contract, sold, archived.' },
+        city: { type: 'string', description: 'Ciudad (opcional).' },
+        area: { type: 'string', description: 'Zona/barrio (opcional).' },
+        price: { type: 'number', description: 'Precio en euros (opcional).' },
+        client_id: { type: 'string', description: 'UUID del cliente vinculado (opcional).' },
+        client_name: { type: 'string', description: 'Nombre visible del cliente.' },
+        owner_name: { type: 'string', description: 'Propietario si es diferente del cliente (opcional).' },
+        owner_phone: { type: 'string', description: 'Teléfono del propietario (opcional).' },
+        notes: { type: 'string', description: 'Notas (opcional).' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'update_service_case_status',
+    description: 'Actualiza el ESTADO de un expediente existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_service_cases primero. Para: "pasa el expediente de Ana a documentación pendiente", "márcalo como submitted", "cierra este expediente".',
+    parameters: {
+      type: 'object',
+      properties: {
+        case_id: { type: 'string', description: 'UUID exacto del expediente.' },
+        status: { type: 'string', description: 'Nuevo estado: open, documentation_pending, in_review, submitted, resolved, closed.' },
+      },
+      required: ['case_id', 'status'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'update_property_status',
+    description: 'Actualiza el ESTADO de una propiedad existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_properties primero. Para: "pasa la propiedad de Marbella a listed", "márcala como sold", "archívala".',
+    parameters: {
+      type: 'object',
+      properties: {
+        property_id: { type: 'string', description: 'UUID exacto de la propiedad.' },
+        status: { type: 'string', description: 'Nuevo estado: prospecting, listed, under_contract, sold, archived.' },
+      },
+      required: ['property_id', 'status'],
+    },
+  },
 ]
 
 // --- System prompt base ---
@@ -585,6 +755,16 @@ Paso 2b: si hay conflicto exacto (mismo cliente, misma hora) → NO llamar prepa
 Paso 2c: si hay conflicto de solapamiento (diferente cliente u hora cercana) → avisar con ⚠️ y ofrecer las mismas opciones.
 Paso 2d: si el usuario dice "créala igualmente" / "sí, otra cita" / "quiero duplicarla" → llamar prepare_booking directamente, sin otro check.
 Paso 3: Si el usuario quiere MOVER → search_calendar_events + prepare_reschedule_booking.
+
+VERTICAL PACK (oportunidades, expedientes, propiedades):
+- list_opportunities / list_service_cases / list_properties: léelos sin confirmar — son lecturas.
+- create_opportunity / create_service_case / create_property / update_opportunity_stage / update_service_case_status / update_property_status: SON ESCRITURAS REALES en la DB. ANTES de llamar la tool DEBO:
+  1. Describir la acción al usuario con los datos extraídos ("Voy a crear una oportunidad inmobiliaria para Ana, venta de piso en Málaga, sin precio aún. ¿La creo?").
+  2. Esperar confirmación natural ("sí" / "ok" / "adelante" / "créala" / "confirma" / "hazlo").
+  3. Solo entonces llamar la tool con los args.
+- Si el usuario dice "no" / "espera" / "cambia X" → no llamar; reformular.
+- Si en el mismo mensaje el usuario ya da una orden inequívoca tipo "crea ya la oportunidad de Ana, 250k, vertical inmobiliario" → puedes crearla sin doble confirmación, pero deja claro en la respuesta que se creó.
+- Para verticales conocidos: real_estate, immigration, professional_services, general.
 
 DETECCIÓN DE ACCIONES — identifico siempre la intención real:
 - BOOKING: "prepara una cita", "crea una cita", "agenda una reunión", "pon una cita", "cita con X el/mañana/el lunes"
@@ -1289,6 +1469,209 @@ async function runTool(
       }
     }
 
+    // -----------------------------------------------------------------------
+    // Vertical Pack v1 — reads
+    // -----------------------------------------------------------------------
+    case 'list_opportunities': {
+      const rows = await listOpportunitiesServer(supabase, workspaceId, {
+        vertical: args.vertical as string | undefined,
+        stage: args.stage as string | undefined,
+        limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
+      })
+      if (!rows.length) {
+        return { text: 'No hay oportunidades abiertas con esos criterios.', data: [], referencedList: [] }
+      }
+      const list = rows.map((row, i) => formatOpportunityLine(row, i)).join('\n')
+      return { text: `${rows.length} oportunidad(es):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+    }
+
+    case 'list_service_cases': {
+      const rows = await listServiceCasesServer(supabase, workspaceId, {
+        vertical: args.vertical as string | undefined,
+        status: args.status as string | undefined,
+        limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
+      })
+      if (!rows.length) {
+        return { text: 'No hay expedientes con esos criterios.', data: [], referencedList: [] }
+      }
+      const list = rows.map((row, i) => formatServiceCaseLine(row, i)).join('\n')
+      return { text: `${rows.length} expediente(s):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+    }
+
+    case 'list_properties': {
+      const rows = await listPropertiesServer(supabase, workspaceId, {
+        status: args.status as string | undefined,
+        city: args.city as string | undefined,
+        limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
+      })
+      if (!rows.length) {
+        return { text: 'No hay propiedades en cartera con esos criterios.', data: [], referencedList: [] }
+      }
+      const list = rows.map((row, i) => formatPropertyLine(row, i)).join('\n')
+      return { text: `${rows.length} propiedad(es):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+    }
+
+    // -----------------------------------------------------------------------
+    // Vertical Pack v1 — writes (confirmed in chat before being called).
+    // -----------------------------------------------------------------------
+    case 'create_opportunity': {
+      const { clientId, clientName } = await resolveClientUuid(
+        supabase,
+        workspaceId,
+        args.client_id as string | undefined,
+        args.client_name as string | undefined,
+      )
+      const row = await createOpportunityServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        {
+          title: String(args.title ?? '').trim(),
+          vertical: (args.vertical as string | undefined) ?? 'general',
+          stage: args.stage as string | undefined,
+          clientId,
+          clientName,
+          value: typeof args.value === 'number' ? args.value : null,
+          source: args.source as string | undefined,
+          expectedCloseDate: args.expected_close_date as string | undefined,
+          notes: args.notes as string | undefined,
+        },
+      )
+      if (!row) {
+        return { text: 'No se pudo crear la oportunidad. Revisa el título y la sesión del workspace.', data: null }
+      }
+      const valueLabel = row.value ? ` por ${row.value}€` : ''
+      const clientLabel = clientName ? ` para ${clientName}` : ''
+      return {
+        text: `✅ Oportunidad creada: "${row.title}"${clientLabel}${valueLabel} (etapa ${row.stage}, vertical ${row.vertical}).`,
+        data: row,
+        clientId: clientId ?? undefined,
+        clientName: clientName ?? undefined,
+      }
+    }
+
+    case 'update_opportunity_stage': {
+      const id = String(args.opportunity_id ?? '').trim()
+      const stage = String(args.stage ?? '').trim()
+      if (!isValidUuid(id) || !stage) {
+        return { text: 'Necesito el UUID de la oportunidad y la nueva etapa. Lista las oportunidades primero si no la tienes a mano.', data: null }
+      }
+      const row = await updateOpportunityStageServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        id,
+        stage,
+      )
+      if (!row) {
+        return { text: 'No se pudo actualizar la oportunidad. Verifica que el UUID pertenezca a tu workspace.', data: null }
+      }
+      return { text: `✅ Oportunidad "${row.title}" actualizada a etapa ${row.stage}.`, data: row }
+    }
+
+    case 'create_service_case': {
+      const { clientId, clientName } = await resolveClientUuid(
+        supabase,
+        workspaceId,
+        args.client_id as string | undefined,
+        args.client_name as string | undefined,
+      )
+      const row = await createServiceCaseServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        {
+          title: String(args.title ?? '').trim(),
+          caseType: String(args.case_type ?? '').trim(),
+          vertical: (args.vertical as string | undefined) ?? 'immigration',
+          status: args.status as string | undefined,
+          priority: args.priority as string | undefined,
+          clientId,
+          clientName,
+          opportunityId: isValidUuid(args.opportunity_id as string | undefined) ? (args.opportunity_id as string) : null,
+          dueDate: args.due_date as string | undefined,
+          notes: args.notes as string | undefined,
+        },
+      )
+      if (!row) {
+        return { text: 'No se pudo abrir el expediente. Revisa que el title y el case_type estén presentes.', data: null }
+      }
+      const dueLabel = row.due_date ? ` (vence ${row.due_date})` : ''
+      const clientLabel = clientName ? ` para ${clientName}` : ''
+      return {
+        text: `✅ Expediente abierto: "${row.title}"${clientLabel} — ${row.case_type} en estado ${row.status}${dueLabel}.`,
+        data: row,
+        clientId: clientId ?? undefined,
+        clientName: clientName ?? undefined,
+      }
+    }
+
+    case 'create_property': {
+      const { clientId, clientName } = await resolveClientUuid(
+        supabase,
+        workspaceId,
+        args.client_id as string | undefined,
+        args.client_name as string | undefined,
+      )
+      const row = await createPropertyServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        {
+          title: String(args.title ?? '').trim(),
+          propertyType: args.property_type as string | undefined,
+          operationType: args.operation_type as string | undefined,
+          status: args.status as string | undefined,
+          city: args.city as string | undefined,
+          area: args.area as string | undefined,
+          price: typeof args.price === 'number' ? args.price : null,
+          clientId,
+          clientName,
+          ownerName: args.owner_name as string | undefined,
+          ownerPhone: args.owner_phone as string | undefined,
+          notes: args.notes as string | undefined,
+        },
+      )
+      if (!row) {
+        return { text: 'No se pudo registrar la propiedad. Asegúrate de pasar al menos title.', data: null }
+      }
+      const where = [row.city, row.area].filter(Boolean).join(' · ')
+      const whereLabel = where ? ` en ${where}` : ''
+      const priceLabel = row.price ? ` por ${row.price}€` : ''
+      return {
+        text: `✅ Propiedad registrada: "${row.title}"${whereLabel}${priceLabel} (${row.property_type} · ${row.operation_type} · ${row.status}).`,
+        data: row,
+        clientId: clientId ?? undefined,
+        clientName: clientName ?? undefined,
+      }
+    }
+
+    case 'update_service_case_status': {
+      const id = String(args.case_id ?? '').trim()
+      const status = String(args.status ?? '').trim()
+      if (!isValidUuid(id) || !status) {
+        return { text: 'Necesito el UUID del expediente y el nuevo estado. Lista los expedientes primero si no lo tienes a mano.', data: null }
+      }
+      const row = await updateServiceCaseStatusServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        id,
+        status,
+      )
+      if (!row) {
+        return { text: 'No se pudo actualizar el expediente. Verifica que el UUID pertenezca a tu workspace.', data: null }
+      }
+      return { text: `✅ Expediente "${row.title}" actualizado a estado ${row.status}.`, data: row }
+    }
+
+    case 'update_property_status': {
+      const id = String(args.property_id ?? '').trim()
+      const status = String(args.status ?? '').trim()
+      if (!isValidUuid(id) || !status) {
+        return { text: 'Necesito el UUID de la propiedad y el nuevo estado. Lista las propiedades primero si no lo tienes a mano.', data: null }
+      }
+      const row = await updatePropertyStatusServer(
+        { supabase, workspaceId, origin: 'nowlabs_agent' },
+        id,
+        status,
+      )
+      if (!row) {
+        return { text: 'No se pudo actualizar la propiedad. Verifica que el UUID pertenezca a tu workspace.', data: null }
+      }
+      return { text: `✅ Propiedad "${row.title}" actualizada a estado ${row.status}.`, data: row }
+    }
+
     // Legacy name — agent may use this if it ignores the new split tools
     case 'prepare_action': {
       const actionType = args.type as 'booking' | 'invoice' | 'task'
@@ -1597,6 +1980,51 @@ ${rawText}
 Confirma la limpieza de duplicados:
 "Voy a conservar [cliente/fecha/hora de la cita que se mantiene] y cancelar las otras [N] duplicadas. Pulsa Confirmar para limpiarlas."
 Sin negritas, sin asteriscos, sin IDs técnicos.`
+
+    case 'list_opportunities':
+      return `${base}Datos del CRM:
+${rawText}
+
+Genera esta respuesta:
+- Primera línea: "🎯 Tienes X oportunidad(es)." (X = número real).
+- Lista numerada igual que viene en el rawText (una por línea: "N. título — etapa · vertical · valor").
+- Si hay alguna en negociación o oferta, señala una al cliente como "📌 Yo movería X esta semana".
+- Si no hay: "Sin oportunidades abiertas en ese filtro."
+Sin negritas, sin asteriscos.`
+
+    case 'list_service_cases':
+      return `${base}Datos del CRM:
+${rawText}
+
+Genera esta respuesta:
+- Primera línea: "📁 Tienes X expediente(s) abierto(s)." (X = número real).
+- Lista numerada como viene en rawText (título — tipo · estado · vence).
+- Si alguno está en documentation_pending, recordar: "📌 Faltan documentos en N expediente(s) — yo enviaría plantilla de solicitud de documentación".
+- Si no hay: "Sin expedientes abiertos en ese filtro."
+Sin negritas, sin asteriscos.`
+
+    case 'list_properties':
+      return `${base}Datos del CRM:
+${rawText}
+
+Genera esta respuesta:
+- Primera línea: "🏠 Tienes X propiedad(es)." (X = número real).
+- Lista numerada como viene en rawText.
+- Si hay propiedades en prospecting hace tiempo, sugerir "📌 Movería N a listed esta semana".
+- Si no hay: "Sin propiedades en cartera con ese filtro."
+Sin negritas, sin asteriscos.`
+
+    case 'create_opportunity':
+    case 'create_service_case':
+    case 'create_property':
+    case 'update_opportunity_stage':
+    case 'update_service_case_status':
+    case 'update_property_status':
+      return `${base}Datos del CRM:
+${rawText}
+
+La acción ya se ejecutó (texto entre comillas en rawText). Reformula en 1-2 frases naturales en español que confirmen la creación/actualización, manteniendo los datos clave (nombre, vertical, etapa, importe). Sugiere 1 próxima acción concreta ("¿Le preparo una cita?", "¿Pido documentación?", "¿La marco como qualified?").
+Sin negritas, sin asteriscos.`
 
     default:
       return `${base}Datos del CRM:
