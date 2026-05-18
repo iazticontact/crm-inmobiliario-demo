@@ -157,6 +157,41 @@ Cambios en páginas:
   (General / Inmobiliaria / Extranjería / Servicios / Mixto). Persistencia
   vía `localStorage` mientras no exista `workspace_settings` en Supabase.
 
+### Fase C — edición avanzada y vinculación de cliente (2026-05-18)
+
+Cierre del bloque pre-VPS: edición completa de las 3 entidades del Vertical
+Pack y `client_id` real en el panel de Inbox.
+
+- [src/components/ClientPicker.tsx](../src/components/ClientPicker.tsx) —
+  selector de cliente debounced (ilike sobre `name`, `email`, `company`).
+  Devuelve el `id` real, evitando matching frágil por nombre libre.
+- [src/components/VerticalEditForms.tsx](../src/components/VerticalEditForms.tsx)
+  — `EditOpportunityDrawer`, `EditServiceCaseDrawer`, `EditPropertyDrawer`.
+  Patrón wrapper + inner-form con `key={entity.id}` y `useState(() => init)`
+  para satisfacer `react-hooks/set-state-in-effect`. Reusan `SideDrawer` y
+  `ClientPicker`; nunca hacen DELETE (las CTAs "Archivar" / "Cerrar
+  expediente" / "Marcar perdida" sólo cambian `status` / `stage`).
+- [src/lib/vertical-queries.ts](../src/lib/vertical-queries.ts) — añadidos
+  `updateOpportunity`, `updateServiceCase`, `updateProperty` y `listClientsLite`.
+  Cada update emite una `activities` row con
+  `type` ∈ `{opportunity_updated, service_case_updated, property_updated}` y
+  `metadata.source='ui_manual'`. Las escrituras del agente siguen marcando
+  `metadata.source='nowlabs_agent'`.
+- [src/app/(saas)/opportunities/page.tsx](../src/app/(saas)/opportunities/page.tsx)
+  — click en título o icono ✎ de cualquier fila (Pipeline, Expedientes,
+  Propiedades) abre el drawer de edición. `onUpdated` reemplaza la row en
+  estado sin refetch completo.
+- [src/app/(saas)/inbox/page.tsx](../src/app/(saas)/inbox/page.tsx) — el
+  panel derecho ya no muestra `Vincular cliente →` deshabilitado: abre un
+  `ClientPicker` inline. La selección hace PATCH a
+  `/api/inbox/conversations/[id]` con `client_id`, que el endpoint valida
+  como UUID y comprueba que pertenece al mismo workspace antes de aplicar.
+  Hay también un "Quitar vínculo" para clientes mal vinculados.
+- [src/app/api/inbox/conversations/[id]/route.ts](../src/app/api/inbox/conversations/[id]/route.ts)
+  — PATCH ampliado para aceptar `client_id` (null o UUID). Devuelve también
+  `client_name` para que el listado del Inbox se refresque limpio sin un
+  GET extra.
+
 ### UI
 - Nueva ruta `/opportunities`:
   - Tabs por vertical: Todos / Inmobiliaria / Extranjería / Servicios.
@@ -177,8 +212,9 @@ Cambios en páginas:
 - **Persistencia multi-dispositivo del vertical del workspace**. La
   preferencia se guarda en localStorage en Prompt B; falta una tabla
   `workspace_settings` para que viaje entre navegadores.
-- **CRUD inline avanzado**: editar título / cliente / notas de una entidad ya
-  creada no tiene UI todavía — solo cambio de stage/status. Para v2.
+- ~~**CRUD inline avanzado**~~ — Fase C: drawers de edición para
+  oportunidades, expedientes y propiedades. Cliente vinculado vía
+  `ClientPicker` (id real, no string libre).
 - **Detalle "drilled" por entidad**: timeline + tareas + cliente vinculado
   desde dentro de la oportunidad/expediente/propiedad. Cliente 360 cubre el
   caso desde el otro lado.
@@ -207,10 +243,14 @@ Cambios en páginas:
    reales del Vertical Pack.
 5. ~~**Settings vertical**~~ — Prompt B: selector visual persistido en
    localStorage. Persistencia multi-dispositivo pendiente.
-6. **Edición avanzada** — editar título / valor / notas / fecha límite de
-   una entidad creada (hoy solo se cambia stage/status inline).
-7. **Catálogo de automatizaciones** — pasar las 10 tarjetas estáticas a un
+6. ~~**Edición avanzada**~~ — Fase C: drawers para editar título, valor,
+   probabilidad, fecha de cierre, notas y cliente vinculado de las 3 entidades.
+7. ~~**Vincular cliente desde Inbox**~~ — Fase C: el panel derecho ya
+   ofrece selector real de cliente; el PATCH valida UUID + ownership.
+8. **Catálogo de automatizaciones** — pasar las 10 tarjetas estáticas a un
    selector real cuando exista n8n.
+9. **Persistencia multi-dispositivo del vertical** — pendiente, sigue en
+   localStorage. La tabla `workspace_settings` se crea cuando haya VPS.
 
 ### Tras tener VPS + n8n
 1. Migrar workflows del n8n antiguo o crear los 10 del catálogo, uno a uno.
@@ -248,7 +288,8 @@ Cambios en páginas:
 - El editor de plantillas es estático; el cliente no puede crear plantillas
   propias todavía.
 - Los workflows de automatización están como contrato visual; no se disparan.
-- No hay UI para editar / archivar una oportunidad ya creada — sólo cambiar
-  etapa o estado. El borrado se reserva a Supabase Studio mientras tanto.
+- La edición avanzada se hace desde drawers (Fase C). El borrado físico
+  sigue reservado a Supabase Studio: las CTAs UI sólo cambian
+  `status='archived'`, `stage='lost'` o `status='closed'`.
 - Cualquier dato realmente sensible (NIE, pasaporte) debería gestionarse con
   más cuidado de privacidad antes de operar con clientes reales.

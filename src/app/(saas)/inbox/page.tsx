@@ -25,6 +25,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { NewOpportunityDrawer } from '@/components/VerticalForms'
+import { ClientPicker } from '@/components/ClientPicker'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -179,6 +180,8 @@ export default function InboxPage() {
   const [agentBusy, setAgentBusy] = useState<null | 'summarize' | 'classify_intent' | 'detect_sentiment' | 'suggest_reply' | 'full_review'>(null)
   const [agentDecision, setAgentDecision] = useState<AgentDecision | null>(null)
   const [openCreateOppFromInbox, setOpenCreateOppFromInbox] = useState(false)
+  const [linkingClient, setLinkingClient] = useState(false)
+  const [linkingBusy, setLinkingBusy] = useState(false)
 
   const [config, setConfig] = useState<ConfigSnapshot | null>(null)
 
@@ -430,6 +433,35 @@ export default function InboxPage() {
       console.error('[inbox/status] error', err)
     } finally {
       setSavingStatus(false)
+    }
+  }
+
+  // Vincular cliente — patches conversations.client_id after picking from the
+  // ClientPicker. The API also writes client_name so the inbox list refreshes
+  // cleanly without an extra round-trip.
+  const linkClient = async (clientId: string | null, clientName?: string | null) => {
+    if (!selectedId) return
+    setLinkingBusy(true)
+    try {
+      const res = await fetch(`/api/inbox/conversations/${selectedId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        toast.error('No se pudo vincular el cliente', { description: data.error })
+        return
+      }
+      setConversation((prev) => prev ? { ...prev, client_id: clientId, client_name: clientName ?? prev.client_name } : prev)
+      setLinkingClient(false)
+      await loadConversations()
+      toast.success(clientId ? 'Cliente vinculado a la conversación' : 'Vínculo de cliente eliminado')
+    } catch (err) {
+      console.error('[inbox/link-client] error', err)
+      toast.error('Error de red vinculando cliente')
+    } finally {
+      setLinkingBusy(false)
     }
   }
 
@@ -934,15 +966,53 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {display.unlinked && (
+                {display.unlinked && !linkingClient && (
                   <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] leading-snug text-gray-500">
                     Esta conversación no está vinculada a un cliente del CRM.
                     <button
-                      disabled
-                      title="Disponible próximamente"
-                      className="mt-1 block text-[10px] font-semibold text-indigo-600 opacity-50"
+                      type="button"
+                      onClick={() => setLinkingClient(true)}
+                      className="mt-1 block text-[10px] font-semibold text-indigo-600 hover:underline"
                     >
                       Vincular cliente →
+                    </button>
+                  </div>
+                )}
+
+                {linkingClient && (
+                  <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/40 px-2.5 py-2">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Vincular cliente</p>
+                      <button
+                        type="button"
+                        onClick={() => setLinkingClient(false)}
+                        disabled={linkingBusy}
+                        className="text-[10px] text-gray-500 hover:text-gray-700"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    <ClientPicker
+                      workspaceId={currentUser?.workspaceId ?? null}
+                      value={null}
+                      disabled={linkingBusy}
+                      onChange={(id, picked) => { if (id) void linkClient(id, picked?.name ?? null) }}
+                    />
+                    <p className="mt-1.5 text-[10px] leading-snug text-gray-500">
+                      Busca un cliente existente. La actividad de la conversación quedará vinculada a su Cliente 360.
+                    </p>
+                  </div>
+                )}
+
+                {!display.unlinked && conversation.client_id && (
+                  <div className="mt-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void linkClient(null)}
+                      disabled={linkingBusy}
+                      className="text-[10px] font-medium text-gray-500 hover:text-rose-600"
+                    >
+                      Quitar vínculo de cliente
                     </button>
                   </div>
                 )}

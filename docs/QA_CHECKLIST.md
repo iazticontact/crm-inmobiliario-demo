@@ -490,6 +490,60 @@ paralelo (`metadata.source` = `ui_manual` vs `nowlabs_agent`).
 
 ---
 
+## Vertical Pack v1 — edición avanzada y vínculo Inbox (Fase C, 2026-05-18)
+
+Cierre pre-VPS del Vertical Pack: edición completa de las 3 entidades y
+`client_id` real en Inbox sin matching frágil por nombre.
+
+### /operaciones — edición avanzada
+
+- [ ] Pipeline: click en el título de una oportunidad abre el
+      `EditOpportunityDrawer` con los datos rellenos.
+- [ ] Icono ✎ en cada fila también abre el drawer.
+- [ ] Editar título, vertical, etapa, valor, probabilidad, origen, fecha de
+      cierre, notas y cliente vinculado → "Guardar cambios" persiste y
+      cierra el drawer.
+- [ ] Cambiar vertical reajusta la lista de etapas; si la etapa actual no
+      existe en el nuevo vertical, se selecciona la primera disponible.
+- [ ] CTA "Marcar perdida" deja `stage='lost'` sin DELETE.
+- [ ] Expedientes: click en título o ✎ abre `EditServiceCaseDrawer`.
+- [ ] CTA "Cerrar expediente" deja `status='closed'` sin DELETE.
+- [ ] Propiedades: click en título o ✎ abre `EditPropertyDrawer`.
+- [ ] CTA "Archivar" deja `status='archived'` sin DELETE.
+- [ ] La fila editada se reemplaza en sitio sin refetch global (callback
+      `onUpdated`).
+- [ ] Cada edición registra `activities.type` ∈
+      `{opportunity_updated, service_case_updated, property_updated}` con
+      `metadata.source='ui_manual'`.
+
+### ClientPicker
+
+- [ ] Sin workspace activo el input está deshabilitado y muestra "Sin
+      workspace activo".
+- [ ] Escribir filtra por `name`, `email` o `company` con debounce ~180ms.
+- [ ] Seleccionar un cliente lo muestra como pill con avatar inicial; el
+      botón "x" lo quita.
+- [ ] Sin resultados muestra "Sin resultados. Crea el cliente desde
+      /clients."
+
+### Inbox — vincular cliente
+
+- [ ] Conversación sin `client_id`: aparece bloque "Sin vincular" con CTA
+      "Vincular cliente →" (ya no disabled).
+- [ ] Click abre un `ClientPicker` inline en el panel derecho.
+- [ ] Seleccionar un cliente hace `PATCH /api/inbox/conversations/[id]`
+      con `client_id` (UUID).
+- [ ] El listado de conversaciones se refresca; la cabecera ya no muestra
+      "Sin vincular".
+- [ ] El endpoint devuelve 404 si el `client_id` no pertenece al
+      workspace (validación server-side aparte del RLS).
+- [ ] CTA "Quitar vínculo de cliente" envía `client_id: null` y el
+      endpoint nulea `client_name` también.
+- [ ] Crear oportunidad desde Inbox después de vincular usa el
+      `client_id` real (no string libre).
+
+---
+
 ## Hardening checks (cierre WhatsApp/Inbox/n8n — 2026-05-17 night)
 
 Estos cubren los fixes críticos del cierre: n8n trigger seguro, Meta webhook

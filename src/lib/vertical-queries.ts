@@ -267,6 +267,55 @@ export async function updateOpportunityStage(workspaceId: string, id: string, st
   return true
 }
 
+export type UpdateOpportunityInput = {
+  title?: string
+  vertical?: VerticalKey | string
+  stage?: string
+  clientId?: string | null
+  value?: number | null
+  probability?: number | null
+  source?: string | null
+  expectedCloseDate?: string | null
+  notes?: string | null
+}
+
+export async function updateOpportunity(workspaceId: string, id: string, input: UpdateOpportunityInput) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return null
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (input.vertical) patch.vertical = input.vertical
+  if (input.stage) patch.stage = input.stage
+  if (input.clientId !== undefined) patch.client_id = input.clientId
+  if (input.value !== undefined) patch.value = input.value
+  if (input.probability !== undefined) patch.probability = input.probability
+  if (input.source !== undefined) patch.source = input.source
+  if (input.expectedCloseDate !== undefined) patch.expected_close_date = input.expectedCloseDate
+  if (input.notes !== undefined) patch.notes = input.notes
+
+  const { data, error } = await supabase
+    .from('opportunities')
+    .update(patch)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[updateOpportunity]', error.message)
+    return null
+  }
+  const row = data as OpportunityRow
+  await logActivity(supabase, {
+    workspaceId,
+    type: 'opportunity_updated',
+    title: `Oportunidad editada: ${row.title}`,
+    description: `Stage ${row.stage}${row.value ? ` · ${row.value}€` : ''}${row.probability != null ? ` · ${row.probability}%` : ''}`,
+    clientId: row.client_id,
+    metadata: { opportunity_id: row.id },
+  })
+  return row
+}
+
 export async function createServiceCase(workspaceId: string, input: {
   title: string
   caseType: string
@@ -339,6 +388,53 @@ export async function updateServiceCaseStatus(workspaceId: string, id: string, s
     metadata: { case_id: data.id, status },
   })
   return true
+}
+
+export type UpdateServiceCaseInput = {
+  title?: string
+  caseType?: string
+  vertical?: VerticalKey | string
+  status?: string
+  priority?: string
+  clientId?: string | null
+  dueDate?: string | null
+  notes?: string | null
+}
+
+export async function updateServiceCase(workspaceId: string, id: string, input: UpdateServiceCaseInput) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return null
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (input.caseType) patch.case_type = input.caseType
+  if (input.vertical) patch.vertical = input.vertical
+  if (input.status) patch.status = input.status
+  if (input.priority) patch.priority = input.priority
+  if (input.clientId !== undefined) patch.client_id = input.clientId
+  if (input.dueDate !== undefined) patch.due_date = input.dueDate
+  if (input.notes !== undefined) patch.notes = input.notes
+
+  const { data, error } = await supabase
+    .from('service_cases')
+    .update(patch)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[updateServiceCase]', error.message)
+    return null
+  }
+  const row = data as ServiceCaseRow
+  await logActivity(supabase, {
+    workspaceId,
+    type: 'service_case_updated',
+    title: `Expediente editado: ${row.title}`,
+    description: `${row.case_type} · ${row.status}${row.priority !== 'normal' ? ` · ${row.priority}` : ''}${row.due_date ? ` · vence ${row.due_date}` : ''}`,
+    clientId: row.client_id,
+    metadata: { case_id: row.id },
+  })
+  return row
 }
 
 export async function createProperty(workspaceId: string, input: {
@@ -417,4 +513,97 @@ export async function updatePropertyStatus(workspaceId: string, id: string, stat
     metadata: { property_id: data.id, status },
   })
   return true
+}
+
+export type UpdatePropertyInput = {
+  title?: string
+  propertyType?: string
+  operationType?: string
+  status?: string
+  city?: string | null
+  area?: string | null
+  price?: number | null
+  ownerName?: string | null
+  ownerPhone?: string | null
+  clientId?: string | null
+  notes?: string | null
+}
+
+export async function updateProperty(workspaceId: string, id: string, input: UpdatePropertyInput) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return null
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (input.propertyType) patch.property_type = input.propertyType
+  if (input.operationType) patch.operation_type = input.operationType
+  if (input.status) patch.status = input.status
+  if (input.city !== undefined) patch.city = input.city
+  if (input.area !== undefined) patch.area = input.area
+  if (input.price !== undefined) patch.price = input.price
+  if (input.ownerName !== undefined) patch.owner_name = input.ownerName
+  if (input.ownerPhone !== undefined) patch.owner_phone = input.ownerPhone
+  if (input.clientId !== undefined) patch.client_id = input.clientId
+  if (input.notes !== undefined) patch.notes = input.notes
+
+  const { data, error } = await supabase
+    .from('properties')
+    .update(patch)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[updateProperty]', error.message)
+    return null
+  }
+  const row = data as PropertyRow
+  await logActivity(supabase, {
+    workspaceId,
+    type: 'property_updated',
+    title: `Propiedad editada: ${row.title}`,
+    description: `${row.property_type ?? ''}${row.operation_type ? ` · ${row.operation_type}` : ''}${row.city ? ` · ${row.city}` : ''} · ${row.status}`,
+    clientId: row.client_id,
+    metadata: { property_id: row.id },
+  })
+  return row
+}
+
+// -----------------------------------------------------------------------------
+// Client lookup — lightweight selector used by the edit drawers and the
+// "Vincular cliente" CTA in Inbox. Returns just enough to render a picker.
+// -----------------------------------------------------------------------------
+
+export type ClientLite = {
+  id: string
+  name: string
+  company: string | null
+  email: string | null
+  phone: string | null
+}
+
+export async function listClientsLite(workspaceId: string, opts?: { query?: string; limit?: number }) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId) return [] as ClientLite[]
+  let q = supabase
+    .from('clients')
+    .select('id, name, company, email, phone')
+    .eq('workspace_id', workspaceId)
+    .order('updated_at', { ascending: false })
+    .limit(opts?.limit ?? 50)
+  if (opts?.query && opts.query.trim()) {
+    const term = opts.query.trim().replace(/[%,]/g, '')
+    q = q.or(`name.ilike.%${term}%,email.ilike.%${term}%,company.ilike.%${term}%`)
+  }
+  const { data, error } = await q
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[listClientsLite]', error.message)
+    return [] as ClientLite[]
+  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    company: (r.company as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null,
+  }))
 }

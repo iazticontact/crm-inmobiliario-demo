@@ -25,6 +25,7 @@ import {
   Sparkles,
   Plus,
   PlayCircle,
+  Pencil,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -39,6 +40,11 @@ import {
   SERVICE_CASE_STATUS_OPTIONS,
   PROPERTY_STATUS_OPTIONS_PUBLIC,
 } from '@/components/VerticalForms'
+import {
+  EditOpportunityDrawer,
+  EditServiceCaseDrawer,
+  EditPropertyDrawer,
+} from '@/components/VerticalEditForms'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -117,6 +123,11 @@ export default function OpportunitiesPage() {
   const [openOpp, setOpenOpp] = useState(false)
   const [openCase, setOpenCase] = useState(false)
   const [openProp, setOpenProp] = useState(false)
+
+  // Edit drawers — only one open at a time.
+  const [editOpp, setEditOpp] = useState<OpportunityRow | null>(null)
+  const [editCase, setEditCase] = useState<ServiceCaseRow | null>(null)
+  const [editProp, setEditProp] = useState<PropertyRow | null>(null)
 
   const workspaceId = currentUser?.workspaceId ?? null
 
@@ -387,14 +398,19 @@ export default function OpportunitiesPage() {
                     <ul className="space-y-1.5">
                       {items.map((opp) => (
                         <li key={opp.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50">
-                          <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => setEditOpp(opp)}
+                            className="min-w-0 flex-1 text-left"
+                            title="Abrir detalle / editar"
+                          >
                             <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
                             <p className="truncate text-[11px] text-gray-500">
                               {opp.vertical !== 'general' ? VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical : ''}
                               {opp.expected_close_date ? ` · cierre ${formatDate(opp.expected_close_date)}` : ''}
                               {opp.source ? ` · ${opp.source}` : ''}
                             </p>
-                          </div>
+                          </button>
                           <div className="flex shrink-0 items-center gap-2">
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
                             {typeof opp.probability === 'number' && (
@@ -410,6 +426,14 @@ export default function OpportunitiesPage() {
                                 <option key={s.id} value={s.id}>{s.label}</option>
                               ))}
                             </select>
+                            <button
+                              type="button"
+                              onClick={() => setEditOpp(opp)}
+                              title="Editar oportunidad"
+                              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
                           </div>
                         </li>
                       ))}
@@ -449,17 +473,34 @@ export default function OpportunitiesPage() {
               {visibleCases.map((c) => (
                 <li key={c.id} className="rounded-xl border border-gray-100 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-sm font-medium text-gray-900">{c.title}</p>
-                    <select
-                      aria-label="Cambiar estado"
-                      className={SELECT_CLS}
-                      value={c.status}
-                      onChange={(e) => void handleCaseStatus(c, e.target.value)}
+                    <button
+                      type="button"
+                      onClick={() => setEditCase(c)}
+                      className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900 hover:text-indigo-700"
+                      title="Editar expediente"
                     >
-                      {SERVICE_CASE_STATUS_OPTIONS.map((s) => (
-                        <option key={s.id} value={s.id}>{s.label}</option>
-                      ))}
-                    </select>
+                      {c.title}
+                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <select
+                        aria-label="Cambiar estado"
+                        className={SELECT_CLS}
+                        value={c.status}
+                        onChange={(e) => void handleCaseStatus(c, e.target.value)}
+                      >
+                        {SERVICE_CASE_STATUS_OPTIONS.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setEditCase(c)}
+                        title="Editar expediente"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
                     {c.case_type}
@@ -519,17 +560,34 @@ export default function OpportunitiesPage() {
               {visibleProperties.map((p) => (
                 <li key={p.id} className="rounded-xl border border-gray-100 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-sm font-medium text-gray-900">{p.title}</p>
-                    <select
-                      aria-label="Cambiar estado"
-                      className={SELECT_CLS}
-                      value={p.status}
-                      onChange={(e) => void handlePropertyStatus(p, e.target.value)}
+                    <button
+                      type="button"
+                      onClick={() => setEditProp(p)}
+                      className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900 hover:text-indigo-700"
+                      title="Editar propiedad"
                     >
-                      {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => (
-                        <option key={s.id} value={s.id}>{s.label}</option>
-                      ))}
-                    </select>
+                      {p.title}
+                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <select
+                        aria-label="Cambiar estado"
+                        className={SELECT_CLS}
+                        value={p.status}
+                        onChange={(e) => void handlePropertyStatus(p, e.target.value)}
+                      >
+                        {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setEditProp(p)}
+                        title="Editar propiedad"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
                     {p.property_type}
@@ -636,6 +694,29 @@ export default function OpportunitiesPage() {
         onClose={() => setOpenProp(false)}
         workspaceId={workspaceId}
         onCreated={() => void loadData()}
+      />
+
+      {/* Edit drawers — keyed remount per entity from inside the wrappers. */}
+      <EditOpportunityDrawer
+        open={!!editOpp}
+        onClose={() => setEditOpp(null)}
+        workspaceId={workspaceId}
+        opportunity={editOpp}
+        onUpdated={(row) => setOpportunities((prev) => prev.map((o) => (o.id === row.id ? row : o)))}
+      />
+      <EditServiceCaseDrawer
+        open={!!editCase}
+        onClose={() => setEditCase(null)}
+        workspaceId={workspaceId}
+        serviceCase={editCase}
+        onUpdated={(row) => setCases((prev) => prev.map((c) => (c.id === row.id ? row : c)))}
+      />
+      <EditPropertyDrawer
+        open={!!editProp}
+        onClose={() => setEditProp(null)}
+        workspaceId={workspaceId}
+        property={editProp}
+        onUpdated={(row) => setProperties((prev) => prev.map((p) => (p.id === row.id ? row : p)))}
       />
     </motion.div>
   )

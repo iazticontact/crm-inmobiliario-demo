@@ -148,6 +148,26 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (typeof body.ai_summary === 'string' && body.ai_summary.length <= 1000) patch.ai_summary = body.ai_summary
   if (typeof body.unread === 'boolean') patch.unread = body.unread
 
+  // client_id is allowed too — we accept null (to unlink) or a UUID that belongs
+  // to the same workspace. Validating ownership prevents linking against another
+  // tenant's client row even if RLS would block the read anyway.
+  if (body.client_id === null) {
+    patch.client_id = null
+    patch.client_name = null
+  } else if (typeof body.client_id === 'string' && isUuid(body.client_id)) {
+    const clientCheck = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('id', body.client_id)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (clientCheck.error || !clientCheck.data) {
+      return NextResponse.json({ ok: false, error: 'Cliente no encontrado en este workspace' }, { status: 404 })
+    }
+    patch.client_id = clientCheck.data.id
+    patch.client_name = (clientCheck.data as { name?: string | null }).name ?? null
+  }
+
   if (Object.keys(patch).length === 1) {
     return NextResponse.json({ ok: false, error: 'Nada que actualizar' }, { status: 400 })
   }
@@ -157,7 +177,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     .update(patch)
     .eq('id', id)
     .eq('workspace_id', workspaceId)
-    .select('id, status, sentiment, intent, ai_summary, unread, updated_at')
+    .select('id, status, sentiment, intent, ai_summary, unread, updated_at, client_id, client_name')
     .maybeSingle()
 
   if (error) {
