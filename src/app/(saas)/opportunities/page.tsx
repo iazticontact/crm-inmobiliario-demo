@@ -1,17 +1,16 @@
 'use client'
 
-// /opportunities — Vertical Pack v1.
+// /opportunities — Operaciones (Vertical Pack v1).
 //
-// Single page that hosts three lanes: Oportunidades, Expedientes y Propiedades.
-// Reusable across verticals via the tab selector at the top (Todos /
-// Inmobiliaria / Extranjería / Servicios). The lanes are simple lists, not
-// drag-and-drop kanban: the goal is "premium readable", not "fancy".
+// Pipeline · Expedientes · Propiedades · Plantillas · Automatizaciones.
+// La ruta sigue siendo /opportunities para no romper enlaces; el label visual
+// pasó a "Operaciones" porque la página opera más entidades que sólo el pipeline.
 //
-// All reads come from the workspace-scoped helpers in vertical-queries.ts,
-// which enforce RLS at the Supabase layer. Writes are wired (create dialogs
-// for opportunity / case / property) but skipped from this iteration to keep
-// the surface small. Drafts of the message/automation catalogs read from the
-// static templates in lib/demo/vertical-templates.ts.
+// Lecturas: helpers workspace-scoped en vertical-queries.ts (RLS al fondo).
+// Escrituras: drawers laterales en src/components/VerticalForms.tsx — usan los
+// mismos helpers que crean (con activity log) las mismas entidades que crea
+// NowLabs AI desde el chat. Inline status/stage edit reescribe vía
+// updateOpportunityStage / updateServiceCaseStatus / updatePropertyStatus.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -21,16 +20,25 @@ import {
   FileText,
   Loader2,
   RefreshCcw,
-  ArrowRight,
   Briefcase,
   PlugZap,
   Sparkles,
+  Plus,
+  PlayCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { EmptyState } from '@/components/EmptyState'
+import {
+  NewOpportunityDrawer,
+  NewServiceCaseDrawer,
+  NewPropertyDrawer,
+  SERVICE_CASE_STATUS_OPTIONS,
+  PROPERTY_STATUS_OPTIONS_PUBLIC,
+} from '@/components/VerticalForms'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -46,12 +54,16 @@ import {
   listOpportunities,
   listServiceCases,
   listProperties,
+  updateOpportunityStage,
+  updateServiceCaseStatus,
+  updatePropertyStatus,
   type OpportunityRow,
   type ServiceCaseRow,
   type PropertyRow,
 } from '@/lib/vertical-queries'
 
 type VerticalTab = 'all' | VerticalKey
+type Subtab = 'pipeline' | 'cases' | 'properties' | 'templates' | 'automations'
 
 const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: string }> = [
   { key: 'all',                    label: 'Todos',         description: 'Pipeline completo del workspace.' },
@@ -59,6 +71,17 @@ const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: strin
   { key: 'immigration',            label: 'Extranjería',   description: 'Expedientes y trámites de extranjería.' },
   { key: 'professional_services',  label: 'Servicios',     description: 'Asesorías y servicios profesionales recurrentes.' },
 ]
+
+const SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { key: 'pipeline',     label: 'Pipeline',         icon: Target },
+  { key: 'cases',        label: 'Expedientes',      icon: FileText },
+  { key: 'properties',   label: 'Propiedades',      icon: Building2 },
+  { key: 'templates',    label: 'Plantillas',       icon: Sparkles },
+  { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle },
+]
+
+const SELECT_CLS =
+  'h-7 rounded-lg border border-gray-200 bg-white px-2 text-[11px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500'
 
 function formatCurrency(value: number | null, currency = 'EUR') {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -83,11 +106,17 @@ export default function OpportunitiesPage() {
   const isDemo = currentUser?.isDemo ?? true
 
   const [vertical, setVertical] = useState<VerticalTab>('all')
+  const [subtab, setSubtab] = useState<Subtab>('pipeline')
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+
+  // Create drawers
+  const [openOpp, setOpenOpp] = useState(false)
+  const [openCase, setOpenCase] = useState(false)
+  const [openProp, setOpenProp] = useState(false)
 
   const workspaceId = currentUser?.workspaceId ?? null
 
@@ -150,17 +179,59 @@ export default function OpportunitiesPage() {
   }, [visibleOpportunities, pipeline])
 
   const messageTemplates = useMemo(() => {
-    if (vertical === 'all') return getMessageTemplatesForVertical('general').slice(0, 6)
-    return getMessageTemplatesForVertical(vertical as VerticalKey).slice(0, 6)
+    if (vertical === 'all') return getMessageTemplatesForVertical('general').slice(0, 8)
+    return getMessageTemplatesForVertical(vertical as VerticalKey).slice(0, 8)
   }, [vertical])
 
   const automationTemplates = useMemo(() => {
-    if (vertical === 'all') return AUTOMATION_TEMPLATES.slice(0, 6)
-    return getAutomationTemplatesForVertical(vertical as VerticalKey).slice(0, 6)
+    if (vertical === 'all') return AUTOMATION_TEMPLATES
+    return getAutomationTemplatesForVertical(vertical as VerticalKey)
   }, [vertical])
 
   const totalPipelineValue = visibleOpportunities.reduce((sum, o) => sum + (o.value ?? 0), 0)
   const activeCases = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length
+
+  // Inline stage / status edits — optimistic + persisted.
+  async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
+    if (nextStage === opp.stage) return
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setOpportunities((prev) => prev.map((o) => (o.id === opp.id ? { ...o, stage: nextStage } : o)))
+    const ok = await updateOpportunityStage(workspaceId, opp.id, nextStage)
+    if (!ok) {
+      toast.error('No se pudo cambiar la etapa.')
+      void loadData()
+      return
+    }
+    toast.success(`Oportunidad → ${nextStage}`)
+  }
+
+  async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
+    if (nextStatus === row.status) return
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setCases((prev) => prev.map((c) => (c.id === row.id ? { ...c, status: nextStatus } : c)))
+    const ok = await updateServiceCaseStatus(workspaceId, row.id, nextStatus)
+    if (!ok) {
+      toast.error('No se pudo cambiar el estado del expediente.')
+      void loadData()
+      return
+    }
+    toast.success(`Expediente → ${nextStatus}`)
+  }
+
+  async function handlePropertyStatus(row: PropertyRow, nextStatus: string) {
+    if (nextStatus === row.status) return
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setProperties((prev) => prev.map((p) => (p.id === row.id ? { ...p, status: nextStatus } : p)))
+    const ok = await updatePropertyStatus(workspaceId, row.id, nextStatus)
+    if (!ok) {
+      toast.error('No se pudo cambiar el estado de la propiedad.')
+      void loadData()
+      return
+    }
+    toast.success(`Propiedad → ${nextStatus}`)
+  }
+
+  const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
 
   return (
     <motion.div
@@ -170,13 +241,22 @@ export default function OpportunitiesPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Oportunidades & Expedientes"
-        description="Pipeline comercial, expedientes de servicio y captación de propiedades — todo workspace-scoped."
+        title="Operaciones"
+        description="Pipeline, expedientes y propiedades del workspace — workspace-scoped y compartido con NowLabs AI."
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>
               <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
               Refrescar
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nuevo expediente
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nueva propiedad
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nueva oportunidad
             </Button>
           </div>
         }
@@ -204,9 +284,32 @@ export default function OpportunitiesPage() {
         })}
       </div>
 
+      {/* Subtabs */}
+      <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm">
+        {SUBTABS.map((tab) => {
+          const Icon = tab.icon
+          const active = subtab === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setSubtab(tab.key)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
+                active
+                  ? 'bg-gray-900 text-white shadow-sm shadow-gray-900/20'
+                  : 'text-gray-600 hover:bg-gray-50',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
       {isDemo && (
         <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Modo demo: las oportunidades, expedientes y propiedades requieren sesión real. Al iniciar sesión, este workspace operará sobre tablas reales con RLS.
+          Modo demo: las oportunidades, expedientes y propiedades requieren sesión real. Con sesión real, las acciones aquí y desde NowLabs AI escriben sobre las mismas tablas con RLS.
         </div>
       )}
 
@@ -216,7 +319,7 @@ export default function OpportunitiesPage() {
         </div>
       )}
 
-      {/* KPI strip */}
+      {/* KPI strip (always visible) */}
       <div className="grid gap-3 sm:grid-cols-3">
         <KpiCard
           icon={<Target className="h-4 w-4 text-indigo-600" />}
@@ -241,91 +344,122 @@ export default function OpportunitiesPage() {
         />
       </div>
 
-      {/* Pipeline */}
-      <SectionCard
-        title="Pipeline"
-        description={`Etapas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
-        action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} oportunidades</Badge>}
-      >
-        {loading ? (
-          <div className="flex items-center justify-center py-8 text-xs text-gray-400">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
-          </div>
-        ) : visibleOpportunities.length === 0 ? (
-          <EmptyState
-            icon={<Target className="h-6 w-6 text-gray-300" />}
-            title="Sin oportunidades todavía"
-            description={
-              vertical === 'all'
-                ? 'Cuando entren leads desde WhatsApp/Instagram/Web o crees una oportunidad manualmente, aparecerán aquí organizadas por etapa.'
-                : `Sin oportunidades en ${VERTICALS[verticalForPipeline].label.toLowerCase()}. Crea una desde el Asistente IA o desde el botón "Nueva oportunidad" (próximamente).`
-            }
-          />
-        ) : (
-          <div className="space-y-2">
-            {pipeline.map((stage) => {
-              const items = opportunitiesByStage[stage.id] ?? []
-              if (items.length === 0) return null
-              return (
-                <div key={stage.id} className="rounded-xl border border-gray-100 bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
-                      <span className="text-[10px] text-gray-400">{stage.description}</span>
+      {/* PIPELINE */}
+      {subtab === 'pipeline' && (
+        <SectionCard
+          title="Pipeline"
+          description={`Etapas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
+          action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} oportunidades</Badge>}
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            </div>
+          ) : visibleOpportunities.length === 0 ? (
+            <EmptyState
+              icon={<Target className="h-6 w-6 text-gray-300" />}
+              title="Sin oportunidades todavía"
+              description={
+                vertical === 'all'
+                  ? 'Crea una desde el botón "Nueva oportunidad" o pídele a NowLabs AI "crea un lead para…" — entrará al pipeline.'
+                  : `Sin oportunidades en ${VERTICALS[verticalForPipeline].label.toLowerCase()}. Crea una arriba o desde NowLabs AI.`
+              }
+              action={
+                <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nueva oportunidad
+                </Button>
+              }
+            />
+          ) : (
+            <div className="space-y-2">
+              {pipeline.map((stage) => {
+                const items = opportunitiesByStage[stage.id] ?? []
+                if (items.length === 0) return null
+                return (
+                  <div key={stage.id} className="rounded-xl border border-gray-100 bg-white p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
+                        <span className="text-[10px] text-gray-400">{stage.description}</span>
+                      </div>
+                      <span className="text-[10px] text-gray-400">{items.length} oportunidad{items.length !== 1 ? 'es' : ''}</span>
                     </div>
-                    <span className="text-[10px] text-gray-400">{items.length} oportunidad{items.length !== 1 ? 'es' : ''}</span>
+                    <ul className="space-y-1.5">
+                      {items.map((opp) => (
+                        <li key={opp.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
+                            <p className="truncate text-[11px] text-gray-500">
+                              {opp.vertical !== 'general' ? VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical : ''}
+                              {opp.expected_close_date ? ` · cierre ${formatDate(opp.expected_close_date)}` : ''}
+                              {opp.source ? ` · ${opp.source}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
+                            {typeof opp.probability === 'number' && (
+                              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{opp.probability}%</span>
+                            )}
+                            <select
+                              aria-label="Cambiar etapa"
+                              className={SELECT_CLS}
+                              value={opp.stage}
+                              onChange={(e) => void handleOpportunityStage(opp, e.target.value)}
+                            >
+                              {getPipelineForVertical((opp.vertical as VerticalKey) ?? 'general').map((s) => (
+                                <option key={s.id} value={s.id}>{s.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <ul className="space-y-1.5">
-                    {items.map((opp) => (
-                      <li key={opp.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
-                          <p className="truncate text-[11px] text-gray-500">
-                            {opp.vertical !== 'general' ? VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical : ''}
-                            {opp.expected_close_date ? ` · cierre ${formatDate(opp.expected_close_date)}` : ''}
-                            {opp.source ? ` · ${opp.source}` : ''}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
-                          {typeof opp.probability === 'number' && (
-                            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{opp.probability}%</span>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </SectionCard>
+                )
+              })}
+            </div>
+          )}
+        </SectionCard>
+      )}
 
-      {/* Cases + Properties side by side */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* CASES */}
+      {subtab === 'cases' && (
         <SectionCard
           title="Expedientes"
           description={vertical === 'immigration' ? 'Trámites de extranjería abiertos.' : 'Casos abiertos del workspace.'}
           action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} expedientes</Badge>}
         >
-          {visibleCases.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            </div>
+          ) : visibleCases.length === 0 ? (
             <EmptyState
               icon={<FileText className="h-6 w-6 text-gray-300" />}
               title="Sin expedientes activos"
-              description={
-                vertical === 'immigration'
-                  ? 'Crea un expediente de extranjería al recibir documentación de un cliente. Aparecerá aquí con su checklist.'
-                  : 'Los expedientes de servicio aparecerán aquí. Tipos preparados: renovación NIE, arraigo, reagrupación familiar y más.'
+              description="Crea uno desde el botón Nuevo expediente, o pídele a NowLabs AI: 'abre un expediente de NIE para Ana'."
+              action={
+                <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nuevo expediente
+                </Button>
               }
             />
           ) : (
             <ul className="space-y-2">
-              {visibleCases.slice(0, 8).map((c) => (
+              {visibleCases.map((c) => (
                 <li key={c.id} className="rounded-xl border border-gray-100 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium text-gray-900">{c.title}</p>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{c.status}</span>
+                    <select
+                      aria-label="Cambiar estado"
+                      className={SELECT_CLS}
+                      value={c.status}
+                      onChange={(e) => void handleCaseStatus(c, e.target.value)}
+                    >
+                      {SERVICE_CASE_STATUS_OPTIONS.map((s) => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
                     {c.case_type}
@@ -341,7 +475,7 @@ export default function OpportunitiesPage() {
             <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tipos de expediente preparados</p>
               <div className="flex flex-wrap gap-1.5">
-                {CASE_TYPES.filter((t) => t.vertical === 'immigration' || vertical === 'all').slice(0, 5).map((t) => (
+                {CASE_TYPES.filter((t) => t.vertical === 'immigration' || vertical === 'all').slice(0, 6).map((t) => (
                   <span key={t.id} className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-700" title={t.description}>
                     {t.label}
                   </span>
@@ -350,13 +484,20 @@ export default function OpportunitiesPage() {
             </div>
           )}
         </SectionCard>
+      )}
 
+      {/* PROPERTIES */}
+      {subtab === 'properties' && (
         <SectionCard
           title="Propiedades"
           description={vertical === 'immigration' ? 'No aplica al vertical de extranjería.' : 'Captaciones, ventas y alquileres.'}
           action={<Badge variant={visibleProperties.length ? 'indigo' : 'default'} dot>{visibleProperties.length} propiedades</Badge>}
         >
-          {vertical === 'immigration' ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            </div>
+          ) : vertical === 'immigration' ? (
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
               title="Sin propiedades en este vertical"
@@ -366,15 +507,29 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
               title="Sin propiedades en cartera"
-              description="Las captaciones, propiedades en venta y alquileres aparecerán aquí. Crea una al firmar la hoja de encargo o al recibir una nueva captación."
+              description="Registra una desde Nueva propiedad o pídele a NowLabs AI 'crea una propiedad en captación en Marbella'."
+              action={
+                <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nueva propiedad
+                </Button>
+              }
             />
           ) : (
             <ul className="space-y-2">
-              {visibleProperties.slice(0, 8).map((p) => (
+              {visibleProperties.map((p) => (
                 <li key={p.id} className="rounded-xl border border-gray-100 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium text-gray-900">{p.title}</p>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{p.status}</span>
+                    <select
+                      aria-label="Cambiar estado"
+                      className={SELECT_CLS}
+                      value={p.status}
+                      onChange={(e) => void handlePropertyStatus(p, e.target.value)}
+                    >
+                      {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
                     {p.property_type}
@@ -388,16 +543,16 @@ export default function OpportunitiesPage() {
             </ul>
           )}
         </SectionCard>
-      </div>
+      )}
 
-      {/* Templates + Automations */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* TEMPLATES */}
+      {subtab === 'templates' && (
         <SectionCard
           title="Plantillas IA preparadas"
           description="Mensajes y propuestas listas para usar desde Inbox o Asistente."
           action={<Badge variant="indigo" dot>{messageTemplates.length}</Badge>}
         >
-          <ul className="space-y-2">
+          <ul className="grid gap-2 sm:grid-cols-2">
             {messageTemplates.map((tmpl) => (
               <li key={tmpl.id} className="rounded-xl border border-gray-100 bg-white p-3 hover:bg-gray-50">
                 <div className="flex items-center justify-between gap-2">
@@ -406,18 +561,21 @@ export default function OpportunitiesPage() {
                     {tmpl.channel}
                   </span>
                 </div>
-                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-gray-500">{tmpl.body}</p>
+                <p className="mt-1 line-clamp-3 text-[11px] leading-snug text-gray-500">{tmpl.body}</p>
               </li>
             ))}
           </ul>
         </SectionCard>
+      )}
 
+      {/* AUTOMATIONS */}
+      {subtab === 'automations' && (
         <SectionCard
           title="Automatizaciones preparadas"
           description="Catálogo listo. Se ejecutarán cuando conectes n8n + WhatsApp/Instagram real."
           action={<Badge variant="warning" dot>requiere n8n</Badge>}
         >
-          <ul className="space-y-2">
+          <ul className="grid gap-2 sm:grid-cols-2">
             {automationTemplates.map((auto) => (
               <li key={auto.id} className="rounded-xl border border-gray-100 bg-white p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -434,7 +592,7 @@ export default function OpportunitiesPage() {
             ))}
           </ul>
         </SectionCard>
-      </div>
+      )}
 
       {/* Footer hint */}
       <div className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-4">
@@ -443,20 +601,42 @@ export default function OpportunitiesPage() {
             <Briefcase className="h-4 w-4" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-gray-900">Vertical Pack v1 listo en código</p>
+            <p className="text-sm font-semibold text-gray-900">Operaciones · UI + NowLabs AI sobre las mismas tablas</p>
             <p className="mt-0.5 text-xs leading-5 text-gray-600">
-              NowCRM ya tiene las tablas <code className="rounded bg-white px-1 text-[10px]">opportunities</code>, <code className="rounded bg-white px-1 text-[10px]">service_cases</code> y <code className="rounded bg-white px-1 text-[10px]">properties</code> con RLS por workspace.
-              Los catálogos de plantillas IA y automatizaciones están en estático para que cada workspace los vea sin necesidad de seed.
-              Los workflows reales se conectarán cuando esté listo el VPS con n8n y las claves Meta.
+              Los drawers de UI crean en <code className="rounded bg-white px-1 text-[10px]">opportunities</code>, <code className="rounded bg-white px-1 text-[10px]">service_cases</code> y <code className="rounded bg-white px-1 text-[10px]">properties</code> con RLS por workspace.
+              NowLabs AI escribe en las mismas tablas tras confirmación verbal en chat.
+              Cada escritura deja un row en <code className="rounded bg-white px-1 text-[10px]">activities</code> para auditar y alimentar Dashboard / Cliente 360.
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> Listo en código</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700"><PlugZap className="h-3 w-3" /> Falta n8n / claves Meta</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-indigo-700"><ArrowRight className="h-3 w-3" /> Próximo: tools del agente</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> UI funcional</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> NowLabs AI conectado</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700"><PlugZap className="h-3 w-3" /> Automatizaciones pendientes de n8n / Meta</span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Create drawers */}
+      <NewOpportunityDrawer
+        open={openOpp}
+        onClose={() => setOpenOpp(false)}
+        workspaceId={workspaceId}
+        defaultVertical={defaultVerticalForCreate}
+        onCreated={() => void loadData()}
+      />
+      <NewServiceCaseDrawer
+        open={openCase}
+        onClose={() => setOpenCase(false)}
+        workspaceId={workspaceId}
+        defaultVertical={defaultVerticalForCreate === 'general' ? 'immigration' : defaultVerticalForCreate}
+        onCreated={() => void loadData()}
+      />
+      <NewPropertyDrawer
+        open={openProp}
+        onClose={() => setOpenProp(false)}
+        workspaceId={workspaceId}
+        onCreated={() => void loadData()}
+      />
     </motion.div>
   )
 }
@@ -473,4 +653,3 @@ function KpiCard(props: { icon: React.ReactNode; label: string; value: string; d
     </div>
   )
 }
-

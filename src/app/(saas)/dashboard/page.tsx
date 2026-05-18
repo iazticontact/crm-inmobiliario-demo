@@ -16,6 +16,7 @@ import type { Activity as CRMActivity, AIInsightType, ActivityType } from '@/lib
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { getActivities, getCalendarEvents, getClients, getConversations, getInvoices, getWorkspaceContext } from '@/lib/supabase-queries'
+import { listOpportunities, listServiceCases, listProperties } from '@/lib/vertical-queries'
 
 const metricIcons = {
   Users: <Users className="h-5 w-5" />,
@@ -69,6 +70,15 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<CRMActivity[]>([])
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number; externalConversations: number; internalConversations: number } | null>(null)
+  const [verticalStats, setVerticalStats] = useState<{
+    opportunitiesOpen: number
+    opportunitiesHot: number
+    pipelineValue: number
+    casesActive: number
+    casesDocsPending: number
+    propertiesProspecting: number
+    propertiesListed: number
+  } | null>(null)
   const [dashboardLoadError, setDashboardLoadError] = useState('')
 
   useEffect(() => {
@@ -88,12 +98,15 @@ export default function DashboardPage() {
           setDashboardLoadError('No se ha encontrado workspace real. No se muestran datos demo en modo real.')
           return
         }
-        const [clients, invoices, events, conversations, activities] = await Promise.all([
+        const [clients, invoices, events, conversations, activities, opps, cases, properties] = await Promise.all([
           getClients(workspaceId),
           getInvoices(workspaceId).catch(() => []),
           getCalendarEvents(workspaceId).catch(() => []),
           getConversations(workspaceId).catch(() => []),
           getActivities(workspaceId).catch(() => [] as CRMActivity[]),
+          listOpportunities(workspaceId).catch(() => []),
+          listServiceCases(workspaceId).catch(() => []),
+          listProperties(workspaceId).catch(() => []),
         ])
         const averageScore = clients.length ? Math.round(clients.reduce((sum, client) => sum + client.leadScore, 0) / clients.length) : 0
         // Split conversations by channel so the dashboard can show external
@@ -116,9 +129,21 @@ export default function DashboardPage() {
           internalConversations: internalConvs.length,
         })
         setActivity(activities)
+        const openOpps = opps.filter((o) => o.stage !== 'won' && o.stage !== 'lost' && o.stage !== 'closed')
+        const hotStages = new Set(['qualified', 'visit_scheduled', 'offer', 'negotiation', 'in_review', 'submitted'])
+        setVerticalStats({
+          opportunitiesOpen: openOpps.length,
+          opportunitiesHot: openOpps.filter((o) => hotStages.has(o.stage)).length,
+          pipelineValue: openOpps.reduce((sum, o) => sum + (o.value ?? 0), 0),
+          casesActive: cases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length,
+          casesDocsPending: cases.filter((c) => c.status === 'documentation_pending').length,
+          propertiesProspecting: properties.filter((p) => p.status === 'prospecting').length,
+          propertiesListed: properties.filter((p) => p.status === 'listed').length,
+        })
         setDashboardLoadError('')
       } catch {
         setRealStats(null)
+        setVerticalStats(null)
         setActivity([])
         setDashboardLoadError('No se pudieron cargar datos reales del dashboard. Revisa RLS, workspace_id o columnas esperadas.')
       }
@@ -276,9 +301,8 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Vertical Pack quick links — points at /opportunities for any
-          workspace that wants to operate the real-estate / immigration
-          pipelines. Empty by default; loads counts lazily there. */}
+      {/* Operaciones — Vertical Pack snapshot. Lee opportunities / service_cases
+          / properties del workspace y propone acciones concretas. */}
       <div className="grid gap-3 sm:grid-cols-3">
         <a
           href="/opportunities"
@@ -290,8 +314,12 @@ export default function DashboardPage() {
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
           </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Pipeline & oportunidades</p>
-          <p className="text-[11px] text-gray-500">Inmobiliaria · Extranjería · Servicios. Pipeline por vertical.</p>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Pipeline · oportunidades</p>
+          <p className="text-[11px] text-gray-500">
+            {verticalStats
+              ? `${verticalStats.opportunitiesOpen} abiertas · ${verticalStats.opportunitiesHot} calientes${verticalStats.pipelineValue ? ` · €${Math.round(verticalStats.pipelineValue).toLocaleString('es-ES')} en pipeline` : ''}`
+              : 'Pipeline por vertical (inmobiliaria, extranjería, servicios).'}
+          </p>
         </a>
         <a
           href="/opportunities"
@@ -303,8 +331,12 @@ export default function DashboardPage() {
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-violet-400 transition-transform group-hover:translate-x-0.5" />
           </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes</p>
-          <p className="text-[11px] text-gray-500">Trámites de extranjería y casos de servicios profesionales con checklist.</p>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes activos</p>
+          <p className="text-[11px] text-gray-500">
+            {verticalStats
+              ? `${verticalStats.casesActive} abiertos${verticalStats.casesDocsPending ? ` · ${verticalStats.casesDocsPending} esperando docs` : ''}`
+              : 'Trámites de extranjería y servicios profesionales con checklist.'}
+          </p>
         </a>
         <a
           href="/opportunities"
@@ -316,8 +348,12 @@ export default function DashboardPage() {
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-sky-400 transition-transform group-hover:translate-x-0.5" />
           </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Propiedades</p>
-          <p className="text-[11px] text-gray-500">Captaciones, ventas y alquileres del vertical inmobiliario.</p>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Propiedades en cartera</p>
+          <p className="text-[11px] text-gray-500">
+            {verticalStats
+              ? `${verticalStats.propertiesProspecting} captaciones · ${verticalStats.propertiesListed} publicadas`
+              : 'Captaciones, ventas y alquileres del vertical inmobiliario.'}
+          </p>
         </a>
       </div>
 

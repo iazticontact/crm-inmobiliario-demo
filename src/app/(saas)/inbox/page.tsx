@@ -19,10 +19,12 @@ import {
   Phone,
   Mail,
   Lock,
+  Target,
 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
+import { NewOpportunityDrawer } from '@/components/VerticalForms'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import {
@@ -176,6 +178,7 @@ export default function InboxPage() {
 
   const [agentBusy, setAgentBusy] = useState<null | 'summarize' | 'classify_intent' | 'detect_sentiment' | 'suggest_reply' | 'full_review'>(null)
   const [agentDecision, setAgentDecision] = useState<AgentDecision | null>(null)
+  const [openCreateOppFromInbox, setOpenCreateOppFromInbox] = useState(false)
 
   const [config, setConfig] = useState<ConfigSnapshot | null>(null)
 
@@ -950,6 +953,20 @@ export default function InboxPage() {
                     {conversation.ai_summary}
                   </div>
                 )}
+
+                {/* Manual operator actions — keep separate from auto-reply / agent. */}
+                <div className="mt-4 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Acciones manuales</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => setOpenCreateOppFromInbox(true)}
+                  >
+                    <Target className="h-3.5 w-3.5" />
+                    Crear oportunidad desde esta conversación
+                  </Button>
+                </div>
               </div>
               <div className="shrink-0 border-t border-gray-100 px-4 py-2 text-[10px] text-gray-400">
                 Actualizada {formatDateTime(conversation.updated_at)}
@@ -958,6 +975,17 @@ export default function InboxPage() {
           )
         })()}
       </div>
+
+      {/* Manual: crear oportunidad desde la conversación seleccionada. */}
+      <NewOpportunityDrawer
+        open={openCreateOppFromInbox}
+        onClose={() => setOpenCreateOppFromInbox(false)}
+        workspaceId={currentUser?.workspaceId ?? null}
+        defaultClientId={conversation?.client_id ?? null}
+        defaultClientName={conversation?.client_name ?? null}
+        defaultSource={conversation?.channel ?? 'inbox'}
+        onCreated={() => { /* nothing — toast handled by drawer */ }}
+      />
     </motion.div>
   )
 }

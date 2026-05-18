@@ -18,7 +18,7 @@ const navItems = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/assistant', label: 'Asistente IA', icon: Bot },
   { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/opportunities', label: 'Oportunidades', icon: Target },
+  { href: '/opportunities', label: 'Operaciones', icon: Target },
   { href: '/automations', label: 'Automatizaciones', icon: Zap },
   { href: '/calendar', label: 'Calendario', icon: Calendar },
   { href: '/billing', label: 'Facturación', icon: CreditCard },

@@ -360,12 +360,105 @@ Las escrituras requieren confirmación verbal en chat.
 - [ ] Si Supabase no está configurado, el agente degrada con mensaje
       controlado, sin lanzar 5xx.
 
-### Lo que NO se prueba aquí (Prompt B)
+### Lo que NO se prueba aquí
 
-- Drawer/modal de detalle por oportunidad / expediente / propiedad.
-- CRUD inline desde `/opportunities` (sin pasar por chat).
-- Vista cliente 360 con sus oportunidades / expedientes / propiedades.
-- Ejecución real de los workflows n8n del catálogo.
+- Ejecución real de los workflows n8n del catálogo (requiere VPS).
+- Edición avanzada de oportunidades/expedientes ya creados (hoy solo
+  cambia stage/status inline).
+
+---
+
+## Vertical Pack v1 — UI humana (Prompt B, 2026-05-18)
+
+Cubre la fase B: creación/edición desde UI, Cliente 360 y operaciones
+vinculadas a entidades verticales sin pasar por NowLabs AI. Las acciones
+UI y las del agente convergen sobre las mismas tablas con activity log
+paralelo (`metadata.source` = `ui_manual` vs `nowlabs_agent`).
+
+### /operaciones (antes /opportunities)
+
+- [ ] Sidebar muestra "Operaciones" (no "Oportunidades").
+- [ ] PageHeader: "Operaciones". Subtítulo menciona pipeline, expedientes y
+      propiedades.
+- [ ] Subtabs Pipeline / Expedientes / Propiedades / Plantillas /
+      Automatizaciones cambian la sección visible.
+- [ ] Botones "Nueva oportunidad / Nuevo expediente / Nueva propiedad"
+      visibles en el header.
+- [ ] Drawer Nueva oportunidad: crea fila, refresca lista, dispara toast.
+- [ ] Drawer Nuevo expediente: crea fila, registra activity
+      `service_case_created`.
+- [ ] Drawer Nueva propiedad: crea fila, registra activity
+      `property_created`.
+- [ ] Inline `<select>` por fila cambia stage/status — optimista, rollback
+      en error, toast de éxito.
+- [ ] Tab Plantillas muestra los mensajes según vertical activo.
+- [ ] Tab Automatizaciones lista las 10 entradas del catálogo.
+
+### Cliente 360
+
+- [ ] Click en el icono "Eye" de un cliente abre el drawer.
+- [ ] Header del drawer muestra nombre, empresa, email, canal, status,
+      lead_score, sugerencia de próxima acción.
+- [ ] StatPill row: oportunidades / expedientes / propiedades / facturas
+      con detalle correcto.
+- [ ] Sección Oportunidades lista las del cliente con etapa, vertical y
+      valor.
+- [ ] Sección Expedientes lista con tipo y estado.
+- [ ] Sección Propiedades lista con tipo, operación, ciudad, precio.
+- [ ] Sección Conversaciones muestra los hilos vinculados.
+- [ ] Sección Facturas muestra número, importe y estado.
+- [ ] Sección Próximas citas muestra fecha + hora derivada de
+      startHour/startMinute.
+- [ ] Sección Actividad reciente muestra los últimos 8 logs.
+- [ ] Botón "Crear oportunidad/expediente/propiedad" abre el drawer
+      correspondiente con `defaultClientId` y `defaultClientName`
+      pre-rellenos; al guardar, la entidad nueva aparece vinculada al
+      cliente.
+
+### /inbox
+
+- [ ] En el panel derecho de cualquier conversación seleccionada, aparece
+      el bloque "Acciones manuales".
+- [ ] El botón "Crear oportunidad desde esta conversación" abre el drawer
+      de Nueva oportunidad con `defaultClientId` (si existe) y `source =
+      channel` pre-rellenos.
+- [ ] La oportunidad creada aparece luego en /operaciones y en el Cliente
+      360 del cliente vinculado.
+
+### /automations
+
+- [ ] Sección "Automatizaciones verticales preparadas" arriba del banner
+      amarillo.
+- [ ] 10 cards con badge "Preparada", vertical, canal y dependencias.
+- [ ] Botón "Activar cuando n8n esté conectado" disabled.
+
+### /dashboard
+
+- [ ] Las 3 quick-link cards (Pipeline · Expedientes · Propiedades)
+      muestran contadores reales del workspace cuando hay sesión real.
+- [ ] Pipeline card incluye valor total en pipeline si existe.
+- [ ] Expedientes card señala los que están en documentation_pending.
+- [ ] Propiedades card distingue captación vs publicadas.
+
+### /settings
+
+- [ ] Nueva card "Vertical del workspace" con 5 opciones (General,
+      Inmobiliaria, Extranjería, Servicios, Mixto).
+- [ ] Seleccionar y pulsar Guardar persiste en `localStorage`
+      (`nowcrm.workspaceVertical`).
+- [ ] Tras recargar `/settings`, la opción guardada queda marcada.
+- [ ] Toast confirma el guardado y advierte que es persistencia local.
+
+### Activity log paralelo
+
+- [ ] Crear oportunidad desde UI deja `activities.metadata.source =
+      'ui_manual'` y `type = 'opportunity_created'`.
+- [ ] Crear oportunidad desde NowLabs AI deja `metadata.source =
+      'nowlabs_agent'` y mismo `type`.
+- [ ] Cambiar stage desde UI registra `opportunity_stage_updated`.
+- [ ] Cambiar stage vía agente registra el mismo type con otro source.
+- [ ] Dashboard / Cliente 360 muestran las dos clases de actividad sin
+      duplicar.
 
 ### Inbox API
 

@@ -13,6 +13,7 @@ import { n8nWebhookConfigs, triggerN8nWebhook, type N8nEventType } from '@/lib/i
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { createActivity, getAutomationWorkflows, getN8nFlows, getWorkspaceContext, toggleAutomationWorkflow, updateN8nFlow, upsertAutomationWorkflow } from '@/lib/supabase-queries'
+import { AUTOMATION_TEMPLATES, VERTICALS, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { AutomationStatus, AutomationEmailStatus, N8nFlowStatus } from '@/lib/types'
 
 const statusConfig: Record<AutomationStatus, { label: string; variant: 'success' | 'warning' | 'default' }> = {
@@ -281,6 +282,47 @@ export default function AutomationsPage() {
           </div>
         ))}
       </div>
+
+      <SectionCard
+        title="Automatizaciones verticales preparadas"
+        description="Catálogo del Vertical Pack v1 (inmobiliaria, extranjería, servicios). Se activarán cuando n8n + Meta + Calendar estén operativos."
+        action={<Badge variant="warning" dot>{AUTOMATION_TEMPLATES.length} preparadas</Badge>}
+      >
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {AUTOMATION_TEMPLATES.map((auto) => {
+            const verticalLabel = auto.vertical === 'any' ? 'Cualquier vertical' : VERTICALS[auto.vertical as VerticalKey]?.shortLabel ?? auto.vertical
+            return (
+              <li key={auto.id} className="flex flex-col rounded-xl border border-gray-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900">{auto.name}</p>
+                  <span className="rounded-full border border-amber-100 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                    Preparada
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-gray-500">{auto.description}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  <span className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">{verticalLabel}</span>
+                  <span className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">{auto.channel}</span>
+                  {auto.requires.map((req) => (
+                    <span key={req} className="rounded-full border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">{req}</span>
+                  ))}
+                </div>
+                <div className="mt-auto pt-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full justify-center"
+                    disabled
+                    title="Se activará cuando n8n esté conectado en el VPS."
+                  >
+                    Activar cuando n8n esté conectado
+                  </Button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </SectionCard>
 
       <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
         <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />

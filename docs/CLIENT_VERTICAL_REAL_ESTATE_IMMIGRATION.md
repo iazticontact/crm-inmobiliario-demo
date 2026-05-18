@@ -110,6 +110,53 @@ Cuando el usuario da una orden inequívoca con todos los datos ("crea ya la
 oportunidad de Ana, 250k, vertical inmobiliario") puede ejecutar sin doble
 confirmación y reportar la creación en la respuesta.
 
+### UI humana — Prompt B
+
+La fase B (2026-05-18) convirtió el Vertical Pack en una superficie operable
+sin chat. NowLabs AI y la UI escriben sobre las mismas tablas con activity
+log paralelo; el `metadata.source` permite diferenciar
+(`nowlabs_agent` vs `ui_manual`).
+
+Componentes nuevos:
+
+- [src/components/SideDrawer.tsx](../src/components/SideDrawer.tsx) —
+  primitiva de drawer lateral reusable (escape, scroll-lock, overlay).
+- [src/components/VerticalForms.tsx](../src/components/VerticalForms.tsx) —
+  `NewOpportunityDrawer`, `NewServiceCaseDrawer`, `NewPropertyDrawer`.
+  Cada uno usa los helpers de [vertical-queries.ts](../src/lib/vertical-queries.ts)
+  con campos alineados a los args de las tools de NowLabs AI.
+- [src/components/Client360Drawer.tsx](../src/components/Client360Drawer.tsx)
+  — drawer agregador con oportunidades / expedientes / propiedades /
+  conversaciones / facturas / próximas citas / actividad reciente del
+  cliente, más sugerencia de "próxima acción".
+- [src/components/VerticalPreferenceCard.tsx](../src/components/VerticalPreferenceCard.tsx)
+  — selector de vertical del workspace (localStorage, sin schema todavía).
+
+Cambios en páginas:
+
+- **/opportunities → "Operaciones"**: ruta sigue siendo `/opportunities`, label
+  visual y sidebar cambian a "Operaciones". Subtabs Pipeline / Expedientes /
+  Propiedades / Plantillas / Automatizaciones. Botones "Nueva oportunidad /
+  expediente / propiedad" en el PageHeader. Inline `<select>` por fila para
+  cambiar stage/status — usa `updateOpportunityStage`,
+  `updateServiceCaseStatus`, `updatePropertyStatus` con actualización
+  optimista y rollback en error.
+- **/clients**: icono "Eye" por fila abre el Client 360 drawer. CTAs dentro
+  del drawer abren los drawers de creación con cliente pre-cargado.
+- **/inbox**: en el panel derecho de la conversación, botón "Crear
+  oportunidad desde esta conversación" — abre el drawer con `client_id` /
+  `client_name` / `source=channel` pre-rellenos.
+- **/automations**: nueva sección "Automatizaciones verticales preparadas"
+  arriba del aviso amarillo. Renderiza las 10 entradas de
+  `AUTOMATION_TEMPLATES` con badge "Preparada" y botón disabled
+  "Activar cuando n8n esté conectado".
+- **/dashboard**: los 3 quick-link cards muestran contadores reales del
+  workspace (oportunidades abiertas, calientes, valor pipeline; expedientes
+  activos y con docs pendientes; propiedades en captación / publicadas).
+- **/settings**: nueva card "Vertical del workspace" con 5 opciones
+  (General / Inmobiliaria / Extranjería / Servicios / Mixto). Persistencia
+  vía `localStorage` mientras no exista `workspace_settings` en Supabase.
+
 ### UI
 - Nueva ruta `/opportunities`:
   - Tabs por vertical: Todos / Inmobiliaria / Extranjería / Servicios.
@@ -123,17 +170,18 @@ confirmación y reportar la creación en la respuesta.
 
 ## 4. Qué quedó preparado pero no se ejecutó
 
-- **Drawers de detalle por entidad** (oportunidad / expediente / propiedad).
-  En `/opportunities` se muestran como lista; el modal/drawer con timeline,
-  tareas y cliente vinculado queda para Prompt B.
 - **Workflows reales en n8n**. Los 10 catálogos están listos como contrato y
-  como tarjetas, sin ejecutarse.
+  como tarjetas; visibles en `/operaciones` y `/automations`, sin ejecutarse.
 - **Editor de plantillas**. Las plantillas son estáticas; se podrán mover a
   `proposal_templates` cuando se quiera personalización por workspace.
-- **Vincular cliente desde una oportunidad sin client_id**. Está como CTA
-  disabled.
-- **Vista cliente 360**. Mostrar oportunidades / expedientes / propiedades de
-  un cliente en su ficha — queda para Prompt B.
+- **Persistencia multi-dispositivo del vertical del workspace**. La
+  preferencia se guarda en localStorage en Prompt B; falta una tabla
+  `workspace_settings` para que viaje entre navegadores.
+- **CRUD inline avanzado**: editar título / cliente / notas de una entidad ya
+  creada no tiene UI todavía — solo cambio de stage/status. Para v2.
+- **Detalle "drilled" por entidad**: timeline + tareas + cliente vinculado
+  desde dentro de la oportunidad/expediente/propiedad. Cliente 360 cubre el
+  caso desde el otro lado.
 
 ## 5. Qué NO se hizo todavía
 
@@ -145,20 +193,22 @@ confirmación y reportar la creación en la respuesta.
 ## 6. Roadmap por fases
 
 ### Antes del VPS (lo que se puede cerrar en NowCRM solo)
-1. ~~**Tools del agente NowLabs**~~ — hecho: `list_opportunities`,
+1. ~~**Tools del agente NowLabs**~~ — Prompt A: `list_opportunities`,
    `list_service_cases`, `list_properties`, `create_opportunity`,
    `update_opportunity_stage`, `create_service_case`,
    `update_service_case_status`, `create_property`, `update_property_status`.
    Confirmación verbal en chat, activity log workspace-scoped, RLS al fondo.
-2. **Detalle por entidad** — drawer/modal con timeline + cliente + tareas para
-   oportunidades, expedientes y propiedades.
-3. **CRUD inline** desde `/opportunities` (crear/editar sin pasar por el chat).
-4. **Cliente 360** — mostrar oportunidades / expedientes / propiedades en la
-   ficha de cliente y permitir vincular desde ahí.
-5. **Preferencia de vertical por workspace** — Settings → tabla
-   `workspace_settings` o JSONB en `workspaces.metadata`.
-6. **Dashboard accionable** — KPIs y CTAs sobre oportunidades calientes,
-   expedientes vencidos y propiedades estancadas.
+2. ~~**CRUD inline desde UI**~~ — Prompt B: drawers de creación en
+   `/operaciones`, inline status edit, Client 360 con CTAs de creación.
+3. ~~**Cliente 360**~~ — Prompt B: drawer con oportunidades / expedientes /
+   propiedades / conversaciones / facturas / próximas citas y CTAs de
+   creación con cliente pre-cargado.
+4. ~~**Dashboard accionable**~~ — Prompt B: 3 cards con counts y métricas
+   reales del Vertical Pack.
+5. ~~**Settings vertical**~~ — Prompt B: selector visual persistido en
+   localStorage. Persistencia multi-dispositivo pendiente.
+6. **Edición avanzada** — editar título / valor / notas / fecha límite de
+   una entidad creada (hoy solo se cambia stage/status inline).
 7. **Catálogo de automatizaciones** — pasar las 10 tarjetas estáticas a un
    selector real cuando exista n8n.
 

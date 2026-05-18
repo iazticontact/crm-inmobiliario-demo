@@ -150,6 +150,40 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
   agent_name, handoff_enabled, business_context, tone).
 - `upsertInboxAgentSettings` escribe `enabled` (no `status`).
 
+### Vertical Pack v1 — UI humana (rev. 2026-05-18, Prompt B)
+- `/opportunities` renombrada a **Operaciones** en sidebar y header. Subtabs
+  (Pipeline / Expedientes / Propiedades / Plantillas / Automatizaciones) +
+  drawers de creación + inline status edit + actividad por workspace.
+- Nueva primitiva `src/components/SideDrawer.tsx` (overlay, ESC, scroll-lock)
+  reutilizada por todos los drawers verticales.
+- Drawers de creación en `src/components/VerticalForms.tsx` —
+  `NewOpportunityDrawer`, `NewServiceCaseDrawer`, `NewPropertyDrawer`.
+  Cada uno usa los mismos helpers (con activity log) que crean entidades
+  via `vertical-queries.ts`. Activity tagged `metadata.source = 'ui_manual'`.
+- `vertical-queries.ts` ampliado con `updateServiceCaseStatus`,
+  `updatePropertyStatus`, `getClientVerticalSummary` y log a `activities`
+  paralelo al agente.
+- Cliente 360 (`src/components/Client360Drawer.tsx`) — drawer agregador con
+  oportunidades / expedientes / propiedades / conversaciones / facturas /
+  próximas citas / actividad. CTAs abren drawers de creación con
+  `defaultClientId`+`defaultClientName` pre-cargados.
+- `/clients`: icono Eye en cada fila abre el Cliente 360.
+- `/inbox`: en el panel derecho de la conversación, botón "Crear oportunidad
+  desde esta conversación" — abre el drawer con `client_id` y `source` del
+  canal pre-rellenos.
+- `/automations`: nueva sección "Automatizaciones verticales preparadas"
+  arriba del banner amarillo. Lista las 10 entradas del catálogo con badge
+  "Preparada" y botón disabled "Activar cuando n8n esté conectado".
+- `/dashboard`: las 3 quick-link cards leen counts reales de
+  `opportunities`, `service_cases` y `properties`.
+- `/settings`: card "Vertical del workspace" con 5 opciones, persistencia en
+  `localStorage` mientras no exista `workspace_settings` en Supabase.
+
+**Coexistencia UI ↔ NowLabs AI**: las herramientas verticales del agente
+ejecutan cambios tras confirmación verbal en chat; los drawers de UI son el
+camino manual equivalente. Ambos convergen sobre las mismas tablas con
+RLS y dejan el mismo tipo de activity (cambia `metadata.source`).
+
 ### Vertical Pack v1 — NowLabs AI tools (rev. 2026-05-18)
 - Nuevo helper server-side `src/lib/vertical-server.ts` con list / create /
   updateStage / updateStatus para `opportunities`, `service_cases` y

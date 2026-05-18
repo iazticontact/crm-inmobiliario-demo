@@ -28,6 +28,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
+import { VerticalPreferenceCard } from '@/components/VerticalPreferenceCard'
 import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
@@ -835,6 +836,7 @@ export default function SettingsPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
+          <VerticalPreferenceCard />
           <SectionCard title="Workspace" description="Identidad y estado del entorno NowCRM">
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">

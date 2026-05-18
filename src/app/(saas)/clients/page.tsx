@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Plus, Mail, Phone, Filter, X, User, Pencil, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import { Search, Plus, Mail, Phone, Filter, X, User, Pencil, Trash2, Loader2, AlertCircle, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
+import { Client360Drawer, type Client360Action } from '@/components/Client360Drawer'
+import { NewOpportunityDrawer, NewServiceCaseDrawer, NewPropertyDrawer } from '@/components/VerticalForms'
 import { clients as initialClients } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -103,6 +105,9 @@ export default function ClientsPage() {
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
   const [deleting, setDeleting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
+  // Client 360 + create-from-360 state
+  const [client360, setClient360] = useState<Client | null>(null)
+  const [createForClient, setCreateForClient] = useState<{ client: Client; action: Client360Action } | null>(null)
 
   const loadClients = useCallback(async () => {
     const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
@@ -438,6 +443,7 @@ export default function ClientsPage() {
                     <td className="px-4 py-3.5"><span className="text-xs text-gray-500">{client.lastInteraction}</span></td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-0.5">
+                        <button onClick={() => setClient360(client)} title="Ver cliente 360" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Eye className="h-3.5 w-3.5" /></button>
                         <button onClick={() => toast.success(`Email a ${client.name}`, { description: 'Abriendo redactor de email...' })} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Mail className="h-3.5 w-3.5" /></button>
                         <button onClick={() => toast.success(`Llamando a ${client.name}`, { description: client.phone })} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Phone className="h-3.5 w-3.5" /></button>
                         <button onClick={() => openEditModal(client)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
@@ -557,6 +563,45 @@ export default function ClientsPage() {
           </div>
         </div>
       )}
+
+      {/* Cliente 360 — open when an "Eye" icon is clicked on a row. */}
+      <Client360Drawer
+        open={!!client360}
+        onClose={() => setClient360(null)}
+        workspaceId={workspaceId}
+        client={client360}
+        onCreate={(action) => {
+          if (!client360) return
+          setCreateForClient({ client: client360, action })
+          setClient360(null)
+        }}
+      />
+
+      {/* Vertical create drawers triggered from Client 360. */}
+      <NewOpportunityDrawer
+        open={!!createForClient && createForClient.action === 'opportunity'}
+        onClose={() => setCreateForClient(null)}
+        workspaceId={workspaceId}
+        defaultClientId={createForClient?.client.id ?? null}
+        defaultClientName={createForClient?.client.name ?? null}
+        onCreated={() => { toast.success('Oportunidad asociada al cliente.') }}
+      />
+      <NewServiceCaseDrawer
+        open={!!createForClient && createForClient.action === 'service_case'}
+        onClose={() => setCreateForClient(null)}
+        workspaceId={workspaceId}
+        defaultClientId={createForClient?.client.id ?? null}
+        defaultClientName={createForClient?.client.name ?? null}
+        onCreated={() => { toast.success('Expediente asociado al cliente.') }}
+      />
+      <NewPropertyDrawer
+        open={!!createForClient && createForClient.action === 'property'}
+        onClose={() => setCreateForClient(null)}
+        workspaceId={workspaceId}
+        defaultClientId={createForClient?.client.id ?? null}
+        defaultClientName={createForClient?.client.name ?? null}
+        onCreated={() => { toast.success('Propiedad asociada al cliente.') }}
+      />
     </motion.div>
   )
 }
