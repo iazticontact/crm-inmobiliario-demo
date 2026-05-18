@@ -188,6 +188,14 @@ export default function DashboardPage() {
   const visibleWeeklyLeads = !userLoading && currentUser.isDemo ? weeklyLeads : []
   const visibleAiActions = !userLoading && currentUser.isDemo ? aiActions : []
 
+  const greeting = useMemo(() => {
+    const h = new Date().getHours()
+    if (h < 6) return 'Buenas noches'
+    if (h < 13) return 'Buenos días'
+    if (h < 21) return 'Buenas tardes'
+    return 'Buenas noches'
+  }, [])
+
   const handleInsightAction = async (action: string, insightId: string) => {
     try {
       if (insightId === '1') {
@@ -236,18 +244,19 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-bold text-gray-950">Buenos días, {userLoading ? '...' : currentUser.name || currentUser.workspaceName}</h2>
+            <h2 className="text-2xl font-bold text-gray-950">{greeting}, {userLoading ? '...' : currentUser.name || currentUser.workspaceName}</h2>
             <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : realStats ? 'success' : 'warning'} dot>{userLoading ? 'Cargando' : realStats ? 'Datos reales conectados' : currentUser.isDemo ? currentUser.trialLabel : 'Sin datos reales'}</Badge>
           </div>
-          {realStats && (
+          {!userLoading && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[
                 { label: 'NowLabs AI', state: 'ready' },
                 { label: 'Inbox omnicanal', state: 'ready' },
+                { label: 'Operaciones (Vertical Pack)', state: 'ready' },
                 { label: 'Calendar interno', state: 'ready' },
                 { label: 'Google Calendar', state: 'pending', detail: 'pendiente OAuth' },
                 { label: 'WhatsApp Meta', state: 'pending', detail: 'pendiente claves' },
-                { label: 'Instagram', state: 'pending', detail: 'proxima integracion' },
+                { label: 'Instagram', state: 'pending', detail: 'próxima integración' },
                 { label: 'n8n', state: 'pending', detail: 'pendiente VPS' },
               ].map(({ label, state, detail }) => (
                 <span

@@ -732,7 +732,7 @@ export default function SettingsPage() {
           setWaMetaBusinessId(String(result.meta_business_id ?? ''))
         }
       }
-      toast.info('WhatsApp preparado', { description: 'Datos registrados. La verificacion y el webhook oficial de Meta se configuraran en el siguiente paso.' })
+      toast.info('WhatsApp preparado', { description: 'Datos registrados. La verificación y el webhook oficial de Meta se configurarán en el siguiente paso.' })
     } catch {
       toast.error('No se pudo preparar WhatsApp', { description: 'Revisa la tabla whatsapp_connections y RLS.' })
     } finally {
@@ -1506,13 +1506,13 @@ export default function SettingsPage() {
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-gray-900">Instagram Business (Meta)</p>
-                      <Badge variant="warning" dot>Proxima integracion</Badge>
+                      <Badge variant="warning" dot>Próxima integración</Badge>
                     </div>
                     <p className="mt-0.5 text-xs text-gray-500">
-                      Configuracion preparada en el Inbox y en config-status. Faltan claves y validacion de Meta para enviar mensajes reales.
+                      Configuración preparada en el Inbox y en config-status. Faltan claves y validación de Meta para enviar mensajes reales.
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      Instagram Messaging usa Meta Graph API. Necesitas: una <strong>cuenta profesional de Instagram</strong> vinculada a una <strong>Pagina de Facebook</strong>, el <strong>Instagram Business Account ID</strong> y los permisos <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_basic</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_manage_messages</code> y <code className="rounded bg-gray-100 px-1 text-[10px]">pages_manage_metadata</code>.
+                      Instagram Messaging usa Meta Graph API. Necesitas: una <strong>cuenta profesional de Instagram</strong> vinculada a una <strong>Página de Facebook</strong>, el <strong>Instagram Business Account ID</strong> y los permisos <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_basic</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">instagram_manage_messages</code> y <code className="rounded bg-gray-100 px-1 text-[10px]">pages_manage_metadata</code>.
                     </p>
                   </div>
                 </div>
