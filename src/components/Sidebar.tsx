@@ -12,18 +12,24 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
+import { featureFlags, type FlagKey } from '@/lib/feature-flags'
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inbox', label: 'Inbox', icon: Inbox },
-  { href: '/assistant', label: 'Asistente IA', icon: Bot },
-  { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/opportunities', label: 'Operaciones', icon: Target },
-  { href: '/automations', label: 'Automatizaciones', icon: Zap },
-  { href: '/calendar', label: 'Calendario', icon: Calendar },
-  { href: '/billing', label: 'Facturación', icon: CreditCard },
-  { href: '/settings', label: 'Configuración', icon: Settings },
+// `flag` lets a client clone hide a module via NEXT_PUBLIC_ENABLE_* env vars
+// without touching code. See src/lib/feature-flags.ts and the Client
+// Adaptation Playbook.
+const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey }> = [
+  { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
+  { href: '/inbox',         label: 'Inbox',             icon: Inbox,      flag: 'inbox' },
+  { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
+  { href: '/clients',       label: 'Clientes',          icon: Users },
+  { href: '/opportunities', label: 'Operaciones',       icon: Target,     flag: 'opportunities' },
+  { href: '/automations',   label: 'Automatizaciones',  icon: Zap,        flag: 'automations' },
+  { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
+  { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing' },
+  { href: '/settings',      label: 'Configuración',     icon: Settings },
 ]
+
+const visibleNavItems = navItems.filter((item) => !item.flag || featureFlags[item.flag])
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -86,7 +92,7 @@ export function Sidebar() {
       {/* Nav */}
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-5">
         <ul className="space-y-0.5">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
             return (

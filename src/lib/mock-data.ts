@@ -1,3 +1,17 @@
+// Mock data para el modo demo de NowCRM.
+//
+// Estos datos SOLO se sirven cuando `useCurrentUser().isDemo === true` (sin
+// sesión Supabase real) o cuando `DEMO_MODE_KEY` está activo en localStorage.
+// Las páginas consumidoras (dashboard, clients, billing, calendar, etc.)
+// hacen ese gating; este archivo no se debe importar fuera de esos contextos.
+//
+// Nombres (Ana Rodríguez, Miguel Torres, Distribuciones Martínez, etc.),
+// empresas y direcciones son inventados para demos comerciales. No copiar a
+// despliegues de cliente — un cliente real verá solo los datos de su workspace
+// Supabase. Ver `docs/CLIENT_ADAPTATION_PLAYBOOK.md` § "Qué NO copiar".
+//
+// Para ocultar la demo en un fork de cliente: `NEXT_PUBLIC_ENABLE_DEMO_DATA=false`
+// — esconde el botón "Entrar en modo demo" en `/login`.
 import type {
   Client,
   Conversation,

@@ -26,6 +26,7 @@ import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { featureFlags } from '@/lib/feature-flags'
 
 type AuthMode = 'signin' | 'signup' | 'forgot'
 type AuthFieldErrors = Partial<Record<'name' | 'companyName' | 'email' | 'password', string>>
@@ -675,9 +676,11 @@ export default function LoginPage() {
                       Volver al login
                     </button>
                   )}
-                  <button type="button" onClick={enterDemo} className="font-semibold text-gray-500 transition-colors hover:text-gray-900">
-                    Entrar en modo demo
-                  </button>
+                  {featureFlags.demoData && (
+                    <button type="button" onClick={enterDemo} className="font-semibold text-gray-500 transition-colors hover:text-gray-900">
+                      Entrar en modo demo
+                    </button>
+                  )}
                 </div>
 
                 <div className="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-sky-50 p-4 [@media(max-height:820px)]:hidden">

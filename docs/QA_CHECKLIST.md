@@ -657,3 +657,151 @@ sin fire-and-forget, dedupe inbound, outbound persistido, config server-side.
 - [ ] El badge de persistencia es la única fuente de verdad: nunca
       enseñar "Guardado en workspace" si la escritura no ocurrió.
 
+---
+
+## Clone readiness QA (Fase Final Base — 2026-05-19)
+
+QA específica para validar que NowCRM madre está listo para clonarse a un
+cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
+[`docs/CLIENT_ADAPTATION_PLAYBOOK.md`](./CLIENT_ADAPTATION_PLAYBOOK.md),
+[`docs/INFRASTRUCTURE_NOWLABS.md`](./INFRASTRUCTURE_NOWLABS.md),
+[`src/lib/feature-flags.ts`](../src/lib/feature-flags.ts).
+
+### Login
+
+- [ ] `/login` carga sin errores con `NEXT_PUBLIC_ENABLE_DEMO_DATA` ausente
+      (default ON): el botón "Entrar en modo demo" aparece.
+- [ ] Con `NEXT_PUBLIC_ENABLE_DEMO_DATA=false`: el botón "Entrar en modo demo"
+      no aparece. Login real sigue funcionando.
+- [ ] Login real contra la Supabase del fork redirige a `/dashboard`.
+
+### Dashboard
+
+- [ ] Sesión real: ningún nombre demo aparece (`Ana Rodríguez`, `Miguel Torres`,
+      `Distribuciones Martínez`, `Carlos Méndez`, etc.).
+- [ ] Si el workspace está vacío, los empty states explican "Sin datos reales
+      todavía" sin mostrar mock data.
+- [ ] Badges del header reflejan el estado real (NowLabs AI ready, n8n
+      pendiente, etc.) y no fingen integraciones.
+
+### Clients / Cliente 360
+
+- [ ] `/clients` vacío en sesión real con workspace nuevo.
+- [ ] Crear cliente persiste en Supabase del cliente, no en mock.
+- [ ] Cliente 360 muestra solo datos del workspace logueado.
+
+### Inbox
+
+- [ ] Sin `META_*` configurado: sigue cargando, no muestra mensajes demo.
+- [ ] Outbound queda como `pending_config` con badge claro.
+- [ ] Mensajes "internos" (CRM) no aparecen en Inbox externo.
+
+### Operaciones (Vertical Pack)
+
+- [ ] `/opportunities` carga las 3 secciones (pipeline, expedientes,
+      propiedades) sin filas demo. Vacías hasta que el cliente cree algo.
+- [ ] Catálogo de plantillas Vertical Pack es visible aunque no haya
+      plantillas del workspace.
+
+### Plantillas
+
+- [ ] Plantillas del workspace persisten en Supabase del cliente.
+- [ ] Catálogo base no se duplica al guardar una plantilla del workspace.
+
+### Asistente
+
+- [ ] `/assistant` distingue Inbox copilot y Copilot CRM interno.
+- [ ] Sin `OPENAI_API_KEY`: banner "NowLabs AI no está activo", botones IA
+      disabled, no respuestas falsas.
+
+### Calendar
+
+- [ ] `/calendar` sin Google Calendar conectado muestra eventos internos del
+      workspace y "Conectar Google" como `pending_config`.
+- [ ] Conectar Google requiere las 3 envs `GOOGLE_*`. Sin ellas, el botón
+      explica el motivo.
+
+### Billing
+
+- [ ] `/billing` sin facturas demo. Empty state explícito.
+- [ ] Crear factura persiste en Supabase del cliente.
+
+### Automations
+
+- [ ] Con `N8N_BASE_URL` vacío: `/automations` muestra el catálogo, los
+      triggers responden `simulated`, nada se ejecuta de verdad.
+- [ ] La sección "Contrato n8n" (Fase E) sigue visible y enlaza a
+      `docs/N8N_PAYLOAD_CONTRACT.md`.
+
+### Settings
+
+- [ ] `/settings` carga sin error con workspace real.
+- [ ] Cambiar vertical persiste en `workspace_settings`.
+- [ ] Las integraciones sin claves muestran `pending_config` con motivo.
+- [ ] `GET /api/config/status` solo devuelve nombres de envs faltantes (nunca
+      valores).
+
+### Feature flags
+
+- [ ] `NEXT_PUBLIC_ENABLE_BILLING=false` → "Facturación" desaparece del sidebar.
+      `/billing` por URL directa sigue accesible (intencional).
+- [ ] `NEXT_PUBLIC_ENABLE_AUTOMATIONS=false` → "Automatizaciones" oculto.
+- [ ] `NEXT_PUBLIC_ENABLE_INBOX=false` → "Inbox" oculto.
+- [ ] `NEXT_PUBLIC_ENABLE_ASSISTANT=false` → "Asistente IA" oculto.
+- [ ] `NEXT_PUBLIC_ENABLE_OPPORTUNITIES=false` → "Operaciones" oculto.
+- [ ] `NEXT_PUBLIC_ENABLE_CALENDAR=false` → "Calendario" oculto.
+- [ ] `NEXT_PUBLIC_ENABLE_DEMO_DATA=false` → botón demo en `/login` oculto.
+- [ ] Quitando todos los flags, el sidebar mantiene Dashboard, Clientes y
+      Configuración (no se pueden esconder).
+
+### Variables de entorno y secretos
+
+- [ ] `.env.example` cubre todos los grupos: Supabase, App, OpenAI, Meta, n8n,
+      Google y flags. Sin valores reales.
+- [ ] Ningún `console.log` o response API filtra `SUPABASE_SERVICE_ROLE_KEY`,
+      `OPENAI_API_KEY`, `META_*`, `N8N_API_KEY` ni `GOOGLE_*`.
+- [ ] `git grep "iazti\|@iazti\|Andrei\|Arturito\|nowlabs.es"` fuera de `docs/`
+      y `memory/` devuelve 0 resultados.
+
+### Supabase RLS
+
+- [ ] `force_rls=on` en `clients`, `conversations`, `messages`, `invoices`,
+      `activities`, `events`, `opportunities`, `service_cases`, `properties`,
+      `workspace_settings`, `workspace_templates`.
+- [ ] `mcp__claude_ai_Supabase__get_advisors` no reporta tablas sin RLS.
+- [ ] Política explícita de `service_role` por tabla aunque
+      `force_rls=false` no esté activada (ver
+      `docs/SUPABASE_SCHEMA_NOTES.md`).
+- [ ] Usuario de un workspace no puede leer filas de otro (probar con dos
+      cuentas de prueba).
+
+### Vercel deploy
+
+- [ ] `npm run build` verde local.
+- [ ] Vercel preview verde con env vars del cliente.
+- [ ] Vercel Production deploy verde tras merge.
+- [ ] `NEXT_PUBLIC_APP_URL` configurado al dominio del cliente, no a
+      `panel.nowlabs.es`.
+
+### Sin datos reales en el repo
+
+- [ ] `src/lib/mock-data.ts` contiene **solo** nombres ficticios (Ana, Miguel,
+      Sofía, Laura, etc.). Ningún cliente real, ningún número real, ningún
+      email real.
+- [ ] No hay dumps SQL ni CSV de clientes reales en el repo.
+- [ ] Memorias y notas internas viven fuera del repo del cliente.
+
+### Sin integraciones reales fingidas
+
+- [ ] Ningún botón promete "Enviar WhatsApp" sin verificar token primero.
+- [ ] Ningún workflow n8n se ejecuta cuando `N8N_BASE_URL` está vacío.
+- [ ] Ningún OAuth Google arranca sin las 3 envs.
+- [ ] Los badges "Pendiente / Preparado / Conectado" reflejan el estado real
+      vía `/api/config/status`.
+
+### Lint / tsc / build de cierre
+
+- [ ] `npm run lint -- --max-warnings=0` → exit 0.
+- [ ] `npx tsc --noEmit` → exit 0.
+- [ ] `npm run build` → exit 0, 43 rutas listadas o más.
+- [ ] Sin warnings de Next sobre rutas dinámicas o RSC inesperadas.
