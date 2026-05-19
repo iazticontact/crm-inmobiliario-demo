@@ -159,13 +159,14 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Resumen CRM', prompt: 'Dame el resumen del CRM: clientes activos, facturas pendientes y próximas citas.', intent: 'crm_summary', sender: 'agent' },
   ],
   copilot: [
+    { label: 'Cómo va todo', prompt: '¿Cómo va todo? Dame un resumen general del workspace.', intent: 'workspace_overview', sender: 'agent' },
+    { label: 'Qué tengo pendiente', prompt: '¿Qué tengo pendiente ahora mismo? Consolida todo lo urgente.', intent: 'pending_items', sender: 'agent' },
+    { label: 'Estado del inbox', prompt: '¿Cómo va el inbox? Resume conversaciones abiertas por canal.', intent: 'inbox_status', sender: 'agent' },
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
     { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
-    { label: 'Próxima acción', prompt: 'Dime la siguiente acción comercial recomendada para este cliente.', intent: 'next_action', sender: 'agent' },
     { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
     { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
     { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing', sender: 'agent' },
-    { label: 'Preparar propuesta', prompt: 'Prepara una propuesta comercial breve con siguiente paso claro.', intent: 'proposal', sender: 'agent' },
     { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, cobros y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }

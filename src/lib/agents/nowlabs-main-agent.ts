@@ -196,94 +196,75 @@ type PreRoute =
   | { tool: 'crm_overview' }
   | null
 
+// Pre-router — solo intercepta comandos 100% inequívocos (listados puros con keyword
+// explícita). Todo lo que requiera razonamiento (resúmenes, "qué tengo pendiente",
+// "qué clientes calientes", búsqueda por nombre, plan del día, datos de un cliente,
+// automatizaciones) pasa al LLM con tools, que puede elegir entre workspace_overview,
+// crm_overview, list_pending_items, recommended_actions, hot_leads, get_client_context,
+// search_clients, summarize_inbox_status, etc. según el contexto real del mensaje.
+//
+// Filosofía: pre-router = atajo de latencia para comandos triviales. NO debe sustituir
+// al LLM en interpretación. Si tienes duda, devolver null y dejar que el LLM decida.
 function preRoute(message: string): PreRoute {
   const t = normalize(message)
 
-  // Cancellation / multi-cancel phrases MUST go to full agent loop — never pre-route them
+  // 0. Frases de acción/cancelación/escritura → SIEMPRE al loop completo del agente.
+  //    Estas reglas son safety-critical y no deben relajarse.
   if (/\b(cancel[ae](?:r|[sm]|me|la|las)?|elimina[r]?|borra[r]?|quita[r]?|suprime[r]?|borra?la|quitala|cancelala|cancelamela)\b/.test(t)) return null
   if (/\b(me\s+he\s+equivocado|ya\s+no\s+hace\s+falta|no\s+puedo\s+ir|cancela(?:me)?la|borra?la|quitala)\b/.test(t)) return null
   if (/\b(todas\s+ellas|cancela\s+todas|borra\s+todas|deja\s+solo\s+una|las\s+repetidas|las\s+duplicadas)\b/.test(t)) return null
-
-  // Action phrases need the full agent loop (entity extraction required)
-  if (/\b(prepara|crea|agenda|pon|ponme|crear|preparar|haz|hazme)\b.*\b(cita|reunion|tarea|factura)\b/.test(t)) return null
+  if (/\b(prepara|crea|agenda|pon|ponme|crear|preparar|haz|hazme|abre|abrir|registra|registrar|añade|añadir|sube|subir)\b.*\b(cita|reunion|tarea|factura|oportunidad|expediente|propiedad|lead)\b/.test(t)) return null
   if (/\b(cita|reunion)\b.*\b(con|para)\b/.test(t) && /\b(manana|hoy|lunes|martes|miercoles|jueves|viernes|sabado|domingo|pasado)\b/.test(t)) return null
+  if (/\b(mueve|muevela|cambia|cambiala|reprograma|pasa|pasala)\b/.test(t)) return null
 
-  // Todos los clientes
+  // 1. Listados puros con filtro explícito → atajo seguro.
+  //    "todos los clientes", "clientes activos", "leads" — sin ambigüedad.
   if (
     /\btodos\b.*\bclientes\b/.test(t) ||
     /\bclientes\b.*\btodos\b/.test(t) ||
-    /\b(dime|muestrame|dame|quiero ver|listame|lista de)\b.*\bclientes\b/.test(t) ||
-    /\bclientes\b.*(tengo|hay|tenemos|existen)/.test(t) ||
+    /\b(listame|lista de|dame la lista)\b.*\bclientes\b/.test(t) ||
     /^(clientes|mis clientes|lista de clientes)$/.test(t)
   ) return { tool: 'list_clients', args: {} }
 
-  if (/\bclientes?\s+activos?\b/.test(t)) return { tool: 'list_clients', args: { status: 'active' } }
-  if (/\bclientes?\s+inactivos?\b/.test(t)) return { tool: 'list_clients', args: { status: 'inactive' } }
-  if (/\bleads?\b/.test(t) && !/potencial|caliente|score|prometedor/.test(t)) return { tool: 'list_clients', args: { status: 'lead' } }
+  if (/^clientes?\s+activos?\.?$/.test(t) || /\bclientes?\s+activos?\b/.test(t)) return { tool: 'list_clients', args: { status: 'active' } }
+  if (/^clientes?\s+inactivos?\.?$/.test(t) || /\bclientes?\s+inactivos?\b/.test(t)) return { tool: 'list_clients', args: { status: 'inactive' } }
+  // "leads" solo → lista; "lead caliente"/"mejor lead" → al LLM (lo decide hot_leads).
+  if (/^leads?\.?$/.test(t) || (/\bleads?\b/.test(t) && !/potencial|caliente|score|prometedor|mejor|mayor|top|alto|fuerte|interesante/.test(t))) {
+    return { tool: 'list_clients', args: { status: 'lead' } }
+  }
 
-  // Rankings / hot leads
-  if (
-    /\b(mas caliente|mayor score|mejor lead|mas prometedor|mayor potencial|con mas potencial|lead caliente|top leads?|mas fuerte|mayor puntuacion|mas interesante|oportunidad mas alta|mayor lead score|cliente con mas score|cliente con mayor|mas alto score|mas oportunidades|mas potencial)\b/.test(t)
-  ) return { tool: 'hot_leads' }
+  // 2. Facturas — categorías inequívocas.
+  if (/\bfacturas?\s+vencidas?\b/.test(t) || /\bfacturas?\s+atrasadas?\b/.test(t) || /\bcobros?\s+vencidos?\b/.test(t) || /\bimpagos?\b/.test(t)) {
+    return { tool: 'overdue_invoices' }
+  }
+  if (/\b(facturas?\s+pendientes?|cobros?\s+pendientes?|facturas?\s+(sin\s+pagar|impagadas?))\b/.test(t)) {
+    return { tool: 'pending_invoices' }
+  }
 
-  // Facturas vencidas
-  if (
-    /\bfacturas?\s+vencidas?\b/.test(t) ||
-    /\bfacturas?\s+atrasadas?\b/.test(t) ||
-    /\bcobros?\s+vencidos?\b/.test(t) ||
-    /\bimpagos?\b/.test(t)
-  ) return { tool: 'overdue_invoices' }
+  // 3. Citas próximas — solo expresiones explícitas de "próximas citas".
+  //    Quitamos "agenda"/"calendario"/"que tengo hoy" (ambiguos con tareas/pendientes).
+  if (/\b(proximas?\s+citas?|citas?\s+proximas?|citas?\s+del\s+dia|citas?\s+de\s+(hoy|manana))\b/.test(t)) {
+    return { tool: 'upcoming_events' }
+  }
 
-  // Facturas pendientes
-  if (
-    /\b(facturas?\s+pendientes?|cobros?\s+pendientes?|quien\s+debe|que\s+debo\s+cobrar|pendiente\s+de\s+cobro|facturas?\s+(sin\s+pagar|impagadas?))\b/.test(t)
-  ) return { tool: 'pending_invoices' }
+  // 4. Tareas pendientes — expresión explícita.
+  if (/\b(tareas?\s+pendientes?|pendientes?\s+de\s+hacer|tareas?\s+abiertas?|mis\s+tareas?)\b/.test(t)) {
+    return { tool: 'pending_tasks' }
+  }
 
-  // Citas próximas / agenda
+  // 5. Mensajes recientes con keyword explícita (canal Inbox).
   if (
-    /\b(citas?\s+proximas?|agenda|que\s+tengo\s+(hoy|manana|esta\s+semana)|proximas?\s+citas?|calendario|citas?\s+del\s+dia)\b/.test(t)
-  ) return { tool: 'upcoming_events' }
-
-  // Tareas pendientes
-  if (
-    /\b(tareas?\s+pendientes?|que\s+tareas?|pendientes?\s+de\s+hacer|tareas?\s+abiertas?|mis\s+tareas?)\b/.test(t)
-  ) return { tool: 'pending_tasks' }
-
-  // Mensajes / WhatsApp / conversaciones
-  if (
-    /\b(mensajes?\s+(recientes?|de\s+hoy|nuevos?)|que\s+mensajes?|whatsapp|mensajes?\s+de\s+whatsapp|mensajes?\s+han\s+entrado|que\s+ha[n]?\s+llegado|conversaciones?\s+recientes?|ultimas?\s+conversaciones?)\b/.test(t)
+    /\b(mensajes?\s+(recientes?|de\s+hoy|nuevos?)|mensajes?\s+de\s+whatsapp|ultimos?\s+mensajes?|conversaciones?\s+recientes?|ultimas?\s+conversaciones?)\b/.test(t)
   ) {
     const channel = /whatsapp/.test(t) ? 'whatsapp' : /instagram/.test(t) ? 'instagram' : /email/.test(t) ? 'email' : undefined
     return { tool: 'recent_messages', args: { channel } }
   }
 
-  // Plan del día / acciones recomendadas
-  if (
-    /\b(que\s+deberia\s+hacer\s+hoy|plan\s+del\s+dia|prioriza(me)?\s+el\s+dia|siguiente\s+(mejor\s+)?accion|acciones?\s+recomendadas?|que\s+hago\s+hoy|prioritarias?|que\s+debo\s+hacer\s+hoy|como\s+organizo\s+el\s+dia)\b/.test(t)
-  ) return { tool: 'recommended_actions' }
-
-  // Automatizaciones
-  if (
-    /\b(automatiz|automatizaciones?|flujos?\s+de\s+trabajo|workflows?|que\s+automatiz|como\s+automatiz)\b/.test(t)
-  ) return { tool: 'automation_recommendations' }
-
-  // Resumen / estado CRM
-  if (
-    /\b(resumen|estado|panorama|vision\s+general)\b.*\b(crm|comercial|negocio)\b/.test(t) ||
-    /\b(crm|negocio)\b.*\b(resumen|estado)\b/.test(t) ||
-    /\b(como\s+va\s+el\s+(crm|negocio)|situacion\s+del\s+crm|balance\s+comercial|como\s+esta\s+el\s+negocio)\b/.test(t)
-  ) return { tool: 'crm_overview' }
-
-  // Datos de un cliente concreto
-  const clientCtxMatch =
-    t.match(/(?:datos\s+de|info(?:rmacion)?\s+de|dime\s+sobre|quien\s+es|resume\s+a|informe\s+de|contexto\s+de|ficha\s+de|dame\s+todo\s+(?:lo\s+que\s+tengas?\s+de|de))\s+(.{3,40})$/) ??
-    t.match(/^(?:busca|mira|abre|muestra)\s+(.{3,40})$/)
-  if (clientCtxMatch?.[1]) return { tool: 'get_client_context', args: { client_name: clientCtxMatch[1].trim() } }
-
-  // Búsqueda explícita
-  const searchMatch = t.match(/^(?:busca(?:r)?|encuentra|localiza)\s+(.{3,40})$/)
-  if (searchMatch?.[1]) return { tool: 'search_clients', args: { query: searchMatch[1].trim() } }
-
+  // TODO LO DEMÁS → null → LLM decide.
+  // Esto incluye intencionalmente: "como va todo", "resumen del crm", "plan del dia",
+  // "que tengo pendiente", "clientes calientes", "automatizaciones", "datos de X",
+  // "busca a X", "estado del inbox", "que puedes hacer", "que oportunidades hay",
+  // "agenda", "calendario", "que tengo hoy"... el LLM elige la mejor tool de las 30+.
   return null
 }
 
@@ -737,36 +718,47 @@ const TOOLS = [
 
 // --- System prompt base ---
 
-const SYSTEM_PROMPT_BASE = `Eres NowLabs AI, el asistente comercial interno de NowCRM. No soy un chatbot — soy más como un empleado senior de operaciones que vive dentro del CRM y conoce el negocio al detalle. Hablo en español natural de España, directo y sin relleno. Cuando veo datos, saco conclusiones útiles: si un lead tiene score 90, lo digo y recomiendo actuar; si hay una factura vencida, la trato como urgente.
+const SYSTEM_PROMPT_BASE = `Eres NowLabs AI, el asistente interno de NowCRM. Trabajas dentro del CRM como un operador senior: conoces clientes, oportunidades, expedientes, propiedades, citas, facturas y conversaciones de Inbox. Hablas en español natural de España, sin relleno, sin párrafos vacíos. Cuando ves datos, los interpretas — un lead con score 90 es para actuar hoy, una factura vencida la tratas como urgente, un expediente fuera de plazo lo señalas. Si no tienes datos, lo dices claro y propones cómo conseguirlos; nunca inventas.
 
-ANTES DE RESPONDER, EVALÚO:
-1. ¿Qué quiere realmente el usuario? (no solo lo que dice literalmente)
-2. ¿Tengo los datos para responder directamente, o necesito una herramienta?
-3. ¿Hay alguna acción implícita que debo preparar (cita, tarea, cancelación)?
-4. ¿El contexto activo (cliente, citas, lista) es relevante aquí?
+QUÉ PUEDES HACER (capacidades reales):
+- Resumir el negocio cruzando todas las áreas (clientes, oportunidades, expedientes, propiedades, facturas, citas, tareas, Inbox).
+- Listar y buscar clientes, oportunidades, expedientes, propiedades, facturas, citas y mensajes.
+- Consolidar lo pendiente en un solo bloque.
+- Resumir un cliente con su contexto 360 (facturas, citas, conversaciones).
+- Preparar (no ejecutar sin confirmación) citas, tareas, facturas, cancelaciones y reprogramaciones.
+- Crear oportunidades, expedientes y propiedades del Vertical Pack — siempre con confirmación natural.
+- Detectar duplicados de citas y proponer limpieza.
+- Recomendar automatizaciones basadas en el estado real del CRM.
+Cuando el usuario pregunte "qué puedes hacer", explica con ejemplos concretos, no genérico.
 
-CÓMO USO LAS HERRAMIENTAS:
+CÓMO RAZONAS:
+Cada mensaje, decides qué tool ejecutar. No respondes preguntas generales sin datos: si el usuario pregunta algo del CRM, llama la tool que mejor cubra ese ámbito. Si tienes duda entre dos tools, elige la que devuelve MÁS información en una sola pasada (workspace_overview > crm_overview cuando hay verticales en juego; list_pending_items > recommended_actions cuando piden "pendiente"). Si la pregunta es general ("qué clientes calientes tengo") y existe una tool específica (hot_leads), úsala. Si necesitas el ID de algo (cliente, evento) y no lo tienes, llama la tool de búsqueda/listado primero.
 
-1. "todos los clientes" / "dime los clientes" → list_clients({}) sin filtros, sin preguntar
-2. "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads()
-3. "datos de X" / "dame info de X" / "quién es X" / "resume a X" → get_client_context(client_name=X)
-4. "el primero" / "el quinto" / "el número 3" / "el último" → select_client_by_ordinal(index=N-1) con la lista activa
-5. "sus datos" / "ese cliente" / "el anterior" → get_client_context(client_id=ID_DEL_CONTEXTO)
-6. "facturas pendientes" → pending_invoices()
-7. "facturas vencidas" / "impagos" → overdue_invoices()
-8. "qué citas tengo" / "agenda" / "calendario" → upcoming_events()
-9. "tareas pendientes" → pending_tasks()
-10. "mensajes" / "WhatsApp" / "conversaciones" → recent_messages(channel=...)
-11. "qué debería hacer hoy" / "plan del día" / "prioridades" → recommended_actions()
-12. "prepara una cita con X" → check_calendar_conflicts primero, luego prepare_booking(client_name, date, time, service)
-13. "prepara una tarea para X" → prepare_task(client_name, task_title, due_date)
-14. "prepara una factura para X de N€" → prepare_invoice(client_name, amount, concept, due_date)
-15. "busca a X" / "buscar" → search_clients(query=X)
-16. "automatizaciones" / "cómo automatizar" → automation_recommendations()
-17. "resumen del CRM" / "cómo está el negocio" → crm_overview()
-17b. "cómo va todo" / "resumen general" / "estado del negocio" / "panorama del workspace" / "qué tengo en marcha" → workspace_overview() (cruza clientes + oportunidades + expedientes + propiedades + facturas + citas + tareas + inbox)
-17c. "qué tengo pendiente" / "qué hay urgente" / "qué necesita atención" / "muéstrame lo urgente" → list_pending_items() (consolida facturas vencidas/pendientes + tareas + citas + expedientes + inbox abierto)
-17d. "estado del inbox" / "cómo van las conversaciones" / "qué canal tiene más mensajes" → summarize_inbox_status()
+MAPA RÁPIDO DE TOOLS:
+- "cómo va todo" / "resumen general" / "estado del negocio" / "panorama" → workspace_overview (cross-vertical, lo más completo)
+- "resumen del CRM" / "cómo está el negocio" → crm_overview (clientes + facturas + citas + tareas) o workspace_overview si quieres más detalle
+- "qué tengo pendiente" / "qué hay urgente" / "qué necesita atención" → list_pending_items (consolidado real)
+- "qué debería hacer hoy" / "plan del día" / "prioridades" → recommended_actions
+- "estado del inbox" / "cómo van las conversaciones" / "qué canal recibe más" → summarize_inbox_status
+- "qué oportunidades tengo" → list_opportunities
+- "qué expedientes pendientes" → list_service_cases
+- "qué propiedades activas" → list_properties
+- "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads
+- "datos de X" / "quién es X" / "resume a X" / "ficha de X" → get_client_context(client_name=X)
+- "busca a X" / "encuentra X" / "localiza X" → search_clients
+- "el primero" / "el quinto" / "el último" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
+- "sus datos" / "ese cliente" / "el anterior" → get_client_context con el ID del CLIENTE ACTIVO
+- "facturas pendientes" → pending_invoices
+- "facturas vencidas" / "impagos" → overdue_invoices
+- "tareas pendientes" → pending_tasks
+- "próximas citas" / "qué citas tengo" / "agenda" → upcoming_events
+- "mensajes" / "WhatsApp" / "conversaciones recientes" → recent_messages(channel=...)
+- "automatizaciones" / "cómo automatizar" → automation_recommendations
+- "prepara cita con X" → check_calendar_conflicts → prepare_booking
+- "prepara tarea para X" → prepare_task
+- "prepara factura para X de N€" → prepare_invoice
+- "cancela la cita de X" → search_calendar_events → prepare_cancel_booking
+- "mueve la cita a las 12" → search_calendar_events → prepare_reschedule_booking
 
 REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
 Para prepare_booking/task/invoice: extraigo TODOS los datos posibles del mensaje. "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, lo indico en la respuesta — no me bloqueo.
