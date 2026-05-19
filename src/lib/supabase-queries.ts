@@ -2120,16 +2120,20 @@ export async function upsertGoogleCalendarConnection(workspaceId: string, payloa
   return data as DataRecord
 }
 
-export async function disconnectGoogleCalendar(workspaceId: string) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) throw new Error('Supabase no esta configurado')
-
-  const { error } = await supabase
-    .from('google_calendar_connections')
-    .update({ status: 'disconnected', sync_enabled: false, updated_at: new Date().toISOString() })
-    .eq('workspace_id', workspaceId)
-
-  if (error && !isSchemaError(error)) throw error
+export async function disconnectGoogleCalendar(_workspaceId: string) {
+  // Calls the server-side disconnect endpoint, which:
+  //   - revokes the refresh_token at Google (best-effort)
+  //   - clears refresh_token_enc, calendar_id, selected_calendar_ids, calendar_metadata
+  //   - marks status='disconnected'
+  // The browser can't safely revoke or use the service_role, so we delegate to /api.
+  // workspace_id is resolved server-side from the authenticated user's profile.
+  void _workspaceId
+  const res = await fetch('/api/integrations/google/calendar/disconnect', { method: 'POST' })
+  let data: { ok?: boolean; error?: string; revoked?: string } | null = null
+  try { data = await res.json() } catch { /* ignore body parse errors */ }
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error ?? `Disconnect HTTP ${res.status}`)
+  }
 }
 
 export async function upsertWhatsappConnection(workspaceId: string, payload: WhatsappConnectionPayload) {

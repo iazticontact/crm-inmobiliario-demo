@@ -227,6 +227,7 @@ export type GoogleCalendarConnectionStatus =
   | 'oauth_pending'
   | 'token_expired'
   | 'connected'
+  | 'disconnected'
   | 'error'
 
 export type GoogleCalendarConnectionConfig = {

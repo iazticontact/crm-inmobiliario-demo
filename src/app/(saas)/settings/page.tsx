@@ -697,16 +697,26 @@ export default function SettingsPage() {
   }
 
   const handleGCalDisconnect = async () => {
+    setGcalLoading(true)
     try {
       if (!currentUser.isDemo && workspaceId) {
         await disconnectGoogleCalendar(workspaceId)
+        // Re-read status from server so the UI reflects the cleared row (status='disconnected',
+        // no refresh_token, no selected calendars) instead of relying on stale local state.
+        const refreshed = await getGoogleCalendarConnection(workspaceId).catch(() => null)
+        setGcalConnection(refreshed)
+        setGcalCalendarId(String((refreshed as { calendar_id?: string } | null)?.calendar_id ?? ''))
+        setGcalSyncEnabled(Boolean((refreshed as { sync_enabled?: boolean } | null)?.sync_enabled))
+      } else {
+        setGcalConnection(null)
+        setGcalCalendarId('')
+        setGcalSyncEnabled(false)
       }
-      setGcalConnection(null)
-      setGcalCalendarId('')
-      setGcalSyncEnabled(false)
       toast.success('Google Calendar desconectado')
     } catch {
       toast.error('No se pudo desconectar Google Calendar')
+    } finally {
+      setGcalLoading(false)
     }
   }
 
@@ -1105,7 +1115,7 @@ export default function SettingsPage() {
             description="Conecta tu cuenta Google para sincronizar eventos con NowCRM"
             action={
               gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
-                ? <button onClick={() => void handleGCalDisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
+                ? <button onClick={() => void handleGCalDisconnect()} disabled={gcalLoading} className="text-xs font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{gcalLoading ? 'Desconectando…' : 'Desconectar'}</button>
                 : null
             }
           >

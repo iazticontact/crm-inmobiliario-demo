@@ -7,6 +7,9 @@ export const runtime = 'nodejs'
 
 function deriveStatus(row: Record<string, unknown>): GoogleCalendarConnectionStatus {
   const s = String(row.status ?? '')
+  // Disconnected is a terminal state: row exists for audit but credentials are cleared.
+  // Must be checked BEFORE the calendar_id fallback so we don't report oauth_pending after disconnect.
+  if (s === 'disconnected') return 'disconnected'
   // Only report 'connected' when a refresh_token is actually stored — without it we cannot sync
   if (s === 'connected' && row.refresh_token_enc) return 'connected'
   if (s === 'connected') return 'error'  // status=connected but token missing

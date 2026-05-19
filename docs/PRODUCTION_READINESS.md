@@ -142,6 +142,42 @@ NEXT_PUBLIC_APP_URL                   # base URL pública
 - Auto-reply queda OFF por defecto en `inbox_agent_settings`.
 - Arquitectura completa documentada en `docs/WHATSAPP_AGENT_ARCHITECTURE.md`.
 
+### Google Calendar disconnect — fix (rev. 2026-05-20)
+- Nuevo endpoint `POST /api/integrations/google/calendar/disconnect`:
+  1. Intenta revocar el refresh_token contra `https://oauth2.googleapis.com/revoke`
+     (best-effort — no falla la desconexión si Google está caído o el token ya es inválido).
+  2. Limpia con `service_role`: `refresh_token_enc=NULL`, `calendar_id=NULL`,
+     `selected_calendar_ids=NULL`, `calendar_metadata=NULL`, `sync_enabled=false`,
+     `last_sync_at=NULL`. Mantiene la fila con `status='disconnected'` para auditoría.
+  3. Fallback automático a esquema legacy (sin columnas multi-calendar) si detecta `42703`.
+- `deriveStatus()` en `/api/integrations/google/calendar/status` ahora maneja
+  `status='disconnected'` explícitamente — antes caía al fallback `calendar_id`
+  y reportaba `oauth_pending`, que es lo que provocaba el lag visual y los
+  reintentos de sync con token viejo.
+- `disconnectGoogleCalendar` en `supabase-queries.ts` ahora llama al endpoint
+  via `fetch` (la revocación + service_role no son posibles desde el navegador).
+- `handleGCalDisconnect` en `/settings`:
+  - usa `gcalLoading` para mostrar "Desconectando…" en el botón;
+  - re-lee el estado del servidor tras desconectar (no se queda con local stale);
+  - el botón queda disabled durante la operación.
+- Tipo `GoogleCalendarConnectionStatus` añade `'disconnected'`.
+
+### NowLabs AI — nuevas tools globales (rev. 2026-05-20)
+- `workspace_overview` — resumen ejecutivo cross-vertical en una sola pasada
+  paralela: clientes (total/activos/leads/hot) + oportunidades abiertas/ganadas
+  + expedientes abiertos (con fuera de plazo) + propiedades activas + facturas
+  pendientes/vencidas + citas próximas + tareas pendientes + conversaciones
+  Inbox abiertas. Limita cada query a 300-500 filas para latencia razonable.
+- `list_pending_items` — consolida en bloque todo lo que requiere atención:
+  facturas vencidas + facturas pendientes + tareas + citas próximas +
+  expedientes (con conteo fuera de plazo) + conversaciones abiertas. Cada
+  sección con 5 ejemplos visibles y conteo total.
+- `summarize_inbox_status` — total/abiertas/negativas + desglose por canal.
+- Sistema prompt actualizado con rutas 17b/17c/17d para que el LLM elija
+  estas tools en lugar de las antiguas cuando aplique.
+- Pre-router intacto: las nuevas tools llegan via OpenAI tool-calling (el
+  agente decide), no via regex matching.
+
 ### Schema-aware fixes
 - `getWhatsappConnection` selecciona `connection_status` (no `status`).
 - `upsertWhatsappConnection` escribe `connection_status`.

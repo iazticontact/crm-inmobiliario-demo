@@ -550,3 +550,198 @@ export function toolPrepareAction(
     : '💸 Factura lista. Revísala y confirma.'
   return { text, data: action, preparedAction: action }
 }
+
+// 17. Workspace overview — executive cross-vertical snapshot.
+// Differs from crm_overview (which is clients+invoices+events+tasks only): also includes
+// opportunities, service_cases, properties and inbox pending in one parallel read.
+// Caps each query for latency; returns numbers, not rows.
+export async function toolWorkspaceOverview(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [clients, invoices, events, tasks, opps, cases, props, convs] = await Promise.all([
+    supabase.from('clients').select('status, lead_score', { count: 'exact', head: false }).eq('workspace_id', workspaceId).limit(500),
+    supabase.from('invoices').select('status, amount').eq('workspace_id', workspaceId).limit(500),
+    supabase.from('calendar_events').select('date').eq('workspace_id', workspaceId).neq('status', 'cancelled').gte('date', today).limit(50),
+    supabase.from('tasks').select('status').eq('workspace_id', workspaceId).eq('status', 'pending').limit(100),
+    supabase.from('opportunities').select('stage, value').eq('workspace_id', workspaceId).limit(300),
+    supabase.from('service_cases').select('status, due_date, priority').eq('workspace_id', workspaceId).limit(300),
+    supabase.from('properties').select('status').eq('workspace_id', workspaceId).limit(300),
+    supabase.from('conversations').select('status, channel').eq('workspace_id', workspaceId).limit(300),
+  ])
+
+  const cls = (clients.data ?? []) as Row[]
+  const invs = (invoices.data ?? []) as Row[]
+  const oppRows = (opps.data ?? []) as Row[]
+  const caseRows = (cases.data ?? []) as Row[]
+  const propRows = (props.data ?? []) as Row[]
+  const convRows = (convs.data ?? []) as Row[]
+
+  const clientsTotal = cls.length
+  const clientsActive = cls.filter((c) => c.status === 'active').length
+  const clientsLead = cls.filter((c) => c.status === 'lead').length
+  const clientsHot = cls.filter((c) => Number(c.lead_score ?? 0) >= 70).length
+
+  const invPending = invs.filter((i) => i.status === 'pending').length
+  const invOverdue = invs.filter((i) => i.status === 'overdue').length
+  const invTotalPendingAmount = invs
+    .filter((i) => i.status === 'pending' || i.status === 'overdue')
+    .reduce((s, i) => s + (Number(i.amount) || 0), 0)
+
+  const closedStages = new Set(['won', 'lost', 'closed', 'resolved'])
+  const oppsOpen = oppRows.filter((o) => !closedStages.has(String(o.stage ?? ''))).length
+  const oppsWon = oppRows.filter((o) => o.stage === 'won').length
+
+  const caseTerminalStatuses = new Set(['resolved', 'closed'])
+  const casesOpen = caseRows.filter((c) => !caseTerminalStatuses.has(String(c.status ?? ''))).length
+  const casesOverdue = caseRows.filter((c) => {
+    if (caseTerminalStatuses.has(String(c.status ?? ''))) return false
+    const d = c.due_date ? String(c.due_date) : null
+    return d !== null && d < today
+  }).length
+
+  const propsActive = propRows.filter((p) => ['prospecting', 'listed', 'under_contract'].includes(String(p.status ?? ''))).length
+
+  const convsOpen = convRows.filter((c) => c.status && c.status !== 'resolved').length
+
+  const lines: string[] = []
+  lines.push(`📊 Resumen del workspace:`)
+  lines.push(`Clientes: ${clientsTotal} total (${clientsActive} activos · ${clientsLead} leads · ${clientsHot} con score ≥ 70).`)
+  if (oppsOpen || oppsWon) lines.push(`Oportunidades: ${oppsOpen} abiertas${oppsWon ? ` · ${oppsWon} ganadas` : ''}.`)
+  if (casesOpen) lines.push(`Expedientes: ${casesOpen} abiertos${casesOverdue ? ` · ⚠️ ${casesOverdue} fuera de plazo` : ''}.`)
+  if (propsActive) lines.push(`Propiedades activas: ${propsActive}.`)
+  if (invOverdue) lines.push(`⚠️ Facturas vencidas: ${invOverdue}.`)
+  if (invPending) lines.push(`💸 Facturas pendientes: ${invPending} (${invTotalPendingAmount.toFixed(0)}€ total).`)
+  if (events.data?.length) lines.push(`📅 ${events.data.length} cita(s) próxima(s).`)
+  if (tasks.data?.length) lines.push(`✅ ${tasks.data.length} tarea(s) pendiente(s).`)
+  if (convsOpen) lines.push(`💬 ${convsOpen} conversación(es) abierta(s) en Inbox.`)
+  if (lines.length === 1) lines.push('Sin datos aún en el workspace.')
+
+  const data = {
+    clientsTotal, clientsActive, clientsLead, clientsHot,
+    opportunitiesOpen: oppsOpen, opportunitiesWon: oppsWon,
+    casesOpen, casesOverdue,
+    propertiesActive: propsActive,
+    invoicesPending: invPending, invoicesOverdue: invOverdue, invoicesPendingAmount: invTotalPendingAmount,
+    upcomingEvents: events.data?.length ?? 0,
+    pendingTasks: tasks.data?.length ?? 0,
+    conversationsOpen: convsOpen,
+  }
+
+  return { text: lines.join('\n'), data }
+}
+
+// 18. List pending items — consolidates everything that needs attention into one tool.
+// Useful for "qué tengo pendiente hoy", "qué tengo abierto", "muéstrame lo urgente".
+export async function toolListPendingItems(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [overdueInv, pendingInv, pendingTasks, upcomingEvts, openCases, openConvs] = await Promise.all([
+    supabase.from('invoices').select('client_name, amount, due_date').eq('workspace_id', workspaceId).eq('status', 'overdue').order('due_date').limit(10),
+    supabase.from('invoices').select('client_name, amount, due_date').eq('workspace_id', workspaceId).eq('status', 'pending').order('due_date').limit(10),
+    supabase.from('tasks').select('title, due_date, client_name').eq('workspace_id', workspaceId).eq('status', 'pending').order('created_at', { ascending: false }).limit(10),
+    supabase.from('calendar_events').select('title, date, start_hour, client_name').eq('workspace_id', workspaceId).neq('status', 'cancelled').gte('date', today).order('date').limit(5),
+    supabase.from('service_cases').select('title, status, due_date, priority').eq('workspace_id', workspaceId).not('status', 'in', '("resolved","closed")').order('due_date', { ascending: true, nullsFirst: false }).limit(10),
+    supabase.from('conversations').select('id, channel, status, sentiment, updated_at').eq('workspace_id', workspaceId).neq('status', 'resolved').order('updated_at', { ascending: false }).limit(5),
+  ])
+
+  const sections: string[] = []
+  const overdueRows = (overdueInv.data ?? []) as Row[]
+  const pendingRows = (pendingInv.data ?? []) as Row[]
+  const taskRows = (pendingTasks.data ?? []) as Row[]
+  const evtRows = (upcomingEvts.data ?? []) as Row[]
+  const caseRows = (openCases.data ?? []) as Row[]
+  const convRows = (openConvs.data ?? []) as Row[]
+
+  if (overdueRows.length) {
+    const list = overdueRows.slice(0, 5).map((i, idx) => `  ${idx + 1}. ${i.client_name ?? 'sin cliente'} · ${i.amount}€ · venció ${i.due_date ?? 'sin fecha'}`).join('\n')
+    sections.push(`⚠️ Facturas vencidas (${overdueRows.length}):\n${list}`)
+  }
+  if (pendingRows.length) {
+    const list = pendingRows.slice(0, 5).map((i, idx) => `  ${idx + 1}. ${i.client_name ?? 'sin cliente'} · ${i.amount}€ · vence ${i.due_date ?? 'sin fecha'}`).join('\n')
+    sections.push(`💸 Facturas pendientes (${pendingRows.length}):\n${list}`)
+  }
+  if (caseRows.length) {
+    const overdueCount = caseRows.filter((c) => c.due_date && String(c.due_date) < today).length
+    const list = caseRows.slice(0, 5).map((c, idx) => {
+      const due = c.due_date ? ` · vence ${c.due_date}` : ''
+      const prio = c.priority && c.priority !== 'normal' ? ` · ${c.priority}` : ''
+      return `  ${idx + 1}. ${c.title} · ${c.status}${prio}${due}`
+    }).join('\n')
+    sections.push(`📁 Expedientes abiertos (${caseRows.length}${overdueCount ? `, ${overdueCount} fuera de plazo` : ''}):\n${list}`)
+  }
+  if (taskRows.length) {
+    const list = taskRows.slice(0, 5).map((t, idx) => {
+      const client = t.client_name ? ` · ${t.client_name}` : ''
+      const due = t.due_date ? ` · vence ${t.due_date}` : ''
+      return `  ${idx + 1}. ${t.title ?? 'Tarea'}${client}${due}`
+    }).join('\n')
+    sections.push(`✅ Tareas pendientes (${taskRows.length}):\n${list}`)
+  }
+  if (evtRows.length) {
+    const list = evtRows.slice(0, 5).map((e, idx) => {
+      const h = e.start_hour !== undefined ? ` ${String(e.start_hour).padStart(2, '0')}:00` : ''
+      const client = e.client_name ? ` · ${e.client_name}` : ''
+      return `  ${idx + 1}. ${e.title ?? 'Cita'} · ${e.date}${h}${client}`
+    }).join('\n')
+    sections.push(`📅 Próximas citas (${evtRows.length}):\n${list}`)
+  }
+  if (convRows.length) {
+    sections.push(`💬 Conversaciones abiertas en Inbox: ${convRows.length}`)
+  }
+
+  if (!sections.length) {
+    return { text: '✅ No tienes nada pendiente ahora mismo. Todo al día.', data: { empty: true } }
+  }
+
+  return {
+    text: sections.join('\n\n'),
+    data: {
+      overdueInvoices: overdueRows.length,
+      pendingInvoices: pendingRows.length,
+      pendingTasks: taskRows.length,
+      upcomingEvents: evtRows.length,
+      openCases: caseRows.length,
+      openConversations: convRows.length,
+    },
+  }
+}
+
+// 19. Summarize inbox status — conversations broken down by channel and unresolved state.
+export async function toolSummarizeInboxStatus(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
+  const { data } = await supabase
+    .from('conversations')
+    .select('id, channel, status, sentiment, updated_at')
+    .eq('workspace_id', workspaceId)
+    .limit(500)
+
+  const rows = (data ?? []) as Row[]
+  if (!rows.length) return { text: 'Sin conversaciones registradas en Inbox.', data: { total: 0 } }
+
+  const byChannel: Record<string, { total: number; open: number; negative: number }> = {}
+  let total = 0
+  let open = 0
+  let negative = 0
+  for (const r of rows) {
+    const ch = String(r.channel ?? 'desconocido').toLowerCase()
+    if (!byChannel[ch]) byChannel[ch] = { total: 0, open: 0, negative: 0 }
+    byChannel[ch].total += 1
+    total += 1
+    if (r.status && r.status !== 'resolved') {
+      byChannel[ch].open += 1
+      open += 1
+    }
+    if (r.sentiment === 'negative') {
+      byChannel[ch].negative += 1
+      negative += 1
+    }
+  }
+
+  const lines: string[] = [`💬 Inbox: ${total} conversación(es), ${open} abierta(s)${negative ? `, ${negative} con sentimiento negativo` : ''}.`]
+  for (const [ch, stats] of Object.entries(byChannel)) {
+    if (!stats.open) continue
+    lines.push(`  · ${ch}: ${stats.open}/${stats.total} abierta(s)${stats.negative ? `, ${stats.negative} negativa(s)` : ''}`)
+  }
+  if (open === 0) lines.push('Todo respondido. 👌')
+
+  return { text: lines.join('\n'), data: { total, open, negative, byChannel } }
+}

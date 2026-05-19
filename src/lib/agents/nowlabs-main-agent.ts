@@ -19,6 +19,9 @@ import {
   toolOldestClient,
   toolPrepareAction,
   toolPrepareTask,
+  toolWorkspaceOverview,
+  toolListPendingItems,
+  toolSummarizeInboxStatus,
 } from '@/lib/assistant-tools'
 import {
   listOpportunitiesServer,
@@ -345,6 +348,24 @@ const TOOLS = [
     type: 'function',
     name: 'crm_overview',
     description: 'Resumen estadístico del CRM: totales de clientes, facturas, citas y tareas. Para: "resumen del CRM", "cómo está el negocio", "balance comercial".',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    type: 'function',
+    name: 'workspace_overview',
+    description: 'Resumen ejecutivo cross-vertical del workspace: clientes + oportunidades + expedientes + propiedades + facturas + citas + tareas + inbox abierto, todo en una sola lectura paralela. Preferir esto a crm_overview cuando el usuario pregunte "cómo va todo", "resumen general", "estado del negocio", "qué tengo en marcha", "panorama del workspace".',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    type: 'function',
+    name: 'list_pending_items',
+    description: 'Consolida TODO lo pendiente que requiere atención: facturas vencidas + facturas pendientes + tareas + próximas citas + expedientes abiertos (con fuera de plazo) + conversaciones de Inbox abiertas. Para: "qué tengo pendiente", "qué tengo abierto", "qué hay urgente", "qué necesita atención", "muéstrame lo urgente".',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    type: 'function',
+    name: 'summarize_inbox_status',
+    description: 'Resumen de Inbox: total de conversaciones, abiertas, negativas y desglose por canal (whatsapp, instagram, email, web). Para: "estado del inbox", "qué hay en el inbox", "cómo van las conversaciones", "qué canal tiene más mensajes".',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -743,6 +764,9 @@ CÓMO USO LAS HERRAMIENTAS:
 15. "busca a X" / "buscar" → search_clients(query=X)
 16. "automatizaciones" / "cómo automatizar" → automation_recommendations()
 17. "resumen del CRM" / "cómo está el negocio" → crm_overview()
+17b. "cómo va todo" / "resumen general" / "estado del negocio" / "panorama del workspace" / "qué tengo en marcha" → workspace_overview() (cruza clientes + oportunidades + expedientes + propiedades + facturas + citas + tareas + inbox)
+17c. "qué tengo pendiente" / "qué hay urgente" / "qué necesita atención" / "muéstrame lo urgente" → list_pending_items() (consolida facturas vencidas/pendientes + tareas + citas + expedientes + inbox abierto)
+17d. "estado del inbox" / "cómo van las conversaciones" / "qué canal tiene más mensajes" → summarize_inbox_status()
 
 REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
 Para prepare_booking/task/invoice: extraigo TODOS los datos posibles del mensaje. "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, lo indico en la respuesta — no me bloqueo.
@@ -1010,6 +1034,21 @@ async function runTool(
 
     case 'crm_overview': {
       const res = await toolCrmOverview(supabase, workspaceId)
+      return { text: res.text, data: res.data }
+    }
+
+    case 'workspace_overview': {
+      const res = await toolWorkspaceOverview(supabase, workspaceId)
+      return { text: res.text, data: res.data }
+    }
+
+    case 'list_pending_items': {
+      const res = await toolListPendingItems(supabase, workspaceId)
+      return { text: res.text, data: res.data }
+    }
+
+    case 'summarize_inbox_status': {
+      const res = await toolSummarizeInboxStatus(supabase, workspaceId)
       return { text: res.text, data: res.data }
     }
 
