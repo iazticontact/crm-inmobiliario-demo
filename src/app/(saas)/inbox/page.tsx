@@ -41,6 +41,11 @@ import {
   type InboxTab,
 } from '@/lib/inbox-classify'
 
+// Mirrors Settings: when NEXT_PUBLIC_NOWLABS_INTERNAL=true we can surface env
+// var names and operator-facing detail. Off by default so a real client clone
+// never sees META_* / OPENAI_API_KEY etc.
+const SHOW_INTERNAL_TECH = process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true'
+
 type ConversationRow = {
   id: string
   workspace_id: string
@@ -384,7 +389,12 @@ export default function InboxPage() {
       setAgentDecision(decision)
       if (!decision.ok) {
         if (decision.reason === 'no_api_key') {
-          toast.error('Falta OPENAI_API_KEY en el servidor')
+          toast.error(
+            SHOW_INTERNAL_TECH
+              ? 'Falta OPENAI_API_KEY en el servidor'
+              : 'IA pendiente de configuracion del servidor',
+            { description: SHOW_INTERNAL_TECH ? undefined : 'Contacta con NOWLabs para activar esta integracion.' },
+          )
         } else if (decision.reason === 'empty_conversation') {
           toast.info('No hay mensajes para analizar')
         } else if (decision.reason === 'openai_error') {
@@ -496,11 +506,17 @@ export default function InboxPage() {
         <div className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="font-semibold">WhatsApp Meta pendiente de configuración.</p>
+            <p className="font-semibold">WhatsApp Business pendiente de configuracion.</p>
             <p className="mt-0.5 text-indigo-700">
-              Faltan variables en el servidor: <code className="rounded bg-white px-1 text-[10px]">{config.meta.missingVariables.join(', ') || '—'}</code>.
-              Además, Meta requiere una URL pública HTTPS para el webhook (Vercel, ngrok o cloudflared).
-              Hasta entonces los envíos manuales se guardarán como borrador.
+              {SHOW_INTERNAL_TECH ? (
+                <>
+                  Faltan variables en el servidor: <code className="rounded bg-white px-1 text-[10px]">{config.meta.missingVariables.join(', ') || '—'}</code>.
+                  Ademas, Meta requiere una URL publica HTTPS para el webhook (Vercel, ngrok o cloudflared).
+                  Hasta entonces los envios manuales se guardaran como borrador.
+                </>
+              ) : (
+                <>Conexion Meta pendiente. La conexion tecnica esta gestionada por NOWLabs. Hasta que se complete, los envios manuales se guardaran como borrador.</>
+              )}
             </p>
           </div>
         </div>
@@ -510,9 +526,15 @@ export default function InboxPage() {
         <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="font-semibold">NowLabs AI no está activo.</p>
+            <p className="font-semibold">NowLabs AI no esta activo.</p>
             <p className="mt-0.5 text-violet-700">
-              Falta <code className="rounded bg-white px-1 text-[10px]">OPENAI_API_KEY</code> en el servidor. Los botones IA estarán desactivados hasta que se configure.
+              {SHOW_INTERNAL_TECH ? (
+                <>
+                  Falta <code className="rounded bg-white px-1 text-[10px]">OPENAI_API_KEY</code> en el servidor. Los botones IA estaran desactivados hasta que se configure.
+                </>
+              ) : (
+                <>IA pendiente de configuracion del servidor. Contacta con NOWLabs para activar esta integracion. Los botones IA estaran desactivados hasta entonces.</>
+              )}
             </p>
           </div>
         </div>
@@ -579,7 +601,9 @@ export default function InboxPage() {
                 }
                 description={
                   activeTab === 'whatsapp'
-                    ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook público (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecerá aquí.'
+                    ? (SHOW_INTERNAL_TECH
+                        ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook publico (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecera aqui.'
+                        : 'WhatsApp Business pendiente de configuracion. La conexion tecnica esta gestionada por NOWLabs. Cuando llegue el primer mensaje real aparecera aqui.')
                     : activeTab === 'instagram'
                       ? 'Necesitarás una cuenta profesional de Instagram vinculada a una Página de Facebook y permisos de Meta. Te avisaremos cuando esté disponible.'
                       : activeTab === 'web'
@@ -838,7 +862,11 @@ export default function InboxPage() {
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   {(() => {
                     const aiDisabled = config ? config.openai.status !== 'ready' : false
-                    const aiTitle = aiDisabled ? 'Configura OPENAI_API_KEY en el servidor para activar el agente IA.' : undefined
+                    const aiTitle = aiDisabled
+                      ? (SHOW_INTERNAL_TECH
+                          ? 'Configura OPENAI_API_KEY en el servidor para activar el agente IA.'
+                          : 'IA pendiente de configuracion del servidor. Contacta con NOWLabs.')
+                      : undefined
                     return (
                       <>
                         <Button variant="secondary" size="sm" loading={agentBusy === 'suggest_reply'} disabled={aiDisabled} title={aiTitle} onClick={() => void runAgent('suggest_reply')}>

@@ -54,6 +54,13 @@ import {
 } from '@/lib/supabase-queries'
 import type { IntegrationSetting, IntegrationStatus, N8nFlow, N8nFlowStatus } from '@/lib/types'
 
+// Surfaces the internal NowLabs-only sections (n8n flow editor, Assistant Agent
+// external webhook, Meta technical IDs, raw webhook URLs, env-var checklists,
+// Instagram roadmap, production checklist). Off by default so a client clone
+// never sees the operator-facing surface. Set NEXT_PUBLIC_NOWLABS_INTERNAL=true
+// in a development env to bring them back.
+const SHOW_INTERNAL_TECH = process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true'
+
 type IntegrationCard = {
   id: string
   name: string
@@ -101,7 +108,7 @@ const supabaseReadiness = [
   { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro de NowLabs AI' },
   { label: 'Documentos', value: 'Preparado', status: 'PDFs de informes y facturas generados' },
   { label: 'Dashboard', value: 'Real', status: 'KPIs de clientes, facturas y calendario reales' },
-  { label: 'n8n Flows', value: 'Configurable', status: 'Endpoints y estados por flujo configurables' },
+  { label: 'Automatizaciones avanzadas', value: 'Configurable', status: 'Workflows gestionados por NOWLabs' },
   { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend y deploy en siguiente fase' },
 ]
 
@@ -110,7 +117,7 @@ const productStatusCards = [
   { label: 'NowLabs AI', value: 'Activo', detail: 'Conversaciones reales con NowLabs AI', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
   { label: 'Agent Tools', value: 'Preparado', detail: 'Acciones CRM seguras via API interna', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
   { label: 'Documentos', value: 'Activo', detail: 'PDFs de informes y facturas generados', tone: 'border-blue-100 bg-blue-50 text-blue-700' },
-  { label: 'n8n Flows', value: 'Configurable', detail: 'Endpoints y estados de automatizacion', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+  { label: 'Automatizaciones avanzadas', value: 'Configurable', detail: 'Workflows gestionados por NOWLabs', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
   { label: 'Canales', value: 'Proxima fase', detail: 'WhatsApp, Email y pagos por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
@@ -359,29 +366,31 @@ export default function SettingsPage() {
       toast.success('Google Calendar conectado', { description: 'Tu calendario ya esta sincronizado con NowCRM.' })
     } else if (status === 'error') {
       const reason = params.get('reason') ?? ''
-      const desc = reason === 'not_configured'
+      const genericDesc = reason === 'state_mismatch'
+        ? 'Error de seguridad en el flujo OAuth. Cierra sesion, vuelve a entrar e intentalo de nuevo.'
+        : reason === 'no_refresh_token'
+          ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca NowCRM y vuelve a autorizar.'
+          : reason === 'unauthenticated'
+            ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
+            : 'No se pudo completar la autorizacion. Contacta con el equipo tecnico de NOWLabs.'
+      const internalDesc = reason === 'not_configured'
         ? 'La plataforma NowCRM aun no tiene Google OAuth configurado. Contacta con el equipo tecnico.'
-        : reason === 'state_mismatch'
-          ? 'Error de seguridad en el flujo OAuth. Cierra sesion, vuelve a entrar e intentalo de nuevo.'
-          : reason === 'no_refresh_token'
-            ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca NowCRM y vuelve a autorizar.'
-            : reason === 'missing_schema'
-              ? 'La tabla google_calendar_connections no existe o le faltan columnas en Supabase. Aplica el SQL de schema y vuelve a intentarlo.'
-              : reason === 'missing_unique_index'
-                ? 'Falta un indice UNIQUE en workspace_id de google_calendar_connections. Ejecuta el SQL de indice en Supabase y vuelve a intentarlo.'
-              : reason === 'missing_grant'
-                ? 'El rol service_role no tiene permisos GRANT en google_calendar_connections. Ejecuta: GRANT SELECT, INSERT, UPDATE, DELETE ON public.google_calendar_connections TO service_role;'
+        : reason === 'missing_schema'
+          ? 'La tabla google_calendar_connections no existe o le faltan columnas en Supabase. Aplica el SQL de schema y vuelve a intentarlo.'
+          : reason === 'missing_unique_index'
+            ? 'Falta un indice UNIQUE en workspace_id de google_calendar_connections. Ejecuta el SQL de indice en Supabase y vuelve a intentarlo.'
+            : reason === 'missing_grant'
+              ? 'El rol service_role no tiene permisos GRANT en google_calendar_connections. Ejecuta: GRANT SELECT, INSERT, UPDATE, DELETE ON public.google_calendar_connections TO service_role;'
               : reason === 'rls_blocked'
                 ? 'La base de datos bloqueo el guardado (RLS activo aunque hay service_role). Revisa las politicas RLS de google_calendar_connections.'
                 : reason === 'missing_service_role'
                   ? 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor. Añadela a .env.local y reinicia el servidor de desarrollo.'
                   : reason === 'db_upsert_failed' || reason === 'db_error'
                     ? 'Google autorizo correctamente pero NowCRM no pudo guardar la conexion. Revisa los logs del servidor y el schema de google_calendar_connections.'
-                    : reason === 'unauthenticated'
-                      ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
-                      : reason === 'no_workspace'
-                        ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo tecnico de NowCRM.'
-                        : 'No se pudo completar la autorizacion. Intentalo de nuevo o contacta con NowCRM.'
+                    : reason === 'no_workspace'
+                      ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo tecnico de NowCRM.'
+                      : genericDesc
+      const desc = SHOW_INTERNAL_TECH ? internalDesc : genericDesc
       toast.error('No se pudo conectar Google Calendar', { description: desc })
     } else if (status === 'pending') {
       toast.info('Google Calendar pendiente', { description: 'La conexion OAuth esta pendiente. Contacta con el equipo tecnico de NowCRM.' })
@@ -773,7 +782,7 @@ export default function SettingsPage() {
       if (data.ok) {
         toast.success('Conexion WhatsApp OK', { description: data.message ?? 'Test enviado correctamente.' })
       } else if (data.simulated) {
-        toast.info('Test simulado', { description: data.message ?? 'La plataforma necesita META_ACCESS_TOKEN para envios reales.' })
+        toast.info('Test simulado', { description: data.message ?? (SHOW_INTERNAL_TECH ? 'La plataforma necesita META_ACCESS_TOKEN para envios reales.' : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.') })
       } else {
         toast.error('Test fallido', { description: data.message ?? 'Revisa la configuracion del webhook en Meta.' })
       }
@@ -895,34 +904,38 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-700">Estado tecnico</p>
+                <p className="text-xs font-semibold text-gray-700">Estado del sistema</p>
                 <p className="mt-1 text-lg font-bold text-gray-950">{supabaseStatus.configured ? 'Conectado' : 'Preparado visualmente'}</p>
                 <p className="text-[11px] text-gray-500">Auth, clients, billing, calendar y assistant ya tienen capa real.</p>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              {envChecks.map(({ key, label, ready }) => (
-                <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                  <div className="mb-1 flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-semibold text-gray-500">{label}</span>
-                    <Badge variant={ready ? 'success' : 'warning'} dot className="text-[10px]">{ready ? 'Detectada' : 'Pendiente'}</Badge>
+            {SHOW_INTERNAL_TECH && (
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {envChecks.map(({ key, label, ready }) => (
+                  <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                    <div className="mb-1 flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-semibold text-gray-500">{label}</span>
+                      <Badge variant={ready ? 'success' : 'warning'} dot className="text-[10px]">{ready ? 'Detectada' : 'Pendiente'}</Badge>
+                    </div>
+                    <p className="truncate font-mono text-[11px] text-gray-700">{key}</p>
+                    <p className="mt-0.5 text-[10px] text-gray-400">Valor oculto por seguridad</p>
                   </div>
-                  <p className="truncate font-mono text-[11px] text-gray-700">{key}</p>
-                  <p className="mt-0.5 text-[10px] text-gray-400">Valor oculto por seguridad</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
-            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {supabaseReadiness.map((item) => (
-                <div key={item.label} className="rounded-xl border border-gray-100 bg-white p-3">
-                  <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
-                  <p className="mt-1 font-mono text-[10px] text-indigo-600">{item.value}</p>
-                  <p className="mt-1 text-[10px] text-gray-500">{item.status}</p>
-                </div>
-              ))}
-            </div>
+            {SHOW_INTERNAL_TECH && (
+              <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                {supabaseReadiness.map((item) => (
+                  <div key={item.label} className="rounded-xl border border-gray-100 bg-white p-3">
+                    <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
+                    <p className="mt-1 font-mono text-[10px] text-indigo-600">{item.value}</p>
+                    <p className="mt-1 text-[10px] text-gray-500">{item.status}</p>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={() => toast.info('Checklist Supabase', { description: 'Verifica schema, RLS, tipos generados y URLs de Auth antes del deploy.' })}>
@@ -934,6 +947,7 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
+          {SHOW_INTERNAL_TECH && (
           <SectionCard
             title="n8n / Flujos operativos"
             description="Endpoints, estados y requisitos para automatizaciones reales"
@@ -1077,10 +1091,11 @@ export default function SettingsPage() {
               })}
             </div>
           </SectionCard>
+          )}
 
           <SectionCard
             title="Plataforma IA"
-            description="Inteligencia artificial y mantenimiento tecnico gestionados por NowCRM"
+            description="Inteligencia artificial y mantenimiento gestionado por NowCRM"
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="flex items-start gap-3">
@@ -1090,7 +1105,7 @@ export default function SettingsPage() {
                 <div>
                   <p className="text-sm font-semibold text-indigo-900">IA gestionada por NowCRM</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    La inteligencia artificial, las automatizaciones backend y el mantenimiento tecnico estan gestionados por NowCRM. No necesitas configurar ninguna clave de IA.
+                    La inteligencia artificial, las automatizaciones backend y el mantenimiento gestionado estan a cargo de NowCRM. No necesitas configurar ninguna clave de IA.
                   </p>
                 </div>
               </div>
@@ -1279,9 +1294,13 @@ export default function SettingsPage() {
                             if (!canEnableAuto && !inboxAutoReply) {
                               toast.warning('Auto-reply bloqueado', {
                                 description: !metaReady
-                                  ? `Falta server config Meta: ${metaServerConfig?.missingVariables.join(', ') || '—'}`
+                                  ? SHOW_INTERNAL_TECH
+                                    ? `Falta server config Meta: ${metaServerConfig?.missingVariables.join(', ') || '—'}`
+                                    : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.'
                                   : !openaiReady
-                                    ? 'Falta OPENAI_API_KEY en el servidor.'
+                                    ? SHOW_INTERNAL_TECH
+                                      ? 'Falta OPENAI_API_KEY en el servidor.'
+                                      : 'NowLabs AI pendiente de configuracion tecnica por NOWLabs.'
                                     : 'Conecta WhatsApp Business antes de activar el modo automatico.',
                               })
                               return
@@ -1302,11 +1321,15 @@ export default function SettingsPage() {
                           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                           <p className="text-xs leading-5 text-amber-800">
                             {!metaReady
-                              ? `Servidor WhatsApp pendiente: ${metaServerConfig?.missingVariables.join(', ') || '—'}.`
+                              ? SHOW_INTERNAL_TECH
+                                ? `Servidor WhatsApp pendiente: ${metaServerConfig?.missingVariables.join(', ') || '—'}.`
+                                : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.'
                               : !openaiReady
-                                ? 'NowLabs AI pendiente: falta OPENAI_API_KEY en el servidor.'
+                                ? SHOW_INTERNAL_TECH
+                                  ? 'NowLabs AI pendiente: falta OPENAI_API_KEY en el servidor.'
+                                  : 'NowLabs AI pendiente de configuracion tecnica por NOWLabs.'
                                 : !waConnection || String(waConnection.status ?? '') === 'disconnected'
-                                  ? 'El modo automatico requiere WhatsApp conectado. Registra el numero en la seccion de abajo.'
+                                  ? 'El modo automatico requiere WhatsApp conectado. Cuando NOWLabs complete la configuracion tecnica podras activarlo.'
                                   : 'La respuesta automatica se activara cuando WhatsApp este verificado y conectado.'}
                           </p>
                         </div>
@@ -1376,133 +1399,152 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-                  <div>
-                    <p className="text-xs font-semibold text-slate-900">Configuracion de plataforma — gestionada por NowCRM</p>
-                    <p className="text-[11px] leading-5 text-slate-600">
-                      META_WHATSAPP_ACCESS_TOKEN, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y NOWCRM_WEBHOOK_SECRET estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo. No introduzcas tokens ni claves API aqui.
-                    </p>
-                    {metaServerConfig && metaServerConfig.status !== 'ready' && (
-                      <p className="mt-2 text-[11px] leading-5 text-amber-700">
-                        Pendiente en servidor: <code className="rounded bg-white px-1 font-mono text-[10px] text-amber-900">{metaServerConfig.missingVariables.join(', ') || '—'}</code>. Hasta entonces el envio real esta deshabilitado y los mensajes salientes se guardan como borrador.
+                {SHOW_INTERNAL_TECH && (
+                  <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                    <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Configuracion de plataforma — gestionada por NowCRM</p>
+                      <p className="text-[11px] leading-5 text-slate-600">
+                        META_WHATSAPP_ACCESS_TOKEN, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y NOWCRM_WEBHOOK_SECRET estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo. No introduzcas tokens ni claves API aqui.
                       </p>
-                    )}
-                  </div>
-                </div>
-                <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
-                  <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook de NowCRM</p>
-                  <p className="mb-2 text-[11px] leading-5 text-emerald-700">
-                    Copia esta URL y pegala en Meta Developers → Configuracion del webhook para que Meta envie los mensajes a NowCRM.
-                    {!process.env.NEXT_PUBLIC_APP_URL && (
-                      <> <strong>Atencion:</strong> Meta solo acepta HTTPS publica. En local arranca un tunel (ngrok / cloudflared) o sube a Vercel antes de registrarla.</>
-                    )}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] text-emerald-800 ring-1 ring-emerald-200">
-                      {`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`}
-                    </code>
-                    <button
-                      onClick={() => copyToClipboard(`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`, 'wa-webhook-nowcrm')}
-                      className="flex h-8 shrink-0 items-center justify-center rounded-lg px-2 text-emerald-600 transition-colors hover:bg-emerald-100"
-                    >
-                      {copiedKey === 'wa-webhook-nowcrm' ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="mb-4 space-y-3">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-gray-700">Numero de telefono verificado</label>
-                      <input
-                        type="text"
-                        value={waPhoneNumber}
-                        onChange={(e) => setWaPhoneNumber(e.target.value)}
-                        placeholder="+34 600 000 000"
-                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                        Phone Number ID <span className="text-gray-400 font-normal">(de Meta Developers)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={waPhoneNumberId}
-                        onChange={(e) => setWaPhoneNumberId(e.target.value)}
-                        placeholder="Ej: 123456789012345"
-                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
+                      {metaServerConfig && metaServerConfig.status !== 'ready' && (
+                        <p className="mt-2 text-[11px] leading-5 text-amber-700">
+                          Pendiente en servidor: <code className="rounded bg-white px-1 font-mono text-[10px] text-amber-900">{metaServerConfig.missingVariables.join(', ') || '—'}</code>. Hasta entonces el envio real esta deshabilitado y los mensajes salientes se guardan como borrador.
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                        WhatsApp Business Account ID <span className="text-gray-400 font-normal">(WABA ID)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={waBusinessAccountId}
-                        onChange={(e) => setWaBusinessAccountId(e.target.value)}
-                        placeholder="Ej: 987654321098765"
-                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
+                )}
+                {SHOW_INTERNAL_TECH ? (
+                  <>
+                    <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+                      <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook de NowCRM</p>
+                      <p className="mb-2 text-[11px] leading-5 text-emerald-700">
+                        Copia esta URL y pegala en Meta Developers → Configuracion del webhook para que Meta envie los mensajes a NowCRM.
+                        {!process.env.NEXT_PUBLIC_APP_URL && (
+                          <> <strong>Atencion:</strong> Meta solo acepta HTTPS publica. En local arranca un tunel (ngrok / cloudflared) o sube a Vercel antes de registrarla.</>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] text-emerald-800 ring-1 ring-emerald-200">
+                          {`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`}
+                        </code>
+                        <button
+                          onClick={() => copyToClipboard(`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://tu-dominio.com'}/api/integrations/meta/whatsapp/webhook`, 'wa-webhook-nowcrm')}
+                          className="flex h-8 shrink-0 items-center justify-center rounded-lg px-2 text-emerald-600 transition-colors hover:bg-emerald-100"
+                        >
+                          {copiedKey === 'wa-webhook-nowcrm' ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
                     </div>
+                    <div className="mb-4 space-y-3">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-gray-700">Numero de telefono verificado</label>
+                          <input
+                            type="text"
+                            value={waPhoneNumber}
+                            onChange={(e) => setWaPhoneNumber(e.target.value)}
+                            placeholder="+34 600 000 000"
+                            className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                            Phone Number ID <span className="text-gray-400 font-normal">(de Meta Developers)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={waPhoneNumberId}
+                            onChange={(e) => setWaPhoneNumberId(e.target.value)}
+                            placeholder="Ej: 123456789012345"
+                            className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                            WhatsApp Business Account ID <span className="text-gray-400 font-normal">(WABA ID)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={waBusinessAccountId}
+                            onChange={(e) => setWaBusinessAccountId(e.target.value)}
+                            placeholder="Ej: 987654321098765"
+                            className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-gray-700">
+                            Meta Business ID <span className="text-gray-400 font-normal">(opcional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={waMetaBusinessId}
+                            onChange={(e) => setWaMetaBusinessId(e.target.value)}
+                            placeholder="Ej: 111222333444555"
+                            className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <Button size="sm" loading={waLoading} onClick={() => void handleWAPrepare()}>
+                        Guardar configuracion
+                      </Button>
+                      <Button size="sm" variant="secondary" loading={waTestLoading} onClick={() => void handleWATest()}>
+                        <Play className="h-3.5 w-3.5" />
+                        Probar conexion
+                      </Button>
+                      <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
+                        <Play className="h-3.5 w-3.5" />
+                        {simulatingWA ? 'Simulando...' : 'Simular lead'}
+                      </Button>
+                    </div>
+                    <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+                      <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      <p className="text-[11px] leading-5 text-emerald-700">
+                        No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NowCRM en el servidor. El numero requiere verificacion en Meta antes de recibir mensajes reales.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                        Meta Business ID <span className="text-gray-400 font-normal">(opcional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={waMetaBusinessId}
-                        onChange={(e) => setWaMetaBusinessId(e.target.value)}
-                        placeholder="Ej: 111222333444555"
-                        className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
+                      <p className="text-xs font-semibold text-amber-900">Pendiente de configuracion tecnica por NOWLabs</p>
+                      <p className="mt-1 text-[11px] leading-5 text-amber-700">
+                        El equipo tecnico de NOWLabs configurara la conexion WhatsApp para tu workspace. Cuando este lista veras el estado de conexion aqui.
+                      </p>
                     </div>
                   </div>
-                </div>
-                <div className="mb-3 flex flex-wrap gap-2">
-                  <Button size="sm" loading={waLoading} onClick={() => void handleWAPrepare()}>
-                    Guardar configuracion
-                  </Button>
-                  <Button size="sm" variant="secondary" loading={waTestLoading} onClick={() => void handleWATest()}>
-                    <Play className="h-3.5 w-3.5" />
-                    Probar conexion
-                  </Button>
-                  <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
-                    <Play className="h-3.5 w-3.5" />
-                    {simulatingWA ? 'Simulando...' : 'Simular lead'}
-                  </Button>
-                </div>
-                <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
-                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                  <p className="text-[11px] leading-5 text-emerald-700">
-                    No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NowCRM en el servidor. El numero requiere verificacion en Meta antes de recibir mensajes reales.
-                  </p>
-                </div>
+                )}
               </div>
 
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-                <p className="text-xs font-semibold text-emerald-900">Flujo de conexion</p>
-                <div className="mt-3 space-y-2">
-                  {[
-                    'Crea o accede a Meta Business',
-                    'Anade WhatsApp Business Platform',
-                    'Copia Phone Number ID y WABA ID',
-                    'Pega la URL del webhook en Meta',
-                    'Envia mensaje de prueba al numero',
-                  ].map((step, index) => (
-                    <div key={step} className="flex items-start gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
-                      <span className="text-xs leading-5 text-emerald-800">{step}</span>
-                    </div>
-                  ))}
+              {SHOW_INTERNAL_TECH && (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-xs font-semibold text-emerald-900">Flujo de conexion</p>
+                  <div className="mt-3 space-y-2">
+                    {[
+                      'Crea o accede a Meta Business',
+                      'Anade WhatsApp Business Platform',
+                      'Copia Phone Number ID y WABA ID',
+                      'Pega la URL del webhook en Meta',
+                      'Envia mensaje de prueba al numero',
+                    ].map((step, index) => (
+                      <div key={step} className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-emerald-700">{index + 1}</span>
+                        <span className="text-xs leading-5 text-emerald-800">{step}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </SectionCard>
 
+          {SHOW_INTERNAL_TECH && (
           <SectionCard
             title="Instagram Business"
             description="Mensajes directos vía Instagram Messaging API. Próxima integración, no envía mensajes todavía."
@@ -1563,6 +1605,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+          )}
 
           <SectionCard title="Integraciones externas" description="Canales y servicios conectados o pendientes">
             <div className="grid gap-3 md:grid-cols-2">
@@ -1655,7 +1698,7 @@ export default function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <Button size="sm" onClick={() => toast.success('Proximas integraciones', { description: 'Conectar Google Calendar, WhatsApp, Resend y n8n real.' })}>
+              <Button size="sm" onClick={() => toast.success('Proximas integraciones', { description: 'Conexion tecnica gestionada por NOWLabs. Google Calendar, WhatsApp y Email proximamente.' })}>
                 Ver proximas integraciones
               </Button>
             </div>
@@ -1683,21 +1726,23 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Checklist produccion" description="Lo que falta antes de venderlo en real">
-            <div className="space-y-2">
-              {[
-                { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
-                { title: '2. IA real', desc: 'Mantener /api/assistant/v2 con tools backend y OpenAI server-side.' },
-                { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows externos.' },
-                { title: '4. Deploy', desc: 'Vercel o Hostinger con variables seguras.' },
-              ].map((item) => (
-                <div key={item.title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-xs font-semibold text-gray-900">{item.title}</p>
-                  <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
+          {SHOW_INTERNAL_TECH && (
+            <SectionCard title="Checklist produccion" description="Lo que falta antes de venderlo en real">
+              <div className="space-y-2">
+                {[
+                  { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
+                  { title: '2. IA real', desc: 'Mantener /api/assistant/v2 con tools backend y OpenAI server-side.' },
+                  { title: '3. n8n real', desc: 'Guardar endpoints y disparar workflows externos.' },
+                  { title: '4. Deploy', desc: 'Vercel o Hostinger con variables seguras.' },
+                ].map((item) => (
+                  <div key={item.title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-900">{item.title}</p>
+                    <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
         </aside>
       </div>
     </motion.div>

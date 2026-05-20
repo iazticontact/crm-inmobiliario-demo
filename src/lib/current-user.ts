@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { featureFlags } from '@/lib/feature-flags'
 import { getResolvedWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
 
 export type CurrentUser = {
@@ -11,11 +12,25 @@ export type CurrentUser = {
   workspaceName: string
   initials: string
   isDemo: boolean
+  // True only when there is a real Supabase session backing this user.
+  // Consumers that must distinguish "real user" from "fallback placeholder"
+  // (Settings, Dashboard, Sidebar, Assistant) should branch on this — never
+  // assume isDemo===false means "authenticated".
+  isAuthenticated: boolean
+  // True when the returned object is a UI placeholder (no real session and no
+  // demoData flag): name/email/etc are filler so the UI doesn't crash, but
+  // they MUST NOT be persisted or shown as if they were the logged-in user.
+  isFallback: boolean
   trialLabel: string
 }
 
 export const DEMO_MODE_KEY = 'nowcrm-demo-mode'
-const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
+// FORCE_OFFLINE_DEV is a developer-only escape hatch. Hard-gated to non-prod
+// builds so a misconfigured NEXT_PUBLIC_FORCE_OFFLINE_DEV=true in a real
+// client deployment never grants a synthetic session.
+const OFFLINE_FORCE_DEV =
+  process.env.NODE_ENV !== 'production' &&
+  process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 
 const demoUser: CurrentUser = {
   name: 'NowCRM Demo',
@@ -23,6 +38,8 @@ const demoUser: CurrentUser = {
   workspaceName: 'NowCRM Demo',
   initials: 'N',
   isDemo: true,
+  isAuthenticated: false,
+  isFallback: false,
   trialLabel: 'Modo demo',
 }
 
@@ -32,6 +49,8 @@ const offlineCurrentUser: CurrentUser = {
   workspaceName: 'NowCRM Local',
   initials: 'NL',
   isDemo: true,
+  isAuthenticated: false,
+  isFallback: false,
   trialLabel: 'Modo local',
 }
 
@@ -97,7 +116,15 @@ export function useCurrentUser() {
         if (!mounted) return
 
         if (error || !data.user) {
-          setCurrentUser(demoUser)
+          // Only fall back to the demo profile when demo mode is explicitly
+          // enabled for this build. In a real client deployment we keep
+          // currentUser null so pages don't render mock data as if the user
+          // were authenticated.
+          if (featureFlags.demoData) {
+            setCurrentUser(demoUser)
+          } else {
+            setCurrentUser(null)
+          }
           setIsLoading(false)
           return
         }
@@ -140,6 +167,8 @@ export function useCurrentUser() {
             workspaceName,
             initials: getInitials(name || workspaceName || email),
             isDemo: false,
+            isAuthenticated: true,
+            isFallback: false,
             trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
           })
           setIsLoading(false)
@@ -164,5 +193,16 @@ export function useCurrentUser() {
     }
   }, [])
 
-  return { currentUser: currentUser || demoUser, isLoading }
+  // In real-client builds (demoData flag off) we must NOT fall back to demoUser
+  // when there is no authenticated session — AuthGate handles the redirect and
+  // consumers should treat currentUser as effectively unauthenticated.
+  //
+  // The fallback object keeps isDemo:true for back-compat with consumers that
+  // already branch on isDemo, BUT also exposes isAuthenticated:false and
+  // isFallback:true so security-sensitive code paths can distinguish a real
+  // session from a placeholder.
+  const fallback: CurrentUser = featureFlags.demoData
+    ? demoUser
+    : { ...demoUser, name: 'Usuario', trialLabel: 'Sin sesion', isFallback: true }
+  return { currentUser: currentUser || fallback, isLoading }
 }

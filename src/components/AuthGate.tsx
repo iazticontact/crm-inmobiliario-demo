@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { featureFlags } from '@/lib/feature-flags'
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -14,8 +15,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true
 
+    // Demo mode via localStorage is a dev-only escape hatch. In a real client
+    // deployment it must never grant access on its own — only a real Supabase
+    // session does. The flag has to be set explicitly at build time.
+    const DEMO_FALLBACK_ALLOWED = featureFlags.demoData
+    // FORCE_OFFLINE_DEV is a developer-only bypass. Hard-gated to non-production
+    // builds so a misconfigured NEXT_PUBLIC_FORCE_OFFLINE_DEV=true in a real
+    // client deployment can never grant access on its own.
+    const OFFLINE_FORCE_DEV =
+      process.env.NODE_ENV !== 'production' &&
+      process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
+
     const checkAccess = async () => {
-      const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
       if (OFFLINE_FORCE_DEV && mounted) {
         setAllowed(true)
         return
@@ -23,11 +34,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
       const supabase = getSupabaseBrowserClient()
       if (!supabase) {
-        const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-        if (isDemoMode && mounted) {
+        if (DEMO_FALLBACK_ALLOWED && window.localStorage.getItem(DEMO_MODE_KEY) === 'true' && mounted) {
           setAllowed(true)
           return
         }
+        window.localStorage.removeItem(DEMO_MODE_KEY)
         router.replace('/login')
         return
       }
@@ -41,12 +52,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-      if (isDemoMode) {
+      if (DEMO_FALLBACK_ALLOWED && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
         setAllowed(true)
         return
       }
 
+      window.localStorage.removeItem(DEMO_MODE_KEY)
       router.replace('/login')
     }
 

@@ -1,14 +1,25 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { generateReportPdfBytes } from '@/lib/pdf/simple-pdf'
+
+export const runtime = 'nodejs'
 
 type DataRow = Record<string, unknown>
 
-function getClient() {
+async function buildSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
   const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
   if (!url || !key) return null
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+  const cookieStore = await cookies()
+  return createServerClient(url, key, {
+    cookies: {
+      getAll() { return cookieStore.getAll() },
+      setAll(list) {
+        try { list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch { /* static */ }
+      },
+    },
+  })
 }
 
 function s(v: unknown, fb = '') { return typeof v === 'string' && v.trim() ? v.trim() : fb }
@@ -94,16 +105,40 @@ export async function POST(request: Request) {
   }
 
   const clientId = s(body.clientId)
-  const workspaceId = s(body.workspaceId)
   const format = s(body.format, 'text') === 'pdf' ? 'pdf' : 'text'
 
-  if (!clientId || !workspaceId) {
-    return NextResponse.json({ ok: false, error: 'clientId y workspaceId son obligatorios' }, { status: 400 })
+  if (!clientId) {
+    return NextResponse.json({ ok: false, error: 'clientId es obligatorio' }, { status: 400 })
   }
 
-  const supabase = getClient()
+  const supabase = await buildSupabase()
   if (!supabase) {
     return NextResponse.json({ ok: false, error: 'Supabase no configurado en el servidor' }, { status: 503 })
+  }
+
+  // Workspace is derived from the authenticated session — never trusted from
+  // the caller. Any workspaceId in the body is ignored.
+  const { data: { user }, error: authErr } = await supabase.auth.getUser()
+  if (authErr || !user) {
+    return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
+  }
+  // Profile query is the workspace-isolation gate: a query error here (RLS
+  // blocked, table missing, transient DB failure) must NOT silently fall
+  // through to 403 "no workspace" — it has to surface as a controlled 500 so
+  // support can tell "user has no workspace" apart from "lookup failed".
+  // The error message is never propagated to the client.
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('workspace_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (profileError) {
+    if (process.env.NODE_ENV === 'development') console.error('[/api/reports/client] profile lookup failed', profileError)
+    return NextResponse.json({ ok: false, error: 'No se pudo resolver el workspace' }, { status: 500 })
+  }
+  const workspaceId = (profile as { workspace_id?: string | null } | null)?.workspace_id
+  if (!workspaceId) {
+    return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
   }
 
   try {
@@ -164,8 +199,9 @@ export async function POST(request: Request) {
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error ?? 'Error desconocido')
     if (process.env.NODE_ENV === 'development') console.error('[/api/reports/client]', error)
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    // Never leak DB error messages to the client — they can contain table
+    // names, column hints or RLS internals.
+    return NextResponse.json({ ok: false, error: 'No se pudo generar el informe' }, { status: 500 })
   }
 }
