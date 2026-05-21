@@ -92,7 +92,19 @@ end $$;
 -- =====================================================================
 -- pgcrypto is needed for gen_random_uuid(). It is already installed on most
 -- Supabase projects, but we make it explicit so a fresh project also works.
+--
+-- Forward references: the four identity/role helpers below are
+-- `language sql` functions whose bodies select from public.profiles, which
+-- doesn't exist yet (it lands in BLOQUE 02). By default Postgres validates
+-- function bodies at CREATE time and would refuse to create them. We
+-- temporarily disable that check with `set local check_function_bodies =
+-- off` — the exact same trick pg_dump uses to restore a schema in
+-- dependency-agnostic order. The setting is `local`, so it auto-resets at
+-- the end of this migration's transaction; references resolve at first
+-- call, when public.profiles is already in place.
 -- ---------------------------------------------------------------------
+
+set local check_function_bodies = off;
 
 create extension if not exists "pgcrypto";
 
@@ -2135,6 +2147,45 @@ grant select, insert on public.agent_action_logs to authenticated;
 
 
 -- =====================================================================
+-- BLOQUE 08c — anon hardening: revoke Supabase default grants
+-- =====================================================================
+-- When Supabase creates a project, it sets ALTER DEFAULT PRIVILEGES so
+-- every NEW table in public is automatically granted REFERENCES, TRIGGER
+-- and TRUNCATE to the anon role. None of those are DML (PostgREST does
+-- not expose TRUNCATE over REST), but TRUNCATE in particular is
+-- destructive and there is no scenario in which anon should hold it.
+--
+-- The schema-level `revoke all on schema public from anon` in BLOQUE 00
+-- only affects schema USAGE / CREATE — it does not strip per-table
+-- privileges, which is why we also have to revoke them explicitly here
+-- and lock the default for all future tables in this schema.
+--
+-- This block was discovered during the BLOQUE 11 verification pass on the
+-- first apply against costadelsol-crm (audit query #19 reported 72 rows
+-- for anon × public). Encoding it in the SQL file ensures a fresh apply
+-- from scratch lands in the exact same hardened state.
+--
+-- Re-grants on the safe views at the end are defensive: in case a future
+-- re-run inverts a grant by accident, the views stay readable for
+-- authenticated. service_role bypasses everything as usual.
+-- ---------------------------------------------------------------------
+
+revoke all on all tables    in schema public from anon;
+revoke all on all sequences in schema public from anon;
+revoke all on all functions in schema public from anon;
+revoke all on all routines  in schema public from anon;
+
+alter default privileges in schema public revoke all on tables    from anon;
+alter default privileges in schema public revoke all on sequences from anon;
+alter default privileges in schema public revoke all on functions from anon;
+alter default privileges in schema public revoke all on routines  from anon;
+
+grant select on public.vw_google_calendar_status to authenticated;
+grant select on public.vw_whatsapp_status        to authenticated;
+grant select on public.vw_integrations_status    to authenticated;
+
+
+-- =====================================================================
 -- BLOQUE 09 — Safe public views for integration statuses
 -- =====================================================================
 -- These views give the Inbox UI and the IA assistant a read path that is
@@ -2500,6 +2551,14 @@ on conflict (workspace_id, trigger_event) do nothing;
 
 -- 16) Confirm the safe views do NOT expose any token / secret / key /
 --     credential column name (expect: empty).
+--
+--     Intended exceptions (these are NOT secrets and must not flag):
+--       - has_refresh_token  → boolean derived from refresh_token_enc;
+--                              the actual token never leaves the table.
+--       - token_expiry       → timestamptz of when the *access* token
+--                              expires. The access token itself is never
+--                              stored; this column only tells the UI
+--                              when to next trigger a refresh.
 -- select table_schema, table_name, column_name
 -- from information_schema.columns
 -- where table_schema = 'public'
@@ -2511,8 +2570,7 @@ on conflict (workspace_id, trigger_event) do nothing;
 --     or column_name ilike '%credential%'
 --     or column_name = 'config'
 --   )
---   -- has_refresh_token is the explicit, intended exception (boolean only).
---   and column_name <> 'has_refresh_token';
+--   and column_name not in ('has_refresh_token', 'token_expiry');
 
 -- 17) Confirm every DELETE policy on business tables either gates by
 --     is_workspace_admin / is_nowlabs_admin, or belongs to the explicit
