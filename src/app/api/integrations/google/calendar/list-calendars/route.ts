@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -87,11 +88,14 @@ export async function GET(): Promise<NextResponse<Result>> {
   if (!workspaceId) return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
 
   // Read connection — tolerate missing selected_calendar_ids column (legacy schema).
+  const serviceSupabase = getGoogleCalendarServiceClient()
+  if (!serviceSupabase) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+
   let connRow: Record<string, unknown> | null = null
   // Try the wide select first, fall back to the legacy columns if the wide select fails
   // because selected_calendar_ids hasn't been added yet.
   {
-    const wide = await supabase
+    const wide = await serviceSupabase
       .from('google_calendar_connections')
       .select('status, calendar_id, refresh_token_enc, selected_calendar_ids, calendar_metadata')
       .eq('workspace_id', workspaceId)
@@ -99,7 +103,7 @@ export async function GET(): Promise<NextResponse<Result>> {
     if (!wide.error) {
       connRow = (wide.data as Record<string, unknown> | null)
     } else {
-      const narrow = await supabase
+      const narrow = await serviceSupabase
         .from('google_calendar_connections')
         .select('status, calendar_id, refresh_token_enc')
         .eq('workspace_id', workspaceId)

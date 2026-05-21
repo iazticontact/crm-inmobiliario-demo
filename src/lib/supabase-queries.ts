@@ -2021,8 +2021,8 @@ export async function getIntegrationSettings(workspaceId: string) {
   if (!supabase) return []
 
   const { data, error } = await supabase
-    .from('integrations')
-    .select('*')
+    .from('vw_integrations_status')
+    .select('id, workspace_id, provider, name, status, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: true })
 
@@ -2069,8 +2069,8 @@ export async function getGoogleCalendarConnection(workspaceId: string) {
   if (!supabase) return null
 
   const { data, error } = await supabase
-    .from('google_calendar_connections')
-    .select('*')
+    .from('vw_google_calendar_status')
+    .select('id, workspace_id, calendar_id, default_calendar_id, status, sync_enabled, has_refresh_token, last_sync_at, updated_at, selected_calendar_ids, calendar_metadata')
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
@@ -2082,42 +2082,18 @@ export async function getGoogleCalendarConnection(workspaceId: string) {
 }
 
 export async function upsertGoogleCalendarConnection(workspaceId: string, payload: GoogleCalendarConnectionPayload) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) throw new Error('Supabase no esta configurado')
-
-  const row: DataRecord = compactRow({
-    workspace_id: workspaceId,
-    calendar_id: payload.calendarId ?? null,
-    sync_enabled: payload.syncEnabled ?? false,
-    last_sync_at: payload.lastSyncAt ?? null,
-    status: payload.status ?? 'pending',
-    updated_at: new Date().toISOString(),
+  const selectedCalendarIds = [payload.calendarId || 'primary']
+  const res = await fetch('/api/integrations/google/calendar/save-selected-calendars', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selectedCalendarIds, syncEnabled: payload.syncEnabled }),
   })
-
-  const existing = await supabase
-    .from('google_calendar_connections')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
-  if (existing.data) {
-    const { data, error } = await supabase
-      .from('google_calendar_connections')
-      .update(row)
-      .eq('id', asString((existing.data as DataRecord).id))
-      .select('*')
-      .single()
-    if (error) { if (isSchemaError(error)) return null; throw error }
-    return data as DataRecord
+  let body: { ok?: boolean; error?: string } | null = null
+  try { body = await res.json() } catch { /* ignore */ }
+  if (!res.ok || !body?.ok) {
+    throw new Error(body?.error ?? `Google Calendar HTTP ${res.status}`)
   }
-
-  const { data, error } = await supabase
-    .from('google_calendar_connections')
-    .insert(row)
-    .select('*')
-    .single()
-  if (error) { if (isSchemaError(error)) return null; throw error }
-  return data as DataRecord
+  return getGoogleCalendarConnection(workspaceId)
 }
 
 export async function disconnectGoogleCalendar(_workspaceId: string) {
@@ -2312,8 +2288,8 @@ export async function upsertIntegrationSetting(workspaceId: string, payload: Int
   if (!supabase) throw new Error('Supabase no esta configurado')
 
   const existing = await supabase
-    .from('integrations')
-    .select('*')
+    .from('vw_integrations_status')
+    .select('id, workspace_id, provider, name, status, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .eq('provider', payload.key)
     .maybeSingle()
@@ -2323,25 +2299,29 @@ export async function upsertIntegrationSetting(workspaceId: string, payload: Int
   if (existing.data) {
     delete row.workspace_id
     delete row.provider
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('integrations')
       .update(row)
       .eq('id', asString((existing.data as DataRecord).id))
-      .select('*')
-      .single()
 
     if (error) throw error
-    return mapSupabaseIntegrationSetting(data as DataRecord)
+    return mapSupabaseIntegrationSetting({ ...(existing.data as DataRecord), ...row, provider: payload.key })
   }
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('integrations')
     .insert(row)
-    .select('*')
-    .single()
 
   if (error) throw error
-  return mapSupabaseIntegrationSetting(data as DataRecord)
+  const { data: created, error: readErr } = await supabase
+    .from('vw_integrations_status')
+    .select('id, workspace_id, provider, name, status, created_at, updated_at')
+    .eq('workspace_id', workspaceId)
+    .eq('provider', payload.key)
+    .maybeSingle()
+
+  if (readErr) throw readErr
+  return mapSupabaseIntegrationSetting((created as DataRecord | null) ?? row)
 }
 
 export async function updateIntegrationSetting(id: string, payload: Partial<IntegrationPayload>) {
@@ -2363,15 +2343,21 @@ export async function updateIntegrationSetting(id: string, payload: Partial<Inte
     if (row[key] === undefined) delete row[key]
   })
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('integrations')
     .update(row)
     .eq('id', id)
-    .select('*')
-    .single()
 
   if (error) throw error
-  return mapSupabaseIntegrationSetting(data as DataRecord)
+
+  const { data, error: readErr } = await supabase
+    .from('vw_integrations_status')
+    .select('id, workspace_id, provider, name, status, created_at, updated_at')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (readErr) throw readErr
+  return mapSupabaseIntegrationSetting((data as DataRecord | null) ?? { id, ...row })
 }
 
 // Tasks helpers

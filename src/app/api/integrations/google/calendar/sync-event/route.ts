@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -54,6 +55,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
   }
 
+  const serviceSupabase = getGoogleCalendarServiceClient()
+  if (!serviceSupabase) {
+    return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+  }
+
   // Body
   let eventId: string
   try {
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
   }
 
   // Check Google Calendar connection
-  const { data: gcConn } = await supabase
+  const { data: gcConn } = await serviceSupabase
     .from('google_calendar_connections')
     .select('status, calendar_id, default_calendar_id, refresh_token_enc, token_expiry')
     .eq('workspace_id', workspaceId)
@@ -131,7 +137,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
 
     // Update token_expiry (access tokens expire in 1h)
     const expiry = new Date(Date.now() + 3590 * 1000).toISOString()
-    void supabase.from('google_calendar_connections').update({ token_expiry: expiry }).eq('workspace_id', workspaceId)
+    void serviceSupabase.from('google_calendar_connections').update({ token_expiry: expiry }).eq('workspace_id', workspaceId)
   } catch (err) {
     console.error('[sync-event] Token refresh error:', err instanceof Error ? err.message : err)
     return NextResponse.json({ ok: true, synced: false, reason: 'token_refresh_error' })
@@ -234,7 +240,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
   }
 
   // Update last_sync_at on the connection
-  void supabase.from('google_calendar_connections')
+  void serviceSupabase.from('google_calendar_connections')
     .update({ last_sync_at: new Date().toISOString() })
     .eq('workspace_id', workspaceId)
 

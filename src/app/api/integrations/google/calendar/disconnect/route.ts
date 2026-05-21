@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -15,8 +15,8 @@ export const runtime = 'nodejs'
 //      sync_enabled and last_sync_at — leaves the row with status='disconnected' so the
 //      status route can report it correctly without a pending OAuth state.
 //
-// Uses SERVICE_ROLE_KEY when available so the cleanup works regardless of RLS configuration.
-// Without service_role, falls back to the SSR client and respects RLS (workspace member).
+// Uses SERVICE_ROLE_KEY so the cleanup works with hardened RLS. There is no
+// SSR fallback because the base table contains OAuth tokens.
 export async function POST() {
   try {
     const cookieStore = await cookies()
@@ -47,11 +47,10 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: 'Workspace no encontrado' }, { status: 404 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-    const writeClient = serviceRoleKey
-      ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
-      : supabase
+    const writeClient = getGoogleCalendarServiceClient()
+    if (!writeClient) {
+      return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+    }
 
     // 1. Read current refresh_token (best-effort).
     const { data: existing } = await writeClient
@@ -119,7 +118,7 @@ export async function POST() {
       console.error('[google/calendar/disconnect] Update failed', {
         code: updateErr.code,
         message: updateErr.message?.slice(0, 120),
-        hasServiceRole: Boolean(serviceRoleKey),
+        hasServiceRole: true,
       })
       return NextResponse.json(
         { ok: false, error: 'No se pudo limpiar la conexión en la base de datos', revoked },

@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -90,6 +91,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, localCancelled: false, googleCancelled: false, googleAlreadyGone: false, reason: 'local_cancel_failed', message: 'Sin workspace asignado', synced: false }, { status: 403 })
   }
 
+  const serviceSupabase = getGoogleCalendarServiceClient()
+  if (!serviceSupabase) {
+    return NextResponse.json({ ok: false, localCancelled: false, googleCancelled: false, googleAlreadyGone: false, reason: 'local_cancel_failed', message: 'Service role no configurado', synced: false }, { status: 503 })
+  }
+
   let localEventId: string
   try {
     const body = await req.json() as { localEventId?: unknown; eventId?: unknown }
@@ -146,7 +152,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Google path. Need a healthy connection + OAuth credentials.
-  const { data: gcConn } = await supabase
+  const { data: gcConn } = await serviceSupabase
     .from('google_calendar_connections')
     .select('status, calendar_id, default_calendar_id, refresh_token_enc')
     .eq('workspace_id', workspaceId)

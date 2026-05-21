@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -163,9 +164,14 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
   }
 
   // Read connection — try the wide select first (multi-calendar schema), fall back to legacy.
+  const serviceSupabase = getGoogleCalendarServiceClient()
+  if (!serviceSupabase) {
+    return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+  }
+
   let connRow: Record<string, unknown> | null = null
   {
-    const wide = await supabase
+    const wide = await serviceSupabase
       .from('google_calendar_connections')
       .select('status, calendar_id, refresh_token_enc, selected_calendar_ids')
       .eq('workspace_id', workspaceId)
@@ -173,7 +179,7 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     if (!wide.error) {
       connRow = (wide.data as Record<string, unknown> | null)
     } else {
-      const narrow = await supabase
+      const narrow = await serviceSupabase
         .from('google_calendar_connections')
         .select('status, calendar_id, refresh_token_enc')
         .eq('workspace_id', workspaceId)
@@ -365,7 +371,7 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
 
   // Update last_sync_at on connection
   const lastSyncAt = new Date().toISOString()
-  void supabase.from('google_calendar_connections')
+  void serviceSupabase.from('google_calendar_connections')
     .update({ last_sync_at: lastSyncAt })
     .eq('workspace_id', workspaceId)
 

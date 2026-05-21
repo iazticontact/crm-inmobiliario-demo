@@ -10,8 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../../integrations/google/calendar/server-utils'
 
 export const runtime = 'nodejs'
 
@@ -89,8 +89,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: row, error: rowErr } = await supabase
-      .from('google_calendar_connections')
-      .select('id, workspace_id, calendar_id, status, sync_enabled, refresh_token_enc, last_sync_at, updated_at')
+      .from('vw_google_calendar_status')
+      .select('id, workspace_id, calendar_id, status, sync_enabled, has_refresh_token, last_sync_at, updated_at')
       .eq('workspace_id', workspaceId)
       .maybeSingle()
 
@@ -119,26 +119,25 @@ export async function GET(request: NextRequest) {
     const r = row as Record<string, unknown> | null
 
     const diagnosticReason = !r ? 'no_connection'
-      : !r.refresh_token_enc ? 'missing_refresh_token'
+      : !r.has_refresh_token ? 'missing_refresh_token'
       : r.status !== 'connected' ? `status_is_${String(r.status)}`
       : null
 
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+    const writeClient = getGoogleCalendarServiceClient()
 
     // Optional write probe: proves whether service_role can actually INSERT/UPDATE/DELETE.
     // Refuses to run if a real connection (with refresh_token_enc) exists — never touches live data.
     let probe: Record<string, unknown> | undefined
     if (probeWrite) {
-      if (!serviceRoleKey) {
+      if (!writeClient) {
         probe = { ran: false, skipped: 'no_service_role_key' }
-      } else if (r?.refresh_token_enc) {
-        probe = { ran: false, skipped: 'real_connection_exists' }
+      } else if (r) {
+        probe = { ran: false, skipped: 'connection_row_exists' }
       } else {
-        const writeClient = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
         const probePayload = {
           workspace_id: workspaceId,
           calendar_id: 'debug-probe',
-          status: 'debug_probe',
+          status: 'pending',
           sync_enabled: false,
           updated_at: new Date().toISOString(),
         }
@@ -156,7 +155,7 @@ export async function GET(request: NextRequest) {
           .from('google_calendar_connections')
           .delete()
           .eq('workspace_id', workspaceId)
-          .eq('status', 'debug_probe')
+          .eq('calendar_id', 'debug-probe')
         probe = {
           ran: true,
           insertOk: !insertRes.error,
@@ -177,11 +176,11 @@ export async function GET(request: NextRequest) {
       hasUser: true,
       userId: user.id.slice(0, 8) + '…',
       workspaceId,
-      hasServiceRole: Boolean(serviceRoleKey),
+      hasServiceRole: Boolean(writeClient),
       hasConnection: Boolean(r),
       status: r?.status ?? null,
       syncEnabled: r?.sync_enabled ?? null,
-      hasRefreshToken: Boolean(r?.refresh_token_enc),
+      hasRefreshToken: Boolean(r?.has_refresh_token),
       calendarId: r?.calendar_id ?? null,
       updatedAt: r?.updated_at ?? null,
       diagnosticReason,

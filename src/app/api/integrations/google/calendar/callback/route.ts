@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getGoogleCalendarServiceClient } from '../server-utils'
 
 export const runtime = 'nodejs'
 
@@ -84,6 +84,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=pending&reason=not_configured`)
     }
 
+    const writeClient = getGoogleCalendarServiceClient()
+    if (!writeClient) {
+      console.error('[google/calendar/callback] Missing service role client for token storage')
+      return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=error&reason=missing_service_role`)
+    }
+
     // Exchange authorization code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -130,23 +136,16 @@ export async function GET(request: NextRequest) {
 
     const workspaceId = profile?.workspace_id as string | null | undefined
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-    const writeClient = serviceRoleKey
-      ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
-      : supabase
-    const writeClientKind: 'service_role' | 'ssr' = serviceRoleKey ? 'service_role' : 'ssr'
+    if (!workspaceId) {
+      return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=error&reason=no_workspace`)
+    }
 
     console.log('[google/callback:workspace]', {
       userId: user.id?.slice(0, 8),
       workspaceId,
-      hasServiceRole: Boolean(serviceRoleKey),
-      writeClientKind,
+      hasServiceRole: true,
+      writeClientKind: 'service_role',
     })
-
-    if (!workspaceId) {
-      return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=error&reason=no_workspace`)
-    }
 
     const now = new Date().toISOString()
     const tokenExpiry = new Date(Date.now() + (tokenData.expires_in ?? 3600) * 1000).toISOString()
@@ -193,11 +192,10 @@ export async function GET(request: NextRequest) {
         const looksLikeGrantMissing = errCode === '42501' && (errMsg.includes('permission denied for') || errMsg.includes('no permission'))
         const reason = errCode === '42P01' || errCode === '42703' ? 'missing_schema'
           : errCode === '42P10' ? 'missing_unique_index'
-          : !serviceRoleKey && errCode === '42501' ? 'missing_service_role'
           : looksLikeGrantMissing ? 'missing_grant'
           : errCode === '42501' ? 'rls_blocked'
           : 'db_upsert_failed'
-        console.error('[google/calendar/callback] Upsert failed (fallback)', { reason, hasServiceRole: Boolean(serviceRoleKey), writeClientKind, code: errCode, message: upsertErr.message })
+        console.error('[google/calendar/callback] Upsert failed (fallback)', { reason, hasServiceRole: true, writeClientKind: 'service_role', code: errCode, message: upsertErr.message })
         return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=error&reason=${reason}`)
       }
 
@@ -220,8 +218,8 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('[google/callback:pre-upsert]', {
-      hasServiceRole: Boolean(serviceRoleKey),
-      writeClientKind,
+      hasServiceRole: true,
+      writeClientKind: 'service_role',
       workspaceId,
       hasRefreshTokenToStore: Boolean(tokenData.refresh_token),
       calendarId: upsertPayload.calendar_id,
@@ -236,7 +234,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[google/callback:upsert-result]', {
       ok: !upsertErr,
-      writeClientKind,
+      writeClientKind: 'service_role',
       errorCode: upsertErr?.code,
       errorMessage: upsertErr?.message,
       errorDetails: upsertErr?.details,
@@ -253,11 +251,10 @@ export async function GET(request: NextRequest) {
       const looksLikeGrantMissing = errCode === '42501' && (errMsg.includes('permission denied for') || errMsg.includes('no permission'))
       const reason = errCode === '42P01' || errCode === '42703' ? 'missing_schema'
         : errCode === '42P10' ? 'missing_unique_index'
-        : !serviceRoleKey && errCode === '42501' ? 'missing_service_role'
         : looksLikeGrantMissing ? 'missing_grant'
         : errCode === '42501' ? 'rls_blocked'
         : 'db_upsert_failed'
-      console.error('[google/calendar/callback] Supabase upsert failed', { reason, hasServiceRole: Boolean(serviceRoleKey), writeClientKind, code: errCode, message: upsertErr.message })
+      console.error('[google/calendar/callback] Supabase upsert failed', { reason, hasServiceRole: true, writeClientKind: 'service_role', code: errCode, message: upsertErr.message })
       return NextResponse.redirect(`${settingsUrl}?integration=google_calendar&status=error&reason=${reason}`)
     }
 

@@ -11,11 +11,11 @@ function deriveStatus(row: Record<string, unknown>): GoogleCalendarConnectionSta
   // Must be checked BEFORE the calendar_id fallback so we don't report oauth_pending after disconnect.
   if (s === 'disconnected') return 'disconnected'
   // Only report 'connected' when a refresh_token is actually stored — without it we cannot sync
-  if (s === 'connected' && row.refresh_token_enc) return 'connected'
+  if (s === 'connected' && row.has_refresh_token) return 'connected'
   if (s === 'connected') return 'error'  // status=connected but token missing
   if (s === 'token_expired') return 'token_expired'
   if (s === 'error') return 'error'
-  if (row.calendar_id || row.access_token_hash) return 'oauth_pending'
+  if (row.calendar_id) return 'oauth_pending'
   return 'not_configured'
 }
 
@@ -44,26 +44,15 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: 'Workspace no encontrado' }, { status: 404 })
     }
 
-    // Try the wide select (multi-calendar columns), fall back to legacy if columns don't exist yet.
-    let row: Record<string, unknown> | null = null
-    let rowErr: { message?: string } | null = null
-    {
-      const wide = await supabase
-        .from('google_calendar_connections')
-        .select('id, workspace_id, calendar_id, status, sync_enabled, refresh_token_enc, last_sync_at, updated_at, selected_calendar_ids, calendar_metadata')
-        .eq('workspace_id', workspaceId)
-        .maybeSingle()
-      if (!wide.error) {
-        row = (wide.data as Record<string, unknown> | null)
-      } else {
-        const narrow = await supabase
-          .from('google_calendar_connections')
-          .select('id, workspace_id, calendar_id, status, sync_enabled, refresh_token_enc, last_sync_at, updated_at')
-          .eq('workspace_id', workspaceId)
-          .maybeSingle()
-        row = (narrow.data as Record<string, unknown> | null)
-        rowErr = narrow.error ?? null
-      }
+    const { data: row, error: rowErr } = await supabase
+      .from('vw_google_calendar_status')
+      .select('id, workspace_id, calendar_id, default_calendar_id, status, sync_enabled, has_refresh_token, last_sync_at, updated_at, selected_calendar_ids, calendar_metadata')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+
+    if (rowErr) {
+      console.error('[google/status] Safe view read failed', rowErr.message)
+      return NextResponse.json({ ok: false, error: 'No se pudo leer el estado de Google Calendar' }, { status: 500 })
     }
 
     console.log('[google/status]', {
@@ -73,8 +62,7 @@ export async function GET() {
       foundConnection: Boolean(row),
       status: (row as Record<string, unknown> | null)?.status,
       syncEnabled: (row as Record<string, unknown> | null)?.sync_enabled,
-      hasRefreshToken: Boolean((row as Record<string, unknown> | null)?.refresh_token_enc),
-      rowErr: rowErr?.message,
+      hasRefreshToken: Boolean((row as Record<string, unknown> | null)?.has_refresh_token),
     })
 
     if (!row) {
