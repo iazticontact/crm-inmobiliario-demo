@@ -48,6 +48,7 @@ import {
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
+import { featureFlags } from '@/lib/feature-flags'
 import {
   VERTICALS,
   getPipelineForVertical,
@@ -78,13 +79,18 @@ const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: strin
   { key: 'professional_services',  label: 'Servicios',     description: 'Asesorías y servicios profesionales recurrentes.' },
 ]
 
-const SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+// The "Automatizaciones" subtab is operator-only — it shows the catalog of
+// n8n/Meta workflows. Hide from clients by default and only surface when
+// NEXT_PUBLIC_NOWLABS_INTERNAL=true.
+const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }>; internal?: boolean }> = [
   { key: 'pipeline',     label: 'Pipeline',         icon: Target },
   { key: 'cases',        label: 'Expedientes',      icon: FileText },
   { key: 'properties',   label: 'Propiedades',      icon: Building2 },
   { key: 'templates',    label: 'Plantillas',       icon: Sparkles },
-  { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle },
+  { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
+
+const SUBTABS = ALL_SUBTABS.filter((tab) => !tab.internal || featureFlags.nowlabsInternal)
 
 const SELECT_CLS =
   'h-7 rounded-lg border border-gray-200 bg-white px-2 text-[11px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500'
@@ -247,8 +253,8 @@ export default function OpportunitiesPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Operaciones"
-        description="Pipeline, expedientes y propiedades del workspace — workspace-scoped y compartido con NowLabs AI."
+        title="Negocio"
+        description="Inmobiliaria y Gestoría · pipeline, expedientes y propiedades del workspace."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -315,7 +321,7 @@ export default function OpportunitiesPage() {
 
       {isDemo && (
         <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Modo demo: las oportunidades, expedientes y propiedades requieren sesión real. Con sesión real, las acciones aquí y desde NowLabs AI escriben sobre las mismas tablas con RLS.
+          Estás en un entorno de prueba. Las oportunidades, expedientes y propiedades reales requieren sesión real; cuando inicies sesión, lo que crees aquí y lo que prepare el Asistente IA escriben en las mismas tablas.
         </div>
       )}
 
@@ -367,8 +373,8 @@ export default function OpportunitiesPage() {
               title="Sin oportunidades todavía"
               description={
                 vertical === 'all'
-                  ? 'Crea una desde el botón "Nueva oportunidad" o pídele a NowLabs AI "crea un lead para…" — entrará al pipeline.'
-                  : `Sin oportunidades en ${VERTICALS[verticalForPipeline].label.toLowerCase()}. Crea una arriba o desde NowLabs AI.`
+                  ? 'Crea una desde el botón "Nueva oportunidad" o pídele al Asistente IA "crea un lead para…" — entrará al pipeline.'
+                  : `Sin oportunidades en ${VERTICALS[verticalForPipeline].label.toLowerCase()}. Crea una arriba o desde el Asistente IA.`
               }
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
@@ -456,7 +462,7 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<FileText className="h-6 w-6 text-gray-300" />}
               title="Sin expedientes activos"
-              description="Crea uno desde el botón Nuevo expediente, o pídele a NowLabs AI: 'abre un expediente de NIE para Ana'."
+              description="Crea uno desde el botón Nuevo expediente, o pídele al Asistente IA: 'abre un expediente de NIE para Ana'."
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
                   <Plus className="h-3.5 w-3.5" /> Nuevo expediente
@@ -543,7 +549,7 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
               title="Sin propiedades en cartera"
-              description="Registra una desde Nueva propiedad o pídele a NowLabs AI 'crea una propiedad en captación en Marbella'."
+              description="Registra una desde Nueva propiedad o pídele al Asistente IA: 'crea una propiedad en captación en Marbella'."
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
                   <Plus className="h-3.5 w-3.5" /> Nueva propiedad
@@ -603,8 +609,8 @@ export default function OpportunitiesPage() {
         <WorkspaceTemplatesPanel workspaceId={workspaceId} vertical={vertical === 'all' ? 'all' : (vertical as VerticalKey)} />
       )}
 
-      {/* AUTOMATIONS */}
-      {subtab === 'automations' && (
+      {/* AUTOMATIONS — only when the operator surface is on */}
+      {subtab === 'automations' && featureFlags.nowlabsInternal && (
         <SectionCard
           title="Automatizaciones preparadas"
           description="Catálogo listo. Se ejecutarán cuando conectes n8n + WhatsApp/Instagram real."
@@ -636,16 +642,16 @@ export default function OpportunitiesPage() {
             <Briefcase className="h-4 w-4" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-gray-900">Operaciones · UI + NowLabs AI sobre las mismas tablas</p>
+            <p className="text-sm font-semibold text-gray-900">Negocio · UI y Asistente IA sobre las mismas tablas</p>
             <p className="mt-0.5 text-xs leading-5 text-gray-600">
               Los drawers de UI crean en <code className="rounded bg-white px-1 text-[10px]">opportunities</code>, <code className="rounded bg-white px-1 text-[10px]">service_cases</code> y <code className="rounded bg-white px-1 text-[10px]">properties</code> con RLS por workspace.
-              NowLabs AI escribe en las mismas tablas tras confirmación verbal en chat.
+              El Asistente IA escribe en las mismas tablas tras confirmación verbal en chat.
               Cada escritura deja un row en <code className="rounded bg-white px-1 text-[10px]">activities</code> para auditar y alimentar Dashboard / Cliente 360.
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> UI funcional</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> NowLabs AI conectado</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700"><PlugZap className="h-3 w-3" /> Automatizaciones pendientes de n8n / Meta</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> Asistente IA conectado</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700"><PlugZap className="h-3 w-3" /> Seguimiento automático en preparación</span>
             </div>
           </div>
         </div>

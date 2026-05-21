@@ -547,7 +547,7 @@ export default function CalendarPage() {
       return data
     } catch (err) {
       if (process.env.NODE_ENV === 'development') console.warn('[calendar/cancelEventViaRoute]', err)
-      return { ok: false, reason: 'network_error', message: 'No se pudo contactar con NowCRM.' }
+      return { ok: false, reason: 'network_error', message: 'No se pudo contactar con el servidor.' }
     }
   }, [])
 
@@ -632,7 +632,7 @@ export default function CalendarPage() {
   const handleDelete = async () => {
     if (!form.id) return
     if (form.isReadOnly) {
-      toast.info('Este evento es solo lectura', { description: 'Cancélalo desde Google Calendar — NowCRM no puede modificarlo.' })
+      toast.info('Este evento es solo lectura', { description: 'Cancélalo desde Google Calendar — el CRM no puede modificarlo.' })
       return
     }
     setDeleting(true)
@@ -658,7 +658,7 @@ export default function CalendarPage() {
           setForm(emptyEventForm)
         } else if (result.ok && result.localCancelled && !result.googleCancelled) {
           // Local OK, Google not done (not_synced_to_google, not_connected, credentials_not_configured)
-          const desc = result.message || 'Cancelado en NowCRM. Google no se actualizó.'
+          const desc = result.message || 'Cancelado en el CRM. Google no se actualizó.'
           toast.success(`Evento cancelado: ${title}`, { description: desc })
           setModalOpen(false)
           setForm(emptyEventForm)
@@ -671,7 +671,7 @@ export default function CalendarPage() {
         } else if (result.reason === 'rate_limited') {
           toast.error('Google está limitando peticiones', { description: result.message || 'Inténtalo en unos minutos.' })
         } else if (result.reason === 'google_api_error' || result.reason === 'google_fetch_error') {
-          toast.error('No se pudo cancelar en Google', { description: result.message || 'NowCRM no canceló el evento local para mantener la coherencia. Inténtalo de nuevo.' })
+          toast.error('No se pudo cancelar en Google', { description: result.message || 'El CRM no canceló el evento local para mantener la coherencia. Inténtalo de nuevo.' })
         } else if (result.reason === 'event_not_found') {
           toast.error('Evento no encontrado', { description: 'Quizá ya estaba cancelado. Refrescando lista.' })
         } else {
@@ -710,8 +710,8 @@ export default function CalendarPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Calendario"
-        description={weekRangeLabel(weekStart)}
+        title="Calendar"
+        description={`${weekRangeLabel(weekStart)} · Visitas, asesorías y disponibilidad`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <div className="hidden items-center gap-2 rounded-xl border border-gray-200/80 bg-white/80 px-3 py-1.5 shadow-sm shadow-gray-950/[0.02] md:flex">
@@ -728,7 +728,7 @@ export default function CalendarPage() {
                 size="sm"
                 variant="secondary"
                 onClick={openCalendarsPanel}
-                title="Elegir qué calendarios de Google se sincronizan con NowCRM"
+                title="Elegir qué calendarios de Google se sincronizan con el CRM"
               >
                 <Settings2 className="h-3.5 w-3.5" />
                 Calendarios
@@ -1025,7 +1025,7 @@ export default function CalendarPage() {
                   <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
                     <Lock className="mt-0.5 h-3 w-3 shrink-0" />
                     <span>
-                      Este evento viene de un calendario de Google solo lectura. NowCRM lo tiene en cuenta para conflictos pero no puede modificarlo. Edítalo desde Google Calendar.
+                      Este evento viene de un calendario de Google solo lectura. El CRM lo tiene en cuenta para conflictos pero no puede modificarlo. Edítalo desde Google Calendar.
                     </span>
                   </div>
                 )}
@@ -1127,7 +1127,7 @@ export default function CalendarPage() {
 
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <p className="mb-4 text-xs text-gray-500">
-                  Elige qué calendarios de Google quieres ver en NowCRM. Los eventos de cada calendario aparecerán al sincronizar y serán tenidos en cuenta para los conflictos de la IA.
+                  Elige qué calendarios de Google quieres ver en el CRM. Los eventos de cada calendario aparecerán al sincronizar y se tendrán en cuenta para los conflictos del asistente.
                 </p>
 
                 {loadingCalendars && (
@@ -1200,7 +1200,7 @@ export default function CalendarPage() {
                       <Lock className="h-3 w-3 text-amber-500" />
                       Solo lectura ({readOnlyCalendars.length})
                     </h3>
-                    <p className="mb-2 text-[10px] text-gray-400">Estos calendarios se muestran para evitar conflictos, pero NowCRM no puede modificarlos.</p>
+                    <p className="mb-2 text-[10px] text-gray-400">Estos calendarios se muestran para evitar conflictos, pero el CRM no puede modificarlos.</p>
                     <ul className="space-y-1.5">
                       {readOnlyCalendars.map((cal) => {
                         const selected = calendarSelection.has(cal.id)

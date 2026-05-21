@@ -72,22 +72,22 @@ type IntegrationCard = {
 }
 
 const integrations: IntegrationCard[] = [
-  { id: 'supabase', name: 'Base de datos', description: 'Auth, datos y persistencia por workspace. Gestionado por NowCRM.', status: supabaseStatus.configured ? 'connected' : 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Plataforma' },
-  { id: 'agent-tools', name: 'NowLabs AI Tools', description: 'Capacidades de IA para consultar el CRM y preparar acciones. Gestionado por NowCRM.', status: 'connected', icon: <Zap className="h-5 w-5" />, category: 'Plataforma' },
-  { id: 'n8n', name: 'Automatizaciones', description: 'Motor de workflows para WhatsApp, email, recordatorios y procesos automaticos.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Meta Business Platform oficial. Conecta tu cuenta para recibir y responder mensajes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificacion Meta', category: 'Mensajeria' },
-  { id: 'instagram', name: 'Instagram Direct', description: 'Mensajes y leads desde Instagram Direct.', status: 'pending', icon: <Globe className="h-5 w-5" />, category: 'Social' },
-  { id: 'email', name: 'Email', description: 'Emails transaccionales y secuencias automaticas con tu dominio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
-  { id: 'storage', name: 'Documentos y PDFs', description: 'Almacenamiento para propuestas, facturas PDF y adjuntos de conversaciones.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
-  { id: 'stripe', name: 'Cobros y pagos', description: 'Cobros, suscripciones y eventos de pago.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
-  { id: 'slack', name: 'Slack', description: 'Alertas internas de leads, cobros y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
+  { id: 'supabase', name: 'Base de datos', description: 'Auth, datos y persistencia del workspace. Gestionado por NOWLabs.', status: supabaseStatus.configured ? 'connected' : 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'agent-tools', name: 'Asistente IA · Tools', description: 'Acciones internas del asistente sobre el CRM. Gestionado por NOWLabs.', status: 'connected', icon: <Zap className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'n8n', name: 'Automatizaciones', description: 'Motor interno de flujos para WhatsApp, email y recordatorios.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Conexión oficial con Meta Business para recibir y responder mensajes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificación', category: 'Mensajeria' },
+  { id: 'instagram', name: 'Instagram', description: 'Mensajes directos desde Instagram, próxima fase.', status: 'pending', icon: <Globe className="h-5 w-5" />, category: 'Social' },
+  { id: 'email', name: 'Email', description: 'Emails transaccionales y secuencias con dominio propio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
+  { id: 'storage', name: 'Documentos y PDFs', description: 'Almacenamiento de propuestas, facturas y adjuntos del CRM.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
+  { id: 'stripe', name: 'Cobros y pagos', description: 'Cobros y eventos de pago, fase posterior.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
+  { id: 'slack', name: 'Slack', description: 'Alertas internas de leads y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
 
 const architectureCards = [
-  { title: 'Base de datos', label: 'Auth y datos por workspace', detail: supabaseStatus.configured ? 'Conectada' : 'Pendiente', icon: <Database className="h-5 w-5" />, tone: supabaseStatus.configured ? 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' : 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
-  { title: 'Automatizaciones', label: 'Workflows y flujos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
-  { title: 'NowLabs AI', label: 'Asistente y agent tools', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
-  { title: 'Canales', label: 'WhatsApp / Email / Pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Base de datos', label: 'Datos del workspace', detail: supabaseStatus.configured ? 'Conectada' : 'Pendiente', icon: <Database className="h-5 w-5" />, tone: supabaseStatus.configured ? 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' : 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
+  { title: 'Automatizaciones', label: 'Flujos internos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
+  { title: 'Asistente IA', label: 'Copiloto del CRM', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
+  { title: 'Canales', label: 'WhatsApp, Email y pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
 const notifDefaults = [
@@ -102,10 +102,10 @@ const supabaseReadiness = [
   { label: 'Clientes', value: 'Real', status: 'CRUD completo con notas y filtros por workspace' },
   { label: 'Facturacion', value: 'Real', status: 'Facturas persistentes y metricas por workspace' },
   { label: 'Calendario', value: 'Real', status: 'Eventos persistentes con citas desde IA' },
-  { label: 'Assistant', value: 'Backend real', status: 'NowLabs AI responde por /api/assistant/v2 con tools seguras' },
+  { label: 'Assistant', value: 'Backend real', status: 'Asistente responde por /api/assistant/v2 con tools seguras' },
   { label: 'Agent Tools', value: 'Preparado', status: 'Endpoint seguro con allowlist de acciones' },
   { label: 'OpenAI', value: 'Server-side', status: 'Clave solo en backend; no se expone al navegador' },
-  { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro de NowLabs AI' },
+  { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro del asistente' },
   { label: 'Documentos', value: 'Preparado', status: 'PDFs de informes y facturas generados' },
   { label: 'Dashboard', value: 'Real', status: 'KPIs de clientes, facturas y calendario reales' },
   { label: 'Automatizaciones avanzadas', value: 'Configurable', status: 'Workflows gestionados por NOWLabs' },
@@ -113,12 +113,11 @@ const supabaseReadiness = [
 ]
 
 const productStatusCards = [
-  { label: 'Core CRM', value: 'Operativo', detail: 'Auth, workspace, clientes, facturacion y calendario', tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { label: 'NowLabs AI', value: 'Activo', detail: 'Conversaciones reales con NowLabs AI', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
-  { label: 'Agent Tools', value: 'Preparado', detail: 'Acciones CRM seguras via API interna', tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-  { label: 'Documentos', value: 'Activo', detail: 'PDFs de informes y facturas generados', tone: 'border-blue-100 bg-blue-50 text-blue-700' },
-  { label: 'Automatizaciones avanzadas', value: 'Configurable', detail: 'Workflows gestionados por NOWLabs', tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-  { label: 'Canales', value: 'Proxima fase', detail: 'WhatsApp, Email y pagos por conectar', tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+  { label: 'Core CRM',          value: 'Operativo',     detail: 'Auth, clientes, calendario y expedientes activos.',           tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+  { label: 'Asistente IA',      value: 'Activo',        detail: 'Copiloto interno disponible en /assistant.',                 tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'Documentos',        value: 'Activo',        detail: 'PDFs de informes y facturas generados.',                     tone: 'border-blue-100 bg-blue-50 text-blue-700' },
+  { label: 'Automatizaciones',  value: 'Preparado',     detail: 'Flujos internos preparados, sin envíos reales aún.',         tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+  { label: 'Canales externos',  value: 'Próxima fase',  detail: 'WhatsApp, Email y Google Calendar por conectar.',            tone: 'border-amber-100 bg-amber-50 text-amber-700' },
 ]
 
 const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
@@ -216,10 +215,10 @@ export default function SettingsPage() {
     { label: 'Estado', value: 'Cargando', icon: <Shield className="h-4 w-4" /> },
     { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
   ] : currentUser.isDemo ? [
-    { label: 'Nombre del workspace', value: 'NowCRM Demo', icon: <Building2 className="h-4 w-4" /> },
-    { label: 'Email de administrador', value: 'demo@nowcrm.local', icon: <Mail className="h-4 w-4" /> },
-    { label: 'Estado', value: 'Modo demo', icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
+    { label: 'Nombre del workspace', value: 'Workspace de prueba', icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Email de administrador', value: 'demo@costadelsol.local', icon: <Mail className="h-4 w-4" /> },
+    { label: 'Estado', value: 'Entorno de prueba', icon: <Shield className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
   ] : [
     { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
@@ -363,18 +362,18 @@ export default function SettingsPage() {
     const status = params.get('status')
     if (integration !== 'google_calendar' || !status) return
     if (status === 'connected') {
-      toast.success('Google Calendar conectado', { description: 'Tu calendario ya esta sincronizado con NowCRM.' })
+      toast.success('Google Calendar conectado', { description: 'Tu calendario ya esta sincronizado con el CRM.' })
     } else if (status === 'error') {
       const reason = params.get('reason') ?? ''
       const genericDesc = reason === 'state_mismatch'
         ? 'Error de seguridad en el flujo OAuth. Cierra sesion, vuelve a entrar e intentalo de nuevo.'
         : reason === 'no_refresh_token'
-          ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca NowCRM y vuelve a autorizar.'
+          ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca el acceso y vuelve a autorizar.'
           : reason === 'unauthenticated'
             ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
             : 'No se pudo completar la autorizacion. Contacta con el equipo tecnico de NOWLabs.'
       const internalDesc = reason === 'not_configured'
-        ? 'La plataforma NowCRM aun no tiene Google OAuth configurado. Contacta con el equipo tecnico.'
+        ? 'La plataforma aún no tiene Google OAuth configurado. Contacta con el equipo técnico de NOWLabs.'
         : reason === 'missing_schema'
           ? 'La tabla google_calendar_connections no existe o le faltan columnas en Supabase. Aplica el SQL de schema y vuelve a intentarlo.'
           : reason === 'missing_unique_index'
@@ -386,14 +385,14 @@ export default function SettingsPage() {
                 : reason === 'missing_service_role'
                   ? 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor. Añadela a .env.local y reinicia el servidor de desarrollo.'
                   : reason === 'db_upsert_failed' || reason === 'db_error'
-                    ? 'Google autorizo correctamente pero NowCRM no pudo guardar la conexion. Revisa los logs del servidor y el schema de google_calendar_connections.'
+                    ? 'Google autorizó correctamente pero no se pudo guardar la conexión. Revisa los logs del servidor y el schema de google_calendar_connections.'
                     : reason === 'no_workspace'
-                      ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo tecnico de NowCRM.'
+                      ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo técnico de NOWLabs.'
                       : genericDesc
       const desc = SHOW_INTERNAL_TECH ? internalDesc : genericDesc
       toast.error('No se pudo conectar Google Calendar', { description: desc })
     } else if (status === 'pending') {
-      toast.info('Google Calendar pendiente', { description: 'La conexion OAuth esta pendiente. Contacta con el equipo tecnico de NowCRM.' })
+      toast.info('Google Calendar pendiente', { description: 'La conexión OAuth está pendiente. Contacta con el equipo técnico de NOWLabs.' })
     }
   }, [])
 
@@ -651,8 +650,8 @@ export default function SettingsPage() {
   const handleIntegrationAction = async (integration: IntegrationCard) => {
     const managedByNowCRM = ['supabase', 'agent-tools', 'n8n', 'whatsapp', 'storage'].includes(integration.id)
     if (managedByNowCRM) {
-      toast.info('Integracion gestionada por NowCRM', {
-        description: 'Esta integracion se configura desde la seccion correspondiente de esta pagina o directamente por el equipo de NowCRM.',
+      toast.info('Integración gestionada por NOWLabs', {
+        description: 'Esta integración se configura desde la sección correspondiente o directamente por el equipo técnico de NOWLabs.',
       })
       return
     }
@@ -818,33 +817,37 @@ export default function SettingsPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Configuracion"
-        description="Conecta tus integraciones y gestiona la configuracion de tu workspace"
+        title="Configuración"
+        description="Gestiona tu cuenta, tus integraciones y las preferencias del CRM."
         action={<Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
       />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {architectureCards.map((card) => (
-          <div key={card.title} className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.04]', card.tone)}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/85 shadow-sm ring-1 ring-black/[0.04]">{card.icon}</div>
-              <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold text-gray-600">{card.detail}</span>
+      {SHOW_INTERNAL_TECH && (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {architectureCards.map((card) => (
+            <div key={card.title} className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-indigo-950/[0.04]', card.tone)}>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/85 shadow-sm ring-1 ring-black/[0.04]">{card.icon}</div>
+                <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold text-gray-600">{card.detail}</span>
+              </div>
+              <p className="text-sm font-bold">{card.title}</p>
+              <p className="mt-0.5 text-xs opacity-80">{card.label}</p>
             </div>
-            <p className="text-sm font-bold">{card.title}</p>
-            <p className="mt-0.5 text-xs opacity-80">{card.label}</p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {productStatusCards.map((card) => (
-          <div key={card.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025]', card.tone)}>
-            <p className="text-xs font-medium opacity-80">{card.label}</p>
-            <p className="mt-1 text-lg font-bold">{card.value}</p>
-            <p className="mt-0.5 text-[11px] leading-5 opacity-80">{card.detail}</p>
-          </div>
-        ))}
-      </div>
+      {SHOW_INTERNAL_TECH && (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {productStatusCards.map((card) => (
+            <div key={card.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025]', card.tone)}>
+              <p className="text-xs font-medium opacity-80">{card.label}</p>
+              <p className="mt-1 text-lg font-bold">{card.value}</p>
+              <p className="mt-0.5 text-[11px] leading-5 opacity-80">{card.detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {settingsError && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -856,7 +859,7 @@ export default function SettingsPage() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <VerticalPreferenceCard />
-          <SectionCard title="Workspace" description="Identidad y estado del entorno NowCRM">
+          <SectionCard title="Mi cuenta" description="Identidad y estado de tu workspace.">
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
@@ -885,9 +888,10 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
+          {SHOW_INTERNAL_TECH && (
           <SectionCard
             title="Infraestructura"
-            description="Base de datos, autenticacion y persistencia por workspace — gestionado por NowCRM"
+            description="Base de datos, autenticación y persistencia. Gestionado por NOWLabs."
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
               <div className={cn('rounded-xl border px-4 py-3', supabaseStatus.configured ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50')}>
@@ -910,42 +914,39 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {SHOW_INTERNAL_TECH && (
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                {envChecks.map(({ key, label, ready }) => (
-                  <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                    <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="text-[10px] font-semibold text-gray-500">{label}</span>
-                      <Badge variant={ready ? 'success' : 'warning'} dot className="text-[10px]">{ready ? 'Detectada' : 'Pendiente'}</Badge>
-                    </div>
-                    <p className="truncate font-mono text-[11px] text-gray-700">{key}</p>
-                    <p className="mt-0.5 text-[10px] text-gray-400">Valor oculto por seguridad</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {envChecks.map(({ key, label, ready }) => (
+                <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <span className="text-[10px] font-semibold text-gray-500">{label}</span>
+                    <Badge variant={ready ? 'success' : 'warning'} dot className="text-[10px]">{ready ? 'Detectada' : 'Pendiente'}</Badge>
                   </div>
-                ))}
-              </div>
-            )}
+                  <p className="truncate font-mono text-[11px] text-gray-700">{key}</p>
+                  <p className="mt-0.5 text-[10px] text-gray-400">Valor oculto por seguridad</p>
+                </div>
+              ))}
+            </div>
 
-            {SHOW_INTERNAL_TECH && (
-              <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                {supabaseReadiness.map((item) => (
-                  <div key={item.label} className="rounded-xl border border-gray-100 bg-white p-3">
-                    <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
-                    <p className="mt-1 font-mono text-[10px] text-indigo-600">{item.value}</p>
-                    <p className="mt-1 text-[10px] text-gray-500">{item.status}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {supabaseReadiness.map((item) => (
+                <div key={item.label} className="rounded-xl border border-gray-100 bg-white p-3">
+                  <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
+                  <p className="mt-1 font-mono text-[10px] text-indigo-600">{item.value}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">{item.status}</p>
+                </div>
+              ))}
+            </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" onClick={() => toast.info('Checklist Supabase', { description: 'Verifica schema, RLS, tipos generados y URLs de Auth antes del deploy.' })}>
+              <Button variant="secondary" size="sm" onClick={() => toast.info('Checklist interno', { description: 'Verifica schema, RLS, tipos generados y URLs de Auth antes del deploy.' })}>
                 Ver checklist
               </Button>
               <Button size="sm" onClick={handleVerifySupabase}>
-                Verificar conexion
+                Verificar conexión
               </Button>
             </div>
           </SectionCard>
+          )}
 
           {SHOW_INTERNAL_TECH && (
           <SectionCard
@@ -1095,7 +1096,7 @@ export default function SettingsPage() {
 
           <SectionCard
             title="Plataforma IA"
-            description="Inteligencia artificial y mantenimiento gestionado por NowCRM"
+            description="Inteligencia artificial y mantenimiento gestionados por NOWLabs."
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="flex items-start gap-3">
@@ -1103,18 +1104,18 @@ export default function SettingsPage() {
                   <Zap className="h-4 w-4 text-indigo-700" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por NowCRM</p>
+                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por NOWLabs</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    La inteligencia artificial, las automatizaciones backend y el mantenimiento gestionado estan a cargo de NowCRM. No necesitas configurar ninguna clave de IA.
+                    La inteligencia artificial, las automatizaciones backend y el mantenimiento están gestionados por NOWLabs. No necesitas configurar ninguna clave de IA.
                   </p>
                 </div>
               </div>
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               {[
-                { label: 'NowLabs AI', detail: 'Activo', desc: 'Responde en Inbox, Dashboard y Assistant' },
-                { label: 'Automatizaciones', detail: 'Configurable', desc: 'Activa workflows desde esta pagina' },
-                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por NowCRM' },
+                { label: 'Asistente IA', detail: 'Activo', desc: 'Responde en Inbox, Dashboard y Asistente IA' },
+                { label: 'Automatizaciones', detail: 'Configurable', desc: 'Flujos internos preparados, sin envíos reales aún' },
+                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por NOWLabs' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
                   <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
@@ -1127,7 +1128,7 @@ export default function SettingsPage() {
 
           <SectionCard
             title="Google Calendar"
-            description="Conecta tu cuenta Google para sincronizar eventos con NowCRM"
+            description="Conecta tu cuenta Google para usar el calendario en visitas y asesorías."
             action={
               gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleGCalDisconnect()} disabled={gcalLoading} className="text-xs font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{gcalLoading ? 'Desconectando…' : 'Desconectar'}</button>
@@ -1156,7 +1157,7 @@ export default function SettingsPage() {
                         : 'Pulsa el boton para autorizar tu cuenta Google y vincular tu calendario.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      La plataforma NowCRM ya gestiona la conexion tecnica con Google. Tu solo necesitas pulsar el boton, iniciar sesion con tu Google y aceptar los permisos. NowCRM guarda la conexion automaticamente.
+                      NOWLabs ya tiene preparada la conexión técnica con Google. Solo necesitas pulsar el botón, iniciar sesión con tu cuenta de Google y aceptar los permisos. La conexión se guardará automáticamente.
                     </p>
                   </div>
                 </div>
@@ -1192,13 +1193,13 @@ export default function SettingsPage() {
                 {gcalOauthStatus === 'error' && (
                   <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-                    <p className="text-xs leading-5 text-red-700">No se pudo completar la conexion con Google. Intenta de nuevo o contacta con NowCRM.</p>
+                    <p className="text-xs leading-5 text-red-700">No se pudo completar la conexión con Google. Inténtalo de nuevo o contacta con el equipo técnico de NOWLabs.</p>
                   </div>
                 )}
                 {gcalOauthStatus === 'pending' && (
                   <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <p className="text-xs leading-5 text-amber-700">Conexion en proceso. Contacta con NowCRM para completar la configuracion OAuth.</p>
+                    <p className="text-xs leading-5 text-amber-700">Conexión en proceso. Contacta con NOWLabs para completar la configuración OAuth.</p>
                   </div>
                 )}
                 <div className="mb-3 flex flex-wrap gap-2">
@@ -1230,7 +1231,7 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
                   <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
                   <p className="text-[11px] leading-5 text-blue-700">
-                    La plataforma NowCRM gestiona la conexion tecnica. Tu solo autorizas tu cuenta. Los tokens se guardan de forma segura en el servidor, nunca en el navegador. Si al pulsar el boton no aparece la pantalla de Google, contacta con el equipo tecnico de NowCRM.
+                    NOWLabs gestiona la conexión técnica. Tú solo autorizas tu cuenta. Los tokens se guardan de forma segura en el servidor, nunca en el navegador. Si al pulsar el botón no aparece la pantalla de Google, contacta con el equipo técnico de NOWLabs.
                   </p>
                 </div>
               </div>
@@ -1241,7 +1242,7 @@ export default function SettingsPage() {
                     'Pulsa "Autorizar con Google"',
                     'Inicia sesion con tu Google',
                     'Acepta los permisos de calendario',
-                    'NowCRM guarda la conexion',
+                    'La conexión se guarda automáticamente',
                   ].map((step, i) => (
                     <div key={step} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700">{i + 1}</span>
@@ -1300,7 +1301,7 @@ export default function SettingsPage() {
                                   : !openaiReady
                                     ? SHOW_INTERNAL_TECH
                                       ? 'Falta OPENAI_API_KEY en el servidor.'
-                                      : 'NowLabs AI pendiente de configuracion tecnica por NOWLabs.'
+                                      : 'Asistente IA pendiente de configuración técnica por NOWLabs.'
                                     : 'Conecta WhatsApp Business antes de activar el modo automatico.',
                               })
                               return
@@ -1326,8 +1327,8 @@ export default function SettingsPage() {
                                 : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.'
                               : !openaiReady
                                 ? SHOW_INTERNAL_TECH
-                                  ? 'NowLabs AI pendiente: falta OPENAI_API_KEY en el servidor.'
-                                  : 'NowLabs AI pendiente de configuracion tecnica por NOWLabs.'
+                                  ? 'Asistente IA pendiente: falta OPENAI_API_KEY en el servidor.'
+                                  : 'Asistente IA pendiente de configuración técnica por NOWLabs.'
                                 : !waConnection || String(waConnection.status ?? '') === 'disconnected'
                                   ? 'El modo automatico requiere WhatsApp conectado. Cuando NOWLabs complete la configuracion tecnica podras activarlo.'
                                   : 'La respuesta automatica se activara cuando WhatsApp este verificado y conectado.'}
@@ -1395,7 +1396,7 @@ export default function SettingsPage() {
                         : 'Introduce los IDs de tu cuenta Meta para vincular WhatsApp Business.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      La plataforma NowCRM gestiona la conexion tecnica con Meta. Tu introduces los IDs de tu Business y numero verificado. NowCRM recibe los mensajes entrantes y los procesa en el Inbox.
+                      NOWLabs gestiona la conexión técnica con Meta. Tú introduces los IDs de tu Business y el número verificado. El CRM recibe los mensajes entrantes y los procesa en el Inbox.
                     </p>
                   </div>
                 </div>
@@ -1403,7 +1404,7 @@ export default function SettingsPage() {
                   <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                     <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
                     <div>
-                      <p className="text-xs font-semibold text-slate-900">Configuracion de plataforma — gestionada por NowCRM</p>
+                      <p className="text-xs font-semibold text-slate-900">Configuración de plataforma — gestionada por NOWLabs</p>
                       <p className="text-[11px] leading-5 text-slate-600">
                         META_WHATSAPP_ACCESS_TOKEN, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y NOWCRM_WEBHOOK_SECRET estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo. No introduzcas tokens ni claves API aqui.
                       </p>
@@ -1418,9 +1419,9 @@ export default function SettingsPage() {
                 {SHOW_INTERNAL_TECH ? (
                   <>
                     <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
-                      <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook de NowCRM</p>
+                      <p className="mb-1 text-xs font-semibold text-emerald-900">URL webhook del CRM</p>
                       <p className="mb-2 text-[11px] leading-5 text-emerald-700">
-                        Copia esta URL y pegala en Meta Developers → Configuracion del webhook para que Meta envie los mensajes a NowCRM.
+                        Copia esta URL y pégala en Meta Developers → Configuración del webhook para que Meta envíe los mensajes al CRM.
                         {!process.env.NEXT_PUBLIC_APP_URL && (
                           <> <strong>Atencion:</strong> Meta solo acepta HTTPS publica. En local arranca un tunel (ngrok / cloudflared) o sube a Vercel antes de registrarla.</>
                         )}
@@ -1505,7 +1506,7 @@ export default function SettingsPage() {
                     <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
                       <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                       <p className="text-[11px] leading-5 text-emerald-700">
-                        No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NowCRM en el servidor. El numero requiere verificacion en Meta antes de recibir mensajes reales.
+                        No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NOWLabs en el servidor. El número requiere verificación en Meta antes de recibir mensajes reales.
                       </p>
                     </div>
                   </>
@@ -1607,6 +1608,7 @@ export default function SettingsPage() {
           </SectionCard>
           )}
 
+          {SHOW_INTERNAL_TECH && (
           <SectionCard title="Integraciones externas" description="Canales y servicios conectados o pendientes">
             <div className="grid gap-3 md:grid-cols-2">
               {integrations.map((intg) => {
@@ -1654,7 +1656,7 @@ export default function SettingsPage() {
                       )}
                     >
                       {managedByDedicatedConfig
-                        ? 'Gestionado por NowCRM'
+                        ? 'Gestionado por NOWLabs'
                         : currentStatus === 'connected'
                           ? 'Pasar a pendiente'
                           : currentStatus === 'pending'
@@ -1667,10 +1669,12 @@ export default function SettingsPage() {
               })}
             </div>
           </SectionCard>
+          )}
         </div>
 
         <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
-          <SectionCard title="Estado del sistema" description="Resumen de servicios conectados y proximas integraciones">
+          {SHOW_INTERNAL_TECH && (
+          <SectionCard title="Estado del sistema" description="Resumen de servicios conectados y próximas integraciones">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
@@ -1698,11 +1702,12 @@ export default function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <Button size="sm" onClick={() => toast.success('Proximas integraciones', { description: 'Conexion tecnica gestionada por NOWLabs. Google Calendar, WhatsApp y Email proximamente.' })}>
-                Ver proximas integraciones
+              <Button size="sm" onClick={() => toast.success('Próximas integraciones', { description: 'Conexión técnica gestionada por NOWLabs. Google Calendar, WhatsApp y Email próximamente.' })}>
+                Ver próximas integraciones
               </Button>
             </div>
           </SectionCard>
+          )}
 
           <SectionCard title="Notificaciones" description="Alertas del workspace">
             <div className="space-y-3">

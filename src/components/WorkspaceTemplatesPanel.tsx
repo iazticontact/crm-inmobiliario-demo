@@ -132,7 +132,7 @@ function TemplateDrawerInner({ mode, workspaceId, initial, defaultVertical, onCl
       open
       onClose={onClose}
       title={mode === 'create' ? 'Nueva plantilla del workspace' : 'Editar plantilla'}
-      description="Las plantillas del workspace conviven con el catálogo base; NowLabs y el composer las verán primero."
+      description="Las plantillas del workspace conviven con el catálogo base; el Asistente IA y el composer las verán primero."
       width="lg"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -182,7 +182,7 @@ function TemplateDrawerInner({ mode, workspaceId, initial, defaultVertical, onCl
           />
           <p className="text-[11px] text-gray-500">
             Usa <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{variable}}'}</code> para placeholders.
-            NowLabs sustituirá <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{nombre}}'}</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{empresa}}'}</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{agente}}'}</code> cuando estén disponibles.
+            El asistente sustituirá <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{nombre}}'}</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{empresa}}'}</code>, <code className="rounded bg-gray-100 px-1 text-[10px]">{'{{agente}}'}</code> cuando estén disponibles.
           </p>
         </div>
       </form>

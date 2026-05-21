@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { redirect } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Plus, Play, Pause, Zap, Mail, Clock, CheckCircle, XCircle, ArrowRight, BarChart2, ExternalLink, Copy, RefreshCw, AlertTriangle, MessageSquare, Calendar } from 'lucide-react'
 import { toast } from 'sonner'
@@ -12,6 +13,7 @@ import { automations, automationEmails } from '@/lib/mock-data'
 import { n8nWebhookConfigs, triggerN8nWebhook, type N8nEventType } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { featureFlags } from '@/lib/feature-flags'
 import { createActivity, getAutomationWorkflows, getN8nFlows, getWorkspaceContext, toggleAutomationWorkflow, updateN8nFlow, upsertAutomationWorkflow } from '@/lib/supabase-queries'
 import { AUTOMATION_TEMPLATES, VERTICALS, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { AutomationStatus, AutomationEmailStatus, N8nFlowStatus } from '@/lib/types'
@@ -93,6 +95,11 @@ function defaultFlowUrl(event: N8nEventType) {
 }
 
 export default function AutomationsPage() {
+  // Operator-only surface. Hidden from the client sidebar by default and
+  // blocked from direct URL access unless NEXT_PUBLIC_NOWLABS_INTERNAL=true.
+  // Route kept alive on purpose — NOWLabs uses it to manage flows.
+  if (!featureFlags.nowlabsInternal) redirect('/dashboard')
+
   const [activeStatuses, setActiveStatuses] = useState<Record<string, AutomationStatus>>(
     Object.fromEntries(automations.map((a) => [a.id, automationCatalog[a.id]?.canActivateNow ? a.status : 'draft']))
   )

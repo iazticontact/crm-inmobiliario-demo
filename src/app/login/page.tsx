@@ -10,7 +10,6 @@ import {
   CheckCircle,
   CreditCard,
   DollarSign,
-  Building2,
   KeyRound,
   Loader2,
   Lock,
@@ -18,7 +17,6 @@ import {
   Shield,
   Sparkles,
   Star,
-  User,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,34 +26,33 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { featureFlags } from '@/lib/feature-flags'
 
-type AuthMode = 'signin' | 'signup' | 'forgot'
-type AuthFieldErrors = Partial<Record<'name' | 'companyName' | 'email' | 'password', string>>
+type AuthMode = 'signin' | 'forgot'
+type AuthFieldErrors = Partial<Record<'email' | 'password', string>>
 
 const loginMetrics = [
-  { icon: Users, value: '+1.284', label: 'Clientes activos', detail: '+12,5% este mes', tone: 'from-indigo-400 to-sky-300' },
-  { icon: Star, value: '94%', label: 'Satisfaccion', detail: 'soporte e IA', tone: 'from-emerald-300 to-teal-200' },
-  { icon: Bot, value: '89%', label: 'Resuelto por IA', detail: 'sin intervencion', tone: 'from-violet-300 to-fuchsia-200' },
-  { icon: DollarSign, value: '42.890 EUR', label: 'Gestionados', detail: 'facturacion demo', tone: 'from-blue-300 to-indigo-200' },
+  { icon: Users,      value: 'Clientes',     label: 'Compradores, propietarios y leads', detail: 'ficha 360°',         tone: 'from-indigo-400 to-sky-300' },
+  { icon: Star,       value: 'Inmobiliaria', label: 'Captaciones, visitas y propuestas', detail: 'pipeline propio',    tone: 'from-emerald-300 to-teal-200' },
+  { icon: Bot,        value: 'Asistente',    label: 'Copiloto IA del CRM',               detail: 'redacta y resume',   tone: 'from-violet-300 to-fuchsia-200' },
+  { icon: DollarSign, value: 'Gestoría',     label: 'Expedientes y documentos',          detail: 'extranjería y NIE',  tone: 'from-blue-300 to-indigo-200' },
 ]
 
-const proofPoints = ['Pipeline unificado', 'IA accionable', 'Cobros y agenda', 'Integraciones listas']
+const proofPoints = ['Inmobiliaria y gestoría', 'Asistente IA integrado', 'Calendario unificado', 'Integraciones preparadas']
 
 const productRows = [
-  { name: 'Ana Rodriguez', stage: 'Demo Enterprise', score: '92', value: '12.400 EUR', color: 'bg-emerald-400' },
-  { name: 'Carlos Mendez', stage: 'Pricing enviado', score: '74', value: '3.200 EUR', color: 'bg-amber-400' },
-  { name: 'Laura Garcia', stage: 'Cliente activo', score: '88', value: '8.900 EUR', color: 'bg-sky-400' },
+  { name: 'Ana Rodríguez', stage: 'Visita programada',     score: '92', value: 'Marbella centro', color: 'bg-emerald-400' },
+  { name: 'Carlos Méndez', stage: 'Propuesta enviada',     score: '74', value: 'Ático Estepona',  color: 'bg-amber-400' },
+  { name: 'Laura García',  stage: 'Expediente en trámite', score: '88', value: 'NIE · pendiente', color: 'bg-sky-400' },
 ]
 
 const cockpitMetrics = [
-  { label: 'Leads hoy', value: '160', icon: Users, tone: 'bg-indigo-500/15 text-indigo-100 ring-indigo-300/15' },
-  { label: 'IA resueltos', value: '47', icon: Bot, tone: 'bg-violet-500/15 text-violet-100 ring-violet-300/15' },
-  { label: 'Cobrado', value: '8.234', icon: CreditCard, tone: 'bg-emerald-500/15 text-emerald-100 ring-emerald-300/15' },
+  { label: 'Leads hoy',    value: '—', icon: Users,      tone: 'bg-indigo-500/15 text-indigo-100 ring-indigo-300/15' },
+  { label: 'Citas',        value: '—', icon: Bot,        tone: 'bg-violet-500/15 text-violet-100 ring-violet-300/15' },
+  { label: 'Expedientes',  value: '—', icon: CreditCard, tone: 'bg-emerald-500/15 text-emerald-100 ring-emerald-300/15' },
 ]
 
 const authBenefits = [
-  'Auth real con Supabase preparado',
-  'Modo demo sin tarjeta ni registro',
-  'Workspace listo para migrar datos mock',
+  'Acceso por email y contraseña',
+  'Workspace listo para inmobiliaria y gestoría',
 ]
 
 const loginTransitionSteps = [
@@ -68,36 +65,20 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-function getPasswordStrength(password: string) {
-  let score = 0
-  if (password.length >= 8) score += 1
-  if (/[A-Z]/.test(password)) score += 1
-  if (/[0-9]/.test(password)) score += 1
-  if (/[^A-Za-z0-9]/.test(password)) score += 1
-  return score
-}
-
-function hasRequiredPasswordShape(password: string) {
-  return password.length >= 8 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /[0-9]/.test(password)
-}
-
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-function validateAuthFields(mode: AuthMode, values: { name: string; companyName: string; email: string; password: string }) {
+function validateAuthFields(mode: AuthMode, values: { email: string; password: string }) {
   const errors: AuthFieldErrors = {}
   const cleanEmail = values.email.trim()
 
-  if (mode === 'signup' && !values.name.trim()) errors.name = 'El nombre es obligatorio.'
-  if (mode === 'signup' && !values.companyName.trim()) errors.companyName = 'La empresa o workspace es obligatorio.'
   if (!cleanEmail) errors.email = 'El email es obligatorio.'
   else if (!isValidEmail(cleanEmail)) errors.email = 'Introduce un email valido.'
 
   if (mode !== 'forgot') {
     if (!values.password) errors.password = 'La contraseña es obligatoria.'
     else if (values.password.length < 8) errors.password = 'Usa al menos 8 caracteres.'
-    else if (!hasRequiredPasswordShape(values.password)) errors.password = 'Debe incluir mayuscula, minuscula y numero.'
   }
 
   return errors
@@ -109,9 +90,7 @@ function getAuthErrorMessage(error: unknown) {
   const message = error.message.toLowerCase()
   if (message.includes('invalid login credentials')) return 'Email o contraseña incorrectos'
   if (message.includes('email not confirmed')) return 'Confirma tu email antes de entrar'
-  if (message.includes('user already registered') || message.includes('already registered')) return 'Esta cuenta ya existe. Inicia sesion o recupera tu contraseña.'
   if (message.includes('invalid path specified')) return 'La URL de confirmacion no es valida. Revisa las URLs permitidas en Supabase.'
-  if (message.includes('signup is disabled')) return 'El registro con email esta desactivado en Supabase.'
   if (message.includes('password')) return 'Revisa la contraseña y vuelve a intentarlo'
 
   return error.message
@@ -120,8 +99,6 @@ function getAuthErrorMessage(error: unknown) {
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState<AuthMode>('signin')
-  const [name, setName] = useState('')
-  const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -129,10 +106,9 @@ export default function LoginPage() {
   const [transitionStep, setTransitionStep] = useState(0)
   const [formSubmitted, setFormSubmitted] = useState(false)
 
-  const passwordStrength = useMemo(() => getPasswordStrength(password), [password])
-  const formErrors = useMemo(() => validateAuthFields(mode, { name, companyName, email, password }), [companyName, email, mode, name, password])
+  const formErrors = useMemo(() => validateAuthFields(mode, { email, password }), [email, mode, password])
   const formCanSubmit = Object.keys(formErrors).length === 0
-  const showErrors = formSubmitted || mode === 'signup'
+  const showErrors = formSubmitted
   const supabaseReady = isSupabaseConfigured()
   const activeTransitionText = loginTransitionSteps[transitionStep] ?? loginTransitionSteps[0]
   const transitionProgress = ((transitionStep + 1) / loginTransitionSteps.length) * 100
@@ -170,11 +146,9 @@ export default function LoginPage() {
   const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const cleanEmail = email.trim()
-    const cleanName = name.trim()
-    const cleanCompanyName = companyName.trim()
 
     setFormSubmitted(true)
-    const validationErrors = validateAuthFields(mode, { name, companyName, email, password })
+    const validationErrors = validateAuthFields(mode, { email, password })
     if (Object.keys(validationErrors).length > 0) {
       toast.error('Revisa los campos', { description: 'Faltan datos obligatorios o hay algun formato incorrecto.' })
       return
@@ -192,32 +166,10 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
         if (error) throw error
         window.localStorage.removeItem(DEMO_MODE_KEY)
-        toast.success('Sesión iniciada', { description: 'Preparando tu workspace NowCRM.' })
+        toast.success('Sesión iniciada', { description: 'Preparando tu workspace.' })
         await runLoginTransition()
         router.replace('/dashboard')
         router.refresh()
-        return
-      }
-
-      if (mode === 'signup') {
-        const origin = window.location.origin
-        const { error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-          options: {
-            emailRedirectTo: `${origin}/auth/callback`,
-            data: {
-              full_name: cleanName,
-              workspace_name: cleanCompanyName,
-              company_name: cleanCompanyName,
-              trial_status: 'active',
-              onboarding_completed: false,
-            },
-          },
-        })
-        if (error) throw error
-        toast.success('Cuenta creada. Confirma tu email antes de entrar', { description: 'Revisa tu email para confirmar la cuenta.' })
-        setMode('signin')
         return
       }
 
@@ -240,10 +192,10 @@ export default function LoginPage() {
     const supabase = getSupabaseBrowserClient()
     if (supabase) {
       const { error } = await supabase.auth.signOut()
-      if (error) toast.warning('No se pudo cerrar la sesión remota', { description: 'El modo demo se abrirá igualmente.' })
+      if (error) toast.warning('No se pudo cerrar la sesión remota', { description: 'El entorno de prueba se abrirá igualmente.' })
     }
     window.localStorage.setItem(DEMO_MODE_KEY, 'true')
-    toast.success('Modo demo activado', { description: 'Entrando con datos mock y perfil preconfigurado.' })
+    toast.success('Entorno de prueba activado', { description: 'Entrando con datos de muestra para revisar la interfaz.' })
     router.replace('/dashboard')
   }
 
@@ -326,16 +278,15 @@ export default function LoginPage() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold text-white">NowCRM</span>
-                  <span className="rounded-full border border-white/12 bg-white/8 px-2 py-0.5 text-[10px] font-semibold text-indigo-100">Demo Pro</span>
+                  <span className="text-xl font-bold text-white">Costa del Sol CRM</span>
                 </div>
-                <p className="text-xs text-slate-400">CRM con IA para negocios modernos</p>
+                <p className="text-xs text-slate-400">Tecnología por NOWLabs</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-slate-200 shadow-lg shadow-black/10 backdrop-blur-xl">
               <span className={cn('h-1.5 w-1.5 rounded-full shadow-[0_0_14px_rgba(110,231,183,0.9)]', supabaseReady ? 'bg-emerald-300' : 'bg-amber-300')} />
-              {supabaseReady ? 'Supabase preparado' : 'Modo demo disponible'}
+              {supabaseReady ? 'Workspace activo' : 'Workspace en preparación'}
             </div>
           </motion.div>
 
@@ -348,15 +299,15 @@ export default function LoginPage() {
             >
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200/20 bg-white/[0.07] px-3.5 py-1.5 text-xs font-semibold text-indigo-100 shadow-xl shadow-black/10 backdrop-blur-xl">
                 <Sparkles className="h-3.5 w-3.5 text-indigo-200" />
-                NowCRM Intelligence CRM
+                CRM para Costa del Sol Real Homes
               </div>
 
               <h1 className="text-5xl font-bold leading-[1.03] text-white xl:text-[3.35rem] 2xl:text-[4rem]">
-                Convierte leads en ventas con una operacion inteligente.
+                Clientes, visitas y expedientes en un solo lugar.
               </h1>
 
               <p className="mt-4 max-w-xl text-[15px] leading-7 text-slate-300">
-                Un CRM con IA para gestionar leads, agenda, facturacion y automatizaciones desde una experiencia comercial lista para presentar.
+                CRM dedicado a inmobiliaria y gestoría: leads, calendario, expedientes y conversaciones con asistente IA integrado.
               </p>
 
               <div className="mt-4 hidden flex-wrap gap-2 [@media(min-height:820px)]:flex">
@@ -400,12 +351,12 @@ export default function LoginPage() {
                 <div className="rounded-[1.25rem] border border-white/10 bg-[#070b18]/92 p-3.5 shadow-inner shadow-white/[0.03]">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-white">NowCRM cockpit</p>
-                      <p className="text-xs text-slate-400">Pipeline, IA y automatizaciones</p>
+                      <p className="text-sm font-semibold text-white">Tu workspace</p>
+                      <p className="text-xs text-slate-400">Inmobiliaria · Gestoría · Asistente IA</p>
                     </div>
                     <div className="flex items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                      Live demo
+                      Vista previa
                     </div>
                   </div>
 
@@ -478,7 +429,7 @@ export default function LoginPage() {
                   <div className="mt-2.5 rounded-2xl border border-white/10 bg-white/[0.045] [@media(max-height:820px)]:hidden">
                     <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
                       <p className="text-xs font-semibold text-slate-200">Clientes prioritarios</p>
-                      <span className="rounded-full bg-white/[0.06] px-2 py-1 text-[10px] text-slate-400">mock data</span>
+                      <span className="rounded-full bg-white/[0.06] px-2 py-1 text-[10px] text-slate-400">Vista previa</span>
                     </div>
                     <div className="divide-y divide-white/10">
                       {productRows.map((row) => (
@@ -516,8 +467,8 @@ export default function LoginPage() {
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <span className="block text-lg font-bold text-white">NowCRM</span>
-                <span className="text-xs text-slate-400">CRM con IA y auth real</span>
+                <span className="block text-lg font-bold text-white">Costa del Sol CRM</span>
+                <span className="text-xs text-slate-400">Tecnología por NOWLabs</span>
               </div>
             </div>
 
@@ -530,76 +481,21 @@ export default function LoginPage() {
                   </div>
                   <div className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold', supabaseReady ? 'bg-emerald-400/10 text-emerald-100' : 'bg-amber-400/10 text-amber-100')}>
                     <span className={cn('h-1.5 w-1.5 rounded-full', supabaseReady ? 'bg-emerald-300' : 'bg-amber-300')} />
-                    {supabaseReady ? 'Supabase' : 'Demo'}
+                    {supabaseReady ? 'Listo' : 'Preparado'}
                   </div>
                 </div>
                 <h2 className="text-3xl font-bold leading-tight">
                   {mode === 'signin' && 'Iniciar sesion'}
-                  {mode === 'signup' && 'Crear cuenta'}
                   {mode === 'forgot' && 'Recuperar password'}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  {mode === 'signin' && 'Accede con tu cuenta o entra en modo demo para revisar el producto completo.'}
-                  {mode === 'signup' && 'Crea tu workspace y confirma tu email desde Supabase antes de entrar.'}
+                  {mode === 'signin' && 'Accede con tu cuenta para entrar a tu workspace.'}
                   {mode === 'forgot' && 'Recibe un enlace seguro para restablecer el acceso a tu workspace.'}
                 </p>
               </div>
 
               <div className="p-6">
-                {mode !== 'forgot' && (
-                  <div className="mb-5 grid grid-cols-2 rounded-xl border border-gray-200 bg-gray-50 p-1">
-                    {[
-                      { id: 'signin' as const, label: 'Iniciar sesion' },
-                      { id: 'signup' as const, label: 'Crear cuenta' },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => resetFormState(item.id)}
-                        className={cn(
-                          'rounded-lg px-3 py-2 text-xs font-semibold transition-all',
-                          mode === item.id ? 'bg-white text-gray-950 shadow-sm' : 'text-gray-500 hover:text-gray-900'
-                        )}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 <form onSubmit={handleAuth} className="space-y-4">
-                  {mode === 'signup' && (
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold text-gray-600">Nombre</span>
-                      <div className="relative">
-                        <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          value={name}
-                          onChange={(event) => setName(event.target.value)}
-                          placeholder="Tu nombre"
-                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.name ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
-                        />
-                      </div>
-                      {showErrors && formErrors.name && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.name}</span>}
-                    </label>
-                  )}
-
-                  {mode === 'signup' && (
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold text-gray-600">Empresa / workspace</span>
-                      <div className="relative">
-                        <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          value={companyName}
-                          onChange={(event) => setCompanyName(event.target.value)}
-                          placeholder="Nombre de tu empresa"
-                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.companyName ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
-                        />
-                      </div>
-                      {showErrors && formErrors.companyName && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.companyName}</span>}
-                    </label>
-                  )}
-
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-semibold text-gray-600">Email</span>
                     <div className="relative">
@@ -632,35 +528,12 @@ export default function LoginPage() {
                     </label>
                   )}
 
-                  {mode === 'signup' && (
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between text-[11px]">
-                        <span className="text-gray-500">Fuerza de password</span>
-                        <span className={cn('font-semibold', passwordStrength >= 3 ? 'text-emerald-600' : passwordStrength >= 2 ? 'text-amber-600' : 'text-gray-400')}>
-                          {passwordStrength >= 3 ? 'Solida' : passwordStrength >= 2 ? 'Media' : 'Basica'}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-1">
-                        {[1, 2, 3, 4].map((step) => (
-                          <span
-                            key={step}
-                            className={cn(
-                              'h-1.5 rounded-full',
-                              passwordStrength >= step ? 'bg-gradient-to-r from-indigo-500 to-violet-600' : 'bg-gray-200'
-                            )}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   <Button
                     className={cn('h-11 w-full gap-2 text-sm font-semibold shadow-lg shadow-indigo-600/20', !formCanSubmit && 'cursor-not-allowed opacity-60')}
                     loading={loading}
                     aria-disabled={!formCanSubmit}
                   >
                     {mode === 'signin' && 'Iniciar sesion'}
-                    {mode === 'signup' && 'Crear cuenta'}
                     {mode === 'forgot' && 'Enviar enlace'}
                     <ArrowRight className="h-4 w-4" />
                   </Button>
@@ -678,7 +551,7 @@ export default function LoginPage() {
                   )}
                   {featureFlags.demoData && (
                     <button type="button" onClick={enterDemo} className="font-semibold text-gray-500 transition-colors hover:text-gray-900">
-                      Entrar en modo demo
+                      Entrar en entorno de prueba
                     </button>
                   )}
                 </div>
@@ -686,7 +559,7 @@ export default function LoginPage() {
                 <div className="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-sky-50 p-4 [@media(max-height:820px)]:hidden">
                   <div className="mb-2 flex items-center gap-2">
                     <Shield className="h-4 w-4 text-indigo-600" />
-                    <span className="text-xs font-semibold text-indigo-950">Producto listo para demo comercial</span>
+                    <span className="text-xs font-semibold text-indigo-950">Plataforma preparada para Costa del Sol Real Homes</span>
                   </div>
                   <ul className="space-y-1.5">
                     {authBenefits.map((item) => (

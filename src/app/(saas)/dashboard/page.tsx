@@ -44,11 +44,11 @@ const activityBg: Record<ActivityType, string> = {
 }
 
 const channels = [
-  { name: 'NowLabs AI', status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
-  { name: 'Web Chat', status: 'prepared', color: 'text-blue-600 bg-blue-50', leads: 0, icon: <Wifi className="h-4 w-4" /> },
-  { name: 'WhatsApp Business', status: 'pending', color: 'text-amber-600 bg-amber-50', leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
-  { name: 'Instagram', status: 'pending', color: 'text-violet-600 bg-violet-50', leads: 0, icon: <Globe className="h-4 w-4" /> },
-  { name: 'Email / Resend', status: 'pending', color: 'text-indigo-600 bg-indigo-50', leads: 0, icon: <Mail className="h-4 w-4" /> },
+  { name: 'Asistente IA',       status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
+  { name: 'Web',                status: 'prepared',  color: 'text-blue-600 bg-blue-50',       leads: 0, icon: <Wifi className="h-4 w-4" /> },
+  { name: 'WhatsApp',           status: 'pending',   color: 'text-amber-600 bg-amber-50',     leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
+  { name: 'Instagram',          status: 'pending',   color: 'text-violet-600 bg-violet-50',   leads: 0, icon: <Globe className="h-4 w-4" /> },
+  { name: 'Email',              status: 'pending',   color: 'text-indigo-600 bg-indigo-50',   leads: 0, icon: <Mail className="h-4 w-4" /> },
 ]
 
 const aiActions = [
@@ -95,7 +95,7 @@ export default function DashboardPage() {
         if (!workspaceId) {
           setRealStats(null)
           setActivity([])
-          setDashboardLoadError('No se ha encontrado workspace real. No se muestran datos demo en modo real.')
+          setDashboardLoadError('Aún no hay workspace asignado a tu cuenta. Contacta con el equipo técnico para completar la activación.')
           return
         }
         const [clients, invoices, events, conversations, activities, opps, cases, properties] = await Promise.all([
@@ -245,36 +245,9 @@ export default function DashboardPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-2xl font-bold text-gray-950">{greeting}, {userLoading ? '...' : currentUser.name || currentUser.workspaceName}</h2>
-            <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : realStats ? 'success' : 'warning'} dot>{userLoading ? 'Cargando' : realStats ? 'Datos reales conectados' : currentUser.isDemo ? currentUser.trialLabel : 'Sin datos reales'}</Badge>
+            <Badge variant={userLoading ? 'default' : realStats ? 'success' : currentUser.isDemo ? 'indigo' : 'warning'} dot>{userLoading ? 'Cargando' : realStats ? 'Workspace activo' : currentUser.isDemo ? 'Entorno de prueba' : 'Sin datos todavía'}</Badge>
           </div>
-          {!userLoading && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {[
-                { label: 'NowLabs AI', state: 'ready' },
-                { label: 'Inbox omnicanal', state: 'ready' },
-                { label: 'Operaciones (Vertical Pack)', state: 'ready' },
-                { label: 'Calendar interno', state: 'ready' },
-                { label: 'Google Calendar', state: 'pending', detail: 'pendiente OAuth' },
-                { label: 'WhatsApp Meta', state: 'pending', detail: 'pendiente claves' },
-                { label: 'Instagram', state: 'pending', detail: 'próxima integración' },
-                { label: 'n8n', state: 'pending', detail: 'pendiente VPS' },
-              ].map(({ label, state, detail }) => (
-                <span
-                  key={label}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
-                    state === 'ready'
-                      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-                      : 'border-amber-100 bg-amber-50 text-amber-700',
-                  )}
-                >
-                  <span>{label}</span>
-                  {detail && <span className="text-[9px] font-normal opacity-80">· {detail}</span>}
-                </span>
-              ))}
-            </div>
-          )}
-          <p className="text-sm text-gray-500">{userLoading ? 'Cargando workspace...' : `Tu workspace ${currentUser.workspaceName} está listo para probar NowCRM.`}</p>
+          <p className="mt-1 text-sm text-gray-500">{userLoading ? 'Cargando workspace...' : 'Resumen de hoy: clientes, citas y expedientes en curso.'}</p>
         </div>
         <Button size="sm" onClick={handleNewClient}>
           <Plus className="h-3.5 w-3.5" />

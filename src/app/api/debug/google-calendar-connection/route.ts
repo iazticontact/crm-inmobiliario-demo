@@ -15,12 +15,26 @@ import { cookies } from 'next/headers'
 
 export const runtime = 'nodejs'
 
+// Dev-only debug endpoint. Returns 404 in production builds and refuses to run
+// unless DEBUG_ROUTES_ENABLED=1 is set on the server (server-side var — never
+// NEXT_PUBLIC_*). The ?probe=write path is doubly gated by DEBUG_PROBE_WRITE=1
+// because it touches the live table with service_role.
+const DEBUG_ROUTES_ENABLED =
+  process.env.NODE_ENV !== 'production' && process.env.DEBUG_ROUTES_ENABLED === '1'
+const DEBUG_PROBE_WRITE_ALLOWED =
+  DEBUG_ROUTES_ENABLED && process.env.DEBUG_PROBE_WRITE === '1'
+
 export async function GET(request: NextRequest) {
+  if (!DEBUG_ROUTES_ENABLED) {
+    return new NextResponse('Not Found', { status: 404 })
+  }
   try {
     const cookieStore = await cookies()
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
     const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
-    const probeWrite = new URL(request.url).searchParams.get('probe') === 'write'
+    const probeWrite =
+      DEBUG_PROBE_WRITE_ALLOWED &&
+      new URL(request.url).searchParams.get('probe') === 'write'
 
     if (!url || !key) {
       return NextResponse.json({ ok: false, error: 'Supabase no configurado' }, { status: 503 })

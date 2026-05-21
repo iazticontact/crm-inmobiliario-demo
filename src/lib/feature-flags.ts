@@ -21,20 +21,22 @@ type FlagKey =
   | 'instagram'
   | 'whatsapp'
   | 'demoData'
+  | 'nowlabsInternal'
 
 const FLAG_ENV: Record<FlagKey, string> = {
-  billing:       'NEXT_PUBLIC_ENABLE_BILLING',
-  automations:   'NEXT_PUBLIC_ENABLE_AUTOMATIONS',
-  inbox:         'NEXT_PUBLIC_ENABLE_INBOX',
-  assistant:     'NEXT_PUBLIC_ENABLE_ASSISTANT',
-  opportunities: 'NEXT_PUBLIC_ENABLE_OPPORTUNITIES',
-  calendar:      'NEXT_PUBLIC_ENABLE_CALENDAR',
-  instagram:     'NEXT_PUBLIC_ENABLE_INSTAGRAM',
-  whatsapp:      'NEXT_PUBLIC_ENABLE_WHATSAPP',
-  demoData:      'NEXT_PUBLIC_ENABLE_DEMO_DATA',
+  billing:         'NEXT_PUBLIC_ENABLE_BILLING',
+  automations:     'NEXT_PUBLIC_ENABLE_AUTOMATIONS',
+  inbox:           'NEXT_PUBLIC_ENABLE_INBOX',
+  assistant:       'NEXT_PUBLIC_ENABLE_ASSISTANT',
+  opportunities:   'NEXT_PUBLIC_ENABLE_OPPORTUNITIES',
+  calendar:        'NEXT_PUBLIC_ENABLE_CALENDAR',
+  instagram:       'NEXT_PUBLIC_ENABLE_INSTAGRAM',
+  whatsapp:        'NEXT_PUBLIC_ENABLE_WHATSAPP',
+  demoData:        'NEXT_PUBLIC_ENABLE_DEMO_DATA',
+  nowlabsInternal: 'NEXT_PUBLIC_NOWLABS_INTERNAL',
 }
 
-function readFlag(envName: string): boolean {
+function readFlag(envName: string, defaultEnabled: boolean): boolean {
   // Next.js inlines NEXT_PUBLIC_* at build time so the literal lookup matters.
   // We can't do `process.env[envName]` and have Next inline it, so we go through
   // an explicit switch. Adding a new flag = add an entry above + a case here.
@@ -49,28 +51,49 @@ function readFlag(envName: string): boolean {
     case 'NEXT_PUBLIC_ENABLE_INSTAGRAM':     raw = process.env.NEXT_PUBLIC_ENABLE_INSTAGRAM; break
     case 'NEXT_PUBLIC_ENABLE_WHATSAPP':      raw = process.env.NEXT_PUBLIC_ENABLE_WHATSAPP; break
     case 'NEXT_PUBLIC_ENABLE_DEMO_DATA':     raw = process.env.NEXT_PUBLIC_ENABLE_DEMO_DATA; break
+    case 'NEXT_PUBLIC_NOWLABS_INTERNAL':     raw = process.env.NEXT_PUBLIC_NOWLABS_INTERNAL; break
     default: raw = undefined
   }
-  if (raw === undefined || raw === null || raw === '') return true
+  if (raw === undefined || raw === null || raw === '') return defaultEnabled
   const normalised = String(raw).trim().toLowerCase()
   if (normalised === 'false' || normalised === '0' || normalised === 'off' || normalised === 'no') return false
-  return true
+  if (normalised === 'true' || normalised === '1' || normalised === 'on' || normalised === 'yes') return true
+  return defaultEnabled
+}
+
+// demoData and nowlabsInternal default to OFF: client clones must opt in
+// explicitly. Every other flag stays default-on so a missing env var never
+// silently disables a module. `nowlabsInternal` surfaces operator-only
+// sections (Automatizaciones nav entry, Facturación nav entry, technical
+// settings tiles, n8n editor, env checklists, etc.) for the NOWLabs team.
+const FLAG_DEFAULT: Record<FlagKey, boolean> = {
+  billing:         true,
+  automations:     true,
+  inbox:           true,
+  assistant:       true,
+  opportunities:   true,
+  calendar:        true,
+  instagram:       true,
+  whatsapp:        true,
+  demoData:        false,
+  nowlabsInternal: false,
 }
 
 export function isFeatureEnabled(flag: FlagKey): boolean {
-  return readFlag(FLAG_ENV[flag])
+  return readFlag(FLAG_ENV[flag], FLAG_DEFAULT[flag])
 }
 
 export const featureFlags = {
-  billing:       isFeatureEnabled('billing'),
-  automations:   isFeatureEnabled('automations'),
-  inbox:         isFeatureEnabled('inbox'),
-  assistant:     isFeatureEnabled('assistant'),
-  opportunities: isFeatureEnabled('opportunities'),
-  calendar:      isFeatureEnabled('calendar'),
-  instagram:     isFeatureEnabled('instagram'),
-  whatsapp:      isFeatureEnabled('whatsapp'),
-  demoData:      isFeatureEnabled('demoData'),
+  billing:         isFeatureEnabled('billing'),
+  automations:     isFeatureEnabled('automations'),
+  inbox:           isFeatureEnabled('inbox'),
+  assistant:       isFeatureEnabled('assistant'),
+  opportunities:   isFeatureEnabled('opportunities'),
+  calendar:        isFeatureEnabled('calendar'),
+  instagram:       isFeatureEnabled('instagram'),
+  whatsapp:        isFeatureEnabled('whatsapp'),
+  demoData:        isFeatureEnabled('demoData'),
+  nowlabsInternal: isFeatureEnabled('nowlabsInternal'),
 }
 
 export type { FlagKey }

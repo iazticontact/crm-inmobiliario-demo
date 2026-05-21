@@ -2,7 +2,18 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
+// Dev-only debug endpoint. Returns 404 in production builds and refuses to run
+// unless DEBUG_ROUTES_ENABLED=1 is set on the server (server-side var — never
+// NEXT_PUBLIC_*). Designed so a real client deployment never leaks emails,
+// cookies, userIds or workspaceIds even by mistake.
+const DEBUG_ROUTES_ENABLED =
+  process.env.NODE_ENV !== 'production' && process.env.DEBUG_ROUTES_ENABLED === '1'
+
 export async function GET() {
+  if (!DEBUG_ROUTES_ENABLED) {
+    return new NextResponse('Not Found', { status: 404 })
+  }
+
   const cookieStore = await cookies()
   const cookiesSeen = cookieStore.getAll().map((c) => c.name)
 

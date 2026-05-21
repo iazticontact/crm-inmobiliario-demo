@@ -112,7 +112,7 @@ export function VerticalPreferenceCard() {
   return (
     <SectionCard
       title="Vertical del workspace"
-      description="Indica qué tipo de operación domina en este workspace. NowLabs y /operaciones lo usarán como contexto por defecto."
+      description="Indica qué tipo de operación domina en este workspace. El Asistente IA y la sección Negocio lo usarán como contexto por defecto."
       action={
         <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium', statusBadge.tone)}>
           {statusBadge.icon}

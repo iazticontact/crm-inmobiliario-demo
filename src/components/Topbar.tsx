@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Bell, BellOff, Search, HelpCircle, CheckCircle, AlertCircle, Zap, Users, X } from 'lucide-react'
+import { Bell, BellOff, Search, HelpCircle, X } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -11,27 +11,20 @@ import { searchClients } from '@/lib/supabase-queries'
 import type { Client } from '@/lib/types'
 
 const pageLabels: Record<string, { title: string; description: string }> = {
-  '/dashboard': { title: 'Dashboard', description: 'Vista general de tu negocio' },
-  '/inbox': { title: 'Inbox', description: 'Mensajes reales de canales externos' },
-  '/assistant': { title: 'NowLabs AI', description: 'Asistente operativo del CRM' },
-  '/clients': { title: 'Clientes', description: 'Gestión de leads y clientes' },
-  '/opportunities': { title: 'Oportunidades', description: 'Pipeline, expedientes y propiedades' },
-  '/automations': { title: 'Automatizaciones', description: 'Flujos y secuencias automáticas' },
-  '/calendar': { title: 'Calendario', description: 'Reuniones y eventos' },
-  '/billing': { title: 'Facturación', description: 'Facturas e ingresos' },
-  '/settings': { title: 'Configuración', description: 'Ajustes del workspace' },
+  '/dashboard':     { title: 'Dashboard',     description: 'Resumen del día y estado del negocio' },
+  '/inbox':         { title: 'Inbox',         description: 'Conversaciones entrantes y borradores' },
+  '/assistant':     { title: 'Asistente IA',  description: 'Copiloto del CRM para inmobiliaria y gestoría' },
+  '/clients':       { title: 'Clientes',      description: 'Compradores, propietarios y leads' },
+  '/opportunities': { title: 'Negocio',       description: 'Inmobiliaria · Gestoría · Pipeline' },
+  '/automations':   { title: 'Automatizaciones', description: 'Flujos internos' },
+  '/calendar':      { title: 'Calendar',      description: 'Visitas, asesorías y disponibilidad' },
+  '/billing':       { title: 'Facturación',   description: 'Facturas e ingresos' },
+  '/settings':      { title: 'Configuración', description: 'Ajustes del CRM' },
 }
-
-const mockNotifications = [
-  { id: '1', icon: <Users className="h-3.5 w-3.5 text-indigo-500" />, bg: 'bg-indigo-50', title: 'Nuevo lead: Sofía Ramírez', desc: 'Vía WhatsApp — hace 5 min', unread: true },
-  { id: '2', icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, bg: 'bg-amber-50', title: 'Factura vencida: Textil SL', desc: '€299 — vencida hace 15 días', unread: true },
-  { id: '3', icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, bg: 'bg-emerald-50', title: 'IA resolvió 12 consultas', desc: 'Tasa de éxito: 94% — hoy', unread: false },
-  { id: '4', icon: <Zap className="h-3.5 w-3.5 text-violet-500" />, bg: 'bg-violet-50', title: 'Automatización ejecutada', desc: 'Bienvenida → 47 nuevos leads', unread: false },
-]
 
 export function Topbar() {
   const pathname = usePathname()
-  const page = pageLabels[pathname] ?? { title: 'NowCRM', description: '' }
+  const page = pageLabels[pathname] ?? { title: 'Costa del Sol CRM', description: '' }
   const { currentUser, isLoading } = useCurrentUser()
 
   const [notifOpen, setNotifOpen] = useState(false)
@@ -67,7 +60,10 @@ export function Topbar() {
     return () => clearTimeout(t)
   }, [query, runSearch])
 
-  const visibleNotifications = !isLoading && currentUser.isDemo ? mockNotifications : []
+  // The notification center is wired to read real workspace alerts in a later
+  // phase. Until then we keep the surface visible but empty — no demo
+  // notifications, no fake leads, no fake overdue invoices.
+  const visibleNotifications: Array<{ id: string; icon: React.ReactNode; bg: string; title: string; desc: string; unread: boolean }> = []
   const unreadCount = visibleNotifications.filter((n) => n.unread && !readNotifs.has(n.id)).length
 
   const markAllRead = () => setReadNotifs(new Set(visibleNotifications.map((n) => n.id)))
@@ -184,7 +180,7 @@ export function Topbar() {
                     </div>
                     <p className="text-xs font-medium text-gray-600">Sin notificaciones nuevas</p>
                     <p className="text-[10px] leading-snug text-gray-400">
-                      Te avisaremos aquí cuando NowCRM detecte leads, facturas vencidas o conversaciones urgentes.
+                      Aquí verás los nuevos leads, citas próximas y conversaciones urgentes en cuanto el CRM detecte actividad.
                     </p>
                   </li>
                 )}
@@ -199,7 +195,7 @@ export function Topbar() {
         </div>
 
         <button
-          onClick={() => toast.info('Ayuda', { description: 'Para soporte, contacta con el equipo de NowLabs.' })}
+          onClick={() => toast.info('Ayuda', { description: 'Para soporte técnico contacta con el equipo de NOWLabs.' })}
           aria-label="Ayuda"
           className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
         >

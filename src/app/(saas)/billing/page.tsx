@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { redirect } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { AlertCircle, Check, CheckCircle, Clock, DollarSign, Download, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -12,6 +13,7 @@ import { SectionCard } from '@/components/SectionCard'
 import { invoices as initialInvoices } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { featureFlags } from '@/lib/feature-flags'
 import { triggerN8nWebhook } from '@/lib/integrations'
 import {
   createActivity,
@@ -64,6 +66,12 @@ function euro(value: number) {
 }
 
 export default function BillingPage() {
+  // Operator-only surface. Hidden from the client sidebar by default and
+  // blocked from direct URL access unless NEXT_PUBLIC_NOWLABS_INTERNAL=true.
+  // Route kept alive on purpose — facturación entrará en el producto cliente
+  // en una fase posterior.
+  if (!featureFlags.nowlabsInternal) redirect('/dashboard')
+
   const [invoiceList, setInvoiceList] = useState<Invoice[]>([])
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)

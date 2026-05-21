@@ -117,7 +117,7 @@ function createOfflineConversation(mode: AssistantMode): Conversation {
     id,
     workspaceId: OFFLINE_WORKSPACE_ID,
     clientId: `offline-${id}`,
-    clientName: mode === 'copilot' ? 'Consulta NowLabs AI' : 'Nuevo cliente',
+    clientName: mode === 'copilot' ? 'Consulta Asistente IA' : 'Nuevo cliente',
     clientAvatar: '',
     lastMessage: mode === 'copilot' ? 'Nueva consulta interna' : 'Nuevo mensaje de cliente',
     timestamp: new Date().toISOString(),
@@ -206,10 +206,10 @@ const assistantModes: Array<{
   },
   {
     id: 'copilot',
-    title: 'NowLabs AI',
+    title: 'Copiloto del CRM',
     eyebrow: 'Asistente interno',
-    description: 'Opera el CRM para buscar clientes, preparar citas, facturas, cobros, propuestas y documentos.',
-    badge: 'Tools backend',
+    description: 'Opera el CRM para buscar clientes, preparar citas, facturas, propuestas y documentos.',
+    badge: 'Listo',
   },
 ]
 
@@ -427,10 +427,10 @@ function isPricingQuestion(value: string) {
 
 function internalAssistantIntro(mode: AssistantMode = 'copilot') {
   if (mode === 'inbox') {
-    return 'Soy Inbox Assistant, la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. La integración con WhatsApp Business (Meta Cloud API) es la siguiente fase.'
+    return 'Soy el Asistente IA del Inbox. Puedo ayudarte a responder a clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. La conexión con WhatsApp Business llegará en la siguiente fase.'
   }
 
-  return 'Soy tu NowLabs AI interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas en calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo, dime: “Reserva a Ana mañana a las 10 para corte” o “Crea una factura a Ana de 299€ por Plan Pro”.'
+  return 'Soy el Asistente IA del CRM. Puedo ayudarte a buscar clientes, preparar citas en el calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo: "Reserva a Ana mañana a las 10 para una visita" o "Crea una factura a Ana de 299 € por gestión de NIE".'
 }
 
 function pricingGuidance() {
@@ -472,7 +472,7 @@ function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): Prep
         !extracted.date && 'fecha',
         !extracted.time && 'hora',
       ].filter(Boolean) as string[],
-      notes: 'Cita preparada desde NowLabs AI. Requiere confirmacion.',
+      notes: 'Cita preparada desde el Asistente IA. Requiere confirmación.',
     }
   }
 
@@ -487,7 +487,7 @@ function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): Prep
       amount: extracted.amount,
       dueDate: extracted.dueDate,
       missingFields: intent.missingFields,
-      notes: 'Factura preparada desde NowLabs AI. Requiere confirmación.',
+      notes: 'Factura preparada desde el Asistente IA. Requiere confirmación.',
     }
   }
 
@@ -506,7 +506,7 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
   if (intent.intent === 'consultative') {
     return mode === 'inbox'
       ? 'Como Inbox Assistant, puedo ayudarte a convertir esa conversación en una respuesta clara, detectar intención y preparar una cita o seguimiento con confirmación. Si quieres que los mensajes entren desde WhatsApp real, la siguiente fase es WhatsApp Business (Meta Cloud API).'
-      : 'Como NowLabs AI, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres que los mensajes entren solos al CRM desde WhatsApp o llamadas, eso va en la siguiente fase con integración oficial.'
+      : 'Como Asistente IA del CRM, puedo ayudarte a convertir esa necesidad en tareas internas: clientes, citas, cobros, propuestas y seguimiento. Si quieres que los mensajes entren solos al CRM desde WhatsApp o llamadas, eso llegará en la siguiente fase con integración oficial.'
   }
 
   if (intent.intent === 'booking_strategy') {
@@ -769,7 +769,7 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
     return `Resumen de ${name}: estado ${status}.${notes ? `\nNotas: ${notes}` : ''}\nSiguiente paso: confirma necesidad y agenda seguimiento.`
   }
 
-  return '✅ Acción preparada. Ya tienes el resultado disponible en NowLabs AI.'
+  return '✅ Acción preparada. Ya tienes el resultado disponible en el Asistente IA.'
 }
 
 
@@ -830,6 +830,10 @@ export default function AssistantPage() {
   const [assistantFlowFound, setAssistantFlowFound] = useState(false)
   const [assistantFlowStatus, setAssistantFlowStatus] = useState<N8nFlowStatus>('demo')
   const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | 'supabase' | null>(null)
+  // Tracks where the most recent /api/assistant/v2 answer came from. Surfaces
+  // as a discreet badge so the operator knows whether NowLabs AI is running on
+  // the n8n orchestrator, the local agent or fell back to local mid-flight.
+  const [lastAgentMode, setLastAgentMode] = useState<'local' | 'n8n' | 'hybrid_fallback' | null>(null)
   const [lastActionStatus, setLastActionStatus] = useState('')
   const [lastGeneratedDocument, setLastGeneratedDocument] = useState<{
     title: string
@@ -1151,7 +1155,7 @@ export default function AssistantPage() {
   const assistantSourceDetail = assistantMode === 'inbox' ? 'Meta API pendiente' : isOfflineMode ? 'backend bloqueado por red' : isRealMode ? 'OpenAI/tools server-side' : 'modo muestra'
 
   const assistantStats = [
-    { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas NowLabs AI', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'demo', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
+    { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas al Asistente IA', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'pruebas', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
     { label: 'IA en modo', value: assistantSourceLabel, detail: assistantSourceDetail, icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
     { label: assistantMode === 'inbox' ? 'Lead score medio' : 'Acciones preparadas', value: assistantMode === 'inbox' ? String(averageLeadScore) : (preparedAction ? '1' : '0'), detail: assistantMode === 'inbox' ? 'estimado' : 'requieren confirmación', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
@@ -1197,8 +1201,8 @@ export default function AssistantPage() {
     if (selected && isUuid(selected.id)) return selected
 
     const created = await createAssistantConversation(workspaceId, assistantMode, {
-      clientName: assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Nueva conversación',
-      lastMessage: assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversación Inbox Assistant',
+      clientName: assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Nueva conversación',
+      lastMessage: assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Conversación Inbox Assistant',
       metadata: { source: 'assistant_auto_create', assistant_mode: assistantMode },
     })
     setConversationList((prev) => [created, ...prev.filter((conversation) => conversation.id !== selected?.id)])
@@ -1241,7 +1245,7 @@ export default function AssistantPage() {
         metadata: { assistant_mode: assistantMode, last_source: 'assistant_agent' },
       }).catch(() => null)
       if (workspaceId) {
-        await createActivity(workspaceId, { type: 'message', description: `${assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}: ${content.slice(0, 90)}`, clientName })
+        await createActivity(workspaceId, { type: 'message', description: `${assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}: ${content.slice(0, 90)}`, clientName })
       }
     }
   }
@@ -1419,6 +1423,11 @@ export default function AssistantPage() {
             ok: boolean
             answer?: string
             debugSource?: string
+            // Source of the answer: 'local' (legacy agent), 'n8n' (NowLabs n8n
+            // orchestrator), 'hybrid_fallback' (tried n8n, fell back to local).
+            // Undefined in old responses — treat as 'local'.
+            mode?: 'local' | 'n8n' | 'hybrid_fallback'
+            trace_id?: string
             toolCalls?: string[]
             referencedClientId?: string | null
             referencedClientName?: string | null
@@ -1453,9 +1462,18 @@ export default function AssistantPage() {
             error?: string
           }
           const v2Data = await v2Res.json() as V2Response
+          // Track agent mode so the operator can see whether NowLabs AI is on
+          // n8n or the local agent. Undefined → legacy response → assume local.
+          if (v2Data.mode === 'n8n' || v2Data.mode === 'hybrid_fallback' || v2Data.mode === 'local') {
+            setLastAgentMode(v2Data.mode)
+          } else {
+            setLastAgentMode('local')
+          }
           console.log('[assistant/ui] v2 response', {
             ok: v2Data.ok,
             debugSource: v2Data.debugSource,
+            mode: v2Data.mode,
+            traceId: v2Data.trace_id,
             toolCalls: v2Data.toolCalls,
             referencedClientName: v2Data.referencedClientName,
           })
@@ -1481,9 +1499,9 @@ export default function AssistantPage() {
               const paId = `v2-${createUuid()}`
               let frontendAction: PreparedAction
               if (pa.type === 'booking') {
-                frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
+                frontendAction = { id: paId, type: 'booking', title: `Cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, service: pa.service, date: pa.date, time: pa.time, missingFields: pa.missingFields, notes: 'Draft preparado por el Asistente IA' }
               } else if (pa.type === 'invoice') {
-                frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Draft preparado por NowLabs AI' }
+                frontendAction = { id: paId, type: 'invoice', title: `Factura para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, concept: pa.concept, amount: pa.amount, dueDate: pa.dueDate, missingFields: pa.missingFields, notes: 'Draft preparado por el Asistente IA' }
               } else if (pa.type === 'cancel_booking') {
                 frontendAction = { id: paId, type: 'cancel_booking', title: pa.title ?? `Cancelar cita con ${pa.clientName ?? ''}`, assistantMode: 'copilot', eventId: pa.eventId, clientId: pa.clientId, clientName: pa.clientName, date: pa.date, time: pa.time, reason: pa.reason, missingFields: pa.missingFields }
               } else if (pa.type === 'reschedule_booking') {
@@ -1637,7 +1655,7 @@ export default function AssistantPage() {
           clientId: preparedAction.clientId,
           clientName: preparedAction.clientName,
           notes: preparedAction.notes,
-          description: preparedAction.notes || 'Cita creada desde NowLabs AI',
+          description: preparedAction.notes || 'Cita creada desde el Asistente IA',
           status: 'scheduled',
           metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
         }
@@ -1665,7 +1683,7 @@ export default function AssistantPage() {
         }
 
         if (workspaceId) {
-          void createActivity(workspaceId, { type: 'call', description: `Cita creada desde NowLabs AI: ${service} con ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
+          void createActivity(workspaceId, { type: 'call', description: `Cita creada desde el Asistente IA: ${service} con ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:booking]', error)
           })
           if (!OFFLINE_FORCE_DEV) {
@@ -1690,7 +1708,7 @@ export default function AssistantPage() {
         const bookingToast = gcalSynced
           ? 'Cita creada y añadida a Google Calendar'
           : gcalNotConnected
-            ? 'Cita creada en NowCRM. Google Calendar aún no está conectado.'
+            ? 'Cita creada en el CRM. Google Calendar aún no está conectado.'
             : 'Cita creada en Calendario'
         toast.success(bookingToast)
         setLastActionStatus('Última acción confirmada: cita creada')
@@ -1727,7 +1745,7 @@ export default function AssistantPage() {
         const createdInvoice = await createInvoice(workspaceId, invoicePayload)
 
         if (workspaceId) {
-          void createActivity(workspaceId, { type: 'deal', description: `Factura creada desde NowLabs AI: ${concept} para ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
+          void createActivity(workspaceId, { type: 'deal', description: `Factura creada desde el Asistente IA: ${concept} para ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:invoice]', error)
           })
           if (!OFFLINE_FORCE_DEV) {
@@ -1768,7 +1786,7 @@ export default function AssistantPage() {
         }
         debugPayload = taskPayload
         await createTask(workspaceId, taskPayload)
-        void createActivity(workspaceId, { type: 'note', description: `Tarea creada desde NowLabs AI: ${preparedAction.taskTitle}`, clientName: preparedAction.clientName }).catch((error) => {
+        void createActivity(workspaceId, { type: 'note', description: `Tarea creada desde el Asistente IA: ${preparedAction.taskTitle}`, clientName: preparedAction.clientName }).catch((error) => {
           if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:task]', error)
         })
         const taskMsg = `Tarea creada: "${preparedAction.taskTitle}"${preparedAction.clientName ? ` para ${preparedAction.clientName}` : ''}${preparedAction.dueDate ? `, vence ${preparedAction.dueDate}` : ''}.`
@@ -1796,7 +1814,7 @@ export default function AssistantPage() {
           } else if (cancelResult.reason === 'needs_reconnect') {
             toast.error('Google requiere reconexión', { description: cancelResult.message })
           } else if (cancelResult.reason === 'google_forbidden' || cancelResult.reason === 'google_api_error' || cancelResult.reason === 'google_fetch_error' || cancelResult.reason === 'rate_limited') {
-            toast.error('No se pudo cancelar en Google', { description: cancelResult.message || 'NowCRM no marcó la cita como cancelada para evitar inconsistencia.' })
+            toast.error('No se pudo cancelar en Google', { description: cancelResult.message || 'El CRM no marcó la cita como cancelada para evitar inconsistencia.' })
           } else {
             toast.error('No se pudo cancelar la cita', { description: cancelResult.message })
           }
@@ -1812,7 +1830,7 @@ export default function AssistantPage() {
         const cancelMsg = `Cita${clientLabel}${dateLabel}${timeLabel} cancelada${syncNote}.`
         await appendAssistantMessage(activeConversation.id, cancelMsg, preparedAction.clientName).catch(() => null)
         if (workspaceId) {
-          void createActivity(workspaceId, { type: 'note', description: `Cita cancelada desde NowLabs AI${clientLabel}${dateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
+          void createActivity(workspaceId, { type: 'note', description: `Cita cancelada desde el Asistente IA${clientLabel}${dateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
         }
         // Clear confirmed event context and stale calendar cache
         setLastConfirmedEventId(null)
@@ -1852,7 +1870,7 @@ export default function AssistantPage() {
         const rescheduleMsg = `Cita${clientLabel} reprogramada${newDateLabel}${newTimeLabel}.`
         await appendAssistantMessage(activeConversation.id, rescheduleMsg, preparedAction.clientName).catch(() => null)
         if (workspaceId) {
-          void createActivity(workspaceId, { type: 'note', description: `Cita reprogramada desde NowLabs AI${clientLabel}${newDateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
+          void createActivity(workspaceId, { type: 'note', description: `Cita reprogramada desde el Asistente IA${clientLabel}${newDateLabel}`, clientName: preparedAction.clientName }).catch(() => null)
         }
         // Update confirmed event context; clear stale calendar cache
         setLastConfirmedEventId(preparedAction.eventId)
@@ -1907,7 +1925,7 @@ export default function AssistantPage() {
           : `Se cancelaron ${cancelled} de ${total} citas. Las ${total - cancelled} restantes no se pudieron cancelar — compruébalas manualmente${detailSuffix}.`
         await appendAssistantMessage(activeConversation.id, summary, preparedAction.events[0]?.clientName).catch(() => null)
         if (workspaceId && cancelled > 0) {
-          void createActivity(workspaceId, { type: 'note', description: `${cancelled} cita(s) canceladas desde NowLabs AI (acción múltiple)` }).catch(() => null)
+          void createActivity(workspaceId, { type: 'note', description: `${cancelled} cita(s) canceladas desde el Asistente IA (acción múltiple)` }).catch(() => null)
         }
         setLastConfirmedEventId(null)
         setLastConfirmedClientName(null)
@@ -1965,7 +1983,7 @@ export default function AssistantPage() {
           : `Se cancelaron ${cancelled} de ${total} duplicadas${detailSuffix}. Revisa el calendario.`
         await appendAssistantMessage(activeConversation.id, summary, undefined).catch(() => null)
         if (workspaceId && cancelled > 0) {
-          void createActivity(workspaceId, { type: 'note', description: `Limpieza de ${cancelled} cita(s) duplicada(s) desde NowLabs AI` }).catch(() => null)
+          void createActivity(workspaceId, { type: 'note', description: `Limpieza de ${cancelled} cita(s) duplicada(s) desde el Asistente IA` }).catch(() => null)
         }
         setLastConfirmedEventId(preparedAction.keepEventId ?? null)
         setLastConfirmedClientName(null)
@@ -2153,7 +2171,7 @@ export default function AssistantPage() {
   }
 
   const saveTitle = async () => {
-    const trimmed = titleDraft.trim() || 'Consulta NowLabs AI'
+    const trimmed = titleDraft.trim() || 'Consulta Asistente IA'
     setEditingTitle(false)
     setTitleDraft('')
     if (!selected || trimmed === selected.clientName) return
@@ -2247,11 +2265,11 @@ export default function AssistantPage() {
   const createDemoConversation = async () => {
     const isCopilot = assistantMode === 'copilot'
     const payload = {
-      clientName: isCopilot ? (isRealMode ? 'Consulta NowLabs AI' : 'Consulta NowLabs AI demo') : (isRealMode ? 'Nueva conversación' : 'Lead demo'),
+      clientName: isCopilot ? (isRealMode ? 'Consulta Asistente IA' : 'Consulta Asistente IA (pruebas)') : (isRealMode ? 'Nueva conversación' : 'Lead de prueba'),
       clientAvatar: isCopilot ? 'CRM' : 'IN',
       channel: 'Web' as Channel,
       sentiment: 'neutral' as ConversationSentiment,
-      intent: isCopilot ? 'NowLabs AI CRM' : 'Inbox Assistant',
+      intent: isCopilot ? 'Asistente IA' : 'Inbox Assistant',
       lastMessage: isCopilot
         ? 'Abre una consulta interna para gestionar clientes, citas o facturas.'
         : 'Conversación lista para simular un mensaje de cliente.',
@@ -2390,7 +2408,7 @@ export default function AssistantPage() {
     const testMessage = `Mensaje test persistencia ${new Date().toISOString()}`
     try {
       const created = await createAssistantConversation(workspaceId, assistantMode, {
-        clientName: assistantMode === 'copilot' ? 'Test persistencia NowLabs AI' : 'Test persistencia Inbox',
+        clientName: assistantMode === 'copilot' ? 'Test persistencia Asistente IA' : 'Test persistencia Inbox',
         clientAvatar: assistantMode === 'copilot' ? 'TC' : 'TI',
         lastMessage: testMessage,
         unread: false,
@@ -2464,7 +2482,7 @@ export default function AssistantPage() {
         toast.info('Automatizacion externa pendiente', { description: 'Configura un endpoint n8n real antes de probar este flujo.' })
         return
       }
-      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow externo NowCRM - Assistant Agent...', sender: 'ai', timestamp: nowTime() }
+      const testingMsg: Message = { id: `ai-${Date.now()}`, conversationId: activeConversation.id, content: 'Enviando mensaje de prueba al workflow externo del Asistente IA...', sender: 'ai', timestamp: nowTime() }
       appendLocalMessage(activeConversation.id, testingMsg)
       if (isRealMode && workspaceId && !OFFLINE_FORCE_DEV) await createMessage(activeConversation.id, { content: testingMsg.content, sender: 'ai', metadata: { source: 'assistant_n8n_test', assistant_mode: assistantMode } }, workspaceId)
       if (OFFLINE_FORCE_DEV) {
@@ -2605,7 +2623,7 @@ export default function AssistantPage() {
       >
         <PageHeader
           title="Asistente IA"
-          description="Preparando NowLabs AI..."
+          description="Preparando el Asistente IA..."
           action={<Badge variant="indigo" dot>Conectando</Badge>}
         />
         <div className="grid gap-3 lg:grid-cols-3">
@@ -2618,7 +2636,7 @@ export default function AssistantPage() {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-            <p className="text-sm font-semibold text-gray-950">Preparando NowLabs AI...</p>
+            <p className="text-sm font-semibold text-gray-950">Preparando el Asistente IA...</p>
             <p className="mt-1 text-xs leading-5 text-gray-500">Cargando workspace, conversaciones y herramientas del CRM.</p>
           </div>
         </div>
@@ -2634,11 +2652,16 @@ export default function AssistantPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="NowLabs AI"
+        title="Asistente IA"
         description="Asistente operativo del CRM: consultas internas, citas, facturas, tareas y acciones preparadas. Los mensajes reales de clientes viven en /inbox."
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'NowLabs AI real' : 'IA demo'}</Badge>
+            <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
+            {lastAgentMode && assistantMode !== 'inbox' && (
+              <Badge variant={lastAgentMode === 'n8n' ? 'success' : lastAgentMode === 'hybrid_fallback' ? 'warning' : 'default'} dot>
+                {lastAgentMode === 'n8n' ? 'Agente n8n' : lastAgentMode === 'hybrid_fallback' ? 'Modo respaldo' : 'Agente local'}
+              </Badge>
+            )}
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
             <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
             <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
@@ -2754,7 +2777,7 @@ export default function AssistantPage() {
                       <div className="mt-1 flex items-center gap-1">
                         <Badge variant={channelVariant[conv.channel]} className="px-1.5 py-0 text-[10px]">{conv.channel}</Badge>
                         <Badge variant={sentimentConfig[conv.sentiment].variant} className="px-1.5 py-0 text-[10px]">{sentimentConfig[conv.sentiment].label}</Badge>
-                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox'}</Badge>
+                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox'}</Badge>
                       </div>
                     </div>
                   </button>
@@ -2766,7 +2789,7 @@ export default function AssistantPage() {
                 <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                   {assistantMode === 'copilot' ? <Bot className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
                 </div>
-                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones' : 'No hay consultas NowLabs AI todavía'}</p>
+                <p className="text-sm font-semibold text-gray-800">{assistantMode === 'inbox' ? 'Sin conversaciones' : 'Aún no has hecho consultas al Asistente IA'}</p>
                 <p className="mt-1 text-xs leading-4 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para empezar.'
@@ -2839,7 +2862,7 @@ export default function AssistantPage() {
                 {!loadingMessages && msgs.map((msg) => {
                   const isUser = msg.sender !== 'ai'
                   const isAI = msg.sender === 'ai'
-                  const label = isAI ? (assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant') : 'Tú'
+                  const label = isAI ? (assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant') : 'Tú'
                   return (
                     <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
                       <div className={cn('max-w-[80%]', isUser ? 'items-end' : 'items-start')}>
@@ -2871,7 +2894,7 @@ export default function AssistantPage() {
                             <p className="text-sm font-bold text-gray-950">
                               {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
                             </p>
-                            <p className="text-[11px] text-gray-500">{preparedAction.title} · NowLabs AI</p>
+                            <p className="text-[11px] text-gray-500">{preparedAction.title} · Asistente IA</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -3027,7 +3050,7 @@ export default function AssistantPage() {
                                 </div>
                               )}
                               <div className="col-span-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-600">
-                                Esta acción cancelará la cita en NowCRM. No se puede deshacer.
+                                Esta acción cancelará la cita en el CRM. No se puede deshacer.
                               </div>
                             </>
                           )}
@@ -3046,7 +3069,7 @@ export default function AssistantPage() {
                                 </div>
                               )}
                               <div className="col-span-2 rounded-lg border border-amber-100 bg-amber-50 p-2 text-[11px] text-amber-700">
-                                Se actualizará la fecha y hora de la cita en NowCRM.
+                                Se actualizará la fecha y hora de la cita en el CRM.
                               </div>
                             </>
                           )}
@@ -3066,7 +3089,7 @@ export default function AssistantPage() {
                                 </div>
                               </div>
                               <div className="col-span-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[11px] text-red-600">
-                                Se cancelarán las {preparedAction.events.length} citas en NowCRM. No se puede deshacer.
+                                Se cancelarán las {preparedAction.events.length} citas en el CRM. No se puede deshacer.
                               </div>
                             </>
                           )}
@@ -3176,7 +3199,7 @@ export default function AssistantPage() {
                   <div className="flex justify-start">
                     <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-indigo-100 bg-indigo-50 px-4 py-2.5">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
-                      <span className="text-xs text-indigo-600">{isRealMode ? 'NowLabs AI consultando el CRM...' : 'IA generando respuesta...'}</span>
+                      <span className="text-xs text-indigo-600">{isRealMode ? 'Asistente IA consultando el CRM...' : 'Asistente IA generando respuesta...'}</span>
                     </div>
                   </div>
                 )}
@@ -3218,7 +3241,7 @@ export default function AssistantPage() {
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp Business, los mensajes reales aparecerán aquí.'
-                    : 'Abre una consulta interna para que NowLabs AI opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
+                    : 'Abre una consulta interna para que el Asistente IA opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
                   {capabilityExamples.slice(0, 4).map((example) => (
@@ -3233,7 +3256,7 @@ export default function AssistantPage() {
 
         <aside className="w-72 shrink-0 overflow-y-auto border-l border-indigo-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_44%,#f5f3ff_100%)]">
           <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-700 px-4 py-3.5 text-white shadow-sm shadow-indigo-950/10">
-            <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</h3></div>
+            <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">{assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}</h3></div>
           </div>
           <div className="space-y-4 p-4">
             {selected && (
@@ -3264,8 +3287,8 @@ export default function AssistantPage() {
 
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
               <p className="mb-1 text-[10px] font-semibold text-emerald-700">Estado técnico</p>
-              <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'NowLabs AI conectado' : isRealMode ? 'Workspace real · webhook pendiente' : 'Mock data · IA simulada'}</span></div>
-              <p className="mt-1 text-[10px] text-emerald-600">{assistantN8nActive ? 'Workflow: NowCRM - NowLabs AI.' : isRealMode ? 'No hay webhook activo detectado para este workspace.' : 'Siguiente paso: activar NowLabs AI en Settings.'}</p>
+              <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'Asistente IA conectado' : isRealMode ? 'Workspace activo · automatización pendiente' : 'Asistente IA en pruebas'}</span></div>
+              <p className="mt-1 text-[10px] text-emerald-600">{assistantN8nActive ? 'Asistente IA respondiendo desde el backend.' : isRealMode ? 'Aún no hay flujo externo activo para este workspace.' : 'Siguiente paso: activar el Asistente IA en Configuración.'}</p>
               {assistantMode === 'inbox' ? (
                 <>
                   <p className="mt-1 text-[10px] text-emerald-600">Respuesta automatica desactivada.</p>
@@ -3308,7 +3331,7 @@ export default function AssistantPage() {
             )}
 
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'NowLabs AI' : 'Inbox Assistant'}</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}</p>
               <div className="flex flex-wrap gap-1.5">
                 {(assistantMode === 'copilot' ? capabilities : inboxCapabilities.map((_, index) => ['Conversaciones', 'Meta API próximo', 'Modo manual'][index]).filter(Boolean)).map((capability) => (
                   <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>
@@ -3330,7 +3353,7 @@ export default function AssistantPage() {
                 Las acciones importantes requieren confirmación antes de guardarse.
               </p>
               <p className="mt-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                WhatsApp Business (Meta Cloud API) es la siguiente fase: recibirás mensajes reales y los convertirás en clientes, citas o seguimientos dentro de NowCRM.
+                WhatsApp Business (Meta Cloud API) es la siguiente fase: recibirás mensajes reales y los convertirás en clientes, citas o seguimientos dentro del CRM.
               </p>
             </div>
 
@@ -3340,7 +3363,7 @@ export default function AssistantPage() {
                 <p className="text-xs leading-relaxed text-indigo-800">
                   {assistantMode === 'inbox'
                     ? selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y prepara cita o seguimiento.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Responde con contexto y pide el dato mínimo para avanzar.' : 'Crea una conversación para simular mensajes entrantes de clientes.'
-                    : selected ? 'Usa NowLabs AI para consultar datos reales, preparar acciones y confirmar antes de escribir en el CRM.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
+                    : selected ? 'Usa el Asistente IA para consultar datos reales, preparar acciones y confirmar antes de escribir en el CRM.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
                 </p>
                 <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Próxima acción') : toast.info('Crea una conversación primero')}>
                   Aplicar <ArrowRight className="h-3 w-3" />

@@ -484,7 +484,7 @@ export default function InboxPage() {
     >
       <PageHeader
         title="Inbox"
-        description="Mensajes reales de tus clientes. NowLabs AI te ayuda a resumir, clasificar y responder."
+        description="Conversaciones entrantes de clientes. El Asistente IA te ayuda a resumir, clasificar y preparar la respuesta."
         action={
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadConversations()} disabled={loadingList}>
@@ -498,7 +498,7 @@ export default function InboxPage() {
       {isDemo && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Estás en modo demo. Las conversaciones reales requieren sesión auténtica y el webhook de Meta configurado.
+          Estás viendo un entorno de prueba. Las conversaciones reales aparecerán aquí cuando WhatsApp esté conectado.
         </div>
       )}
 
@@ -526,7 +526,7 @@ export default function InboxPage() {
         <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="font-semibold">NowLabs AI no esta activo.</p>
+            <p className="font-semibold">El Asistente IA no está activo todavía.</p>
             <p className="mt-0.5 text-violet-700">
               {SHOW_INTERNAL_TECH ? (
                 <>
@@ -609,7 +609,7 @@ export default function InboxPage() {
                       : activeTab === 'web'
                         ? 'Cuando un visitante envíe un mensaje desde el chat web, lo verás aquí.'
                         : activeTab === 'email'
-                          ? 'Estamos preparando la conexión con Email/Gmail. Mientras tanto, NowCRM ya recibe leads desde WhatsApp y otros canales.'
+                          ? 'Estamos preparando la conexión con Email/Gmail. Mientras tanto, el CRM ya recibe leads desde WhatsApp y otros canales.'
                           : 'Cuando conectes WhatsApp, Instagram o Web Chat, los mensajes de tus clientes aparecerán aquí. Las consultas internas con NowLabs viven en /assistant.'
                 }
               />
@@ -924,7 +924,7 @@ export default function InboxPage() {
                       </div>
                       {!channelReady && (
                         <p className="mt-1 text-[10px] text-gray-400">
-                          El envío real estará disponible cuando conectes el canal. Hasta entonces, lo que escribas se guarda como borrador en NowCRM.
+                          El envío real estará disponible cuando conectes el canal. Hasta entonces, lo que escribas se guarda como borrador.
                         </p>
                       )}
                       {draftSimulated && channelReady && (

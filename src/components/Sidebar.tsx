@@ -15,21 +15,28 @@ import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags, type FlagKey } from '@/lib/feature-flags'
 
 // `flag` lets a client clone hide a module via NEXT_PUBLIC_ENABLE_* env vars
-// without touching code. See src/lib/feature-flags.ts and the Client
-// Adaptation Playbook.
-const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey }> = [
+// without touching code. `internal` marks entries that only appear when
+// NEXT_PUBLIC_NOWLABS_INTERNAL=true — used for operator-only modules that
+// still exist as routes but are not part of the client navigation surface
+// (Automatizaciones, Facturación). See src/lib/feature-flags.ts.
+const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean }> = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
   { href: '/inbox',         label: 'Inbox',             icon: Inbox,      flag: 'inbox' },
-  { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
   { href: '/clients',       label: 'Clientes',          icon: Users },
-  { href: '/opportunities', label: 'Operaciones',       icon: Target,     flag: 'opportunities' },
-  { href: '/automations',   label: 'Automatizaciones',  icon: Zap,        flag: 'automations' },
-  { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
-  { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing' },
+  { href: '/opportunities', label: 'Negocio',           icon: Target,     flag: 'opportunities' },
+  { href: '/calendar',      label: 'Calendar',          icon: Calendar,   flag: 'calendar' },
+  { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
+  // Operator-only routes kept in code but hidden from the client sidebar.
+  { href: '/automations',   label: 'Automatizaciones',  icon: Zap,        flag: 'automations', internal: true },
+  { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing',     internal: true },
   { href: '/settings',      label: 'Configuración',     icon: Settings },
 ]
 
-const visibleNavItems = navItems.filter((item) => !item.flag || featureFlags[item.flag])
+const visibleNavItems = navItems.filter((item) => {
+  if (item.flag && !featureFlags[item.flag]) return false
+  if (item.internal && !featureFlags.nowlabsInternal) return false
+  return true
+})
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -82,10 +89,9 @@ export function Sidebar() {
         </div>
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-bold text-white">NowCRM</span>
-            <span className="rounded-full border border-indigo-300/20 bg-indigo-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-100">Pro</span>
+            <span className="text-sm font-bold text-white">Costa del Sol CRM</span>
           </div>
-          <p className="text-[10px] text-slate-500">AI Revenue Workspace</p>
+          <p className="text-[10px] text-slate-500">Tecnología por NOWLabs</p>
         </div>
       </div>
 
@@ -124,10 +130,10 @@ export function Sidebar() {
           <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
-              <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Demo activa' : 'Trial activo'}</p>
+              <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Entorno de prueba' : 'Workspace activo'}</p>
             </div>
             <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
-              {currentUser.isDemo ? 'Mock data, IA simulada y conectores preparados para Supabase.' : `${currentUser.workspaceName} está probando NowCRM con Auth real.`}
+              {currentUser.isDemo ? 'Datos de muestra para revisar el producto.' : `${currentUser.workspaceName} — CRM listo para usar.`}
             </p>
           </div>
         )}
@@ -211,7 +217,7 @@ export function Sidebar() {
           </div>
           <p className="text-sm font-semibold">{logoutComplete ? 'Sesión cerrada' : 'Cerrando sesión'}</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            {logoutComplete ? 'Volviendo al acceso de NowCRM.' : 'Guardando estado local y limpiando sesión...'}
+            {logoutComplete ? 'Volviendo a la pantalla de acceso.' : 'Guardando estado local y limpiando sesión...'}
           </p>
         </div>
       </div>
