@@ -7,8 +7,8 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'NowCRM — CRM con IA para negocios modernos',
-  description: 'Gestiona clientes, automatiza ventas y potencia tu negocio con inteligencia artificial.',
+  title: 'Costa del Sol CRM — Inmobiliaria y gestoría',
+  description: 'CRM interno para Costa del Sol Real Homes: clientes, visitas, expedientes y documentos.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

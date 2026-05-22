@@ -26,6 +26,7 @@ export type Client = {
   avatar: string
   notes?: string
   createdAt?: string
+  metadata?: Record<string, unknown>
 }
 
 export type Conversation = {

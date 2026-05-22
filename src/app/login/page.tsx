@@ -3,62 +3,20 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import {
-  ArrowRight,
-  BarChart2,
-  Bot,
-  CheckCircle,
-  CreditCard,
-  DollarSign,
-  KeyRound,
-  Loader2,
-  Lock,
-  Mail,
-  Shield,
-  Sparkles,
-  Star,
-  Users,
-} from 'lucide-react'
+import { ArrowRight, Building2, KeyRound, Loader2, Lock, Mail, Shield, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
-import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase'
+import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
-import { featureFlags } from '@/lib/feature-flags'
 
 type AuthMode = 'signin' | 'forgot'
 type AuthFieldErrors = Partial<Record<'email' | 'password', string>>
 
-const loginMetrics = [
-  { icon: Users,      value: 'Clientes',     label: 'Compradores, propietarios y leads', detail: 'ficha 360°',         tone: 'from-indigo-400 to-sky-300' },
-  { icon: Star,       value: 'Inmobiliaria', label: 'Captaciones, visitas y propuestas', detail: 'pipeline propio',    tone: 'from-emerald-300 to-teal-200' },
-  { icon: Bot,        value: 'Asistente',    label: 'Copiloto IA del CRM',               detail: 'redacta y resume',   tone: 'from-violet-300 to-fuchsia-200' },
-  { icon: DollarSign, value: 'Gestoría',     label: 'Expedientes y documentos',          detail: 'extranjería y NIE',  tone: 'from-blue-300 to-indigo-200' },
-]
-
-const proofPoints = ['Inmobiliaria y gestoría', 'Asistente IA integrado', 'Calendario unificado', 'Integraciones preparadas']
-
-const productRows = [
-  { name: 'Ana Rodríguez', stage: 'Visita programada',     score: '92', value: 'Marbella centro', color: 'bg-emerald-400' },
-  { name: 'Carlos Méndez', stage: 'Propuesta enviada',     score: '74', value: 'Ático Estepona',  color: 'bg-amber-400' },
-  { name: 'Laura García',  stage: 'Expediente en trámite', score: '88', value: 'NIE · pendiente', color: 'bg-sky-400' },
-]
-
-const cockpitMetrics = [
-  { label: 'Leads hoy',    value: '—', icon: Users,      tone: 'bg-indigo-500/15 text-indigo-100 ring-indigo-300/15' },
-  { label: 'Citas',        value: '—', icon: Bot,        tone: 'bg-violet-500/15 text-violet-100 ring-violet-300/15' },
-  { label: 'Expedientes',  value: '—', icon: CreditCard, tone: 'bg-emerald-500/15 text-emerald-100 ring-emerald-300/15' },
-]
-
-const authBenefits = [
-  'Acceso por email y contraseña',
-  'Workspace listo para inmobiliaria y gestoría',
-]
-
 const loginTransitionSteps = [
-  'Validando sesión segura...',
-  'Cargando clientes y datos del workspace...',
-  'Activando panel comercial...',
+  'Verificando credenciales',
+  'Preparando el espacio de trabajo',
+  'Cargando datos del workspace',
 ]
 
 function wait(ms: number) {
@@ -69,15 +27,15 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-function validateAuthFields(mode: AuthMode, values: { email: string; password: string }) {
+function validateAuthFields(mode: AuthMode, values: { email: string; password: string }): AuthFieldErrors {
   const errors: AuthFieldErrors = {}
   const cleanEmail = values.email.trim()
 
-  if (!cleanEmail) errors.email = 'El email es obligatorio.'
-  else if (!isValidEmail(cleanEmail)) errors.email = 'Introduce un email valido.'
+  if (!cleanEmail) errors.email = 'Introduce tu email corporativo.'
+  else if (!isValidEmail(cleanEmail)) errors.email = 'El email no tiene un formato válido.'
 
   if (mode !== 'forgot') {
-    if (!values.password) errors.password = 'La contraseña es obligatoria.'
+    if (!values.password) errors.password = 'Introduce tu contraseña.'
     else if (values.password.length < 8) errors.password = 'Usa al menos 8 caracteres.'
   }
 
@@ -85,13 +43,13 @@ function validateAuthFields(mode: AuthMode, values: { email: string; password: s
 }
 
 function getAuthErrorMessage(error: unknown) {
-  if (!(error instanceof Error)) return 'No se ha podido completar la accion.'
+  if (!(error instanceof Error)) return 'No se ha podido completar la acción.'
 
   const message = error.message.toLowerCase()
-  if (message.includes('invalid login credentials')) return 'Email o contraseña incorrectos'
-  if (message.includes('email not confirmed')) return 'Confirma tu email antes de entrar'
-  if (message.includes('invalid path specified')) return 'La URL de confirmacion no es valida. Revisa las URLs permitidas en Supabase.'
-  if (message.includes('password')) return 'Revisa la contraseña y vuelve a intentarlo'
+  if (message.includes('invalid login credentials')) return 'Email o contraseña incorrectos.'
+  if (message.includes('email not confirmed')) return 'Confirma tu email antes de entrar.'
+  if (message.includes('invalid path specified')) return 'La URL de confirmación no es válida.'
+  if (message.includes('password')) return 'Revisa la contraseña e inténtalo de nuevo.'
 
   return error.message
 }
@@ -109,7 +67,6 @@ export default function LoginPage() {
   const formErrors = useMemo(() => validateAuthFields(mode, { email, password }), [email, mode, password])
   const formCanSubmit = Object.keys(formErrors).length === 0
   const showErrors = formSubmitted
-  const supabaseReady = isSupabaseConfigured()
   const activeTransitionText = loginTransitionSteps[transitionStep] ?? loginTransitionSteps[0]
   const transitionProgress = ((transitionStep + 1) / loginTransitionSteps.length) * 100
 
@@ -123,7 +80,7 @@ export default function LoginPage() {
     setAuthTransition(true)
     for (let index = 0; index < loginTransitionSteps.length; index += 1) {
       setTransitionStep(index)
-      await wait(index === 0 ? 420 : 520)
+      await wait(index === 0 ? 320 : 420)
     }
   }
 
@@ -133,12 +90,12 @@ export default function LoginPage() {
     const status = params.get('status')
 
     if (error === 'callback') {
-      toast.error('Auth no completado', { description: 'No se ha podido confirmar el enlace. Solicita uno nuevo o inicia sesion.' })
+      toast.error('No se pudo completar el acceso', { description: 'Solicita un nuevo enlace o inicia sesión.' })
       window.history.replaceState(null, '', '/login')
     }
 
     if (status === 'password-updated') {
-      toast.success('Contraseña actualizada', { description: 'Ya puedes iniciar sesion con tu nueva contraseña.' })
+      toast.success('Contraseña actualizada', { description: 'Ya puedes iniciar sesión con la nueva contraseña.' })
       window.history.replaceState(null, '', '/login')
     }
   }, [])
@@ -150,13 +107,13 @@ export default function LoginPage() {
     setFormSubmitted(true)
     const validationErrors = validateAuthFields(mode, { email, password })
     if (Object.keys(validationErrors).length > 0) {
-      toast.error('Revisa los campos', { description: 'Faltan datos obligatorios o hay algun formato incorrecto.' })
+      toast.error('Revisa los campos', { description: 'Hay datos obligatorios pendientes.' })
       return
     }
 
     const supabase = getSupabaseBrowserClient()
     if (!supabase) {
-      toast.error('Faltan variables de Supabase', { description: 'Revisa las variables publicas del entorno antes de usar auth real.' })
+      toast.error('Acceso no disponible', { description: 'Contacta con el responsable interno.' })
       return
     }
 
@@ -166,7 +123,7 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
         if (error) throw error
         window.localStorage.removeItem(DEMO_MODE_KEY)
-        toast.success('Sesión iniciada', { description: 'Preparando tu workspace.' })
+        toast.success('Sesión iniciada')
         await runLoginTransition()
         router.replace('/dashboard')
         router.refresh()
@@ -178,84 +135,60 @@ export default function LoginPage() {
         redirectTo: `${origin}/reset-password`,
       })
       if (error) throw error
-      toast.success('Email enviado', { description: 'Te hemos enviado el enlace para restablecer tu password.' })
+      toast.success('Email enviado', { description: 'Revisa tu bandeja para restablecer la contraseña.' })
       setMode('signin')
     } catch (error) {
       const message = getAuthErrorMessage(error)
-      toast.error('Auth no completado', { description: message })
+      toast.error('Acceso no completado', { description: message })
     } finally {
       setLoading(false)
     }
   }
 
-  const enterDemo = async () => {
-    const supabase = getSupabaseBrowserClient()
-    if (supabase) {
-      const { error } = await supabase.auth.signOut()
-      if (error) toast.warning('No se pudo cerrar la sesión remota', { description: 'El entorno de prueba se abrirá igualmente.' })
-    }
-    window.localStorage.setItem(DEMO_MODE_KEY, 'true')
-    toast.success('Entorno de prueba activado', { description: 'Entrando con datos de muestra para revisar la interfaz.' })
-    router.replace('/dashboard')
-  }
-
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-[#050713] text-white">
+    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f5] text-gray-900">
+      {/* Fondo despacho profesional — color crema sutil con un acento gráfico mínimo */}
       <div
-        className="absolute inset-0"
+        className="pointer-events-none absolute inset-0"
+        aria-hidden
         style={{
           background:
-            'radial-gradient(ellipse at 30% 10%, rgba(99, 102, 241, 0.36), transparent 42%), radial-gradient(ellipse at 80% 24%, rgba(14, 165, 233, 0.16), transparent 34%), radial-gradient(ellipse at 48% 100%, rgba(124, 58, 237, 0.18), transparent 46%), linear-gradient(135deg, #050713 0%, #0b1022 48%, #050713 100%)',
+            'radial-gradient(circle at 75% 18%, rgba(15,23,42,0.04), transparent 55%), linear-gradient(180deg, #fafaf7 0%, #f3f3ef 100%)',
         }}
       />
-      <div
-        className="absolute inset-0 opacity-70"
-        style={{
-          background:
-            'linear-gradient(115deg, rgba(255,255,255,0.08), transparent 20%, rgba(99,102,241,0.05) 52%, transparent 74%), linear-gradient(180deg, rgba(255,255,255,0.04), transparent 18%, rgba(0,0,0,0.24) 100%)',
-        }}
-      />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-200/45 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#050713] to-transparent" />
 
       {authTransition && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[#050713]/90 px-5 text-white backdrop-blur-2xl">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(99,102,241,0.28),transparent_34%),radial-gradient(circle_at_62%_62%,rgba(14,165,233,0.12),transparent_32%)]" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/85 px-5 backdrop-blur-xl">
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            initial={{ opacity: 0, scale: 0.97, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-md overflow-hidden rounded-[1.75rem] border border-white/12 bg-white/[0.09] p-6 text-center shadow-2xl shadow-black/45 ring-1 ring-white/[0.04]"
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-xl shadow-gray-950/10"
           >
-            <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-indigo-200/70 to-transparent" />
-            <motion.div
-              animate={{ rotate: [0, 2, -2, 0], scale: [1, 1.04, 1] }}
-              transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 0.4 }}
-              className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-indigo-700 shadow-2xl shadow-indigo-950/30"
-            >
-              <Sparkles className="h-6 w-6" />
-            </motion.div>
-            <h2 className="text-xl font-bold">Preparando tu workspace</h2>
-            <p className="mt-2 min-h-6 text-sm leading-6 text-slate-300">{activeTransitionText}</p>
+            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-950 text-white">
+              <Lock className="h-5 w-5" />
+            </div>
+            <h2 className="text-base font-semibold tracking-tight text-gray-950">Accediendo al CRM</h2>
+            <p className="mt-1 min-h-5 text-xs leading-5 text-gray-500">{activeTransitionText}</p>
 
-            <div className="mt-5 overflow-hidden rounded-full bg-white/10 p-1">
+            <div className="mt-5 overflow-hidden rounded-full bg-gray-100 p-0.5">
               <motion.div
-                className="h-2 rounded-full bg-gradient-to-r from-indigo-300 via-violet-300 to-sky-200 shadow-[0_0_18px_rgba(129,140,248,0.55)]"
+                className="h-1 rounded-full bg-gray-950"
                 animate={{ width: `${transitionProgress}%` }}
-                transition={{ duration: 0.32, ease: 'easeOut' }}
+                transition={{ duration: 0.28, ease: 'easeOut' }}
               />
             </div>
 
-            <div className="mt-5 space-y-2 text-left">
+            <div className="mt-5 space-y-1.5 text-left">
               {loginTransitionSteps.map((step, index) => {
                 const isDone = index < transitionStep
                 const isActive = index === transitionStep
                 return (
-                  <div key={step} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/[0.08] text-indigo-100">
-                      {isDone ? <CheckCircle className="h-3.5 w-3.5 text-emerald-200" /> : isActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />}
+                  <div key={step} className="flex items-center gap-2.5 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-gray-700 ring-1 ring-gray-200">
+                      {isDone ? <CheckCircle className="h-3 w-3 text-emerald-600" /> : isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="h-1 w-1 rounded-full bg-gray-400" />}
                     </span>
-                    <span className={cn('text-xs font-medium', isActive || isDone ? 'text-white' : 'text-slate-500')}>{step}</span>
+                    <span className={cn('text-[11px] font-medium', isActive || isDone ? 'text-gray-900' : 'text-gray-400')}>{step}</span>
                   </div>
                 )
               })}
@@ -264,314 +197,158 @@ export default function LoginPage() {
         </div>
       )}
 
-      <main className="relative grid min-h-screen gap-0 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_468px]">
-        <section className="hidden min-h-screen flex-col px-8 py-7 lg:flex xl:px-10">
+      <main className="relative grid min-h-screen lg:grid-cols-[1fr_minmax(420px,520px)]">
+        {/* Panel izquierdo — despacho serio: sólo marca, claim y firma. Sin tarjetas, sin métricas. */}
+        <aside className="relative hidden flex-col justify-between px-12 py-14 lg:flex xl:px-20 xl:py-16">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-950 text-white">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div className="leading-tight">
+              <p className="text-base font-semibold tracking-tight text-gray-950">Costa del Sol Real Homes</p>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-gray-500">Acceso privado</p>
+            </div>
+          </div>
+
+          <div className="relative max-w-xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-gray-500">
+              CRM interno · uso autorizado
+            </p>
+            <h1 className="mt-5 text-[2.7rem] font-semibold leading-[1.05] tracking-tight text-gray-950 xl:text-[3.15rem]">
+              Gestión interna de clientes, expedientes, visitas y documentación.
+            </h1>
+          </div>
+
+          <footer className="flex items-center justify-between text-[11px] text-gray-500">
+            <span>Tecnología por NOWLabs</span>
+            <span>© {new Date().getFullYear()} Costa del Sol Real Homes</span>
+          </footer>
+
+          {/* Acento gráfico mínimo en esquina inferior */}
+          <div
+            className="pointer-events-none absolute bottom-0 right-0 h-64 w-64 opacity-[0.05]"
+            aria-hidden
+            style={{
+              background:
+                'radial-gradient(circle at center, rgba(15,23,42,1) 0%, transparent 70%)',
+            }}
+          />
+        </aside>
+
+        {/* Panel derecho — el formulario es el protagonista */}
+        <section className="flex min-h-screen w-full items-center justify-center border-l border-gray-200/70 bg-white px-6 py-12 sm:px-12 lg:py-16">
           <motion.div
             initial={false}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="flex items-center justify-between"
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-[420px]"
           >
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-700 shadow-2xl shadow-indigo-950/30 ring-1 ring-white/60">
-                <Sparkles className="h-5 w-5" />
+            {/* Mobile brand */}
+            <div className="mb-10 flex items-center gap-3 lg:hidden">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-950 text-white">
+                <Building2 className="h-4 w-4" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold text-white">Costa del Sol CRM</span>
+              <div className="leading-tight">
+                <p className="text-base font-semibold text-gray-950">Costa del Sol Real Homes</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500">Acceso privado</p>
+              </div>
+            </div>
+
+            <h2 className="text-[2rem] font-semibold leading-[1.1] tracking-tight text-gray-950 sm:text-[2.15rem]">
+              {mode === 'signin' ? 'Iniciar sesión' : 'Restablecer acceso'}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              {mode === 'signin'
+                ? 'Introduce tus credenciales para acceder al CRM interno.'
+                : 'Te enviaremos un enlace seguro a tu email corporativo.'}
+            </p>
+
+            <form onSubmit={handleAuth} className="mt-8 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold tracking-wide text-gray-700">Email</span>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="nombre@costadelsol.com"
+                    autoComplete="email"
+                    className={cn(
+                      'h-12 w-full rounded-xl border bg-white pl-11 pr-3.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10',
+                      showErrors && formErrors.email ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200',
+                    )}
+                  />
                 </div>
-                <p className="text-xs text-slate-400">Tecnología por NOWLabs</p>
-              </div>
-            </div>
+                {showErrors && formErrors.email && (
+                  <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.email}</span>
+                )}
+              </label>
 
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-slate-200 shadow-lg shadow-black/10 backdrop-blur-xl">
-              <span className={cn('h-1.5 w-1.5 rounded-full shadow-[0_0_14px_rgba(110,231,183,0.9)]', supabaseReady ? 'bg-emerald-300' : 'bg-amber-300')} />
-              {supabaseReady ? 'Workspace activo' : 'Workspace en preparación'}
-            </div>
-          </motion.div>
+              {mode !== 'forgot' && (
+                <label className="block">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold tracking-wide text-gray-700">Contraseña</span>
+                    <button
+                      type="button"
+                      onClick={() => resetFormState('forgot')}
+                      className="text-[11px] font-medium text-gray-600 transition-colors hover:text-gray-900"
+                    >
+                      ¿La has olvidado?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Introduce tu contraseña"
+                      autoComplete="current-password"
+                      className={cn(
+                        'h-12 w-full rounded-xl border bg-white pl-11 pr-3.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10',
+                        showErrors && formErrors.password ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200',
+                      )}
+                    />
+                  </div>
+                  {showErrors && formErrors.password && (
+                    <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.password}</span>
+                  )}
+                </label>
+              )}
 
-          <div className="grid flex-1 items-center gap-7 py-8 xl:grid-cols-[minmax(360px,0.9fr)_minmax(420px,1fr)] 2xl:gap-10 [@media(max-height:820px)]:py-5">
-            <motion.div
-              initial={false}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.55, delay: 0.08 }}
-              className="max-w-2xl"
-            >
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200/20 bg-white/[0.07] px-3.5 py-1.5 text-xs font-semibold text-indigo-100 shadow-xl shadow-black/10 backdrop-blur-xl">
-                <Sparkles className="h-3.5 w-3.5 text-indigo-200" />
-                CRM para Costa del Sol Real Homes
-              </div>
+              <Button
+                className={cn(
+                  'h-12 w-full gap-2 rounded-xl bg-gray-950 text-sm font-semibold text-white shadow-md shadow-gray-950/15 hover:bg-gray-900',
+                  !formCanSubmit && 'cursor-not-allowed opacity-60',
+                )}
+                variant="primary"
+                loading={loading}
+                aria-disabled={!formCanSubmit}
+              >
+                {mode === 'signin' ? 'Iniciar sesión' : 'Enviar enlace'}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </form>
 
-              <h1 className="text-5xl font-bold leading-[1.03] text-white xl:text-[3.35rem] 2xl:text-[4rem]">
-                Clientes, visitas y expedientes en un solo lugar.
-              </h1>
+            {mode === 'forgot' && (
+              <button
+                type="button"
+                onClick={() => resetFormState('signin')}
+                className="mt-5 text-xs font-medium text-gray-600 transition-colors hover:text-gray-900"
+              >
+                ← Volver al inicio de sesión
+              </button>
+            )}
 
-              <p className="mt-4 max-w-xl text-[15px] leading-7 text-slate-300">
-                CRM dedicado a inmobiliaria y gestoría: leads, calendario, expedientes y conversaciones con asistente IA integrado.
+            <div className="mt-10 flex items-start gap-2.5 border-t border-gray-100 pt-5">
+              <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+              <p className="text-[11px] leading-5 text-gray-500">
+                Acceso restringido al equipo autorizado. Si necesitas credenciales, contacta con el responsable interno.
               </p>
-
-              <div className="mt-4 hidden flex-wrap gap-2 [@media(min-height:820px)]:flex">
-                {proofPoints.map((point) => (
-                  <span key={point} className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-[11px] font-medium text-slate-300 shadow-lg shadow-black/10 backdrop-blur-xl">
-                    {point}
-                  </span>
-                ))}
-              </div>
-
-              <div className="mt-5 grid max-w-xl grid-cols-2 gap-2.5 [@media(max-height:820px)]:hidden">
-                {loginMetrics.map(({ icon: Icon, value, label, detail, tone }) => (
-                  <motion.div
-                    key={label}
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.35, delay: 0.2 }}
-                    className="group rounded-2xl border border-white/10 bg-white/[0.065] p-3.5 shadow-2xl shadow-black/10 backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:bg-white/[0.09]"
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg ring-1 ring-white/15', tone)}>
-                        <Icon className="h-4 w-4 text-white" />
-                      </div>
-                      <span className="text-[10px] font-medium text-slate-500 group-hover:text-slate-400">{detail}</span>
-                    </div>
-                    <p className="text-2xl font-bold text-white">{value}</p>
-                    <p className="mt-1 text-xs text-slate-400">{label}</p>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={false}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.6, delay: 0.16 }}
-              className="relative mx-auto w-full max-w-[560px]"
-            >
-              <div className="absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-indigo-500/20 via-sky-500/10 to-transparent opacity-85 blur-2xl" />
-              <div className="relative rounded-[1.7rem] border border-white/14 bg-white/[0.09] p-2.5 shadow-2xl shadow-black/45 backdrop-blur-2xl">
-                <div className="rounded-[1.25rem] border border-white/10 bg-[#070b18]/92 p-3.5 shadow-inner shadow-white/[0.03]">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Tu workspace</p>
-                      <p className="text-xs text-slate-400">Inmobiliaria · Gestoría · Asistente IA</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                      Vista previa
-                    </div>
-                  </div>
-
-                  <div className="mb-3 flex items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.045] p-1">
-                    {['Revenue', 'Conversaciones', 'Automations'].map((item, index) => (
-                      <span
-                        key={item}
-                        className={cn(
-                          'flex-1 rounded-xl px-3 py-1.5 text-center text-[10px] font-semibold',
-                          index === 0 ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500'
-                        )}
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    {cockpitMetrics.map(({ label, value, icon: Icon, tone }) => (
-                      <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.055] p-3">
-                        <div className={cn('mb-3 flex h-8 w-8 items-center justify-center rounded-xl ring-1', tone)}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <p className="text-xl font-bold text-white">{value}</p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-2.5 grid gap-2.5 xl:grid-cols-[1fr_0.8fr]">
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3.5">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-slate-200">Leads por canal</p>
-                          <p className="text-[10px] text-slate-500">Ultimos 7 dias</p>
-                        </div>
-                        <BarChart2 className="h-4 w-4 text-slate-500" />
-                      </div>
-                      <div className="flex h-24 items-end gap-2">
-                        {[42, 66, 49, 78, 58, 38, 52, 70].map((height, i) => (
-                          <div key={i} className="flex flex-1 items-end overflow-hidden rounded-t-lg bg-white/[0.06]">
-                            <div
-                              className="w-full rounded-t-lg bg-gradient-to-t from-indigo-500 via-violet-400 to-sky-300 shadow-[0_0_18px_rgba(99,102,241,0.28)]"
-                              style={{ height: `${height}%` }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3.5">
-                      <p className="text-xs font-semibold text-slate-200">Automatizacion IA</p>
-                      <div className="mt-4 space-y-3">
-                        {[
-                          { label: 'Lead captado', color: 'bg-indigo-300' },
-                          { label: 'Score calculado', color: 'bg-sky-300' },
-                          { label: 'Secuencia activa', color: 'bg-emerald-300' },
-                        ].map((item, index) => (
-                          <div key={item.label} className="flex items-center gap-2.5">
-                            <span className={cn('flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-slate-950', item.color)}>
-                              {index + 1}
-                            </span>
-                            <span className="text-[11px] text-slate-300">{item.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2.5 rounded-2xl border border-white/10 bg-white/[0.045] [@media(max-height:820px)]:hidden">
-                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-                      <p className="text-xs font-semibold text-slate-200">Clientes prioritarios</p>
-                      <span className="rounded-full bg-white/[0.06] px-2 py-1 text-[10px] text-slate-400">Vista previa</span>
-                    </div>
-                    <div className="divide-y divide-white/10">
-                      {productRows.map((row) => (
-                        <div key={row.name} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-2.5">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-white">{row.name}</p>
-                            <p className="truncate text-[10px] text-slate-500">{row.stage}</p>
-                          </div>
-                          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.08]">
-                            <div className={cn('h-full rounded-full', row.color)} style={{ width: `${row.score}%` }} />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-bold text-slate-100">{row.score}</p>
-                            <p className="text-[9px] text-slate-500">{row.value}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        <section className="flex min-h-screen w-full items-center justify-center border-white/10 px-5 py-8 lg:border-l lg:bg-white/[0.025] xl:px-6">
-          <motion.div
-            initial={false}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-[424px]"
-          >
-            <div className="mb-6 flex items-center gap-2.5 lg:hidden">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-indigo-700">
-                <Sparkles className="h-4 w-4" />
-              </div>
-              <div>
-                <span className="block text-lg font-bold text-white">Costa del Sol CRM</span>
-                <span className="text-xs text-slate-400">Tecnología por NOWLabs</span>
-              </div>
             </div>
 
-            <div className="overflow-hidden rounded-[1.6rem] border border-white/12 bg-white shadow-2xl shadow-black/45">
-              <div className="bg-[#090d1b] px-7 py-6 text-white">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-[11px] font-semibold text-indigo-100">
-                    <Lock className="h-3.5 w-3.5" />
-                    Acceso seguro
-                  </div>
-                  <div className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold', supabaseReady ? 'bg-emerald-400/10 text-emerald-100' : 'bg-amber-400/10 text-amber-100')}>
-                    <span className={cn('h-1.5 w-1.5 rounded-full', supabaseReady ? 'bg-emerald-300' : 'bg-amber-300')} />
-                    {supabaseReady ? 'Listo' : 'Preparado'}
-                  </div>
-                </div>
-                <h2 className="text-3xl font-bold leading-tight">
-                  {mode === 'signin' && 'Iniciar sesion'}
-                  {mode === 'forgot' && 'Recuperar password'}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
-                  {mode === 'signin' && 'Accede con tu cuenta para entrar a tu workspace.'}
-                  {mode === 'forgot' && 'Recibe un enlace seguro para restablecer el acceso a tu workspace.'}
-                </p>
-              </div>
-
-              <div className="p-6">
-                <form onSubmit={handleAuth} className="space-y-4">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-gray-600">Email</span>
-                    <div className="relative">
-                      <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="tu@email.com"
-                        className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.email ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
-                      />
-                    </div>
-                    {showErrors && formErrors.email && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.email}</span>}
-                  </label>
-
-                  {mode !== 'forgot' && (
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold text-gray-600">Password</span>
-                      <div className="relative">
-                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="password"
-                          value={password}
-                          onChange={(event) => setPassword(event.target.value)}
-                          placeholder="Minimo 8 caracteres"
-                          className={cn('h-11 w-full rounded-xl border bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500', showErrors && formErrors.password ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200')}
-                        />
-                      </div>
-                      {showErrors && formErrors.password && <span className="mt-1.5 block text-[11px] font-medium text-red-600">{formErrors.password}</span>}
-                    </label>
-                  )}
-
-                  <Button
-                    className={cn('h-11 w-full gap-2 text-sm font-semibold shadow-lg shadow-indigo-600/20', !formCanSubmit && 'cursor-not-allowed opacity-60')}
-                    loading={loading}
-                    aria-disabled={!formCanSubmit}
-                  >
-                    {mode === 'signin' && 'Iniciar sesion'}
-                    {mode === 'forgot' && 'Enviar enlace'}
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </form>
-
-                <div className="mt-4 flex items-center justify-between gap-3 text-xs">
-                  {mode !== 'forgot' ? (
-                    <button type="button" onClick={() => resetFormState('forgot')} className="font-semibold text-indigo-600 transition-colors hover:text-indigo-700">
-                      Olvidaste tu password?
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => resetFormState('signin')} className="font-semibold text-indigo-600 transition-colors hover:text-indigo-700">
-                      Volver al login
-                    </button>
-                  )}
-                  {featureFlags.demoData && (
-                    <button type="button" onClick={enterDemo} className="font-semibold text-gray-500 transition-colors hover:text-gray-900">
-                      Entrar en entorno de prueba
-                    </button>
-                  )}
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-sky-50 p-4 [@media(max-height:820px)]:hidden">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-indigo-600" />
-                    <span className="text-xs font-semibold text-indigo-950">Plataforma preparada para Costa del Sol Real Homes</span>
-                  </div>
-                  <ul className="space-y-1.5">
-                    {authBenefits.map((item) => (
-                      <li key={item} className="flex items-start gap-2 text-[11px] leading-5 text-indigo-700">
-                        <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <p className="mt-6 text-[11px] text-gray-400 lg:hidden">Tecnología por NOWLabs</p>
           </motion.div>
         </section>
       </main>

@@ -52,6 +52,7 @@ export type ClientPayload = {
   status: ClientStatus
   leadScore?: number
   notes?: string
+  metadata?: Record<string, unknown>
 }
 
 export type InvoicePayload = {
@@ -419,7 +420,7 @@ function displayClientActivity(row: DataRecord) {
   return displayTime(value, 'Sin actividad registrada')
 }
 
-const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
+const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, metadata, created_at, updated_at'
 const MESSAGE_COLUMNS = 'id, workspace_id, conversation_id, sender, body, is_ai, created_at'
 
 function todayIso() {
@@ -627,11 +628,12 @@ export function mapSupabaseClient(row: DataRecord): Client {
     avatar: asString(row.avatar, getInitials(name === 'No consta' ? 'C' : name)),
     notes: asString(row.notes ?? row.notas ?? row.description, 'No consta'),
     createdAt: asString(row.created_at ?? row.createdAt) || undefined,
+    metadata: asRecord(row.metadata),
   }
 }
 
 function toClientRow(workspaceId: string, payload: ClientPayload): DataRecord {
-  return {
+  const row: DataRecord = {
     workspace_id: workspaceId,
     name: payload.name.trim(),
     company: payload.company?.trim() || null,
@@ -639,9 +641,11 @@ function toClientRow(workspaceId: string, payload: ClientPayload): DataRecord {
     phone: payload.phone?.trim() || null,
     channel: payload.channel,
     status: payload.status,
-    lead_score: payload.leadScore ?? 50,
+    lead_score: payload.leadScore ?? 0,
     notes: payload.notes?.trim() || null,
   }
+  if (payload.metadata) row.metadata = payload.metadata
+  return row
 }
 
 export async function getClients(workspaceId: string) {

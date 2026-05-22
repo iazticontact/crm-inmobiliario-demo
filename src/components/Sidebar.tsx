@@ -21,9 +21,9 @@ import { featureFlags, type FlagKey } from '@/lib/feature-flags'
 // (Automatizaciones, Facturación). See src/lib/feature-flags.ts.
 const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean }> = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
-  { href: '/inbox',         label: 'Inbox',             icon: Inbox,      flag: 'inbox' },
+  { href: '/inbox',         label: 'WhatsApp',          icon: Inbox,      flag: 'inbox' },
   { href: '/clients',       label: 'Clientes',          icon: Users },
-  { href: '/opportunities', label: 'Negocio',           icon: Target,     flag: 'opportunities' },
+  { href: '/opportunities', label: 'Gestión',           icon: Target,     flag: 'opportunities' },
   { href: '/calendar',      label: 'Calendar',          icon: Calendar,   flag: 'calendar' },
   { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
   // Operator-only routes kept in code but hidden from the client sidebar.
@@ -69,7 +69,7 @@ export function Sidebar() {
     const supabase = getSupabaseBrowserClient()
     if (supabase && !currentUser.isDemo) {
       const { error } = await supabase.auth.signOut()
-      if (error) toast.warning('Sesión local cerrada', { description: 'Supabase no confirmó el cierre remoto, pero la demo queda limpia.' })
+      if (error) toast.warning('Sesión local cerrada', { description: 'No se confirmó el cierre remoto. Vuelve a iniciar sesión.' })
     }
     await wait(520)
     setLogoutComplete(true)
@@ -130,10 +130,10 @@ export function Sidebar() {
           <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
-              <p className="text-xs font-semibold text-slate-100">{currentUser.isDemo ? 'Entorno de prueba' : 'Workspace activo'}</p>
+              <p className="text-xs font-semibold text-slate-100">Workspace activo</p>
             </div>
             <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
-              {currentUser.isDemo ? 'Datos de muestra para revisar el producto.' : `${currentUser.workspaceName} — CRM listo para usar.`}
+              {currentUser.workspaceName} — CRM listo para usar.
             </p>
           </div>
         )}
@@ -141,7 +141,7 @@ export function Sidebar() {
         {/* Divider + quick links */}
         <div className="mt-4 space-y-0.5 border-t border-white/10 pt-4">
           <button
-            onClick={() => toast.info('Ayuda', { description: 'Para soporte, contacta con el equipo de NowLabs.' })}
+            onClick={() => toast.info('Soporte', { description: 'Para incidencias contacta con el responsable interno o con el equipo técnico de NOWLabs.' })}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <HelpCircle className="h-4 w-4 shrink-0 text-slate-500" />

@@ -1,156 +1,272 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Search, Plus, Mail, Phone, Filter, X, User, Pencil, Trash2, Loader2, AlertCircle, Eye } from 'lucide-react'
+import {
+  Search,
+  Plus,
+  Mail,
+  Phone,
+  X,
+  User,
+  Pencil,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  FolderOpen,
+  ArrowRight,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { Client360Drawer, type Client360Action } from '@/components/Client360Drawer'
-import { NewOpportunityDrawer, NewServiceCaseDrawer, NewPropertyDrawer } from '@/components/VerticalForms'
-import { clients as initialClients } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
-import { DEMO_MODE_KEY } from '@/lib/current-user'
-import { createActivity, createClientLead, deleteClient, getClients, getWorkspaceContext, updateClient } from '@/lib/supabase-queries'
-import type { Client, Channel, ClientStatus } from '@/lib/types'
+import {
+  createActivity,
+  createClientLead,
+  deleteClient,
+  getClients,
+  getWorkspaceContext,
+  updateClient,
+} from '@/lib/supabase-queries'
+import type { Client, ClientStatus } from '@/lib/types'
 
-const channelVariant: Record<Channel, 'success' | 'purple' | 'info' | 'indigo'> = {
-  whatsapp: 'success',
-  instagram: 'purple',
-  web: 'info',
-  email: 'indigo',
-  crm: 'indigo',
-}
+// Status filter — sólo Activos/Inactivos/Archivados como protagonistas.
+// `lead` se mantiene como estado interno seleccionable en el formulario
+// (compatibilidad con datos previos), pero no como filtro principal.
+type StatusFilter = 'todos' | 'active' | 'inactive' | 'churned'
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'todos', label: 'Todos' },
+  { key: 'active', label: 'Activos' },
+  { key: 'inactive', label: 'Inactivos' },
+  { key: 'churned', label: 'Archivados' },
+]
 
-const channelLabels: Record<Channel, string> = {
-  whatsapp: 'WhatsApp',
-  instagram: 'Instagram',
-  web: 'Web',
-  email: 'Email',
-  crm: 'CRM',
-}
-
-const statusConfig: Record<ClientStatus, { label: string; variant: 'success' | 'indigo' | 'default' | 'danger' }> = {
+const STATUS_BADGE: Record<ClientStatus, { label: string; variant: 'success' | 'indigo' | 'default' | 'danger' }> = {
   active: { label: 'Activo', variant: 'success' },
-  lead: { label: 'Lead', variant: 'indigo' },
+  lead: { label: 'En seguimiento', variant: 'indigo' },
   inactive: { label: 'Inactivo', variant: 'default' },
-  churned: { label: 'Perdido', variant: 'danger' },
+  churned: { label: 'Archivado', variant: 'default' },
 }
 
-const channels: Array<Channel | 'Todos'> = ['Todos', 'whatsapp', 'instagram', 'web', 'email']
-const statuses: Array<ClientStatus | 'Todos'> = ['Todos', 'active', 'lead', 'inactive', 'churned']
-const statusLabels: Record<ClientStatus | 'Todos', string> = {
-  Todos: 'Todos',
-  active: 'Activos',
-  lead: 'Leads',
-  inactive: 'Inactivos',
-  churned: 'Perdidos',
-}
+// ---------- Form types (mapped to clients table; extra fields go to metadata) ----------
+
+type ClientType =
+  | 'particular'
+  | 'empresa'
+  | 'propietario'
+  | 'comprador'
+  | 'inquilino'
+  | 'gestoria'
+  | 'otro'
+
+const CLIENT_TYPE_OPTIONS: { value: ClientType; label: string }[] = [
+  { value: 'particular', label: 'Particular' },
+  { value: 'empresa', label: 'Empresa' },
+  { value: 'propietario', label: 'Propietario' },
+  { value: 'comprador', label: 'Comprador' },
+  { value: 'inquilino', label: 'Inquilino' },
+  { value: 'gestoria', label: 'Cliente gestoría' },
+  { value: 'otro', label: 'Otro' },
+]
+
+type MainArea = 'inmobiliaria' | 'gestoria' | 'ambas' | ''
+const MAIN_AREA_OPTIONS: { value: Exclude<MainArea, ''>; label: string }[] = [
+  { value: 'inmobiliaria', label: 'Inmobiliaria' },
+  { value: 'gestoria', label: 'Gestoría / Extranjería' },
+  { value: 'ambas', label: 'Ambas' },
+]
+
+const SERVICE_INTEREST_OPTIONS: { value: string; label: string }[] = [
+  { value: 'compra', label: 'Comprar vivienda' },
+  { value: 'venta', label: 'Vender vivienda' },
+  { value: 'alquiler', label: 'Alquilar' },
+  { value: 'gestion_documental', label: 'Gestión documental' },
+  { value: 'nie_extranjeria', label: 'NIE / extranjería' },
+  { value: 'fiscalidad', label: 'Fiscalidad / gestoría' },
+  { value: 'otro', label: 'Otro' },
+]
+
+const STATUS_FORM_OPTIONS: { value: ClientStatus; label: string }[] = [
+  { value: 'active', label: 'Activo' },
+  { value: 'lead', label: 'En seguimiento' },
+  { value: 'inactive', label: 'Inactivo' },
+  { value: 'churned', label: 'Archivado' },
+]
 
 type ClientForm = {
   id?: string
+  // Sección 1 — datos
   name: string
   company: string
+  documentId: string
+  clientType: ClientType
+  preferredLanguage: string
+  nationality: string
+  // Sección 2 — contacto
   email: string
   phone: string
-  channel: Channel
-  status: ClientStatus
-  leadScore: string
+  secondaryPhone: string
+  address: string
+  cityArea: string
+  // Sección 3 — interés
+  mainArea: MainArea
+  serviceInterest: string
+  budgetRange: string
+  interestZone: string
+  // Sección 4 — internas
   notes: string
+  nextAction: string
+  assignedTo: string
+  status: ClientStatus
 }
 
 const emptyForm: ClientForm = {
   name: '',
   company: '',
+  documentId: '',
+  clientType: 'particular',
+  preferredLanguage: '',
+  nationality: '',
   email: '',
   phone: '',
-  channel: 'whatsapp',
-  status: 'lead',
-  leadScore: '65',
+  secondaryPhone: '',
+  address: '',
+  cityArea: '',
+  mainArea: '',
+  serviceInterest: '',
+  budgetRange: '',
+  interestZone: '',
   notes: '',
+  nextAction: '',
+  assignedTo: '',
+  status: 'active',
+}
+
+function readMeta(client: Client, key: string, fallback = ''): string {
+  const m = client.metadata
+  if (!m) return fallback
+  const value = m[key]
+  return typeof value === 'string' ? value : fallback
 }
 
 function toForm(client: Client): ClientForm {
+  const company = client.company === 'Sin empresa' || client.company === '-' || client.company === 'No consta' ? '' : client.company
+  const phone = client.phone === '-' || client.phone === 'No consta' ? '' : client.phone
+  const ct = readMeta(client, 'client_type', 'particular')
+  const validCT = (CLIENT_TYPE_OPTIONS.some((c) => c.value === ct) ? ct : 'particular') as ClientType
+  const ma = readMeta(client, 'main_area', '')
+  const validMA: MainArea = ma === 'inmobiliaria' || ma === 'gestoria' || ma === 'ambas' ? ma : ''
   return {
     id: client.id,
-    name: client.name,
-    company: client.company === 'Sin empresa' || client.company === '-' ? '' : client.company,
-    email: client.email,
-    phone: client.phone === '-' ? '' : client.phone,
-    channel: client.channel,
+    name: client.name === 'No consta' ? '' : client.name,
+    company,
+    documentId: readMeta(client, 'document_id'),
+    clientType: validCT,
+    preferredLanguage: readMeta(client, 'preferred_language'),
+    nationality: readMeta(client, 'nationality'),
+    email: client.email === 'No consta' ? '' : client.email,
+    phone,
+    secondaryPhone: readMeta(client, 'secondary_phone'),
+    address: readMeta(client, 'address'),
+    cityArea: readMeta(client, 'city_area'),
+    mainArea: validMA,
+    serviceInterest: readMeta(client, 'service_interest'),
+    budgetRange: readMeta(client, 'budget_range'),
+    interestZone: readMeta(client, 'interest_zone'),
+    notes: client.notes && client.notes !== 'No consta' ? client.notes : '',
+    nextAction: readMeta(client, 'next_action'),
+    assignedTo: readMeta(client, 'assigned_to'),
     status: client.status,
-    leadScore: String(client.leadScore),
-    notes: client.notes ?? '',
   }
 }
 
-function getInitials(name: string) {
-  return name.trim().split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() || 'C'
+function describeArea(client: Client): { label: string; tone: 'indigo' | 'info' | 'purple' | 'default' } | null {
+  const area = readMeta(client, 'main_area')
+  const service = readMeta(client, 'service_interest')
+  const labelArea =
+    area === 'inmobiliaria' ? 'Inmobiliaria' :
+    area === 'gestoria' ? 'Gestoría' :
+    area === 'ambas' ? 'Inmobiliaria + Gestoría' :
+    ''
+  const labelService = SERVICE_INTEREST_OPTIONS.find((o) => o.value === service)?.label ?? ''
+  const combined = [labelArea, labelService].filter(Boolean).join(' · ')
+  if (!combined) return null
+  const tone: 'indigo' | 'info' | 'purple' = area === 'gestoria' ? 'purple' : area === 'inmobiliaria' ? 'info' : 'indigo'
+  return { label: combined, tone }
+}
+
+function buildMetadata(form: ClientForm, existing?: Record<string, unknown>) {
+  const meta: Record<string, unknown> = { ...(existing ?? {}) }
+  const setOrDel = (key: string, value: string) => {
+    if (value && value.trim()) meta[key] = value.trim()
+    else delete meta[key]
+  }
+  setOrDel('document_id', form.documentId)
+  setOrDel('client_type', form.clientType)
+  setOrDel('preferred_language', form.preferredLanguage)
+  setOrDel('nationality', form.nationality)
+  setOrDel('secondary_phone', form.secondaryPhone)
+  setOrDel('address', form.address)
+  setOrDel('city_area', form.cityArea)
+  setOrDel('main_area', form.mainArea)
+  setOrDel('service_interest', form.serviceInterest)
+  setOrDel('budget_range', form.budgetRange)
+  setOrDel('interest_zone', form.interestZone)
+  setOrDel('next_action', form.nextAction)
+  setOrDel('assigned_to', form.assignedTo)
+  return meta
 }
 
 export default function ClientsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const editParam = searchParams?.get('edit') ?? null
   const [clientList, setClientList] = useState<Client[]>([])
   const [search, setSearch] = useState('')
-  const [channelFilter, setChannelFilter] = useState<Channel | 'Todos'>('Todos')
-  const [statusFilter, setStatusFilter] = useState<ClientStatus | 'Todos'>('Todos')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<ClientForm>(emptyForm)
+  const [editingExistingMeta, setEditingExistingMeta] = useState<Record<string, unknown> | undefined>(undefined)
+  // Conservamos valores "internos" del cliente (channel, leadScore) al editar
+  // para no pisar lo que ya había con defaults del formulario nuevo.
+  const [editingOriginal, setEditingOriginal] = useState<{ channel: Client['channel']; leadScore: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
-  const [isRealMode, setIsRealMode] = useState(false)
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
   const [deleting, setDeleting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
-  // Client 360 + create-from-360 state
-  const [client360, setClient360] = useState<Client | null>(null)
-  const [createForClient, setCreateForClient] = useState<{ client: Client; action: Client360Action } | null>(null)
 
   const loadClients = useCallback(async () => {
-    const isDemoMode = window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-    if (isDemoMode) {
-      setClientList(initialClients)
-      setWorkspaceId(null)
-      setIsRealMode(false)
-      setLoadError('')
-      setLoading(false)
-      return
-    }
-
     setLoading(true)
     setLoadError('')
     try {
       const context = await getWorkspaceContext()
-      const resolvedWorkspaceId = context?.workspace?.id || context?.profile?.workspace_id
-      if (!resolvedWorkspaceId) {
+      const resolved = context?.workspace?.id || context?.profile?.workspace_id
+      if (!resolved) {
         setClientList([])
         setWorkspaceId(null)
-        setIsRealMode(false)
-        setLoadError('No se ha encontrado workspace real. No se muestran datos demo en modo real.')
+        setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
         return
       }
-
-      const realClients = await getClients(resolvedWorkspaceId)
+      const realClients = await getClients(resolved)
       setClientList(realClients)
-      setWorkspaceId(resolvedWorkspaceId)
-      setIsRealMode(true)
+      setWorkspaceId(resolved)
     } catch {
       setClientList([])
       setWorkspaceId(null)
-      setIsRealMode(false)
-      setLoadError('No se pudieron cargar clientes reales. Revisa RLS, workspace_id o columnas de clients.')
+      setLoadError('No se pudieron cargar los clientes. Vuelve a intentarlo o contacta con soporte.')
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadClients()
-    }, 0)
+    const timeout = window.setTimeout(() => { void loadClients() }, 0)
     return () => window.clearTimeout(timeout)
   }, [loadClients])
 
@@ -160,93 +276,110 @@ export default function ClientsPage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  const filtered = clientList.filter((c) => {
-    const matchSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.company.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase())
-    const matchChannel = channelFilter === 'Todos' || c.channel === channelFilter
-    const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
-    return matchSearch && matchChannel && matchStatus
-  })
+  // Auto-open edit modal cuando llegamos con ?edit=<clientId> (p.ej. desde la
+  // ficha del cliente). Sólo cuando la lista ya está cargada y existe el cliente.
+  useEffect(() => {
+    if (!editParam) return
+    if (loading) return
+    const target = clientList.find((c) => c.id === editParam)
+    if (!target) return
+    const timeout = window.setTimeout(() => {
+      setForm(toForm(target))
+      setEditingExistingMeta(target.metadata)
+      setEditingOriginal({ channel: target.channel, leadScore: target.leadScore })
+      setModalOpen(true)
+      // Limpiamos el query param para que no se reabra al refrescar.
+      router.replace('/clients')
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [editParam, loading, clientList, router])
 
-  const stats = {
+  const filtered = useMemo(() => clientList.filter((c) => {
+    const term = search.trim().toLowerCase()
+    if (term) {
+      const haystack = [c.name, c.company, c.email, c.phone, readMeta(c, 'secondary_phone'), readMeta(c, 'document_id')]
+        .map((v) => v?.toLowerCase() ?? '')
+        .join(' ')
+      if (!haystack.includes(term)) return false
+    }
+    if (statusFilter !== 'todos' && c.status !== statusFilter) return false
+    return true
+  }), [clientList, search, statusFilter])
+
+  const counts = useMemo(() => ({
     total: clientList.length,
     active: clientList.filter((c) => c.status === 'active').length,
-    lead: clientList.filter((c) => c.status === 'lead').length,
     inactive: clientList.filter((c) => c.status === 'inactive').length,
-  }
-  const hasFilters = search || channelFilter !== 'Todos' || statusFilter !== 'Todos'
-
-  const clearFilters = () => {
-    setSearch('')
-    setChannelFilter('Todos')
-    setStatusFilter('Todos')
-    toast.success('Filtros restablecidos')
-  }
+  }), [clientList])
 
   const openCreateModal = () => {
     setForm(emptyForm)
+    setEditingExistingMeta(undefined)
+    setEditingOriginal(null)
     setModalOpen(true)
   }
 
   const openEditModal = (client: Client) => {
     setForm(toForm(client))
+    setEditingExistingMeta(client.metadata)
+    setEditingOriginal({ channel: client.channel, leadScore: client.leadScore })
     setModalOpen(true)
   }
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.email.trim()) {
-      toast.error('Nombre y email son obligatorios')
+    if (!form.name.trim()) {
+      toast.error('Falta el nombre del cliente.')
+      return
+    }
+    if (!workspaceId) {
+      toast.error('No se ha encontrado workspace activo.')
       return
     }
 
+    const metadata = buildMetadata(form, editingExistingMeta)
+    // En CREATE usamos defaults internos (channel='crm', leadScore=0).
+    // En UPDATE preservamos los valores previos del cliente para no pisar
+    // datos legítimos creados por otros flujos (Inbox WhatsApp, etc.).
+    const isUpdate = Boolean(form.id)
+    const preservedChannel: Client['channel'] = isUpdate && editingOriginal ? editingOriginal.channel : 'crm'
+    const preservedLeadScore = isUpdate && editingOriginal ? editingOriginal.leadScore : 0
     const payload = {
       name: form.name.trim(),
       company: form.company.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
-      channel: form.channel,
+      channel: preservedChannel,
       status: form.status,
-      leadScore: Number(form.leadScore) || 50,
+      leadScore: preservedLeadScore,
       notes: form.notes.trim(),
+      metadata,
     }
 
     setSaving(true)
     try {
-      if (isRealMode && workspaceId) {
-        if (form.id) {
-          await updateClient(form.id, payload)
-          await createActivity(workspaceId, { type: 'note', description: `Cliente actualizado: ${payload.name}`, clientName: payload.name })
-          toast.success(`Cliente actualizado: ${payload.name}`)
-        } else {
-          await createClientLead(workspaceId, payload)
-          await createActivity(workspaceId, { type: 'deal', description: `Nuevo cliente creado: ${payload.name}`, clientName: payload.name })
-          toast.success(`Cliente creado en Supabase: ${payload.name}`)
-        }
-        await loadClients()
+      let createdId: string | null = null
+      if (form.id) {
+        await updateClient(form.id, payload)
+        await createActivity(workspaceId, { type: 'note', description: `Cliente actualizado: ${payload.name}`, clientName: payload.name })
+        toast.success(`Cliente actualizado: ${payload.name}`)
       } else {
-        const localClient: Client = {
-          id: form.id || `c-${Date.now()}`,
-          name: payload.name,
-          company: payload.company || 'Sin empresa',
-          email: payload.email,
-          phone: payload.phone || '-',
-          channel: payload.channel,
-          status: payload.status,
-          leadScore: payload.leadScore,
-          lastInteraction: 'Sin actividad registrada',
-          avatar: getInitials(payload.name),
-          notes: payload.notes,
-        }
-        setClientList((prev) => form.id ? prev.map((client) => client.id === form.id ? localClient : client) : [localClient, ...prev])
-        toast.success(form.id ? `Cliente actualizado: ${payload.name}` : `Cliente añadido: ${payload.name}`)
+        const created = await createClientLead(workspaceId, payload)
+        createdId = created.id
+        await createActivity(workspaceId, { type: 'deal', description: `Nuevo cliente creado: ${payload.name}`, clientName: payload.name })
+        toast.success(`Cliente creado: ${payload.name}`)
       }
+      await loadClients()
       setModalOpen(false)
       setForm(emptyForm)
+      setEditingExistingMeta(undefined)
+      setEditingOriginal(null)
+      if (createdId) {
+        // Abre la ficha del cliente recién creado para continuar el alta.
+        router.push(`/clients/${createdId}`)
+      }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      const errorDetails = error && typeof error === 'object' ? JSON.stringify(error, null, 2) : ''
-      console.error('[DEBUG] Error al guardar cliente:', { payload, workspaceId, isRealMode, error, errorDetails })
-      const displayMessage = isRealMode ? `No se pudo guardar el cliente: ${errorMessage}` : `Error: ${errorMessage}`
-      toast.error(displayMessage)
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      toast.error(`No se pudo guardar el cliente: ${message}`)
     } finally {
       setSaving(false)
     }
@@ -256,18 +389,13 @@ export default function ClientsPage() {
     if (!clientToDelete) return
     setDeleting(true)
     try {
-      if (isRealMode) {
-        await deleteClient(clientToDelete.id)
-        if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Cliente eliminado: ${clientToDelete.name}`, clientName: clientToDelete.name })
-        await loadClients()
-        toast.success(`Cliente eliminado: ${clientToDelete.name}`)
-      } else {
-        setClientList((prev) => prev.filter((item) => item.id !== clientToDelete.id))
-        toast.success(`Cliente eliminado en demo: ${clientToDelete.name}`)
-      }
+      await deleteClient(clientToDelete.id)
+      if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Cliente eliminado: ${clientToDelete.name}`, clientName: clientToDelete.name })
+      await loadClients()
+      toast.success(`Cliente eliminado: ${clientToDelete.name}`)
       setClientToDelete(null)
     } catch (error) {
-      toast.error('No se pudo eliminar el cliente', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+      toast.error('No se pudo eliminar el cliente', { description: error instanceof Error ? error.message : 'Revisa la conexión.' })
     } finally {
       setDeleting(false)
     }
@@ -277,20 +405,19 @@ export default function ClientsPage() {
     <motion.div
       initial={false}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
       <PageHeader
         title="Clientes"
-        description={`${filtered.length} visibles de ${clientList.length} clientes`}
+        description={counts.total === 0
+          ? 'Compradores, propietarios, inquilinos y clientes de gestoría.'
+          : `${filtered.length} visibles de ${counts.total} clientes — ${counts.active} activos · ${counts.inactive} inactivos`}
         action={
-          <>
-            <Badge variant={isRealMode ? 'success' : loadError ? 'warning' : 'indigo'} dot>{isRealMode ? 'Datos reales' : loadError ? 'Sin datos reales' : 'Modo demo'}</Badge>
-            <Button size="sm" onClick={openCreateModal}>
-              <Plus className="h-3.5 w-3.5" />
-              Nuevo cliente
-            </Button>
-          </>
+          <Button size="sm" onClick={openCreateModal}>
+            <Plus className="h-3.5 w-3.5" />
+            Nuevo cliente
+          </Button>
         }
       />
 
@@ -301,66 +428,34 @@ export default function ClientsPage() {
         </div>
       )}
 
-      {process.env.NODE_ENV === 'development' && isRealMode && workspaceId && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 font-mono">
-          <div>✓ workspaceId: {workspaceId.slice(0, 8)}...</div>
-          <div>✓ Clientes: {clientList.length}</div>
-          <div>✓ isRealMode: true</div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {[
-          { label: 'Total clientes', value: stats.total, color: 'text-gray-900' },
-          { label: 'Activos', value: stats.active, color: 'text-emerald-600' },
-          { label: 'Leads', value: stats.lead, color: 'text-indigo-600' },
-          { label: 'Inactivos', value: stats.inactive, color: 'text-gray-400' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.035] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
-            <p className="text-xs text-gray-500">{label}</p>
-            <p className={cn('text-2xl font-bold mt-1', color)}>{value}</p>
-          </div>
-        ))}
-      </div>
-
       <SectionCard
-        title="Todos los clientes"
-        description={isRealMode ? 'Clientes cargados desde Supabase' : 'Pipeline comercial demo con datos mock'}
+        title="Base de clientes"
+        description="Listado completo del workspace"
         noPadding
-        action={
-          <div className="flex items-center gap-2">
-            {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <X className="h-3.5 w-3.5" />
-                Limpiar
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => toast.info('Filtros avanzados próximamente')}>
-              <Filter className="h-3.5 w-3.5" />
-              Filtros
-            </Button>
-          </div>
-        }
       >
         <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-gray-50/50 px-5 py-3">
           <div className="relative min-w-56 flex-1">
-            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar por nombre, empresa o email..."
+              placeholder="Buscar por nombre, email, teléfono, empresa o DNI…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 w-full rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            {channels.map((ch) => (
-              <button key={ch} onClick={() => setChannelFilter(ch)} className={cn('rounded-lg px-2.5 py-1 text-xs font-medium transition-colors', channelFilter === ch ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100')}>{ch === 'Todos' ? ch : channelLabels[ch]}</button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1">
-            {statuses.map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)} className={cn('rounded-lg px-2.5 py-1 text-xs font-medium transition-colors', statusFilter === s ? 'bg-gray-800 text-white' : 'text-gray-500 hover:bg-gray-100')}>{statusLabels[s]}</button>
+            {STATUS_FILTERS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setStatusFilter(s.key)}
+                className={cn(
+                  'rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
+                  statusFilter === s.key ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100',
+                )}
+              >
+                {s.label}
+              </button>
             ))}
           </div>
         </div>
@@ -368,103 +463,117 @@ export default function ClientsPage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-100">
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Cliente</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Canal</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Estado</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Lead Score</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Notas</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase text-gray-400">Última actividad</th>
-                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase text-gray-400">Acciones</th>
+              <tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
+                <th className="px-5 py-3 text-left font-semibold">Cliente</th>
+                <th className="px-4 py-3 text-left font-semibold">Contacto</th>
+                <th className="px-4 py-3 text-left font-semibold">Área / servicio</th>
+                <th className="px-4 py-3 text-left font-semibold">Estado</th>
+                <th className="px-4 py-3 text-left font-semibold">Alta</th>
+                <th className="px-4 py-3 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8">
-                    <div className="space-y-3">
-                      {[1, 2, 3].map((item) => (
-                        <div key={item} className="grid grid-cols-[minmax(220px,1.4fr)_90px_90px_120px_minmax(160px,1fr)_120px_80px] items-center gap-4 rounded-xl border border-gray-100 bg-white px-3 py-3">
-                          <div className="flex items-center gap-3">
-                            <span className="h-8 w-8 animate-pulse rounded-full bg-indigo-50" />
-                            <span className="h-3 w-36 animate-pulse rounded-full bg-gray-100" />
-                          </div>
-                          <span className="h-5 w-16 animate-pulse rounded-full bg-gray-100" />
-                          <span className="h-5 w-14 animate-pulse rounded-full bg-gray-100" />
-                          <span className="h-2 w-20 animate-pulse rounded-full bg-gray-100" />
-                          <span className="h-8 w-full animate-pulse rounded-lg bg-indigo-50/70" />
-                          <span className="h-3 w-20 animate-pulse rounded-full bg-gray-100" />
-                          <span className="h-7 w-16 animate-pulse rounded-lg bg-gray-100" />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-gray-500">
+                  <td colSpan={6} className="px-5 py-10">
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
                       <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-                      Cargando clientes...
+                      Cargando clientes…
                     </div>
                   </td>
                 </tr>
               )}
+
               {!loading && filtered.map((client, i) => {
-                const status = statusConfig[client.status]
-                const scoreColor = client.leadScore >= 80 ? 'bg-emerald-500' : client.leadScore >= 60 ? 'bg-amber-500' : 'bg-red-400'
+                const area = describeArea(client)
+                const status = STATUS_BADGE[client.status]
+                const created = client.createdAt ? new Date(client.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+                const email = client.email && client.email !== 'No consta' ? client.email : ''
+                const phone = client.phone && client.phone !== 'No consta' && client.phone !== '-' ? client.phone : ''
                 return (
-                  <tr key={client.id} className={cn('border-b border-gray-50 transition-colors hover:bg-indigo-50/35', i === filtered.length - 1 && 'border-b-0')}>
+                  <tr key={client.id} className={cn('border-b border-gray-50 transition-colors hover:bg-indigo-50/30', i === filtered.length - 1 && 'border-b-0')}>
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-sky-50 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">{client.avatar}</div>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">{client.name}</p>
-                          <p className="text-[11px] text-gray-400">{client.company} · {client.email}</p>
+                      <button type="button" onClick={() => router.push(`/clients/${client.id}`)} className="flex items-center gap-3 text-left">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-sky-50 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100">
+                          {client.avatar}
                         </div>
-                      </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">{client.name}</p>
+                          <p className="truncate text-[11px] text-gray-500">{client.company !== 'No consta' && client.company !== '-' ? client.company : 'Sin empresa'}</p>
+                        </div>
+                      </button>
                     </td>
-                    <td className="px-4 py-3.5"><Badge variant={channelVariant[client.channel]}>{channelLabels[client.channel]}</Badge></td>
-                    <td className="px-4 py-3.5"><Badge variant={status.variant} dot>{status.label}</Badge></td>
+
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-gray-900 w-7">{client.leadScore}</span>
-                        <div className="h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
-                          <div className={cn('h-full rounded-full', scoreColor)} style={{ width: `${client.leadScore}%` }} />
-                        </div>
+                      <div className="space-y-0.5">
+                        {email ? (
+                          <a href={`mailto:${email}`} className="block truncate text-xs text-gray-700 hover:text-indigo-600">{email}</a>
+                        ) : (
+                          <span className="block text-xs text-gray-400">Sin email</span>
+                        )}
+                        {phone ? (
+                          <a href={`tel:${phone}`} className="block truncate text-xs text-gray-700 hover:text-indigo-600">{phone}</a>
+                        ) : (
+                          <span className="block text-xs text-gray-400">Sin teléfono</span>
+                        )}
                       </div>
                     </td>
-                    <td className="max-w-[220px] px-4 py-3.5">
-                      <p
-                        title={client.notes || 'Sin notas'}
-                        className={cn(
-                          'line-clamp-2 rounded-lg border px-2.5 py-1.5 text-[11px] leading-4',
-                          client.notes ? 'border-indigo-100 bg-indigo-50/70 text-indigo-700' : 'border-gray-100 bg-gray-50 text-gray-400'
-                        )}
-                      >
-                        {client.notes || 'Sin notas'}
-                      </p>
+
+                    <td className="px-4 py-3.5">
+                      {area ? (
+                        <Badge variant={area.tone}>{area.label}</Badge>
+                      ) : (
+                        <span className="text-xs text-gray-400">Sin completar</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3.5"><span className="text-xs text-gray-500">{client.lastInteraction}</span></td>
+
+                    <td className="px-4 py-3.5">
+                      <Badge variant={status.variant} dot>{status.label}</Badge>
+                    </td>
+
+                    <td className="px-4 py-3.5">
+                      <span className="text-xs text-gray-500">{created}</span>
+                    </td>
+
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-0.5">
-                        <button onClick={() => setClient360(client)} title="Ver cliente 360" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Eye className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => toast.success(`Email a ${client.name}`, { description: 'Abriendo redactor de email...' })} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Mail className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => toast.success(`Llamando a ${client.name}`, { description: client.phone })} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Phone className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => openEditModal(client)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => setClientToDelete(client)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => router.push(`/clients/${client.id}`)} title="Abrir ficha" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><FolderOpen className="h-3.5 w-3.5" /></button>
+                        {email && (
+                          <a href={`mailto:${email}`} title={`Email a ${email}`} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Mail className="h-3.5 w-3.5" /></a>
+                        )}
+                        {phone && (
+                          <a href={`tel:${phone}`} title={`Llamar a ${phone}`} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Phone className="h-3.5 w-3.5" /></a>
+                        )}
+                        <button onClick={() => openEditModal(client)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => setClientToDelete(client)} title="Eliminar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </td>
                   </tr>
                 )
               })}
+
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-14 text-center">
-                    <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                  <td colSpan={6} className="py-16 text-center">
+                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                       <User className="h-5 w-5" />
                     </div>
-                    <p className="text-sm font-semibold text-gray-700">{isRealMode ? 'Todavía no hay clientes reales' : 'No se encontraron clientes'}</p>
-                    <p className="mt-1 text-xs text-gray-400">{isRealMode ? 'Crea el primer cliente para este workspace.' : 'Prueba con otro filtro o término de búsqueda.'}</p>
-                    {isRealMode && (
+                    <p className="text-sm font-semibold text-gray-800">
+                      {counts.total === 0 ? 'Todavía no hay clientes.' : 'Ningún cliente con esos filtros.'}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {counts.total === 0
+                        ? 'Crea el primer cliente para empezar a organizar sus datos, documentos y seguimiento.'
+                        : 'Prueba con otro término de búsqueda o quita los filtros.'}
+                    </p>
+                    {counts.total === 0 ? (
                       <Button className="mt-4" size="sm" onClick={openCreateModal}>
                         <Plus className="h-3.5 w-3.5" />
                         Crear primer cliente
+                      </Button>
+                    ) : (
+                      <Button className="mt-4" size="sm" variant="secondary" onClick={() => { setSearch(''); setStatusFilter('todos') }}>
+                        Limpiar filtros
                       </Button>
                     )}
                   </td>
@@ -475,70 +584,242 @@ export default function ClientsPage() {
         </div>
       </SectionCard>
 
+      {/* Modal — Ficha de cliente profesional (asesoría / inmobiliaria) */}
       {modalOpen && (
-        <div ref={overlayRef} onClick={(e) => { if (e.target === overlayRef.current) setModalOpen(false) }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div
+          ref={overlayRef}
+          onClick={(e) => { if (e.target === overlayRef.current) setModalOpen(false) }}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+        >
+          <div className="flex max-h-[95vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-                  <User className="h-4 w-4 text-indigo-600" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                  <User className="h-4 w-4" />
                 </div>
-                <h2 className="text-sm font-semibold text-gray-900">{form.id ? 'Editar cliente' : 'Nuevo cliente'}</h2>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-950">{form.id ? 'Editar ficha de cliente' : 'Nueva ficha de cliente'}</h2>
+                  <p className="text-[11px] text-gray-500">Datos personales, contacto, interés y notas internas.</p>
+                </div>
               </div>
-              <button onClick={() => setModalOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X className="h-4 w-4" /></button>
+              <button onClick={() => setModalOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"><X className="h-4 w-4" /></button>
             </div>
 
-            <div className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Nombre *</label>
-                  <input type="text" placeholder="Ana Rodríguez" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
+            <div className="overflow-y-auto px-6 py-5">
+              {/* Sección 1 — Datos del cliente */}
+              <FormSection title="Datos del cliente" description="Identificación y tipo de cliente.">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Nombre completo / Razón social" required>
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                      placeholder="Ana Rodríguez García"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="DNI / NIE / Pasaporte / CIF">
+                    <input
+                      type="text"
+                      value={form.documentId}
+                      onChange={(e) => setForm((p) => ({ ...p, documentId: e.target.value }))}
+                      placeholder="Opcional"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Empresa">
+                    <input
+                      type="text"
+                      value={form.company}
+                      onChange={(e) => setForm((p) => ({ ...p, company: e.target.value }))}
+                      placeholder="Opcional"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Tipo de cliente">
+                    <select
+                      value={form.clientType}
+                      onChange={(e) => setForm((p) => ({ ...p, clientType: e.target.value as ClientType }))}
+                      className={inputCls}
+                    >
+                      {CLIENT_TYPE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Idioma preferente">
+                    <input
+                      type="text"
+                      value={form.preferredLanguage}
+                      onChange={(e) => setForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
+                      placeholder="Español, English, Français…"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Nacionalidad">
+                    <input
+                      type="text"
+                      value={form.nationality}
+                      onChange={(e) => setForm((p) => ({ ...p, nationality: e.target.value }))}
+                      placeholder="Opcional"
+                      className={inputCls}
+                    />
+                  </Field>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Empresa</label>
-                  <input type="text" placeholder="Diseño Digital SL" value={form.company} onChange={(e) => setForm((p) => ({ ...p, company: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
+              </FormSection>
+
+              {/* Sección 2 — Contacto */}
+              <FormSection title="Contacto" description="Email, teléfonos y dirección.">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="cliente@dominio.com"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Teléfono">
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+                      placeholder="+34 612 345 678"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Teléfono secundario">
+                    <input
+                      type="tel"
+                      value={form.secondaryPhone}
+                      onChange={(e) => setForm((p) => ({ ...p, secondaryPhone: e.target.value }))}
+                      placeholder="Opcional"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Ciudad / zona">
+                    <input
+                      type="text"
+                      value={form.cityArea}
+                      onChange={(e) => setForm((p) => ({ ...p, cityArea: e.target.value }))}
+                      placeholder="Marbella, Estepona…"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Dirección" className="sm:col-span-2">
+                    <input
+                      type="text"
+                      value={form.address}
+                      onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+                      placeholder="Opcional"
+                      className={inputCls}
+                    />
+                  </Field>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Email *</label>
-                <input type="email" placeholder="ana@empresa.com" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Teléfono</label>
-                  <input type="tel" placeholder="+34 612 345 678" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
+              </FormSection>
+
+              {/* Sección 3 — Interés / servicio */}
+              <FormSection title="Interés o servicio" description="Qué busca el cliente o qué servicio prestamos.">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Área principal">
+                    <select
+                      value={form.mainArea}
+                      onChange={(e) => setForm((p) => ({ ...p, mainArea: e.target.value as MainArea }))}
+                      className={inputCls}
+                    >
+                      <option value="">Sin definir</option>
+                      {MAIN_AREA_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Servicio / interés">
+                    <select
+                      value={form.serviceInterest}
+                      onChange={(e) => setForm((p) => ({ ...p, serviceInterest: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Sin definir</option>
+                      {SERVICE_INTEREST_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Presupuesto aproximado">
+                    <input
+                      type="text"
+                      value={form.budgetRange}
+                      onChange={(e) => setForm((p) => ({ ...p, budgetRange: e.target.value }))}
+                      placeholder="Ej. 200k–350k €"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Zona de interés">
+                    <input
+                      type="text"
+                      value={form.interestZone}
+                      onChange={(e) => setForm((p) => ({ ...p, interestZone: e.target.value }))}
+                      placeholder="Marbella centro, Nueva Andalucía…"
+                      className={inputCls}
+                    />
+                  </Field>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Lead score</label>
-                  <input type="number" min={0} max={100} value={form.leadScore} onChange={(e) => setForm((p) => ({ ...p, leadScore: e.target.value }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
+              </FormSection>
+
+              {/* Sección 4 — Notas internas */}
+              <FormSection title="Notas internas" description="Contexto, próxima acción y responsable.">
+                <div className="space-y-3">
+                  <Field label="Notas">
+                    <textarea
+                      value={form.notes}
+                      onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+                      rows={3}
+                      placeholder="Contexto comercial, preferencias, antecedentes…"
+                      className={cn(inputCls, 'min-h-[90px] resize-y py-2')}
+                    />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Próxima acción">
+                      <input
+                        type="text"
+                        value={form.nextAction}
+                        onChange={(e) => setForm((p) => ({ ...p, nextAction: e.target.value }))}
+                        placeholder="Llamar el lunes, enviar contrato…"
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Responsable">
+                      <input
+                        type="text"
+                        value={form.assignedTo}
+                        onChange={(e) => setForm((p) => ({ ...p, assignedTo: e.target.value }))}
+                        placeholder="Nombre del responsable interno"
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Estado interno" className="sm:col-span-2">
+                      <select
+                        value={form.status}
+                        onChange={(e) => setForm((p) => ({ ...p, status: e.target.value as ClientStatus }))}
+                        className={inputCls}
+                      >
+                        {STATUS_FORM_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Canal</label>
-                  <select value={form.channel} onChange={(e) => setForm((p) => ({ ...p, channel: e.target.value as Channel }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white">
-                    {(['whatsapp', 'instagram', 'web', 'email'] as Channel[]).map((ch) => <option key={ch} value={ch}>{channelLabels[ch]}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Estado</label>
-                  <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value as ClientStatus }))} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white">
-                    <option value="lead">Lead</option>
-                    <option value="active">Activo</option>
-                    <option value="inactive">Inactivo</option>
-                    <option value="churned">Perdido</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Notas</label>
-                <textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={3} placeholder="Contexto comercial, necesidad o siguiente paso..." className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white" />
-              </div>
+              </FormSection>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/60 px-6 py-3.5">
               <Button variant="secondary" size="sm" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button size="sm" loading={saving} onClick={handleSave}>{form.id ? 'Guardar cambios' : 'Guardar cliente'}</Button>
+              <Button size="sm" loading={saving} onClick={handleSave}>
+                {form.id ? 'Guardar cambios' : 'Crear cliente'}
+                {!form.id && <ArrowRight className="h-3.5 w-3.5" />}
+              </Button>
             </div>
           </div>
         </div>
@@ -546,15 +827,13 @@ export default function ClientsPage() {
 
       {clientToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl shadow-gray-950/20">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="border-b border-gray-100 px-6 py-5">
               <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
                 <Trash2 className="h-5 w-5" />
               </div>
-              <h2 className="text-base font-bold text-gray-950">¿Seguro que quieres eliminar a {clientToDelete.name}?</h2>
-              <p className="mt-1.5 text-sm leading-6 text-gray-500">
-                Esta acción eliminará el cliente del workspace. No se puede deshacer.
-              </p>
+              <h2 className="text-base font-bold text-gray-950">¿Eliminar a {clientToDelete.name}?</h2>
+              <p className="mt-1.5 text-sm leading-6 text-gray-500">Se eliminará la ficha del workspace. Esta acción no se puede deshacer.</p>
             </div>
             <div className="flex items-center justify-end gap-2 bg-gray-50 px-6 py-4">
               <Button variant="secondary" size="sm" onClick={() => setClientToDelete(null)} disabled={deleting}>Cancelar</Button>
@@ -563,45 +842,32 @@ export default function ClientsPage() {
           </div>
         </div>
       )}
-
-      {/* Cliente 360 — open when an "Eye" icon is clicked on a row. */}
-      <Client360Drawer
-        open={!!client360}
-        onClose={() => setClient360(null)}
-        workspaceId={workspaceId}
-        client={client360}
-        onCreate={(action) => {
-          if (!client360) return
-          setCreateForClient({ client: client360, action })
-          setClient360(null)
-        }}
-      />
-
-      {/* Vertical create drawers triggered from Client 360. */}
-      <NewOpportunityDrawer
-        open={!!createForClient && createForClient.action === 'opportunity'}
-        onClose={() => setCreateForClient(null)}
-        workspaceId={workspaceId}
-        defaultClientId={createForClient?.client.id ?? null}
-        defaultClientName={createForClient?.client.name ?? null}
-        onCreated={() => { toast.success('Oportunidad asociada al cliente.') }}
-      />
-      <NewServiceCaseDrawer
-        open={!!createForClient && createForClient.action === 'service_case'}
-        onClose={() => setCreateForClient(null)}
-        workspaceId={workspaceId}
-        defaultClientId={createForClient?.client.id ?? null}
-        defaultClientName={createForClient?.client.name ?? null}
-        onCreated={() => { toast.success('Expediente asociado al cliente.') }}
-      />
-      <NewPropertyDrawer
-        open={!!createForClient && createForClient.action === 'property'}
-        onClose={() => setCreateForClient(null)}
-        workspaceId={workspaceId}
-        defaultClientId={createForClient?.client.id ?? null}
-        defaultClientName={createForClient?.client.name ?? null}
-        onCreated={() => { toast.success('Propiedad asociada al cliente.') }}
-      />
     </motion.div>
+  )
+}
+
+const inputCls =
+  'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent'
+
+function FormSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-6">
+      <header className="mb-3">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {description && <p className="mt-0.5 text-[11px] text-gray-500">{description}</p>}
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function Field({ label, required, className, children }: { label: string; required?: boolean; className?: string; children: React.ReactNode }) {
+  return (
+    <label className={cn('block', className)}>
+      <span className="mb-1 block text-[11px] font-medium text-gray-600">
+        {label}{required && <span className="ml-0.5 text-red-500">*</span>}
+      </span>
+      {children}
+    </label>
   )
 }

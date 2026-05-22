@@ -301,7 +301,12 @@ export function getConversationDisplay(opts: {
 // Inbox is the operator's channel for **external customer traffic only**.
 // -----------------------------------------------------------------------------
 
-export type InboxTab = 'all' | 'whatsapp' | 'instagram' | 'web' | 'email'
+// Vista cliente del Inbox = SOLO WhatsApp. Mantenemos `'all'` y `'whatsapp'`
+// como tabs visibles, pero ambos significan WhatsApp — `all` es alias UI para
+// "todas las conversaciones de WhatsApp", no para "todos los canales".
+// Los tipos de canal heredados (instagram/web/email) siguen existiendo en el
+// modelo de clasificación por compatibilidad, pero no son tab visible.
+export type InboxTab = 'all' | 'whatsapp'
 
 export type InboxTabDescriptor = {
   key: InboxTab
@@ -313,18 +318,17 @@ export type InboxTabDescriptor = {
 }
 
 export const INBOX_TABS: InboxTabDescriptor[] = [
-  { key: 'all',       label: 'Todos',     description: 'Mensajes reales desde tus canales externos.' },
-  { key: 'whatsapp',  label: 'WhatsApp',  description: 'Mensajes desde Meta Cloud API.' },
-  { key: 'instagram', label: 'Instagram', description: 'Mensajes desde Instagram Messaging (próximamente).', future: true },
-  { key: 'web',       label: 'Web',       description: 'Conversaciones del chat web y formularios.' },
-  { key: 'email',     label: 'Email',     description: 'Integración Email/Gmail — próximamente.', future: true },
+  { key: 'all',       label: 'Todas',     description: 'Todas las conversaciones de WhatsApp.' },
+  { key: 'whatsapp',  label: 'WhatsApp',  description: 'Mensajes desde WhatsApp Business.' },
 ]
 
-/** Does a classified conversation belong to the given tab? CRM internal is
- *  intentionally hidden from every tab in this list. */
+/** ¿Pertenece esta conversación clasificada al tab pedido? La vista del
+ *  Inbox es WhatsApp-only: tanto `all` como `whatsapp` solo aceptan
+ *  conversaciones de canal WhatsApp. CRM internal y resto de canales
+ *  quedan ocultos del Inbox del cliente. */
 export function tabMatches(tab: InboxTab, c: ConversationClassification): boolean {
-  if (c.channelType === 'crm_internal') return false
-  if (tab === 'all') return c.channelType !== 'unknown'
+  if (c.channelType !== 'whatsapp') return false
+  if (tab === 'all') return true
   return c.channelType === (tab as ChannelType)
 }
 

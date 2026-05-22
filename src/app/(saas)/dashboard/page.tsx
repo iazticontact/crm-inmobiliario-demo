@@ -1,34 +1,60 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Users, DollarSign, Bot, Mail, Lightbulb, AlertTriangle, Info, Plus, ArrowRight, MessageSquare, Phone, FileText, Star, Activity, CheckCircle, Wifi, Zap, Globe } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import {
+  Users,
+  Users as UsersIcon,
+  Euro,
+  Inbox,
+  Calendar as CalendarIcon,
+  FileText,
+  Building2,
+  Activity as ActivityIcon,
+  Plus,
+  ArrowRight,
+  MessageSquare,
+  Phone,
+  Mail,
+  Star,
+  AlertTriangle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
-import { MetricCard } from '@/components/MetricCard'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
-import { dashboardMetrics, aiInsights, recentActivity, weeklyLeads } from '@/lib/mock-data'
-import { triggerN8nWebhook } from '@/lib/integrations'
-import type { Activity as CRMActivity, AIInsightType, ActivityType } from '@/lib/types'
+import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
-import { getActivities, getCalendarEvents, getClients, getConversations, getInvoices, getWorkspaceContext } from '@/lib/supabase-queries'
+import { useCurrentUser } from '@/lib/current-user'
+import {
+  getActivities,
+  getCalendarEvents,
+  getClients,
+  getConversations,
+  getInvoices,
+  getWorkspaceContext,
+  listTasks,
+} from '@/lib/supabase-queries'
 import { listOpportunities, listServiceCases, listProperties } from '@/lib/vertical-queries'
 
-const metricIcons = {
-  Users: <Users className="h-5 w-5" />,
-  DollarSign: <DollarSign className="h-5 w-5" />,
-  Bot: <Bot className="h-5 w-5" />,
-  Mail: <Mail className="h-5 w-5" />,
-}
-
-const insightConfig: Record<AIInsightType, { icon: React.ReactNode; variant: 'warning' | 'success' | 'info' }> = {
-  opportunity: { icon: <Lightbulb className="h-4 w-4 text-emerald-600" />, variant: 'success' },
-  warning: { icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, variant: 'warning' },
-  info: { icon: <Info className="h-4 w-4 text-blue-600" />, variant: 'info' },
+type RealStats = {
+  totalClients: number
+  leads: number
+  activeClients: number
+  revenue: number
+  pendingAmount: number
+  pendingInvoices: number
+  upcomingEvents: number
+  externalConversations: number
+  unreadConversations: number
+  opportunitiesOpen: number
+  pipelineValue: number
+  casesActive: number
+  casesDocsPending: number
+  propertiesActive: number
+  tasksOpen: number
 }
 
 const activityIcons: Record<ActivityType, React.ReactNode> = {
@@ -40,65 +66,97 @@ const activityIcons: Record<ActivityType, React.ReactNode> = {
 }
 
 const activityBg: Record<ActivityType, string> = {
-  deal: 'bg-indigo-50', message: 'bg-blue-50', email: 'bg-violet-50', call: 'bg-emerald-50', note: 'bg-gray-100',
+  deal: 'bg-indigo-50',
+  message: 'bg-blue-50',
+  email: 'bg-violet-50',
+  call: 'bg-emerald-50',
+  note: 'bg-gray-100',
 }
 
-const channels = [
-  { name: 'Asistente IA',       status: 'connected', color: 'text-emerald-600 bg-emerald-50', leads: 0, icon: <Zap className="h-4 w-4" /> },
-  { name: 'Web',                status: 'prepared',  color: 'text-blue-600 bg-blue-50',       leads: 0, icon: <Wifi className="h-4 w-4" /> },
-  { name: 'WhatsApp',           status: 'pending',   color: 'text-amber-600 bg-amber-50',     leads: 0, icon: <MessageSquare className="h-4 w-4" /> },
-  { name: 'Instagram',          status: 'pending',   color: 'text-violet-600 bg-violet-50',   leads: 0, icon: <Globe className="h-4 w-4" /> },
-  { name: 'Email',              status: 'pending',   color: 'text-indigo-600 bg-indigo-50',   leads: 0, icon: <Mail className="h-4 w-4" /> },
-]
+function formatEuro(value: number) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value)
+}
 
-const aiActions = [
-  { title: 'Agendar seguimiento con 3 leads calientes', cta: 'Agendar', event: 'appointment_booked' as const, icon: <Phone className="h-3.5 w-3.5" /> },
-  { title: 'Enviar propuesta a Carlos Méndez', cta: 'Enviar', event: 'new_lead' as const, icon: <Mail className="h-3.5 w-3.5" /> },
-  { title: 'Cobrar factura vencida: Textil SL (EUR 299)', cta: 'Cobrar', event: 'invoice_paid' as const, icon: <DollarSign className="h-3.5 w-3.5" /> },
-  { title: 'Revisar conversación negativa: Miguel Torres', cta: 'Ver', event: 'invoice_overdue' as const, icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-]
+function formatDateShort(iso?: string | null) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
 
-const workspaceSignals = [
-  { label: 'SLA respuesta IA', value: '1m 48s', detail: 'mejor que ayer', tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-  { label: 'Pipeline caliente', value: '27 leads', detail: 'score superior a 80', tone: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
-  { label: 'Cobros en riesgo', value: '3 facturas', detail: 'recordatorio listo', tone: 'text-amber-600 bg-amber-50 border-amber-100' },
-]
+type MetricTileProps = {
+  label: string
+  value: string
+  detail?: string
+  icon: React.ReactNode
+  href?: string
+  tone?: 'indigo' | 'emerald' | 'amber' | 'sky' | 'violet' | 'slate'
+}
+
+const TONE_STYLES: Record<NonNullable<MetricTileProps['tone']>, string> = {
+  indigo: 'bg-indigo-50 text-indigo-600 ring-indigo-100',
+  emerald: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
+  amber: 'bg-amber-50 text-amber-600 ring-amber-100',
+  sky: 'bg-sky-50 text-sky-600 ring-sky-100',
+  violet: 'bg-violet-50 text-violet-600 ring-violet-100',
+  slate: 'bg-gray-50 text-gray-600 ring-gray-100',
+}
+
+function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: MetricTileProps) {
+  const inner = (
+    <div className="rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-500">{label}</p>
+          <p className="mt-1.5 text-2xl font-semibold text-gray-900">{value}</p>
+        </div>
+        <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
+      </div>
+      {detail && (
+        <p className="mt-3 text-xs text-gray-500">{detail}</p>
+      )}
+    </div>
+  )
+
+  return href ? (
+    <Link href={href} className="block">
+      {inner}
+    </Link>
+  ) : (
+    inner
+  )
+}
 
 export default function DashboardPage() {
   const router = useRouter()
   const { currentUser, isLoading: userLoading } = useCurrentUser()
   const [activity, setActivity] = useState<CRMActivity[]>([])
-  const [loadingAction, setLoadingAction] = useState<string | null>(null)
-  const [realStats, setRealStats] = useState<{ total: number; leads: number; averageScore: number; revenue: number; pending: number; events: number; conversations: number; externalConversations: number; internalConversations: number } | null>(null)
-  const [verticalStats, setVerticalStats] = useState<{
-    opportunitiesOpen: number
-    opportunitiesHot: number
-    pipelineValue: number
-    casesActive: number
-    casesDocsPending: number
-    propertiesProspecting: number
-    propertiesListed: number
-  } | null>(null)
-  const [dashboardLoadError, setDashboardLoadError] = useState('')
+  const [stats, setStats] = useState<RealStats | null>(null)
+  const [upcoming, setUpcoming] = useState<{ id: string; title: string; startAt?: string; clientName?: string; type?: string }[]>([])
+  const [hotLeads, setHotLeads] = useState<{ id: string; name: string; status: string; leadScore: number; company?: string }[]>([])
+  const [loadError, setLoadError] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const loadRealStats = async () => {
-      if (window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
-        setRealStats(null)
-        setActivity(recentActivity)
-        setDashboardLoadError('')
-        return
-      }
+    let cancelled = false
+
+    const load = async () => {
+      setLoading(true)
+      setLoadError('')
       try {
         const context = await getWorkspaceContext()
         const workspaceId = context?.workspace?.id || context?.profile?.workspace_id
         if (!workspaceId) {
-          setRealStats(null)
+          if (cancelled) return
+          setStats(null)
           setActivity([])
-          setDashboardLoadError('Aún no hay workspace asignado a tu cuenta. Contacta con el equipo técnico para completar la activación.')
+          setUpcoming([])
+          setHotLeads([])
+          setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
           return
         }
-        const [clients, invoices, events, conversations, activities, opps, cases, properties] = await Promise.all([
+
+        const [clients, invoices, events, conversations, activities, opps, cases, properties, tasks] = await Promise.all([
           getClients(workspaceId),
           getInvoices(workspaceId).catch(() => []),
           getCalendarEvents(workspaceId).catch(() => []),
@@ -107,86 +165,67 @@ export default function DashboardPage() {
           listOpportunities(workspaceId).catch(() => []),
           listServiceCases(workspaceId).catch(() => []),
           listProperties(workspaceId).catch(() => []),
+          listTasks(workspaceId).catch(() => []),
         ])
-        const averageScore = clients.length ? Math.round(clients.reduce((sum, client) => sum + client.leadScore, 0) / clients.length) : 0
-        // Split conversations by channel so the dashboard can show external
-        // customer traffic separately from internal Copilot/Assistant activity.
-        const isInternalConv = (c: { channel?: string | null }) => {
-          const ch = String(c.channel ?? '').toLowerCase()
-          return ch === 'crm' || ch === 'crm_internal' || ch === '' || ch === 'web'
+
+        if (cancelled) return
+
+        // Vista cliente WhatsApp-only: solo contamos conversaciones cuyo canal
+        // es explícitamente 'whatsapp'. Email/Instagram/Web/CRM no cuentan.
+        const isWhatsAppConv = (c: { channel?: string | null }) => {
+          return String(c.channel ?? '').trim().toLowerCase() === 'whatsapp'
         }
-        const externalConvs = conversations.filter((c) => !isInternalConv(c))
-        const internalConvs = conversations.filter((c) => isInternalConv(c))
-        setRealStats({
-          total: clients.length,
-          leads: clients.filter((client) => client.status === 'lead').length,
-          averageScore,
-          revenue: invoices.reduce((sum, invoice) => sum + invoice.amount, 0),
-          pending: invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + invoice.amount, 0),
-          events: events.filter((event) => event.date >= new Date().toISOString().slice(0, 10)).length,
-          conversations: conversations.length,
+        const externalConvs = conversations.filter(isWhatsAppConv)
+        const nowIso = new Date().toISOString()
+        const upcomingEvents = events
+          .filter((event) => (event.startAt ?? `${event.date}T00:00:00.000Z`) >= nowIso && event.status !== 'cancelled')
+          .slice(0, 5)
+          .map((event) => ({ id: event.id, title: event.title, startAt: event.startAt, clientName: event.clientName, type: event.type }))
+
+        const openOpps = opps.filter((o) => o.stage !== 'won' && o.stage !== 'lost' && o.stage !== 'closed')
+        const activeCases = cases.filter((c) => c.status !== 'resolved' && c.status !== 'closed')
+        const activeProperties = properties.filter((p) => p.status !== 'archived' && p.status !== 'sold')
+
+        const top = [...clients]
+          .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+          .slice(0, 5)
+          .map((c) => ({ id: c.id, name: c.name, status: c.status, leadScore: c.leadScore, company: c.company === 'No consta' ? '' : c.company }))
+
+        setStats({
+          totalClients: clients.length,
+          leads: clients.filter((c) => c.status === 'lead').length,
+          activeClients: clients.filter((c) => c.status === 'active').length,
+          revenue: invoices.filter((i) => i.status === 'paid').reduce((sum, i) => sum + i.amount, 0),
+          pendingAmount: invoices.filter((i) => i.status !== 'paid').reduce((sum, i) => sum + i.amount, 0),
+          pendingInvoices: invoices.filter((i) => i.status !== 'paid').length,
+          upcomingEvents: upcomingEvents.length,
           externalConversations: externalConvs.length,
-          internalConversations: internalConvs.length,
+          unreadConversations: externalConvs.filter((c) => c.unread).length,
+          opportunitiesOpen: openOpps.length,
+          pipelineValue: openOpps.reduce((sum, o) => sum + (o.value ?? 0), 0),
+          casesActive: activeCases.length,
+          casesDocsPending: cases.filter((c) => c.status === 'documentation_pending').length,
+          propertiesActive: activeProperties.length,
+          tasksOpen: tasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed').length,
         })
         setActivity(activities)
-        const openOpps = opps.filter((o) => o.stage !== 'won' && o.stage !== 'lost' && o.stage !== 'closed')
-        const hotStages = new Set(['qualified', 'visit_scheduled', 'offer', 'negotiation', 'in_review', 'submitted'])
-        setVerticalStats({
-          opportunitiesOpen: openOpps.length,
-          opportunitiesHot: openOpps.filter((o) => hotStages.has(o.stage)).length,
-          pipelineValue: openOpps.reduce((sum, o) => sum + (o.value ?? 0), 0),
-          casesActive: cases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length,
-          casesDocsPending: cases.filter((c) => c.status === 'documentation_pending').length,
-          propertiesProspecting: properties.filter((p) => p.status === 'prospecting').length,
-          propertiesListed: properties.filter((p) => p.status === 'listed').length,
-        })
-        setDashboardLoadError('')
+        setUpcoming(upcomingEvents)
+        setHotLeads(top)
       } catch {
-        setRealStats(null)
-        setVerticalStats(null)
+        if (cancelled) return
+        setStats(null)
         setActivity([])
-        setDashboardLoadError('No se pudieron cargar datos reales del dashboard. Revisa RLS, workspace_id o columnas esperadas.')
+        setUpcoming([])
+        setHotLeads([])
+        setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
 
-    void loadRealStats()
+    void load()
+    return () => { cancelled = true }
   }, [])
-
-  const visibleMetrics = useMemo(() => {
-    if (!realStats) {
-      if (!userLoading && currentUser.isDemo) return dashboardMetrics
-      return dashboardMetrics.map((metric) => ({
-        ...metric,
-        value: metric.label === 'Ingresos del mes' ? 'EUR 0' : '0',
-        change: 0,
-        changeLabel: 'sin datos reales',
-      }))
-    }
-    return dashboardMetrics.map((metric) => {
-      if (metric.label === 'Clientes activos') return { ...metric, value: String(realStats.total), changeLabel: 'clientes reales' }
-      if (metric.label === 'Ingresos del mes') return { ...metric, value: `€${Math.round(realStats.revenue).toLocaleString('es-ES')}`, changeLabel: 'facturación real' }
-      // Mostramos solo las **conversaciones externas** (WhatsApp/Instagram/etc.).
-      // Las internas (Copilot/Assistant) viven en /assistant y aparecen abajo
-      // como "Actividad interna".
-      if (metric.label === 'Resueltos por IA') return { ...metric, value: `${realStats.externalConversations}`, label: 'Inbox externo', changeLabel: `${realStats.internalConversations} consultas internas` }
-      if (metric.label === 'Emails enviados') return { ...metric, value: String(realStats.events), label: 'Eventos próximos', changeLabel: 'calendario real' }
-      return metric
-    })
-  }, [currentUser.isDemo, realStats, userLoading])
-
-  const visibleSignals = useMemo(() => {
-    if (!userLoading && currentUser.isDemo) return workspaceSignals
-    if (!realStats) return []
-    return [
-      { label: 'Clientes reales', value: String(realStats.total), detail: `${realStats.leads} leads`, tone: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
-      { label: 'Eventos próximos', value: String(realStats.events), detail: 'calendario local', tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-      { label: 'Cobros pendientes', value: `EUR ${Math.round(realStats.pending).toLocaleString('es-ES')}`, detail: 'facturación real', tone: 'text-amber-600 bg-amber-50 border-amber-100' },
-    ]
-  }, [currentUser.isDemo, realStats, userLoading])
-
-  const visibleInsights = !userLoading && currentUser.isDemo ? aiInsights : []
-  const visibleWeeklyLeads = !userLoading && currentUser.isDemo ? weeklyLeads : []
-  const visibleAiActions = !userLoading && currentUser.isDemo ? aiActions : []
 
   const greeting = useMemo(() => {
     const h = new Date().getHours()
@@ -196,116 +235,94 @@ export default function DashboardPage() {
     return 'Buenas noches'
   }, [])
 
-  const handleInsightAction = async (action: string, insightId: string) => {
-    try {
-      if (insightId === '1') {
-        setLoadingAction(insightId)
-        await triggerN8nWebhook('reengagement_needed', { metadata: { trigger: 'reengagement', count: 34 } })
-        setLoadingAction(null)
-        setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'email', description: 'Secuencia de re-engagement activada para 34 leads', timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
-        toast.success(`${action} activada`, { description: '34 leads entrarán en la secuencia de re-engagement.' })
-      } else if (insightId === '2') {
-        router.push('/billing')
-      } else {
-        toast.info(action, { description: 'Análisis disponible en la sección de analítica.' })
-      }
-    } catch {
-      setLoadingAction(null)
-      toast.error('No se pudo ejecutar la acción', { description: 'Revisa la conexión con n8n.' })
-    }
-  }
-
-  const handleAIAction = async (action: typeof aiActions[0]) => {
-    try {
-      setLoadingAction(action.event)
-      await triggerN8nWebhook(action.event, { metadata: { source: 'dashboard', action: action.title } })
-      setActivity((prev) => [{ id: `act-${Date.now()}`, type: 'note', description: `IA ejecutó: ${action.title}`, timestamp: 'Ahora mismo' }, ...prev.slice(0, 5)])
-      toast.success(`Acción completada: ${action.cta}`, { description: action.title })
-    } catch {
-      toast.error('No se pudo ejecutar la acción', { description: 'Revisa la conexión con n8n.' })
-    } finally {
-      setLoadingAction(null)
-    }
-  }
+  const isEmpty = !!stats && stats.totalClients === 0 && stats.upcomingEvents === 0 && stats.pendingInvoices === 0 && stats.opportunitiesOpen === 0 && stats.casesActive === 0 && stats.propertiesActive === 0
 
   const handleNewClient = () => {
     router.push('/clients')
-    toast.info('Añade el cliente desde la sección de Clientes')
+    toast.info('Crea el nuevo cliente desde la sección de Clientes.')
   }
 
   return (
     <motion.div
       initial={false}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-bold text-gray-950">{greeting}, {userLoading ? '...' : currentUser.name || currentUser.workspaceName}</h2>
-            <Badge variant={userLoading ? 'default' : realStats ? 'success' : currentUser.isDemo ? 'indigo' : 'warning'} dot>{userLoading ? 'Cargando' : realStats ? 'Workspace activo' : currentUser.isDemo ? 'Entorno de prueba' : 'Sin datos todavía'}</Badge>
+            <h2 className="text-2xl font-semibold tracking-tight text-gray-950">
+              {greeting}, {userLoading ? '…' : currentUser.name || currentUser.workspaceName}
+            </h2>
+            <Badge variant={userLoading ? 'default' : 'success'} dot>
+              {userLoading ? 'Cargando' : 'Workspace activo'}
+            </Badge>
           </div>
-          <p className="mt-1 text-sm text-gray-500">{userLoading ? 'Cargando workspace...' : 'Resumen de hoy: clientes, citas y expedientes en curso.'}</p>
+          <p className="mt-1 text-sm text-gray-500">
+            Resumen del día: clientes, citas, expedientes y cobros del workspace.
+          </p>
         </div>
-        <Button size="sm" onClick={handleNewClient}>
-          <Plus className="h-3.5 w-3.5" />
-          Nuevo cliente
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => router.push('/calendar')}>
+            <CalendarIcon className="h-3.5 w-3.5" />
+            Calendario
+          </Button>
+          <Button size="sm" onClick={handleNewClient}>
+            <Plus className="h-3.5 w-3.5" />
+            Nuevo cliente
+          </Button>
+        </div>
       </div>
 
-      {dashboardLoadError && (
+      {loadError && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          {dashboardLoadError}
+          {loadError}
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        {visibleSignals.map((signal) => (
-          <div key={signal.label} className={cn('rounded-xl border px-4 py-3 shadow-sm shadow-gray-950/[0.025] transition-all hover:-translate-y-0.5 hover:shadow-md', signal.tone)}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium opacity-80">{signal.label}</p>
-                <p className="mt-0.5 text-lg font-bold">{signal.value}</p>
-              </div>
-              <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold text-gray-600 shadow-sm">{signal.detail}</span>
-            </div>
-          </div>
-        ))}
+      {/* Top KPIs — datos reales, sin tendencias fabricadas */}
+      <div className="grid gap-4 grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label="Clientes"
+          value={stats ? String(stats.totalClients) : loading ? '…' : '0'}
+          detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.leads} leads · ${stats.activeClients} activos`) : undefined}
+          icon={<Users className="h-5 w-5" />}
+          href="/clients"
+          tone="indigo"
+        />
+        <MetricTile
+          label="Eventos próximos"
+          value={stats ? String(stats.upcomingEvents) : loading ? '…' : '0'}
+          detail={stats ? (stats.upcomingEvents === 0 ? 'Agenda libre' : 'Visitas y reuniones confirmadas') : undefined}
+          icon={<CalendarIcon className="h-5 w-5" />}
+          href="/calendar"
+          tone="sky"
+        />
+        <MetricTile
+          label="Cobros pendientes"
+          value={stats ? formatEuro(stats.pendingAmount) : loading ? '…' : formatEuro(0)}
+          detail={stats ? (stats.pendingInvoices === 0 ? 'Sin facturas pendientes' : `${stats.pendingInvoices} factura(s) abiertas`) : undefined}
+          icon={<Euro className="h-5 w-5" />}
+          tone="amber"
+        />
+        <MetricTile
+          label="WhatsApp"
+          value={stats ? String(stats.externalConversations) : loading ? '…' : '0'}
+          detail={stats ? (stats.externalConversations === 0 ? 'Sin conversaciones de WhatsApp todavía' : `${stats.unreadConversations} sin leer`) : undefined}
+          icon={<Inbox className="h-5 w-5" />}
+          href="/inbox"
+          tone="emerald"
+        />
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {visibleMetrics.map((m) => (
-          <MetricCard key={m.label} label={m.label} value={m.value} change={m.change} changeLabel={m.changeLabel} icon={metricIcons[m.icon as keyof typeof metricIcons]} />
-        ))}
-      </div>
-
-      {/* Operaciones — Vertical Pack snapshot. Lee opportunities / service_cases
-          / properties del workspace y propone acciones concretas. */}
+      {/* Snapshot operativo */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <a
+        <Link
           href="/opportunities"
-          className="group rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm ring-1 ring-indigo-100">
-              <Star className="h-4 w-4" />
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
-          </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Pipeline · oportunidades</p>
-          <p className="text-[11px] text-gray-500">
-            {verticalStats
-              ? `${verticalStats.opportunitiesOpen} abiertas · ${verticalStats.opportunitiesHot} calientes${verticalStats.pipelineValue ? ` · €${Math.round(verticalStats.pipelineValue).toLocaleString('es-ES')} en pipeline` : ''}`
-              : 'Pipeline por vertical (inmobiliaria, extranjería, servicios).'}
-          </p>
-        </a>
-        <a
-          href="/opportunities"
-          className="group rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+          className="group rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
         >
           <div className="flex items-center justify-between">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-violet-600 shadow-sm ring-1 ring-violet-100">
@@ -313,164 +330,176 @@ export default function DashboardPage() {
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-violet-400 transition-transform group-hover:translate-x-0.5" />
           </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes activos</p>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes abiertos</p>
           <p className="text-[11px] text-gray-500">
-            {verticalStats
-              ? `${verticalStats.casesActive} abiertos${verticalStats.casesDocsPending ? ` · ${verticalStats.casesDocsPending} esperando docs` : ''}`
-              : 'Trámites de extranjería y servicios profesionales con checklist.'}
+            {stats
+              ? stats.casesActive === 0
+                ? 'Sin expedientes abiertos'
+                : `${stats.casesActive} abiertos${stats.casesDocsPending ? ` · ${stats.casesDocsPending} esperando docs` : ''}`
+              : 'Cargando…'}
           </p>
-        </a>
-        <a
+        </Link>
+
+        <Link
           href="/opportunities"
-          className="group rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+          className="group rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
         >
           <div className="flex items-center justify-between">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-sky-600 shadow-sm ring-1 ring-sky-100">
-              <Globe className="h-4 w-4" />
+              <Building2 className="h-4 w-4" />
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-sky-400 transition-transform group-hover:translate-x-0.5" />
           </div>
           <p className="mt-2 text-sm font-semibold text-gray-900">Propiedades en cartera</p>
           <p className="text-[11px] text-gray-500">
-            {verticalStats
-              ? `${verticalStats.propertiesProspecting} captaciones · ${verticalStats.propertiesListed} publicadas`
-              : 'Captaciones, ventas y alquileres del vertical inmobiliario.'}
+            {stats
+              ? stats.propertiesActive === 0
+                ? 'Sin propiedades activas todavía'
+                : `${stats.propertiesActive} activas en gestión`
+              : 'Cargando…'}
           </p>
-        </a>
+        </Link>
+
+        <Link
+          href="/clients"
+          className="group rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm ring-1 ring-indigo-100">
+              <UsersIcon className="h-4 w-4" />
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <p className="mt-2 text-sm font-semibold text-gray-900">Clientes activos</p>
+          <p className="text-[11px] text-gray-500">
+            {stats
+              ? stats.activeClients === 0
+                ? 'Sin clientes activos todavía'
+                : `${stats.activeClients} activos · ${stats.leads} leads`
+              : 'Cargando…'}
+          </p>
+        </Link>
       </div>
 
-      {/* Insights + Activity */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <SectionCard title="Insights de IA" description="Recomendaciones generadas automáticamente" action={<Badge variant={visibleInsights.length ? 'indigo' : 'default'} dot>{visibleInsights.length} alertas</Badge>}>
-          <ul className="space-y-3">
-            {visibleInsights.map((insight) => {
-              const cfg = insightConfig[insight.type]
-              return (
-                <li key={insight.id} className="rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white p-4 shadow-sm shadow-gray-950/[0.02] transition-all hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.035]">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm border border-gray-100">{cfg.icon}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">{insight.title}</p>
-                      <p className="mt-0.5 text-xs text-gray-500 leading-relaxed">{insight.description}</p>
-                      {insight.action && (
-                        <button
-                          disabled={loadingAction === insight.id}
-                          className="mt-2.5 flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors disabled:opacity-50"
-                          onClick={() => handleInsightAction(insight.action!, insight.id)}
-                        >
-                          {loadingAction === insight.id ? 'Ejecutando...' : insight.action}
-                          <ArrowRight className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
+      {/* Próximos eventos + leads calientes */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
+        <SectionCard
+          title="Próximas citas"
+          description="Visitas, llamadas y reuniones programadas"
+          action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver calendario</Link>}
+        >
+          {upcoming.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+              No hay citas programadas en el calendario. Crea una visita o reunión desde Calendario o desde la ficha del cliente.
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {upcoming.map((event) => (
+                <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
+                    <p className="truncate text-[11px] text-gray-500">
+                      {[formatDateShort(event.startAt), event.clientName, event.type].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
+                  <Badge variant="indigo">{event.type ?? 'cita'}</Badge>
                 </li>
-              )
-            })}
-            {visibleInsights.length === 0 && (
-              <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
-                Sin recomendaciones reales todavía.
-              </li>
-            )}
-          </ul>
+              ))}
+            </ul>
+          )}
         </SectionCard>
 
-        <SectionCard title="Actividad reciente" description="Últimas acciones del sistema" action={<button onClick={() => toast.info('Historial completo próximamente')} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver todo</button>}>
+        <SectionCard
+          title="Clientes recientes"
+          description="Últimas altas del workspace"
+        >
+          {hotLeads.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+              Aún no hay clientes recientes. Crea un cliente para empezar a organizar los datos.
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {hotLeads.map((lead) => {
+                const statusLabel =
+                  lead.status === 'active' ? 'Activo' :
+                  lead.status === 'lead' ? 'Lead' :
+                  lead.status === 'inactive' ? 'Inactivo' :
+                  lead.status === 'churned' ? 'Perdido' : lead.status
+                return (
+                  <li key={lead.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <button onClick={() => router.push(`/clients/${lead.id}`)} className="flex min-w-0 items-start gap-3 text-left">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-sky-50 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100">
+                        {lead.name.slice(0, 2).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-900 hover:text-indigo-600">{lead.name}</p>
+                        <p className="truncate text-[11px] text-gray-500">{lead.company || 'Sin empresa'}</p>
+                      </div>
+                    </button>
+                    <Badge variant={lead.status === 'active' ? 'success' : 'indigo'}>{statusLabel}</Badge>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Actividad reciente */}
+      <SectionCard
+        title="Actividad reciente"
+        description="Últimas acciones registradas en el workspace"
+        action={
+          stats && stats.tasksOpen > 0 ? (
+            <Badge variant="indigo">{stats.tasksOpen} tareas pendientes</Badge>
+          ) : (
+            <Badge variant="default">Sin tareas</Badge>
+          )
+        }
+      >
+        {activity.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+            {isEmpty
+              ? 'El workspace está vacío. A medida que añadas clientes, citas, expedientes o cobros, irá apareciendo aquí.'
+              : 'Sin actividad reciente todavía.'}
+          </div>
+        ) : (
           <ul className="space-y-1">
             {activity.map((item) => (
-                <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-indigo-50/45">
+              <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-indigo-50/40">
                 <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${activityBg[item.type]}`}>
                   {activityIcons[item.type]}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-700 leading-relaxed">{item.description}</p>
+                  <p className="text-xs leading-relaxed text-gray-700">{item.description}</p>
+                  {item.clientName && <p className="text-[10px] text-gray-400">{item.clientName}</p>}
                 </div>
-                <span className="shrink-0 text-[10px] text-gray-400 whitespace-nowrap">{item.timestamp}</span>
+                <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-400">{item.timestamp}</span>
               </li>
             ))}
-            {activity.length === 0 && (
-              <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
-                Sin actividad real todavía.
-              </li>
-            )}
           </ul>
-        </SectionCard>
-      </div>
+        )}
+      </SectionCard>
 
-      {/* Chart + Channels + AI Actions */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <SectionCard title="Leads por canal" description="Esta semana" action={<Button variant="ghost" size="sm" onClick={() => toast.info('Exportando datos...')}><Activity className="h-3.5 w-3.5" />Exportar</Button>}>
-          {visibleWeeklyLeads.length > 0 ? (
-            <ResponsiveContainer width="100%" height={245}>
-              <BarChart data={visibleWeeklyLeads} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 11 }} cursor={{ fill: '#f9fafb' }} />
-                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                <Bar dataKey="WhatsApp" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                <Bar dataKey="Instagram" fill="#7c3aed" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                <Bar dataKey="Web" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                <Bar dataKey="Email" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-[245px] items-center justify-center rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">
-              Sin datos reales de leads por canal todavía.
+      {isEmpty && !loadError && (
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100">
+              <ActivityIcon className="h-4 w-4" />
+            </span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-gray-900">Tu workspace está listo. Empieza por crear el primer cliente.</p>
+              <p className="mt-1 text-xs text-gray-500">
+                A medida que crees clientes, citas y expedientes, este panel se irá rellenando con los datos reales de Costa del Sol Real Homes.
+              </p>
+              <Button size="sm" className="mt-3" onClick={handleNewClient}>
+                <Plus className="h-3.5 w-3.5" />
+                Crear primer cliente
+              </Button>
             </div>
-          )}
-        </SectionCard>
-
-        <div className="space-y-4">
-          {/* Channels connected */}
-          <SectionCard title="Canales e integraciones" description="Conectado ahora y siguiente fase">
-            <ul className="space-y-2">
-              {channels.map((ch) => (
-                <li key={ch.name} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50">
-                  <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ch.color)}>{ch.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-900">{ch.name}</p>
-                    {ch.leads > 0 && <p className="text-[10px] text-gray-400">{ch.leads} leads hoy</p>}
-                  </div>
-                  {ch.status === 'connected'
-                    ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    : ch.status === 'prepared'
-                      ? <Badge variant="indigo" className="text-[10px]">Preparado</Badge>
-                      : <Badge variant="warning" className="text-[10px]">Pendiente</Badge>
-                  }
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
-
-          {/* AI suggested actions */}
-          <SectionCard title="Próximas acciones IA" description="Sugeridas para hoy">
-            <ul className="space-y-2">
-              {visibleAiActions.map((action) => (
-                <li key={action.event} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gradient-to-br from-white to-gray-50/70 p-3 transition-all hover:border-indigo-100 hover:shadow-sm">
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 mt-0.5">{action.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-gray-700 leading-relaxed">{action.title}</p>
-                    <button
-                      disabled={loadingAction === action.event}
-                      onClick={() => handleAIAction(action)}
-                      className="mt-1.5 text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50 flex items-center gap-0.5"
-                    >
-                      {loadingAction === action.event ? 'Ejecutando...' : action.cta}
-                      <ArrowRight className="h-2.5 w-2.5" />
-                    </button>
-                  </div>
-                </li>
-              ))}
-              {visibleAiActions.length === 0 && (
-                <li className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
-                  Sin acciones sugeridas reales todavía.
-                </li>
-              )}
-            </ul>
-          </SectionCard>
+          </div>
         </div>
-      </div>
+      )}
     </motion.div>
   )
 }

@@ -94,7 +94,7 @@ export default function ResetPasswordPage() {
       return
     }
 
-    toast.success('Contraseña actualizada', { description: 'Ya puedes entrar en NowCRM.' })
+    toast.success('Contraseña actualizada', { description: 'Ya puedes acceder al CRM con la nueva contraseña.' })
     router.replace('/login?status=password-updated')
   }
 
@@ -112,7 +112,7 @@ export default function ResetPasswordPage() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-[11px] font-semibold text-indigo-100">
               <Sparkles className="h-3.5 w-3.5" />
-              NowCRM Auth
+              Costa del Sol CRM
             </div>
             <ShieldCheck className="h-4 w-4 text-emerald-200" />
           </div>

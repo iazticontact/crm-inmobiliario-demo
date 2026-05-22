@@ -1,10 +1,10 @@
 'use client'
 
-// /opportunities — Operaciones (Vertical Pack v1).
+// /opportunities — Gestión.
 //
-// Pipeline · Expedientes · Propiedades · Plantillas · Automatizaciones.
+// Expedientes · Propiedades · Seguimiento (pipeline) · Plantillas.
 // La ruta sigue siendo /opportunities para no romper enlaces; el label visual
-// pasó a "Operaciones" porque la página opera más entidades que sólo el pipeline.
+// pasó a "Gestión" porque la página opera todo lo operativo del workspace.
 //
 // Lecturas: helpers workspace-scoped en vertical-queries.ts (RLS al fondo).
 // Escrituras: drawers laterales en src/components/VerticalForms.tsx — usan los
@@ -20,8 +20,6 @@ import {
   FileText,
   Loader2,
   RefreshCcw,
-  Briefcase,
-  PlugZap,
   Sparkles,
   Plus,
   PlayCircle,
@@ -73,7 +71,7 @@ type VerticalTab = 'all' | VerticalKey
 type Subtab = 'pipeline' | 'cases' | 'properties' | 'templates' | 'automations'
 
 const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: string }> = [
-  { key: 'all',                    label: 'Todos',         description: 'Pipeline completo del workspace.' },
+  { key: 'all',                    label: 'Todos',         description: 'Operativa completa del workspace.' },
   { key: 'real_estate',            label: 'Inmobiliaria',  description: 'Captaciones, visitas y operaciones inmobiliarias.' },
   { key: 'immigration',            label: 'Extranjería',   description: 'Expedientes y trámites de extranjería.' },
   { key: 'professional_services',  label: 'Servicios',     description: 'Asesorías y servicios profesionales recurrentes.' },
@@ -82,10 +80,13 @@ const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: strin
 // The "Automatizaciones" subtab is operator-only — it shows the catalog of
 // n8n/Meta workflows. Hide from clients by default and only surface when
 // NEXT_PUBLIC_NOWLABS_INTERNAL=true.
+//
+// Orden visible para asesoría/inmobiliaria: Expedientes y Propiedades primero,
+// luego Seguimiento (pipeline comercial) y Plantillas.
 const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }>; internal?: boolean }> = [
-  { key: 'pipeline',     label: 'Pipeline',         icon: Target },
   { key: 'cases',        label: 'Expedientes',      icon: FileText },
   { key: 'properties',   label: 'Propiedades',      icon: Building2 },
+  { key: 'pipeline',     label: 'Seguimiento',      icon: Target },
   { key: 'templates',    label: 'Plantillas',       icon: Sparkles },
   { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
@@ -115,10 +116,9 @@ function formatDate(value: string | null) {
 
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
-  const isDemo = currentUser?.isDemo ?? true
 
   const [vertical, setVertical] = useState<VerticalTab>('all')
-  const [subtab, setSubtab] = useState<Subtab>('pipeline')
+  const [subtab, setSubtab] = useState<Subtab>('cases')
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
@@ -214,7 +214,7 @@ export default function OpportunitiesPage() {
       void loadData()
       return
     }
-    toast.success(`Oportunidad → ${nextStage}`)
+    toast.success(`Seguimiento → ${nextStage}`)
   }
 
   async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
@@ -253,22 +253,19 @@ export default function OpportunitiesPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Negocio"
-        description="Inmobiliaria y Gestoría · pipeline, expedientes y propiedades del workspace."
+        title="Gestión"
+        description="Expedientes, propiedades, visitas y seguimiento operativo."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>
               <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
               Refrescar
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nuevo expediente
-            </Button>
             <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
               <Plus className="h-3.5 w-3.5" /> Nueva propiedad
             </Button>
-            <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nueva oportunidad
+            <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nuevo expediente
             </Button>
           </div>
         }
@@ -319,12 +316,6 @@ export default function OpportunitiesPage() {
         })}
       </div>
 
-      {isDemo && (
-        <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Estás en un entorno de prueba. Las oportunidades, expedientes y propiedades reales requieren sesión real; cuando inicies sesión, lo que crees aquí y lo que prepare el Asistente IA escriben en las mismas tablas.
-        </div>
-      )}
-
       {loadError && (
         <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           {loadError}
@@ -333,13 +324,6 @@ export default function OpportunitiesPage() {
 
       {/* KPI strip (always visible) */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <KpiCard
-          icon={<Target className="h-4 w-4 text-indigo-600" />}
-          label="Oportunidades"
-          value={String(visibleOpportunities.length)}
-          detail={visibleOpportunities.length ? `${formatCurrency(totalPipelineValue)} en pipeline` : 'Sin oportunidades aún'}
-          tone="border-indigo-100 bg-indigo-50/40"
-        />
         <KpiCard
           icon={<FileText className="h-4 w-4 text-violet-600" />}
           label="Expedientes activos"
@@ -354,14 +338,21 @@ export default function OpportunitiesPage() {
           detail={visibleProperties.length ? 'En cartera' : (vertical !== 'all' && vertical !== 'real_estate' ? 'Solo en Inmobiliaria' : 'Sin propiedades')}
           tone="border-sky-100 bg-sky-50/40"
         />
+        <KpiCard
+          icon={<Target className="h-4 w-4 text-indigo-600" />}
+          label="Seguimientos"
+          value={String(visibleOpportunities.length)}
+          detail={visibleOpportunities.length ? `${formatCurrency(totalPipelineValue)} en seguimiento` : 'Sin seguimientos aún'}
+          tone="border-indigo-100 bg-indigo-50/40"
+        />
       </div>
 
       {/* PIPELINE */}
       {subtab === 'pipeline' && (
         <SectionCard
-          title="Pipeline"
-          description={`Etapas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
-          action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} oportunidades</Badge>}
+          title="Seguimiento comercial"
+          description={`Etapas operativas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
+          action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} seguimientos</Badge>}
         >
           {loading ? (
             <div className="flex items-center justify-center py-8 text-xs text-gray-400">
@@ -370,15 +361,15 @@ export default function OpportunitiesPage() {
           ) : visibleOpportunities.length === 0 ? (
             <EmptyState
               icon={<Target className="h-6 w-6 text-gray-300" />}
-              title="Sin oportunidades todavía"
+              title="Sin seguimientos abiertos"
               description={
                 vertical === 'all'
-                  ? 'Crea una desde el botón "Nueva oportunidad" o pídele al Asistente IA "crea un lead para…" — entrará al pipeline.'
-                  : `Sin oportunidades en ${VERTICALS[verticalForPipeline].label.toLowerCase()}. Crea una arriba o desde el Asistente IA.`
+                  ? 'Crea un seguimiento comercial para vincular un cliente con una operación o trámite.'
+                  : `Sin seguimientos en ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`
               }
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nueva oportunidad
+                  <Plus className="h-3.5 w-3.5" /> Nuevo seguimiento
                 </Button>
               }
             />
@@ -461,8 +452,8 @@ export default function OpportunitiesPage() {
           ) : visibleCases.length === 0 ? (
             <EmptyState
               icon={<FileText className="h-6 w-6 text-gray-300" />}
-              title="Sin expedientes activos"
-              description="Crea uno desde el botón Nuevo expediente, o pídele al Asistente IA: 'abre un expediente de NIE para Ana'."
+              title="Sin expedientes abiertos"
+              description="Crea un expediente para empezar a organizar la operación o trámite del cliente."
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
                   <Plus className="h-3.5 w-3.5" /> Nuevo expediente
@@ -549,7 +540,7 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
               title="Sin propiedades en cartera"
-              description="Registra una desde Nueva propiedad o pídele al Asistente IA: 'crea una propiedad en captación en Marbella'."
+              description="Registra una propiedad para empezar a gestionarla."
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
                   <Plus className="h-3.5 w-3.5" /> Nueva propiedad
@@ -634,28 +625,6 @@ export default function OpportunitiesPage() {
           </ul>
         </SectionCard>
       )}
-
-      {/* Footer hint */}
-      <div className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100">
-            <Briefcase className="h-4 w-4" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-gray-900">Negocio · UI y Asistente IA sobre las mismas tablas</p>
-            <p className="mt-0.5 text-xs leading-5 text-gray-600">
-              Los drawers de UI crean en <code className="rounded bg-white px-1 text-[10px]">opportunities</code>, <code className="rounded bg-white px-1 text-[10px]">service_cases</code> y <code className="rounded bg-white px-1 text-[10px]">properties</code> con RLS por workspace.
-              El Asistente IA escribe en las mismas tablas tras confirmación verbal en chat.
-              Cada escritura deja un row en <code className="rounded bg-white px-1 text-[10px]">activities</code> para auditar y alimentar Dashboard / Cliente 360.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> UI funcional</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-700"><Sparkles className="h-3 w-3" /> Asistente IA conectado</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700"><PlugZap className="h-3 w-3" /> Seguimiento automático en preparación</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Create drawers */}
       <NewOpportunityDrawer

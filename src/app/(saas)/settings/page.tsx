@@ -173,7 +173,6 @@ export default function SettingsPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [settingsLoading, setSettingsLoading] = useState(false)
-  const [settingsPersisted, setSettingsPersisted] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [flowIds, setFlowIds] = useState<Record<string, string>>({})
   const [flowStatuses, setFlowStatuses] = useState<Record<string, N8nFlowStatus>>(
@@ -270,7 +269,6 @@ export default function SettingsPage() {
   const loadControlCenter = useCallback(async () => {
     if (userLoading) return
     if (currentUser.isDemo) {
-      setSettingsPersisted(false)
       setSettingsError('')
       return
     }
@@ -281,7 +279,6 @@ export default function SettingsPage() {
       const context = await getResolvedWorkspaceContext()
       const resolvedWorkspaceId = currentUser.workspaceId || context?.workspace?.id || context?.profile?.workspace_id
       if (!resolvedWorkspaceId) {
-        setSettingsPersisted(false)
         setSettingsError('Conecta tu cuenta para acceder a la configuracion completa de integraciones.')
         return
       }
@@ -314,9 +311,7 @@ export default function SettingsPage() {
         setInboxSettings(inbox)
         setInboxAutoReply(Boolean(inbox.auto_reply_enabled))
       }
-      setSettingsPersisted(Boolean(flows.length || remoteIntegrations.length))
     } catch {
-      setSettingsPersisted(false)
       setSettingsError('No se pudo sincronizar la configuracion. Comprueba la conexion e intentalo de nuevo.')
     } finally {
       setSettingsLoading(false)
@@ -477,7 +472,6 @@ export default function SettingsPage() {
         : await upsertN8nFlow(workspaceId, { event, status: nextStatus, webhookUrl, label: config.label, description: config.description, trigger: config.trigger, requires: config.requires })
       setFlowIds((prev) => ({ ...prev, [event]: saved.id }))
       setFlowStatuses((prev) => ({ ...prev, [event]: saved.status }))
-      setSettingsPersisted(true)
       if (options?.notify) toast.success('Flujo guardado en Supabase', { description: config.label })
       return saved
     } catch {
@@ -508,7 +502,6 @@ export default function SettingsPage() {
       })))
       applyRemoteFlows(seeded)
       await createActivity(workspaceId, { type: 'note', description: 'Flujos n8n inicializados desde Settings' })
-      setSettingsPersisted(true)
       toast.success('Flujos n8n inicializados en Supabase', { description: `${seeded.length} flujos preparados.` })
     } catch {
       toast.error('No se pudieron inicializar los flujos', { description: 'Revisa la tabla n8n_flows y RLS.' })
@@ -665,7 +658,6 @@ export default function SettingsPage() {
           ? await updateIntegrationSetting(integrationIds[integration.id], { status: nextStatus, name: integration.name, description: integration.description, category: integration.category, info: integration.info })
           : await upsertIntegrationSetting(workspaceId, { key: integration.id, name: integration.name, description: integration.description, status: nextStatus, category: integration.category, info: integration.info })
         setIntegrationIds((prev) => ({ ...prev, [integration.id]: saved.id }))
-        setSettingsPersisted(true)
       } catch {
         setIntegrationStatuses((prev) => ({ ...prev, [integration.id]: 'error' }))
         toast.error('No se pudo guardar la integracion')
@@ -807,7 +799,9 @@ export default function SettingsPage() {
     }
   }
 
-  const settingsMode = userLoading ? 'Cargando' : currentUser.isDemo ? 'Modo demo' : settingsPersisted ? 'Persistente' : 'Local'
+  const settingsBadge = userLoading
+    ? { label: 'Cargando', variant: 'default' as const }
+    : { label: 'Workspace activo', variant: 'success' as const }
 
   return (
     <motion.div
@@ -818,8 +812,8 @@ export default function SettingsPage() {
     >
       <PageHeader
         title="Configuración"
-        description="Gestiona tu cuenta, tus integraciones y las preferencias del CRM."
-        action={<Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : settingsPersisted ? 'success' : 'warning'} dot>{settingsMode}</Badge>}
+        description="Tu cuenta, integraciones y preferencias del CRM."
+        action={<Badge variant={settingsBadge.variant} dot>{settingsBadge.label}</Badge>}
       />
 
       {SHOW_INTERNAL_TECH && (
@@ -1255,8 +1249,8 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="Inbox Assistant"
-            description="Modo de respuesta del agente en conversaciones cliente"
+            title="Atención automática"
+            description="Modo de respuesta del asistente en conversaciones con clientes"
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
               <div>
@@ -1360,10 +1354,12 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="WhatsApp Business"
-            description="Conectar número verificado via Meta Business API para recibir leads entrantes y activar Inbox Assistant"
+            title={SHOW_INTERNAL_TECH ? 'WhatsApp Business' : 'WhatsApp'}
+            description={SHOW_INTERNAL_TECH
+              ? 'Conectar número verificado via Meta Business API para recibir leads entrantes y activar Inbox Assistant'
+              : 'Conexión de WhatsApp gestionada por NOWLabs.'}
             action={
-              waConnection && String(waConnection.status ?? '') !== 'disconnected'
+              SHOW_INTERNAL_TECH && waConnection && String(waConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleWADisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
                 : null
             }
@@ -1376,7 +1372,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">WhatsApp Business (Meta Cloud API)</p>
+                      <p className="text-sm font-semibold text-gray-900">{SHOW_INTERNAL_TECH ? 'WhatsApp Business (Meta Cloud API)' : 'WhatsApp'}</p>
                       {(() => {
                         const s = waConnection ? String(waConnection.status ?? '') : null
                         if (s === 'connected') return <Badge variant="success" dot>Conectado y verificado</Badge>
@@ -1389,14 +1385,17 @@ export default function SettingsPage() {
                     <p className="mt-0.5 text-xs text-gray-500">
                       {waConnection
                         ? [
-                            String(waConnection.provider ?? 'meta'),
                             waConnection.phone_number ? String(waConnection.phone_number) : null,
-                            waLastWebhookAt ? `ultimo webhook: ${new Date(waLastWebhookAt).toLocaleString('es')}` : null,
-                          ].filter(Boolean).join(' · ')
-                        : 'Introduce los IDs de tu cuenta Meta para vincular WhatsApp Business.'}
+                            waLastWebhookAt ? `último mensaje: ${new Date(waLastWebhookAt).toLocaleString('es')}` : null,
+                          ].filter(Boolean).join(' · ') || 'Conexión activa'
+                        : SHOW_INTERNAL_TECH
+                          ? 'Introduce los IDs de tu cuenta Meta para vincular WhatsApp Business.'
+                          : 'Pendiente de configuración técnica por NOWLabs.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
-                      NOWLabs gestiona la conexión técnica con Meta. Tú introduces los IDs de tu Business y el número verificado. El CRM recibe los mensajes entrantes y los procesa en el Inbox.
+                      {SHOW_INTERNAL_TECH
+                        ? 'NOWLabs gestiona la conexión técnica con Meta. Tú introduces los IDs de tu Business y el número verificado. El CRM recibe los mensajes entrantes y los procesa en el Inbox.'
+                        : 'Conexión y atención por WhatsApp gestionada por NOWLabs.'}
                     </p>
                   </div>
                 </div>

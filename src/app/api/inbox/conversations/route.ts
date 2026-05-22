@@ -1,26 +1,38 @@
 // GET /api/inbox/conversations
 //
-// Lists conversations for the current user's workspace with optional filters.
-// Server-side, auth-aware, never exposes raw rows of other workspaces.
+// Lista las conversaciones del workspace del usuario autenticado.
 //
-// Default: EXCLUDES CRM internal conversations (channel='crm' and metadata
-// sources used by NowLabs Copilot/Assistant). The Inbox is for external
-// customer channels only. Consumers that genuinely need internal threads
-// (Assistant page, debug routes) must pass ?includeInternal=1.
+// Decisión de producto:
+//   La vista cliente de Inbox es WhatsApp-only. Para cualquier usuario
+//   autenticado "normal" (rol distinto de `nowlabs_admin`), este endpoint
+//   devuelve EXCLUSIVAMENTE filas con `channel='whatsapp'`. Los query params
+//   `channel` e `includeInternal` se IGNORAN para usuarios normales — no
+//   pueden saltarse el filtro WhatsApp manipulando la URL.
 //
-// Query params:
-//   channel?: whatsapp | email | web | instagram | crm
+//   Sólo los `nowlabs_admin` (operadores internos NOWLabs) pueden:
+//     - pasar `?channel=…` para ver email/instagram/web/crm.
+//     - pasar `?includeInternal=1` para incluir conversaciones internas
+//       (`crm`/`crm_internal`) junto a las WhatsApp.
+//   La autorización se comprueba server-side leyendo `profiles.role`;
+//   no basta con el query param.
+//
+// Query params (sólo honrados para nowlabs_admin):
+//   channel?: whatsapp | email | web | instagram | crm | crm_internal
+//   includeInternal?: 1 | true
+//
+// Query params (todos los usuarios):
 //   status?: open | pending | resolved | archived
 //   sentiment?: positive | neutral | negative | urgent
 //   limit?: number (default 50, max 100)
 //   offset?: number
-//   includeInternal?: 1 | true (opt-in to bring back CRM internal rows)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 export const runtime = 'nodejs'
+
+const ALLOWED_ADMIN_CHANNELS = new Set(['whatsapp', 'email', 'web', 'instagram', 'crm', 'crm_internal'])
 
 async function buildSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
@@ -44,20 +56,45 @@ export async function GET(req: NextRequest) {
   const { data: { user }, error: authErr } = await supabase.auth.getUser()
   if (authErr || !user) return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('profiles').select('workspace_id').eq('id', user.id).maybeSingle()
+  // Resolvemos workspace + role en una sola lectura de profiles. El role es
+  // la única señal de autorización: NO confiamos en ningún query param para
+  // ampliar el alcance de la consulta.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('workspace_id, role')
+    .eq('id', user.id)
+    .maybeSingle()
   const workspaceId = profile?.workspace_id as string | null | undefined
   if (!workspaceId) return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
 
+  const isNowlabsAdmin = String(profile?.role ?? '').toLowerCase() === 'nowlabs_admin'
+
   const sp = req.nextUrl.searchParams
-  const channel = sp.get('channel')?.trim() || undefined
   const status = sp.get('status')?.trim() || undefined
   const sentiment = sp.get('sentiment')?.trim() || undefined
-  const includeInternalRaw = sp.get('includeInternal')?.trim().toLowerCase()
-  const includeInternal = includeInternalRaw === '1' || includeInternalRaw === 'true'
   const limitRaw = Number(sp.get('limit'))
   const offsetRaw = Number(sp.get('offset'))
   const limit = Math.min(Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50, 100)
   const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0
+
+  // Cálculo del filtro de canal — WhatsApp-only por defecto.
+  // Para usuarios normales (no nowlabs_admin) IGNORAMOS los query params
+  // `channel` e `includeInternal` y forzamos `channel='whatsapp'` server-side.
+  let effectiveChannelFilter: string | null = 'whatsapp'
+
+  if (isNowlabsAdmin) {
+    const channelParam = sp.get('channel')?.trim().toLowerCase() || undefined
+    const includeInternalRaw = sp.get('includeInternal')?.trim().toLowerCase()
+    const includeInternal = includeInternalRaw === '1' || includeInternalRaw === 'true'
+
+    if (channelParam && ALLOWED_ADMIN_CHANNELS.has(channelParam)) {
+      effectiveChannelFilter = channelParam
+    } else if (includeInternal) {
+      effectiveChannelFilter = null // sin filtro de canal
+    } else {
+      effectiveChannelFilter = 'whatsapp'
+    }
+  }
 
   let q = supabase
     .from('conversations')
@@ -67,16 +104,11 @@ export async function GET(req: NextRequest) {
     .order('updated_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  if (channel) q = q.ilike('channel', channel)
+  if (effectiveChannelFilter) {
+    q = q.ilike('channel', effectiveChannelFilter)
+  }
   if (status) q = q.eq('status', status)
   if (sentiment) q = q.eq('sentiment', sentiment)
-
-  // Default: exclude CRM internal threads. The Inbox is for external customer
-  // channels only — Copilot/Assistant traffic belongs in /assistant and the
-  // dashboard timeline.
-  if (!includeInternal) {
-    q = q.not('channel', 'in', '("crm","crm_internal")')
-  }
 
   const { data, error } = await q
   if (error) {

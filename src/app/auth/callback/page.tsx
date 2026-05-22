@@ -49,7 +49,7 @@ export default function AuthCallbackPage() {
 
       if (data.session) {
         window.localStorage.removeItem(DEMO_MODE_KEY)
-        setMessage('Sesion confirmada. Entrando en NowCRM...')
+        setMessage('Sesión confirmada. Entrando al CRM...')
         setTimeout(() => router.replace('/dashboard'), 900)
         return
       }
@@ -72,7 +72,7 @@ export default function AuthCallbackPage() {
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-indigo-700">
           <ShieldCheck className="h-5 w-5" />
         </div>
-        <h1 className="text-lg font-bold">Auth NowCRM</h1>
+        <h1 className="text-lg font-bold">Costa del Sol CRM</h1>
         <p className="mt-2 text-sm leading-6 text-slate-300">{message}</p>
         <Loader2 className="mx-auto mt-5 h-5 w-5 animate-spin text-indigo-200" />
       </div>

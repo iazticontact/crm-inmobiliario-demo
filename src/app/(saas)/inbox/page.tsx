@@ -32,11 +32,9 @@ import {
   classifyConversation,
   classifyMessageOrigin,
   getConversationDisplay,
-  CHANNEL_DESCRIPTORS,
   SOURCE_PILL,
   INBOX_TABS,
   tabMatches,
-  type ChannelType,
   type SourceType,
   type InboxTab,
 } from '@/lib/inbox-classify'
@@ -255,7 +253,7 @@ export default function InboxPage() {
   }, [conversations])
 
   const tabCounts = useMemo(() => {
-    const out: Record<InboxTab, number> = { all: 0, whatsapp: 0, instagram: 0, web: 0, email: 0 }
+    const out: Record<InboxTab, number> = { all: 0, whatsapp: 0 }
     for (const { classification } of decoratedConversations) {
       for (const tab of INBOX_TABS) {
         if (tabMatches(tab.key, classification)) out[tab.key] += 1
@@ -483,8 +481,8 @@ export default function InboxPage() {
       className="flex h-full flex-col gap-4"
     >
       <PageHeader
-        title="Inbox"
-        description="Conversaciones entrantes de clientes. El Asistente IA te ayuda a resumir, clasificar y preparar la respuesta."
+        title="WhatsApp"
+        description="Conversaciones y borradores de WhatsApp."
         action={
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadConversations()} disabled={loadingList}>
@@ -498,7 +496,7 @@ export default function InboxPage() {
       {isDemo && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Estás viendo un entorno de prueba. Las conversaciones reales aparecerán aquí cuando WhatsApp esté conectado.
+          Las conversaciones reales aparecerán aquí cuando WhatsApp esté conectado.
         </div>
       )}
 
@@ -592,32 +590,21 @@ export default function InboxPage() {
             ) : filteredConversations.length === 0 ? (
               <EmptyState
                 icon={<Inbox className="h-6 w-6 text-gray-300" />}
-                title={
-                  activeTab === 'whatsapp'  ? 'WhatsApp aún no está conectado'
-                  : activeTab === 'instagram' ? 'Instagram preparado para conectarse'
-                  : activeTab === 'web'      ? 'Web Chat todavía no tiene conversaciones'
-                  : activeTab === 'email'    ? 'Email/Gmail será una integración futura'
-                  : 'No hay conversaciones externas todavía'
-                }
+                title="Sin conversaciones de WhatsApp todavía"
                 description={
-                  activeTab === 'whatsapp'
-                    ? (SHOW_INTERNAL_TECH
-                        ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook publico (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecera aqui.'
-                        : 'WhatsApp Business pendiente de configuracion. La conexion tecnica esta gestionada por NOWLabs. Cuando llegue el primer mensaje real aparecera aqui.')
-                    : activeTab === 'instagram'
-                      ? 'Necesitarás una cuenta profesional de Instagram vinculada a una Página de Facebook y permisos de Meta. Te avisaremos cuando esté disponible.'
-                      : activeTab === 'web'
-                        ? 'Cuando un visitante envíe un mensaje desde el chat web, lo verás aquí.'
-                        : activeTab === 'email'
-                          ? 'Estamos preparando la conexión con Email/Gmail. Mientras tanto, el CRM ya recibe leads desde WhatsApp y otros canales.'
-                          : 'Cuando conectes WhatsApp, Instagram o Web Chat, los mensajes de tus clientes aparecerán aquí. Las consultas internas con NowLabs viven en /assistant.'
+                  SHOW_INTERNAL_TECH
+                    ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook público (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecerá aquí.'
+                    : 'Conexión de WhatsApp pendiente. Gestionada por NOWLabs. Cuando llegue el primer mensaje real aparecerá aquí.'
                 }
               />
             ) : (
               <ul className="divide-y divide-gray-100">
                 {filteredConversations.map((c) => {
                   const active = c.id === selectedId
-                  const channelDesc = CHANNEL_DESCRIPTORS[c._channel as ChannelType]
+                  // WhatsApp-only view: ya filtramos por canal en tabMatches y la API
+                  // fuerza `whatsapp`. No pintamos el badge de canal en cada fila
+                  // porque sería redundante. Sólo mostramos el sourcePill cuando es
+                  // simulación o caso especial (no real/internal).
                   const sourcePill = SOURCE_PILL[c._source as SourceType]
                   return (
                     <li key={c.id}>
@@ -638,9 +625,6 @@ export default function InboxPage() {
                           <p className="-mt-0.5 line-clamp-1 text-[10px] text-gray-400">{c._display.subtitle}</p>
                         )}
                         <div className="flex w-full flex-wrap items-center gap-1 text-[10px]">
-                          <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', channelDesc.tone)}>
-                            {channelDesc.shortLabel}
-                          </span>
                           {c._source !== 'real' && c._source !== 'internal' && (
                             <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', sourcePill.tone)}>
                               {sourcePill.label}
@@ -706,15 +690,11 @@ export default function InboxPage() {
                       phoneFromMetadata: typeof meta.phone === 'string' ? meta.phone : null,
                       channelType: classification.channelType,
                     })
-                    const channelDesc = CHANNEL_DESCRIPTORS[classification.channelType]
                     const sourcePill = SOURCE_PILL[classification.sourceType]
                     return (
                       <>
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="truncate text-sm font-semibold text-gray-900">{display.title}</h2>
-                          <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-semibold', channelDesc.tone)}>
-                            {channelDesc.label}
-                          </span>
                           {classification.sourceType !== 'real' && classification.sourceType !== 'internal' && (
                             <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-medium', sourcePill.tone)}>
                               {sourcePill.label}
@@ -952,7 +932,6 @@ export default function InboxPage() {
             phoneFromMetadata: phoneFromMeta,
             channelType: classification.channelType,
           })
-          const channelDesc = CHANNEL_DESCRIPTORS[classification.channelType]
           return (
             <aside className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm lg:flex">
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
@@ -960,8 +939,8 @@ export default function InboxPage() {
                   <User className="h-3.5 w-3.5 text-gray-400" />
                   <h3 className="text-sm font-semibold text-gray-900">Contacto</h3>
                 </div>
-                <span className={cn('rounded-full border px-1.5 py-0.5 text-[10px] font-semibold', channelDesc.tone)}>
-                  {channelDesc.shortLabel}
+                <span className="rounded-full border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  WhatsApp
                 </span>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-xs">
@@ -985,12 +964,9 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {(client?.status || typeof client?.lead_score === 'number') && (
+                {client?.status && (
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    {client?.status && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{client.status}</span>}
-                    {typeof client?.lead_score === 'number' && (
-                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Score {client.lead_score}</span>
-                    )}
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">{client.status}</span>
                   </div>
                 )}
 
