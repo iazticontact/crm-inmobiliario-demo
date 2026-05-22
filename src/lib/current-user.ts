@@ -5,7 +5,11 @@ import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { featureFlags } from '@/lib/feature-flags'
 import { getResolvedWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
 
+export type ProfileRole = 'nowlabs_admin' | 'client_admin' | 'member'
+
 export type CurrentUser = {
+  /** Supabase auth.user.id when there is a real session, undefined otherwise. */
+  id?: string
   name: string
   email: string
   workspaceId?: string
@@ -22,6 +26,14 @@ export type CurrentUser = {
   // they MUST NOT be persisted or shown as if they were the logged-in user.
   isFallback: boolean
   trialLabel: string
+  // The role from public.profiles. Defaults to 'member' if no profile exists.
+  // UI gating uses this — but the real enforcement happens server-side in
+  // /api/team/users routes. NEVER trust this field for security decisions.
+  role: ProfileRole
+  // True when the authenticated user has NO row in public.profiles. AuthGate
+  // uses this to route to /login?error=no_profile so we don't render the app
+  // chrome for someone who has no workspace assignment.
+  hasProfile: boolean
 }
 
 export const DEMO_MODE_KEY = 'nowcrm-demo-mode'
@@ -41,6 +53,8 @@ const demoUser: CurrentUser = {
   isAuthenticated: false,
   isFallback: false,
   trialLabel: 'Modo demo',
+  role: 'member',
+  hasProfile: false,
 }
 
 const offlineCurrentUser: CurrentUser = {
@@ -52,6 +66,8 @@ const offlineCurrentUser: CurrentUser = {
   isAuthenticated: false,
   isFallback: false,
   trialLabel: 'Modo local',
+  role: 'member',
+  hasProfile: false,
 }
 
 function getInitials(value: string) {
@@ -158,9 +174,14 @@ export function useCurrentUser() {
           'Workspace'
         )
         const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
+        const role: ProfileRole =
+          profile?.role === 'nowlabs_admin' || profile?.role === 'client_admin' || profile?.role === 'member'
+            ? profile.role
+            : 'member'
 
         if (mounted) {
           setCurrentUser({
+            id: data.user.id,
             name,
             email,
             workspaceId: workspace?.id || profile?.workspace_id || undefined,
@@ -170,6 +191,8 @@ export function useCurrentUser() {
             isAuthenticated: true,
             isFallback: false,
             trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
+            role,
+            hasProfile: Boolean(profile),
           })
           setIsLoading(false)
         }

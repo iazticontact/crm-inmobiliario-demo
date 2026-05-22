@@ -94,6 +94,13 @@ export default function LoginPage() {
       window.history.replaceState(null, '', '/login')
     }
 
+    if (error === 'no_profile') {
+      toast.error('Tu usuario no está vinculado a un workspace', {
+        description: 'Contacta con el responsable interno o con NOWLabs para que te asignen acceso.',
+      })
+      window.history.replaceState(null, '', '/login')
+    }
+
     if (status === 'password-updated') {
       toast.success('Contraseña actualizada', { description: 'Ya puedes iniciar sesión con la nueva contraseña.' })
       window.history.replaceState(null, '', '/login')

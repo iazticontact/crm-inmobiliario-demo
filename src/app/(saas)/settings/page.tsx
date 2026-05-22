@@ -29,6 +29,7 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { VerticalPreferenceCard } from '@/components/VerticalPreferenceCard'
+import { TeamUsersCard } from '@/components/TeamUsersCard'
 import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
@@ -881,6 +882,11 @@ export default function SettingsPage() {
               ))}
             </div>
           </SectionCard>
+
+          <TeamUsersCard
+            currentRole={currentUser.role}
+            currentUserId={currentUser.id}
+          />
 
           {SHOW_INTERNAL_TECH && (
           <SectionCard

@@ -47,6 +47,26 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       if (!mounted) return
 
       if (data.session && !error) {
+        // Real session exists. Now require that the user has a row in
+        // public.profiles attached to a workspace. Otherwise the app would
+        // render for someone with no workspace assignment, which is a hole.
+        const userId = data.session.user.id
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, workspace_id')
+          .eq('id', userId)
+          .maybeSingle()
+        if (!mounted) return
+
+        if (profileError || !profile || !profile.workspace_id) {
+          // Cierra la sesión y manda al login con mensaje claro. No dejamos
+          // que la app se renderice en modo "sin workspace".
+          await supabase.auth.signOut().catch(() => null)
+          window.localStorage.removeItem(DEMO_MODE_KEY)
+          router.replace('/login?error=no_profile')
+          return
+        }
+
         window.localStorage.removeItem(DEMO_MODE_KEY)
         setAllowed(true)
         return
