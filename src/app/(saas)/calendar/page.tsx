@@ -264,7 +264,7 @@ export default function CalendarPage() {
         setEvents([])
         setWorkspaceId(null)
         setIsRealMode(false)
-        setLoadError('No se ha encontrado workspace real. No se muestran eventos demo en modo real.')
+        setLoadError('Tu cuenta no está vinculada a un workspace. Contacta con el responsable interno.')
         return
       }
 
@@ -276,8 +276,7 @@ export default function CalendarPage() {
       setEvents([])
       setWorkspaceId(null)
       setIsRealMode(false)
-      const message = error instanceof Error ? error.message : 'Revisa RLS o columnas de calendar_events.'
-      setLoadError(process.env.NODE_ENV === 'development' ? `No se pudieron cargar eventos reales: ${message}` : 'No se pudieron cargar eventos reales. Revisa RLS o columnas de calendar_events.')
+      setLoadError('No se pudieron cargar los eventos del calendario. Inténtalo de nuevo en unos segundos.')
       if (process.env.NODE_ENV === 'development') console.error('[calendar/loadEvents]', error)
     } finally {
       setLoading(false)
@@ -447,16 +446,13 @@ export default function CalendarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selectedCalendarIds: selectedIds, calendarMetadata }),
       })
-      const data = await res.json() as { ok?: boolean; mode?: string; error?: string }
+      const data = await res.json() as { ok?: boolean; error?: string }
       if (!data.ok) {
         toast.error('No se pudo guardar la selección', { description: data.error ?? 'Inténtalo de nuevo.' })
         return
       }
       toast.success(
         selectedIds.length === 1 ? 'Calendario guardado' : `${selectedIds.length} calendarios guardados`,
-        data.mode === 'legacy_single'
-          ? { description: 'Schema legacy detectado — solo el primer calendario se sincronizará. Aplica la migración multi-calendar.' }
-          : undefined,
       )
       setCalendarsPanelOpen(false)
       void syncGoogleCalendar()
@@ -759,6 +755,29 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {!loading && !loadError && !googleConnected && isRealMode && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white px-4 py-3 shadow-sm shadow-indigo-950/[0.03]">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-indigo-100">
+              <CalendarDays className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">Conecta tu Google Calendar</p>
+              <p className="text-[11px] leading-5 text-gray-600">
+                Cada usuario conecta su propio calendario. Las visitas y citas que crees aquí se sincronizan de forma controlada con Google Calendar.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/settings#google-calendar"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gray-950 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-gray-900"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Ir a Configuración
+          </a>
+        </div>
+      )}
+
       <div className="flex gap-5" style={{ minHeight: 640, height: 'clamp(640px, calc(100vh - 12rem), 800px)' }}>
         {/* SIDEBAR */}
         <aside className="hidden w-72 shrink-0 flex-col gap-4 lg:flex">
@@ -874,8 +893,8 @@ export default function CalendarPage() {
                 <li className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-gray-50/50 p-6 text-center">
                   <CalendarDays className="h-6 w-6 text-gray-300" />
                   <div>
-                    <p className="text-xs font-semibold text-gray-700">Sin próximos eventos</p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">{googleConnected ? 'Crea una cita o sincroniza Google.' : 'Crea una cita para empezar.'}</p>
+                    <p className="text-xs font-semibold text-gray-700">Sin citas próximas</p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">{googleConnected ? 'Crea una cita o sincroniza Google.' : 'Empieza creando tu primera cita.'}</p>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => openCreateModal()}>
                     <Plus className="h-3 w-3" />

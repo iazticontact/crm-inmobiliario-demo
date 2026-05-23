@@ -78,9 +78,7 @@ export function TeamCalendarStatusCard({ currentRole }: { currentRole: ProfileRo
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
           <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
           <p className="text-[11px] leading-5 text-amber-800">
-            La conexión individual por usuario todavía no está activa. Hasta aplicar la migración
-            <code className="ml-1 rounded bg-white px-1 text-[10px] text-amber-900">calendar_user_level_v1.sql</code>
-            las conexiones se gestionan por workspace.
+            Conexión individual por usuario pendiente de configuración técnica. Contacta con NOWLabs.
           </p>
         </div>
       )}

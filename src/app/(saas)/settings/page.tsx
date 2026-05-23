@@ -47,7 +47,6 @@ import {
   seedN8nFlows,
   updateIntegrationSetting,
   updateN8nFlow,
-  upsertGoogleCalendarConnection,
   upsertInboxAgentSettings,
   upsertIntegrationSetting,
   upsertN8nFlow,
@@ -184,8 +183,6 @@ export default function SettingsPage() {
   )
   const [gcalConnection, setGcalConnection] = useState<Record<string, unknown> | null>(null)
   const [gcalSchemaPending, setGcalSchemaPending] = useState(false)
-  const [gcalCalendarId, setGcalCalendarId] = useState('')
-  const [gcalSyncEnabled, setGcalSyncEnabled] = useState(false)
   const [gcalLoading, setGcalLoading] = useState(false)
   const [waConnection, setWaConnection] = useState<Record<string, unknown> | null>(null)
   const [waPhoneNumber, setWaPhoneNumber] = useState('')
@@ -318,8 +315,6 @@ export default function SettingsPage() {
             updated_at: conn.updatedAt ?? null,
           }
           setGcalConnection(mapped)
-          setGcalCalendarId(String(conn.calendarId ?? ''))
-          setGcalSyncEnabled(Boolean(conn.calendarId))
         } else {
           setGcalSchemaPending(false)
           setGcalConnection(null)
@@ -697,32 +692,6 @@ export default function SettingsPage() {
     })
   }
 
-  const handleGCalPrepare = async () => {
-    setGcalLoading(true)
-    try {
-      if (!currentUser.isDemo && workspaceId) {
-        // Preserve connected status — only update calendar preferences, not the auth state
-        const currentStatus = String(gcalConnection?.status ?? '')
-        const statusToSet = currentStatus === 'connected' ? 'connected' : 'prepared'
-        const result = await upsertGoogleCalendarConnection(workspaceId, {
-          calendarId: gcalCalendarId || 'primary',
-          syncEnabled: gcalSyncEnabled,
-          status: statusToSet,
-        })
-        if (result) {
-          setGcalConnection(result)
-          setGcalCalendarId(String(result.calendar_id ?? ''))
-          setGcalSyncEnabled(Boolean(result.sync_enabled))
-        }
-      }
-      toast.success('Preferencias actualizadas', { description: 'Calendar ID y sincronizacion guardados.' })
-    } catch {
-      toast.error('No se pudo guardar las preferencias', { description: 'Revisa la tabla google_calendar_connections y RLS.' })
-    } finally {
-      setGcalLoading(false)
-    }
-  }
-
   const handleGCalDisconnect = async () => {
     setGcalLoading(true)
     try {
@@ -744,17 +713,11 @@ export default function SettingsPage() {
             last_sync_at: conn.lastSyncAt ?? null,
             updated_at: conn.updatedAt ?? null,
           })
-          setGcalCalendarId(String(conn.calendarId ?? ''))
-          setGcalSyncEnabled(false)
         } else {
           setGcalConnection(null)
-          setGcalCalendarId('')
-          setGcalSyncEnabled(false)
         }
       } else {
         setGcalConnection(null)
-        setGcalCalendarId('')
-        setGcalSyncEnabled(false)
       }
       toast.success('Google Calendar desconectado')
     } catch {
@@ -1169,11 +1132,12 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
+          <div id="google-calendar" className="scroll-mt-6">
           <SectionCard
             title="Mi Google Calendar"
-            description="Cada usuario conecta su propio calendario. Las visitas y citas pueden asignarse al responsable correspondiente."
+            description="Cada usuario conecta su propio calendario. Sin acceso compartido entre miembros."
             action={
-              !gcalSchemaPending && gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
+              !gcalSchemaPending && gcalConnection && String(gcalConnection.status ?? '') === 'connected'
                 ? <button onClick={() => void handleGCalDisconnect()} disabled={gcalLoading} className="text-xs font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{gcalLoading ? 'Desconectando…' : 'Desconectar'}</button>
                 : null
             }
@@ -1182,94 +1146,71 @@ export default function SettingsPage() {
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                 <p className="text-[11px] leading-5 text-amber-800">
-                  La conexión individual requiere aplicar la migración
-                  <code className="ml-1 rounded bg-white px-1 text-[10px] text-amber-900">calendar_user_level_v1.sql</code>
-                  en Supabase. Hasta entonces no podemos vincular tu calendario sin afectar al de tus compañeros. Contacta con NOWLabs.
+                  Conexión individual pendiente de configuración técnica. Contacta con NOWLabs.
                 </p>
               </div>
             )}
-            <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
+            <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
               <div>
-                <div className="mb-4 flex items-start gap-4">
+                <div className="mb-5 flex items-start gap-4">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 ring-1 ring-blue-100">
                     <Calendar className="h-5 w-5 text-blue-600" />
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">Mi Google Calendar</p>
+                      <p className="text-sm font-semibold text-gray-900">Estado de la conexión</p>
                       {(() => {
                         const s = gcalConnection ? String(gcalConnection.status ?? '') : null
-                        if (s === 'connected') return <Badge variant="success" dot>Conectado</Badge>
-                        if (s === 'prepared') return <Badge variant="indigo" dot>Preparado · pendiente OAuth</Badge>
-                        return <Badge variant="default" dot>No configurado</Badge>
+                        if (s === 'connected')       return <Badge variant="success" dot>Conectado</Badge>
+                        if (s === 'token_expired')   return <Badge variant="warning" dot>Token caducado</Badge>
+                        if (s === 'error')           return <Badge variant="danger"  dot>Error</Badge>
+                        if (s === 'oauth_pending')   return <Badge variant="warning" dot>Autorización pendiente</Badge>
+                        if (s === 'disconnected')    return <Badge variant="default" dot>Desconectado</Badge>
+                        return <Badge variant="default" dot>No conectado</Badge>
                       })()}
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {gcalConnection && String(gcalConnection.status ?? '') === 'connected'
-                        ? `Calendario: ${String(gcalConnection.calendar_id ?? 'primary')} · ultima sync: ${String(gcalConnection.last_sync_at ?? '') || 'nunca'}`
-                        : 'Pulsa el boton para autorizar tu cuenta Google y vincular tu calendario.'}
-                    </p>
-                    <p className="mt-2 text-xs leading-5 text-gray-600">
-                      NOWLabs ya tiene preparada la conexión técnica con Google. Solo necesitas pulsar el botón, iniciar sesión con tu cuenta de Google y aceptar los permisos. La conexión se guardará automáticamente.
-                    </p>
+                    {gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs text-gray-600">
+                          Calendario: <span className="font-medium text-gray-900">{String(gcalConnection.calendar_id ?? 'primary')}</span>
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {gcalConnection.last_sync_at
+                            ? `Última sincronización: ${new Date(String(gcalConnection.last_sync_at)).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                            : 'Sin sincronizaciones todavía.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs leading-5 text-gray-500">
+                        Conecta tu cuenta Google para que las visitas y citas del CRM aparezcan en tu calendario.
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="mb-4 space-y-3">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-gray-700">
-                      Calendar ID <span className="text-gray-400 font-normal">(avanzado — por defecto usa el principal)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={gcalCalendarId}
-                      onChange={(e) => setGcalCalendarId(e.target.value)}
-                      placeholder="primary"
-                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Sincronizacion activa</p>
-                      <p className="text-xs text-gray-500">Se activara cuando OAuth este completado</p>
-                    </div>
-                    <button
-                      onClick={() => setGcalSyncEnabled((v) => !v)}
-                      className={cn(
-                        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                        gcalSyncEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                      )}
-                    >
-                      <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', gcalSyncEnabled ? 'translate-x-4' : 'translate-x-0')} />
-                    </button>
-                  </div>
-                </div>
+
                 {gcalOauthStatus === 'error' && (
                   <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-                    <p className="text-xs leading-5 text-red-700">No se pudo completar la conexión con Google. Inténtalo de nuevo o contacta con el equipo técnico de NOWLabs.</p>
+                    <p className="text-xs leading-5 text-red-700">No se pudo conectar con Google. Inténtalo de nuevo o contacta con soporte.</p>
                   </div>
                 )}
                 {gcalOauthStatus === 'pending' && (
                   <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <p className="text-xs leading-5 text-amber-700">Conexión en proceso. Contacta con NOWLabs para completar la configuración OAuth.</p>
+                    <p className="text-xs leading-5 text-amber-700">Conexión en proceso. Si tarda mucho, contacta con soporte.</p>
                   </div>
                 )}
-                <div className="mb-3 flex flex-wrap gap-2">
+
+                <div className="flex flex-wrap gap-2">
                   {String(gcalConnection?.status ?? '') === 'connected' ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
-                        disabled={currentUser.isDemo || gcalSchemaPending}
-                      >
-                        Reconectar Google
-                      </Button>
-                      <Button size="sm" variant="secondary" loading={gcalLoading} onClick={() => void handleGCalPrepare()} disabled={gcalSchemaPending}>
-                        Actualizar preferencias
-                      </Button>
-                    </>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
+                      disabled={currentUser.isDemo || gcalSchemaPending}
+                    >
+                      Reconectar Google
+                    </Button>
                   ) : (
                     <Button
                       size="sm"
@@ -1277,29 +1218,31 @@ export default function SettingsPage() {
                       disabled={currentUser.isDemo || gcalSchemaPending}
                       title={
                         gcalSchemaPending
-                          ? 'Aplicar calendar_user_level_v1.sql antes de habilitar la conexión individual.'
-                          : currentUser.isDemo ? 'Inicia sesion para conectar Google Calendar' : 'Autoriza tu cuenta Google para vincular el calendario'
+                          ? 'Configuración pendiente. Contacta con soporte.'
+                          : currentUser.isDemo ? 'Inicia sesión para conectar Google Calendar' : 'Autoriza tu cuenta Google para vincular el calendario'
                       }
                     >
                       Autorizar con Google
                     </Button>
                   )}
                 </div>
-                <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
-                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  <p className="text-[11px] leading-5 text-blue-700">
-                    NOWLabs gestiona la conexión técnica. Tú solo autorizas tu cuenta. Los tokens se guardan de forma segura en el servidor, nunca en el navegador. Si al pulsar el botón no aparece la pantalla de Google, contacta con el equipo técnico de NOWLabs.
+
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  <p className="text-[11px] leading-5 text-gray-500">
+                    Los permisos se guardan de forma segura en el servidor; nunca llegan al navegador. Cada miembro autoriza su propia cuenta.
                   </p>
                 </div>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                <p className="text-xs font-semibold text-blue-900">Flujo de conexion</p>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+                <p className="text-xs font-semibold text-blue-900">Cómo conectar</p>
                 <div className="mt-3 space-y-2">
                   {[
                     'Pulsa "Autorizar con Google"',
-                    'Inicia sesion con tu Google',
+                    'Inicia sesión con tu cuenta',
                     'Acepta los permisos de calendario',
-                    'La conexión se guarda automáticamente',
+                    'Tu calendario queda vinculado',
                   ].map((step, i) => (
                     <div key={step} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700">{i + 1}</span>
@@ -1310,6 +1253,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+          </div>
 
           <TeamCalendarStatusCard currentRole={currentUser.role} />
 

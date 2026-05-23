@@ -1,5 +1,6 @@
 -- =============================================================================
--- calendar_user_level_v1.sql — Migración revisable (NO aplicar todavía).
+-- calendar_user_level_v1.sql — Aplicada en costadelsol-crm.
+-- Mantener este archivo como source-of-truth para futuras instalaciones.
 -- =============================================================================
 -- Objetivo:
 --   Convertir public.google_calendar_connections a modelo user-level real.
@@ -209,7 +210,25 @@ grant select on public.vw_google_calendar_status to authenticated;
 
 
 -- -----------------------------------------------------------------------------
--- 8) RLS sobre la base table: sin cambios — sigue admin-only desde
+-- 8) Grants para service_role.
+--
+--   El DROP VIEW del paso 7 vacía los grants previos sobre la vista. Las
+--   rutas server-side (callback, status, disconnect, list/save calendars,
+--   import/sync/update/cancel events, team-status) necesitan service_role
+--   con DML sobre la tabla base y SELECT sobre la vista. Se mantienen aquí
+--   por idempotencia para futuras instalaciones desde cero.
+-- -----------------------------------------------------------------------------
+grant select, insert, update, delete
+  on table public.google_calendar_connections
+  to service_role;
+
+grant select
+  on table public.vw_google_calendar_status
+  to service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- 9) RLS sobre la base table: sin cambios — sigue admin-only desde
 --    authenticated (la v1 base ya la deja así). El servidor escribe vía
 --    service_role; los miembros leen la vista.
 -- -----------------------------------------------------------------------------
