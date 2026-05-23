@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import { selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
@@ -169,25 +170,23 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
   }
 
-  let connRow: Record<string, unknown> | null = null
-  {
-    const wide = await serviceSupabase
-      .from('google_calendar_connections')
-      .select('status, calendar_id, refresh_token_enc, selected_calendar_ids')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle()
-    if (!wide.error) {
-      connRow = (wide.data as Record<string, unknown> | null)
-    } else {
-      const narrow = await serviceSupabase
-        .from('google_calendar_connections')
-        .select('status, calendar_id, refresh_token_enc')
-        .eq('workspace_id', workspaceId)
-        .maybeSingle()
-      connRow = (narrow.data as Record<string, unknown> | null)
-    }
+  // Strictly scoped by (workspace_id, user_id) — never workspace-only.
+  let connection
+  try {
+    connection = await selectUserConnection<Record<string, unknown>>(
+      serviceSupabase,
+      workspaceId,
+      user.id,
+      'status, calendar_id, refresh_token_enc, selected_calendar_ids',
+    )
+  } catch (err) {
+    console.error('[import-events] DB read failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ ok: false, error: 'No se pudo leer la conexión' }, { status: 500 })
   }
-
+  if (connection.schemaPending) {
+    return NextResponse.json({ ok: false, error: 'Aplica calendar_user_level_v1.sql para sincronizar por usuario.' }, { status: 503 })
+  }
+  const connRow = connection.row
   if (!connRow || connRow.status !== 'connected' || !connRow.refresh_token_enc) {
     return NextResponse.json({ ok: true, imported: 0, updated: 0, skipped: 0, reason: 'no_google_connection' })
   }
@@ -369,11 +368,12 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     perCalendar.push({ id: calendarId, summary: meta?.summary, imported: calImported, updated: calUpdated, cancelled: calCancelled })
   }
 
-  // Update last_sync_at on connection
+  // Update last_sync_at on this user's connection only.
   const lastSyncAt = new Date().toISOString()
   void serviceSupabase.from('google_calendar_connections')
     .update({ last_sync_at: lastSyncAt })
     .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
 
   return NextResponse.json({
     ok: true,

@@ -30,6 +30,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { VerticalPreferenceCard } from '@/components/VerticalPreferenceCard'
 import { TeamUsersCard } from '@/components/TeamUsersCard'
+import { TeamCalendarStatusCard } from '@/components/TeamCalendarStatusCard'
 import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
@@ -38,7 +39,6 @@ import {
   createActivity,
   disconnectGoogleCalendar,
   disconnectWhatsapp,
-  getGoogleCalendarConnection,
   getInboxAgentSettings,
   getIntegrationSettings,
   getN8nFlows,
@@ -183,6 +183,7 @@ export default function SettingsPage() {
     Object.fromEntries(n8nWebhookConfigs.map((wh) => [wh.event, defaultPath(wh)]))
   )
   const [gcalConnection, setGcalConnection] = useState<Record<string, unknown> | null>(null)
+  const [gcalSchemaPending, setGcalSchemaPending] = useState(false)
   const [gcalCalendarId, setGcalCalendarId] = useState('')
   const [gcalSyncEnabled, setGcalSyncEnabled] = useState(false)
   const [gcalLoading, setGcalLoading] = useState(false)
@@ -285,19 +286,44 @@ export default function SettingsPage() {
       }
 
       setWorkspaceId(resolvedWorkspaceId)
-      const [flows, remoteIntegrations, gcal, wa, inbox] = await Promise.all([
+      const [flows, remoteIntegrations, gcalRes, wa, inbox] = await Promise.all([
         getN8nFlows(resolvedWorkspaceId).catch(() => []),
         getIntegrationSettings(resolvedWorkspaceId).catch(() => []),
-        getGoogleCalendarConnection(resolvedWorkspaceId).catch(() => null),
+        // Read MY Google Calendar status via the user-level API. The endpoint
+        // filters by (workspace_id, user_id) and returns 503 with
+        // schema_pending_migration when the BD hasn't been migrated yet.
+        fetch('/api/integrations/google/calendar/status').then(async (r) => {
+          const body = await r.json().catch(() => ({}))
+          return { status: r.status, body } as { status: number; body: { connection?: Record<string, unknown>; reason?: string } }
+        }).catch(() => null),
         getWhatsappConnection(resolvedWorkspaceId).catch(() => null),
         getInboxAgentSettings(resolvedWorkspaceId).catch(() => null),
       ])
       applyRemoteFlows(flows)
       applyRemoteIntegrations(remoteIntegrations)
-      if (gcal) {
-        setGcalConnection(gcal)
-        setGcalCalendarId(String(gcal.calendar_id ?? ''))
-        setGcalSyncEnabled(Boolean(gcal.sync_enabled))
+      if (gcalRes) {
+        if (gcalRes.status === 503 && gcalRes.body?.reason === 'schema_pending_migration') {
+          setGcalSchemaPending(true)
+          setGcalConnection(null)
+        } else if (gcalRes.body?.connection) {
+          const conn = gcalRes.body.connection as Record<string, unknown>
+          setGcalSchemaPending(false)
+          // Map API shape to the existing UI shape (camelCase API → snake_case state).
+          const mapped: Record<string, unknown> = {
+            id: conn.id,
+            status: String(conn.connectionStatus ?? 'not_configured'),
+            calendar_id: conn.calendarId ?? null,
+            sync_enabled: Boolean(conn.calendarId),
+            last_sync_at: conn.lastSyncAt ?? null,
+            updated_at: conn.updatedAt ?? null,
+          }
+          setGcalConnection(mapped)
+          setGcalCalendarId(String(conn.calendarId ?? ''))
+          setGcalSyncEnabled(Boolean(conn.calendarId))
+        } else {
+          setGcalSchemaPending(false)
+          setGcalConnection(null)
+        }
       }
       if (wa) {
         setWaConnection(wa)
@@ -702,12 +728,29 @@ export default function SettingsPage() {
     try {
       if (!currentUser.isDemo && workspaceId) {
         await disconnectGoogleCalendar(workspaceId)
-        // Re-read status from server so the UI reflects the cleared row (status='disconnected',
-        // no refresh_token, no selected calendars) instead of relying on stale local state.
-        const refreshed = await getGoogleCalendarConnection(workspaceId).catch(() => null)
-        setGcalConnection(refreshed)
-        setGcalCalendarId(String((refreshed as { calendar_id?: string } | null)?.calendar_id ?? ''))
-        setGcalSyncEnabled(Boolean((refreshed as { sync_enabled?: boolean } | null)?.sync_enabled))
+        // Re-read MY status from the user-level API so the UI reflects the
+        // cleared row only for the current user (never the workspace).
+        const refreshed = await fetch('/api/integrations/google/calendar/status').then(async (r) => {
+          const body = await r.json().catch(() => ({}))
+          return { status: r.status, body } as { status: number; body: { connection?: Record<string, unknown> } }
+        }).catch(() => null)
+        const conn = refreshed?.body?.connection as Record<string, unknown> | undefined
+        if (conn) {
+          setGcalConnection({
+            id: conn.id,
+            status: String(conn.connectionStatus ?? 'disconnected'),
+            calendar_id: conn.calendarId ?? null,
+            sync_enabled: false,
+            last_sync_at: conn.lastSyncAt ?? null,
+            updated_at: conn.updatedAt ?? null,
+          })
+          setGcalCalendarId(String(conn.calendarId ?? ''))
+          setGcalSyncEnabled(false)
+        } else {
+          setGcalConnection(null)
+          setGcalCalendarId('')
+          setGcalSyncEnabled(false)
+        }
       } else {
         setGcalConnection(null)
         setGcalCalendarId('')
@@ -1127,14 +1170,24 @@ export default function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            title="Google Calendar"
-            description="Conecta tu cuenta Google para usar el calendario en visitas y asesorías."
+            title="Mi Google Calendar"
+            description="Cada usuario conecta su propio calendario. Las visitas y citas pueden asignarse al responsable correspondiente."
             action={
-              gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
+              !gcalSchemaPending && gcalConnection && String(gcalConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleGCalDisconnect()} disabled={gcalLoading} className="text-xs font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{gcalLoading ? 'Desconectando…' : 'Desconectar'}</button>
                 : null
             }
           >
+            {gcalSchemaPending && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <p className="text-[11px] leading-5 text-amber-800">
+                  La conexión individual requiere aplicar la migración
+                  <code className="ml-1 rounded bg-white px-1 text-[10px] text-amber-900">calendar_user_level_v1.sql</code>
+                  en Supabase. Hasta entonces no podemos vincular tu calendario sin afectar al de tus compañeros. Contacta con NOWLabs.
+                </p>
+              </div>
+            )}
             <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
               <div>
                 <div className="mb-4 flex items-start gap-4">
@@ -1143,7 +1196,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900">Google Calendar OAuth</p>
+                      <p className="text-sm font-semibold text-gray-900">Mi Google Calendar</p>
                       {(() => {
                         const s = gcalConnection ? String(gcalConnection.status ?? '') : null
                         if (s === 'connected') return <Badge variant="success" dot>Conectado</Badge>
@@ -1209,11 +1262,11 @@ export default function SettingsPage() {
                         size="sm"
                         variant="secondary"
                         onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
-                        disabled={currentUser.isDemo}
+                        disabled={currentUser.isDemo || gcalSchemaPending}
                       >
                         Reconectar Google
                       </Button>
-                      <Button size="sm" variant="secondary" loading={gcalLoading} onClick={() => void handleGCalPrepare()}>
+                      <Button size="sm" variant="secondary" loading={gcalLoading} onClick={() => void handleGCalPrepare()} disabled={gcalSchemaPending}>
                         Actualizar preferencias
                       </Button>
                     </>
@@ -1221,8 +1274,12 @@ export default function SettingsPage() {
                     <Button
                       size="sm"
                       onClick={() => { window.location.href = '/api/integrations/google/calendar/connect' }}
-                      disabled={currentUser.isDemo}
-                      title={currentUser.isDemo ? 'Inicia sesion para conectar Google Calendar' : 'Autoriza tu cuenta Google para vincular el calendario'}
+                      disabled={currentUser.isDemo || gcalSchemaPending}
+                      title={
+                        gcalSchemaPending
+                          ? 'Aplicar calendar_user_level_v1.sql antes de habilitar la conexión individual.'
+                          : currentUser.isDemo ? 'Inicia sesion para conectar Google Calendar' : 'Autoriza tu cuenta Google para vincular el calendario'
+                      }
                     >
                       Autorizar con Google
                     </Button>
@@ -1253,6 +1310,8 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+
+          <TeamCalendarStatusCard currentRole={currentUser.role} />
 
           <SectionCard
             title="Atención automática"

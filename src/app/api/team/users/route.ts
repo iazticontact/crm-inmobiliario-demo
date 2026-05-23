@@ -134,8 +134,22 @@ export async function POST(req: NextRequest) {
 
   // Lanzar la invitación oficial de Supabase Auth. Esto crea un auth.users
   // row y envía email de set-password. NO genera passwords en claro.
+  // Añadimos ?type=invite al redirectTo para que /auth/callback sepa
+  // mandar al usuario a /reset-password a fijar contraseña.
+  //
+  // En producción, NEXT_PUBLIC_APP_URL es obligatoria: sin ella el email
+  // del invitado caería al Site URL configurado en Supabase, que puede no
+  // coincidir con el dominio real del CRM. En desarrollo dejamos pasar
+  // sin redirectTo para no bloquear pruebas locales.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim()
-  const redirectTo = appUrl ? `${appUrl.replace(/\/$/, '')}/auth/callback` : undefined
+  if (!appUrl && process.env.NODE_ENV === 'production') {
+    return NextResponse.json({
+      error: 'No se puede invitar: NEXT_PUBLIC_APP_URL no está configurada en el servidor.',
+    }, { status: 503 })
+  }
+  const redirectTo = appUrl
+    ? `${appUrl.replace(/\/$/, '')}/auth/callback?type=invite`
+    : undefined
 
   const invite = await admin.auth.admin.inviteUserByEmail(emailRaw, {
     data: { full_name: fullNameRaw, workspace_id: caller.workspaceId, role: roleRaw },

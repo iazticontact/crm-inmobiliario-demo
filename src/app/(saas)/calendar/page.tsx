@@ -710,8 +710,8 @@ export default function CalendarPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Calendar"
-        description={`${weekRangeLabel(weekStart)} · Visitas, asesorías y disponibilidad`}
+        title="Calendario"
+        description={`${weekRangeLabel(weekStart)} · Visitas, citas y disponibilidad`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <div className="hidden items-center gap-2 rounded-xl border border-gray-200/80 bg-white/80 px-3 py-1.5 shadow-sm shadow-gray-950/[0.02] md:flex">

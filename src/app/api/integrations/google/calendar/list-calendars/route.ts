@@ -1,13 +1,12 @@
 // GET /api/integrations/google/calendar/list-calendars
-// Lists the Google calendars visible to the connected workspace user.
-// Returns a slim view: { id, summary, primary, accessRole, backgroundColor, selected }.
-// Never exposes tokens. Falls back gracefully if the schema doesn't yet have
-// selected_calendar_ids / calendar_metadata columns — see docs/google-calendar-multi-calendar.sql.
+//
+// Lists the Google calendars visible to the CURRENT user, using that user's
+// own refresh_token. Scope is strictly (workspace_id, user_id). Never leaks
+// tokens to the browser.
 
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import { resolveCalendarAuth, selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
@@ -24,7 +23,7 @@ type CalendarItem = {
 type Result =
   | { ok: true; calendars: CalendarItem[]; defaultCalendarId: string; selectedCalendarIds: string[] }
   | { ok: true; calendars: []; reason: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; reason?: string }
 
 type GoogleCalendarListEntry = {
   id?: string
@@ -37,21 +36,6 @@ type GoogleCalendarListEntry = {
   selected?: boolean
   hidden?: boolean
   deleted?: boolean
-}
-
-async function buildSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
-  if (!url || !key) return null
-  const cookieStore = await cookies()
-  return createServerClient(url, key, {
-    cookies: {
-      getAll() { return cookieStore.getAll() },
-      setAll(list) {
-        try { list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch { /* static */ }
-      },
-    },
-  })
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
@@ -76,50 +60,55 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
   return data.access_token
 }
 
+type ConnectionRow = {
+  status: string | null
+  calendar_id: string | null
+  refresh_token_enc: string | null
+  selected_calendar_ids: unknown
+  calendar_metadata: unknown
+}
+
 export async function GET(): Promise<NextResponse<Result>> {
-  const supabase = await buildSupabase()
-  if (!supabase) return NextResponse.json({ ok: false, error: 'Supabase no configurado' }, { status: 503 })
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser()
-  if (authErr || !user) return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
-
-  const { data: profile } = await supabase.from('profiles').select('workspace_id').eq('id', user.id).maybeSingle()
-  const workspaceId = profile?.workspace_id as string | null | undefined
-  if (!workspaceId) return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
-
-  // Read connection — tolerate missing selected_calendar_ids column (legacy schema).
-  const serviceSupabase = getGoogleCalendarServiceClient()
-  if (!serviceSupabase) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
-
-  let connRow: Record<string, unknown> | null = null
-  // Try the wide select first, fall back to the legacy columns if the wide select fails
-  // because selected_calendar_ids hasn't been added yet.
-  {
-    const wide = await serviceSupabase
-      .from('google_calendar_connections')
-      .select('status, calendar_id, refresh_token_enc, selected_calendar_ids, calendar_metadata')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle()
-    if (!wide.error) {
-      connRow = (wide.data as Record<string, unknown> | null)
-    } else {
-      const narrow = await serviceSupabase
-        .from('google_calendar_connections')
-        .select('status, calendar_id, refresh_token_enc')
-        .eq('workspace_id', workspaceId)
-        .maybeSingle()
-      connRow = (narrow.data as Record<string, unknown> | null)
-    }
+  const auth = await resolveCalendarAuth()
+  if ('ok' in auth && auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+  if (!('userId' in auth)) {
+    return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
   }
 
+  const admin = getGoogleCalendarServiceClient()
+  if (!admin) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+
+  let connection
+  try {
+    connection = await selectUserConnection<ConnectionRow>(
+      admin,
+      auth.workspaceId,
+      auth.userId,
+      'status, calendar_id, refresh_token_enc, selected_calendar_ids, calendar_metadata',
+    )
+  } catch (err) {
+    console.error('[list-calendars] DB read failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ ok: false, error: 'No se pudo leer la conexión' }, { status: 500 })
+  }
+
+  if (connection.schemaPending) {
+    return NextResponse.json({
+      ok: false,
+      reason: 'schema_pending_migration',
+      error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
+    }, { status: 503 })
+  }
+
+  const connRow = connection.row
   if (!connRow || connRow.status !== 'connected' || !connRow.refresh_token_enc) {
     return NextResponse.json({ ok: true, calendars: [], reason: 'no_google_connection' })
   }
 
-  const accessToken = await refreshAccessToken(String(connRow.refresh_token_enc))
+  const accessToken = await refreshAccessToken(connRow.refresh_token_enc)
   if (!accessToken) return NextResponse.json({ ok: true, calendars: [], reason: 'token_refresh_failed' })
 
-  // Fetch calendarList from Google
   let items: GoogleCalendarListEntry[] = []
   try {
     const res = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?showHidden=false&minAccessRole=reader', {
@@ -136,8 +125,6 @@ export async function GET(): Promise<NextResponse<Result>> {
     return NextResponse.json({ ok: true, calendars: [], reason: 'google_fetch_error' })
   }
 
-  // Compute selectedCalendarIds. If the column exists, use it. Otherwise fall back to
-  // the single calendar_id stored on the connection (legacy mode).
   let selectedIds: string[] = []
   const rawSelected = connRow.selected_calendar_ids
   if (Array.isArray(rawSelected)) {
@@ -146,14 +133,13 @@ export async function GET(): Promise<NextResponse<Result>> {
     try {
       const parsed = JSON.parse(rawSelected)
       if (Array.isArray(parsed)) selectedIds = parsed.filter((v): v is string => typeof v === 'string')
-    } catch { /* invalid JSON, fallthrough */ }
+    } catch { /* ignore */ }
   }
   if (selectedIds.length === 0) {
     const legacy = connRow.calendar_id ? String(connRow.calendar_id) : 'primary'
     selectedIds = [legacy]
   }
 
-  // Build slim view
   const calendars: CalendarItem[] = []
   let defaultCalendarId = 'primary'
   for (const item of items) {
@@ -171,7 +157,6 @@ export async function GET(): Promise<NextResponse<Result>> {
     })
   }
 
-  // Sort: primary first, then by summary
   calendars.sort((a, b) => {
     if (a.primary && !b.primary) return -1
     if (!a.primary && b.primary) return 1

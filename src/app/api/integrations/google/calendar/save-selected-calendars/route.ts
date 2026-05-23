@@ -1,48 +1,37 @@
 // POST /api/integrations/google/calendar/save-selected-calendars
-// Persists which Google calendars the workspace wants to sync.
-// Body: { selectedCalendarIds: string[]; calendarMetadata?: Record<string, { summary, accessRole, backgroundColor }> }
-// Tolerates legacy schema where selected_calendar_ids / calendar_metadata don't exist —
-// falls back to writing primary calendar_id only.
+//
+// Saves which Google calendars the CURRENT user wants to sync. Strictly scoped
+// by (workspace_id, user_id) — saving Patricia's selection never touches Fran.
+// Refuses when the BD hasn't been migrated to user-level (no silent fallback).
+//
+// Body: { selectedCalendarIds: string[]; calendarMetadata?: object; syncEnabled?: boolean }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import {
+  resolveCalendarAuth,
+  selectUserConnection,
+  updateUserConnection,
+  upsertUserConnection,
+} from '../_user-connection'
 
 export const runtime = 'nodejs'
 
 type Result =
-  | { ok: true; saved: string[]; mode: 'multi' | 'legacy_single' }
-  | { ok: false; error: string }
-
-async function buildSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim()
-  if (!url || !key) return null
-  const cookieStore = await cookies()
-  return createServerClient(url, key, {
-    cookies: {
-      getAll() { return cookieStore.getAll() },
-      setAll(list) {
-        try { list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch { /* static */ }
-      },
-    },
-  })
-}
+  | { ok: true; saved: string[] }
+  | { ok: false; error: string; reason?: string }
 
 export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
-  const supabase = await buildSupabase()
-  if (!supabase) return NextResponse.json({ ok: false, error: 'Supabase no configurado' }, { status: 503 })
+  const auth = await resolveCalendarAuth()
+  if ('ok' in auth && auth.ok === false) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+  if (!('userId' in auth)) {
+    return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
+  }
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser()
-  if (authErr || !user) return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
-
-  const { data: profile } = await supabase.from('profiles').select('workspace_id').eq('id', user.id).maybeSingle()
-  const workspaceId = profile?.workspace_id as string | null | undefined
-  if (!workspaceId) return NextResponse.json({ ok: false, error: 'Sin workspace asignado' }, { status: 403 })
-
-  const serviceSupabase = getGoogleCalendarServiceClient()
-  if (!serviceSupabase) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+  const admin = getGoogleCalendarServiceClient()
+  if (!admin) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
 
   let selectedCalendarIds: string[]
   let calendarMetadata: Record<string, unknown> | undefined
@@ -54,7 +43,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     }
     selectedCalendarIds = body.selectedCalendarIds
       .filter((v): v is string => typeof v === 'string' && v.length > 0)
-      .slice(0, 50) // hard cap
+      .slice(0, 50)
     if (selectedCalendarIds.length === 0) {
       return NextResponse.json({ ok: false, error: 'Debes seleccionar al menos un calendario' }, { status: 400 })
     }
@@ -68,59 +57,66 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     return NextResponse.json({ ok: false, error: 'Body JSON inválido' }, { status: 400 })
   }
 
-  // First, try the wide update (multi-calendar schema). If selected_calendar_ids column
-  // doesn't exist yet, fall back to writing the first id to calendar_id (legacy).
-  const wide = await serviceSupabase
-    .from('google_calendar_connections')
-    .update({
-      selected_calendar_ids: selectedCalendarIds,
-      calendar_metadata: calendarMetadata ?? {},
-      ...(syncEnabled === undefined ? {} : { sync_enabled: syncEnabled }),
-      // Keep calendar_id mirroring the first selected id so legacy code paths still work.
-      calendar_id: selectedCalendarIds[0],
-      updated_at: new Date().toISOString(),
-    })
-    .eq('workspace_id', workspaceId)
-    .select('id')
-
-  if (!wide.error && (wide.data?.length ?? 0) > 0) {
-    return NextResponse.json({ ok: true, saved: selectedCalendarIds, mode: 'multi' })
+  const patch: Record<string, unknown> = {
+    selected_calendar_ids: selectedCalendarIds,
+    calendar_metadata: calendarMetadata ?? {},
+    calendar_id: selectedCalendarIds[0],
   }
-  if (!wide.error) {
-    const insert = await serviceSupabase
-      .from('google_calendar_connections')
-      .insert({
-        workspace_id: workspaceId,
-        status: 'pending',
-        selected_calendar_ids: selectedCalendarIds,
-        calendar_metadata: calendarMetadata ?? {},
-        ...(syncEnabled === undefined ? {} : { sync_enabled: syncEnabled }),
-        calendar_id: selectedCalendarIds[0],
-        updated_at: new Date().toISOString(),
-      })
-      .select('id')
-    if (!insert.error) {
-      return NextResponse.json({ ok: true, saved: selectedCalendarIds, mode: 'multi' })
+  if (syncEnabled !== undefined) patch.sync_enabled = syncEnabled
+
+  // Check if the current user already has a row. If so, update; if not, upsert
+  // a minimal row (status=pending) so the user can pre-select calendars before
+  // OAuth completes. Upsert uses ON CONFLICT (workspace_id, user_id).
+  let existing
+  try {
+    existing = await selectUserConnection<{ id: string | null }>(
+      admin,
+      auth.workspaceId,
+      auth.userId,
+      'id',
+    )
+  } catch (err) {
+    console.error('[save-selected-calendars] read failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ ok: false, error: 'No se pudo leer la conexión' }, { status: 500 })
+  }
+
+  if (existing.schemaPending) {
+    return NextResponse.json({
+      ok: false,
+      reason: 'schema_pending_migration',
+      error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
+    }, { status: 503 })
+  }
+
+  if (existing.row) {
+    const result = await updateUserConnection(admin, auth.workspaceId, auth.userId, patch)
+    if (!result.ok) {
+      if ('schemaPending' in result) {
+        return NextResponse.json({
+          ok: false,
+          reason: 'schema_pending_migration',
+          error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
+        }, { status: 503 })
+      }
+      return NextResponse.json({ ok: false, error: result.error }, { status: 500 })
     }
-    console.error('[save-selected-calendars] DB insert failed:', insert.error.message)
-    return NextResponse.json({ ok: false, error: 'No se pudo guardar la selecciÃ³n' }, { status: 500 })
+    return NextResponse.json({ ok: true, saved: selectedCalendarIds })
   }
 
-  // Legacy fallback: only calendar_id column exists.
-  const narrow = await serviceSupabase
-    .from('google_calendar_connections')
-    .update({
-      calendar_id: selectedCalendarIds[0],
-      ...(syncEnabled === undefined ? {} : { sync_enabled: syncEnabled }),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('workspace_id', workspaceId)
-    .select('id')
-
-  if (narrow.error) {
-    console.error('[save-selected-calendars] DB update failed:', narrow.error.message)
-    return NextResponse.json({ ok: false, error: 'No se pudo guardar la selección' }, { status: 500 })
+  // No row yet — create one in pending state.
+  const inserted = await upsertUserConnection(admin, auth.workspaceId, auth.userId, {
+    ...patch,
+    status: 'pending',
+  })
+  if (!inserted.ok) {
+    if ('schemaPending' in inserted) {
+      return NextResponse.json({
+        ok: false,
+        reason: 'schema_pending_migration',
+        error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
+      }, { status: 503 })
+    }
+    return NextResponse.json({ ok: false, error: inserted.error }, { status: 500 })
   }
-
-  return NextResponse.json({ ok: true, saved: [selectedCalendarIds[0]], mode: 'legacy_single' })
+  return NextResponse.json({ ok: true, saved: selectedCalendarIds })
 }

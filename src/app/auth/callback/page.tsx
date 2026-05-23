@@ -8,7 +8,7 @@ import { DEMO_MODE_KEY } from '@/lib/current-user'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
-  const [message, setMessage] = useState('Confirmando sesion segura...')
+  const [message, setMessage] = useState('Confirmando sesión segura…')
 
   useEffect(() => {
     const redirectToLoginError = (nextMessage: string) => {
@@ -36,30 +36,44 @@ export default function AuthCallbackPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
-          redirectToLoginError('No se ha podido crear la sesion de Supabase.')
+          redirectToLoginError('No se ha podido crear la sesión de Supabase.')
           return
         }
       }
 
       const { data, error } = await supabase.auth.getSession()
       if (error) {
-        redirectToLoginError('No se ha podido recuperar la sesion.')
+        redirectToLoginError('No se ha podido recuperar la sesión.')
         return
       }
 
       if (data.session) {
         window.localStorage.removeItem(DEMO_MODE_KEY)
-        setMessage('Sesión confirmada. Entrando al CRM...')
-        setTimeout(() => router.replace('/dashboard'), 900)
+
+        // Supabase añade `type` al callback link según el flujo:
+        //   - invite     → primer acceso (usuario sin contraseña)
+        //   - recovery   → reset password
+        //   - signup/magiclink → entrada normal
+        // En invite/recovery enviamos al usuario a /reset-password para que
+        // defina (o cambie) su contraseña antes de entrar a la app.
+        const flowType = (getParam('type') ?? '').toLowerCase()
+        if (flowType === 'invite' || flowType === 'recovery') {
+          setMessage(flowType === 'invite' ? 'Define tu contraseña para acceder…' : 'Sesión confirmada. Define tu nueva contraseña…')
+          setTimeout(() => router.replace('/reset-password'), 600)
+          return
+        }
+
+        setMessage('Sesión confirmada. Entrando al CRM…')
+        setTimeout(() => router.replace('/dashboard'), 600)
         return
       }
 
       if (!code) {
-        redirectToLoginError('El enlace no incluye codigo de confirmacion.')
+        redirectToLoginError('El enlace no incluye código de confirmación.')
         return
       }
 
-      setMessage('Email confirmado. Ya puedes iniciar sesion.')
+      setMessage('Email confirmado. Ya puedes iniciar sesión.')
       setTimeout(() => router.replace('/login'), 900)
     }
 

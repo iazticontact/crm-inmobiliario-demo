@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import { selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
@@ -92,13 +93,28 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     endDt = end.toISOString()
   }
 
-  // Get Google connection
-  const { data: gcConn } = await serviceSupabase
-    .from('google_calendar_connections')
-    .select('status, calendar_id, default_calendar_id, refresh_token_enc')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
+  // Get THIS user's Google connection (workspace_id + user_id).
+  let connection
+  try {
+    connection = await selectUserConnection<{
+      status: string | null
+      calendar_id: string | null
+      default_calendar_id: string | null
+      refresh_token_enc: string | null
+    }>(
+      serviceSupabase,
+      workspaceId,
+      user.id,
+      'status, calendar_id, default_calendar_id, refresh_token_enc',
+    )
+  } catch (err) {
+    console.error('[update-event] DB read failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ ok: false, error: 'No se pudo leer la conexión' }, { status: 500 })
+  }
+  if (connection.schemaPending) {
+    return NextResponse.json({ ok: false, error: 'Aplica calendar_user_level_v1.sql para sincronizar.' }, { status: 503 })
+  }
+  const gcConn = connection.row
   if (!gcConn || gcConn.status !== 'connected' || !gcConn.refresh_token_enc) {
     return NextResponse.json({ ok: true, synced: false, reason: 'not_connected' })
   }

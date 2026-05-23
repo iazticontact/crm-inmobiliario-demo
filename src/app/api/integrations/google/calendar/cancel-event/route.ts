@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import { selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
@@ -151,13 +152,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     })
   }
 
-  // Google path. Need a healthy connection + OAuth credentials.
-  const { data: gcConn } = await serviceSupabase
-    .from('google_calendar_connections')
-    .select('status, calendar_id, default_calendar_id, refresh_token_enc')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
+  // Google path. Need THIS user's healthy connection (workspace_id + user_id).
+  let connection
+  try {
+    connection = await selectUserConnection<{
+      status: string | null
+      calendar_id: string | null
+      default_calendar_id: string | null
+      refresh_token_enc: string | null
+    }>(
+      serviceSupabase,
+      workspaceId,
+      user.id,
+      'status, calendar_id, default_calendar_id, refresh_token_enc',
+    )
+  } catch (err) {
+    console.error('[cancel-event] DB read failed:', err instanceof Error ? err.message : err)
+    return respond(500, {
+      ok: false,
+      localCancelled: false,
+      googleCancelled: false,
+      googleAlreadyGone: false,
+      reason: 'local_cancel_failed',
+      message: 'No se pudo leer la conexión Google del usuario.',
+    })
+  }
+  if (connection.schemaPending) {
+    return respond(503, {
+      ok: false,
+      localCancelled: false,
+      googleCancelled: false,
+      googleAlreadyGone: false,
+      reason: 'not_connected',
+      message: 'Aplica calendar_user_level_v1.sql para gestionar el calendario por usuario.',
+    })
+  }
+  const gcConn = connection.row
   if (!gcConn || gcConn.status !== 'connected' || !gcConn.refresh_token_enc) {
     // No active Google connection → cancel local only and tell the user.
     const localOk = await softCancelLocal(supabase, localEventId, workspaceId)

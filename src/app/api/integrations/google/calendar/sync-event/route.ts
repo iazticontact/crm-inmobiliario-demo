@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
+import { selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
@@ -75,18 +76,34 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     return NextResponse.json({ ok: false, error: 'eventId inválido' }, { status: 400 })
   }
 
-  // Check Google Calendar connection
-  const { data: gcConn } = await serviceSupabase
-    .from('google_calendar_connections')
-    .select('status, calendar_id, default_calendar_id, refresh_token_enc, token_expiry')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
+  // Check Google Calendar connection of THIS user (workspace_id + user_id).
+  let connection
+  try {
+    connection = await selectUserConnection<{
+      status: string | null
+      calendar_id: string | null
+      default_calendar_id: string | null
+      refresh_token_enc: string | null
+      token_expiry: string | null
+    }>(
+      serviceSupabase,
+      workspaceId,
+      user.id,
+      'status, calendar_id, default_calendar_id, refresh_token_enc, token_expiry',
+    )
+  } catch (err) {
+    console.error('[sync-event] DB read failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ ok: false, error: 'No se pudo leer la conexión' }, { status: 500 })
+  }
+  if (connection.schemaPending) {
+    return NextResponse.json({ ok: false, error: 'Aplica calendar_user_level_v1.sql para sincronizar.' }, { status: 503 })
+  }
+  const gcConn = connection.row
   if (!gcConn || gcConn.status !== 'connected') {
     return NextResponse.json({ ok: true, synced: false, reason: 'not_connected' })
   }
 
-  const refreshToken = gcConn.refresh_token_enc as string | null
+  const refreshToken = gcConn.refresh_token_enc
   if (!refreshToken) {
     return NextResponse.json({ ok: true, synced: false, reason: 'no_refresh_token' })
   }
@@ -135,9 +152,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     }
     accessToken = tokenData.access_token
 
-    // Update token_expiry (access tokens expire in 1h)
+    // Update token_expiry on THIS user's row only (access tokens expire in 1h).
     const expiry = new Date(Date.now() + 3590 * 1000).toISOString()
-    void serviceSupabase.from('google_calendar_connections').update({ token_expiry: expiry }).eq('workspace_id', workspaceId)
+    void serviceSupabase
+      .from('google_calendar_connections')
+      .update({ token_expiry: expiry })
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', user.id)
   } catch (err) {
     console.error('[sync-event] Token refresh error:', err instanceof Error ? err.message : err)
     return NextResponse.json({ ok: true, synced: false, reason: 'token_refresh_error' })
@@ -239,10 +260,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResult>> 
     // Columns may not exist yet — see SQL below
   }
 
-  // Update last_sync_at on the connection
+  // Update last_sync_at on THIS user's connection only.
   void serviceSupabase.from('google_calendar_connections')
     .update({ last_sync_at: new Date().toISOString() })
     .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
 
   return NextResponse.json({ ok: true, synced: true, googleEventId, calendarId })
 }
