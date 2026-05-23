@@ -18,6 +18,7 @@ import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
 import { consumeOAuthState, safeEquals } from '../_oauth-state'
 import { selectUserConnection, upsertUserConnection } from '../_user-connection'
+import { parseConnectionForSync, runIncrementalSync } from '../_sync-engine'
 
 export const runtime = 'nodejs'
 
@@ -141,6 +142,7 @@ export async function GET(request: NextRequest) {
       }
 
       console.info('[google/calendar/callback] Reconnected reusing stored refresh_token for current user')
+      await runInitialSync(writeClient, workspaceId, user.id)
       return redirectTo('connected', 'connected')
     }
 
@@ -160,10 +162,54 @@ export async function GET(request: NextRequest) {
     }
 
     console.info('[google/calendar/callback] Connection stored for current user')
+    await runInitialSync(writeClient, workspaceId, user.id)
     return redirectTo('connected', 'connected')
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error desconocido'
     console.error('[google/calendar/callback]', msg.slice(0, 200))
     return redirectTo('server_error')
+  }
+}
+
+// Best-effort initial sync after OAuth. Awaited so the user lands on /settings
+// with events already imported, but any failure is logged and swallowed — we
+// never block the redirect on Google API hiccups (the user can press
+// "Actualizar ahora" or re-open /calendar later to retry).
+async function runInitialSync(
+  serviceClient: ReturnType<typeof getGoogleCalendarServiceClient>,
+  workspaceId: string,
+  userId: string,
+) {
+  if (!serviceClient) return
+  try {
+    const refreshed = await selectUserConnection<Record<string, unknown>>(
+      serviceClient,
+      workspaceId,
+      userId,
+      'refresh_token_enc, selected_calendar_ids, incremental_sync_tokens, calendar_id',
+    )
+    if (refreshed.schemaPending || !refreshed.row) return
+    const parsed = parseConnectionForSync(refreshed.row)
+    if (!parsed.refreshToken) return
+    const result = await runIncrementalSync({
+      workspaceId,
+      userId,
+      serviceClient,
+      refreshToken: parsed.refreshToken,
+      selectedCalendarIds: parsed.selectedCalendarIds,
+      incrementalSyncTokens: parsed.incrementalSyncTokens,
+    })
+    if (result.ok) {
+      console.info('[google/calendar/callback] initial sync ok', {
+        imported: result.imported,
+        updated: result.updated,
+        cancelled: result.cancelled,
+        calendars: result.calendars.length,
+      })
+    } else {
+      console.warn('[google/calendar/callback] initial sync skipped:', result.reason)
+    }
+  } catch (err) {
+    console.warn('[google/calendar/callback] initial sync error:', err instanceof Error ? err.message : err)
   }
 }

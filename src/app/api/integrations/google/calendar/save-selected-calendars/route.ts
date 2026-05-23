@@ -1,10 +1,25 @@
 // POST /api/integrations/google/calendar/save-selected-calendars
 //
-// Saves which Google calendars the CURRENT user wants to sync. Strictly scoped
+// Saves which Google calendars the CURRENT user wants to sync AND triggers
+// an immediate sync of those calendars in the same request. Strictly scoped
 // by (workspace_id, user_id) — saving Patricia's selection never touches Fran.
-// Refuses when the BD hasn't been migrated to user-level (no silent fallback).
 //
 // Body: { selectedCalendarIds: string[]; calendarMetadata?: object; syncEnabled?: boolean }
+//
+// Response (on success):
+//   {
+//     ok: true,
+//     saved: string[],
+//     sync: { imported, updated, cancelled, calendars[], lastSyncAt } | { skipped: reason }
+//   }
+//
+// Why sync here:
+//   - When the user picks new calendars, those are typically ones we don't have
+//     an `incremental_sync_tokens[calendarId]` for yet → full sync window.
+//   - When the user drops a calendar, we leave its rows in place but stop
+//     pulling new changes; a future cleanup endpoint can prune.
+//   - When the user re-saves the same set, the engine uses the stored
+//     syncToken and only pulls the delta. Cheap.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getGoogleCalendarServiceClient } from '../server-utils'
@@ -14,11 +29,25 @@ import {
   updateUserConnection,
   upsertUserConnection,
 } from '../_user-connection'
+import { parseConnectionForSync, runIncrementalSync, type CalendarSyncSummary } from '../_sync-engine'
 
 export const runtime = 'nodejs'
 
+type SyncPayload =
+  | {
+      imported: number
+      updated: number
+      cancelled: number
+      skippedAllDay: number
+      lastSyncAt: string
+      calendars: CalendarSyncSummary[]
+      partialFailure: boolean
+      failedCalendars: string[]
+    }
+  | { skipped: string }
+
 type Result =
-  | { ok: true; saved: string[] }
+  | { ok: true; saved: string[]; sync: SyncPayload }
   | { ok: false; error: string; reason?: string }
 
 export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
@@ -64,16 +93,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
   }
   if (syncEnabled !== undefined) patch.sync_enabled = syncEnabled
 
-  // Check if the current user already has a row. If so, update; if not, upsert
-  // a minimal row (status=pending) so the user can pre-select calendars before
-  // OAuth completes. Upsert uses ON CONFLICT (workspace_id, user_id).
   let existing
   try {
-    existing = await selectUserConnection<{ id: string | null }>(
+    existing = await selectUserConnection<{ id: string | null; refresh_token_enc?: string | null; selected_calendar_ids?: unknown; incremental_sync_tokens?: unknown; calendar_id?: string | null }>(
       admin,
       auth.workspaceId,
       auth.userId,
-      'id',
+      'id, refresh_token_enc, selected_calendar_ids, incremental_sync_tokens, calendar_id',
     )
   } catch (err) {
     console.error('[save-selected-calendars] read failed:', err instanceof Error ? err.message : err)
@@ -100,23 +126,72 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
       }
       return NextResponse.json({ ok: false, error: result.error }, { status: 500 })
     }
-    return NextResponse.json({ ok: true, saved: selectedCalendarIds })
+  } else {
+    const inserted = await upsertUserConnection(admin, auth.workspaceId, auth.userId, {
+      ...patch,
+      status: 'pending',
+    })
+    if (!inserted.ok) {
+      if ('schemaPending' in inserted) {
+        return NextResponse.json({
+          ok: false,
+          reason: 'schema_pending_migration',
+          error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
+        }, { status: 503 })
+      }
+      return NextResponse.json({ ok: false, error: inserted.error }, { status: 500 })
+    }
   }
 
-  // No row yet — create one in pending state.
-  const inserted = await upsertUserConnection(admin, auth.workspaceId, auth.userId, {
-    ...patch,
-    status: 'pending',
-  })
-  if (!inserted.ok) {
-    if ('schemaPending' in inserted) {
-      return NextResponse.json({
-        ok: false,
-        reason: 'schema_pending_migration',
-        error: 'Aplica la migración calendar_user_level_v1.sql para activar la conexión individual.',
-      }, { status: 503 })
-    }
-    return NextResponse.json({ ok: false, error: inserted.error }, { status: 500 })
+  // Trigger sync immediately so the user doesn't have to press "Sincronizar".
+  const refreshToken = existing.row?.refresh_token_enc
+  if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
+    return NextResponse.json({ ok: true, saved: selectedCalendarIds, sync: { skipped: 'no_refresh_token' } })
   }
-  return NextResponse.json({ ok: true, saved: selectedCalendarIds })
+
+  // Read the freshly-written row so we sync over the calendars the user just picked
+  // (not the previous selection).
+  const refreshed = await selectUserConnection<Record<string, unknown>>(
+    admin,
+    auth.workspaceId,
+    auth.userId,
+    'refresh_token_enc, selected_calendar_ids, incremental_sync_tokens, calendar_id',
+  )
+  const refreshedRow = refreshed.row ?? existing.row
+  if (!refreshedRow) {
+    return NextResponse.json({ ok: true, saved: selectedCalendarIds, sync: { skipped: 'connection_missing' } })
+  }
+
+  const parsed = parseConnectionForSync(refreshedRow)
+  if (!parsed.refreshToken) {
+    return NextResponse.json({ ok: true, saved: selectedCalendarIds, sync: { skipped: 'no_refresh_token' } })
+  }
+
+  const syncResult = await runIncrementalSync({
+    workspaceId: auth.workspaceId,
+    userId: auth.userId,
+    serviceClient: admin,
+    refreshToken: parsed.refreshToken,
+    selectedCalendarIds: parsed.selectedCalendarIds,
+    incrementalSyncTokens: parsed.incrementalSyncTokens,
+  })
+
+  if (!syncResult.ok) {
+    return NextResponse.json({ ok: true, saved: selectedCalendarIds, sync: { skipped: syncResult.reason } })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    saved: selectedCalendarIds,
+    sync: {
+      imported: syncResult.imported,
+      updated: syncResult.updated,
+      cancelled: syncResult.cancelled,
+      skippedAllDay: syncResult.skippedAllDay,
+      lastSyncAt: syncResult.lastSyncAt,
+      calendars: syncResult.calendars,
+      partialFailure: syncResult.partialFailure,
+      failedCalendars: syncResult.failedCalendars,
+    },
+  })
 }

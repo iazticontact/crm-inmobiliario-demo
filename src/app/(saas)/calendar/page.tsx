@@ -233,6 +233,8 @@ export default function CalendarPage() {
   const [googleConnected, setGoogleConnected] = useState(false)
   const [googleLastSync, setGoogleLastSync] = useState<string | null>(null)
   const [syncingGoogle, setSyncingGoogle] = useState(false)
+  const [autoSyncing, setAutoSyncing] = useState(false)
+  const [partialFailure, setPartialFailure] = useState(false)
   const [calendarsPanelOpen, setCalendarsPanelOpen] = useState(false)
   const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarListItem[]>([])
   const [loadingCalendars, setLoadingCalendars] = useState(false)
@@ -283,16 +285,19 @@ export default function CalendarPage() {
     }
   }, [])
 
-  const loadGoogleStatus = useCallback(async () => {
+  const loadGoogleStatus = useCallback(async (): Promise<{ connected: boolean; lastSyncAt: string | null }> => {
     try {
       const res = await fetch('/api/integrations/google/calendar/status')
       const data = await res.json() as { ok?: boolean; connection?: { connectionStatus?: string; lastSyncAt?: string } }
       const connected = data.ok === true && data.connection?.connectionStatus === 'connected'
+      const lastSyncAt = connected ? (data.connection?.lastSyncAt ?? null) : null
       setGoogleConnected(connected)
-      setGoogleLastSync(connected ? (data.connection?.lastSyncAt ?? null) : null)
+      setGoogleLastSync(lastSyncAt)
+      return { connected, lastSyncAt }
     } catch {
       setGoogleConnected(false)
       setGoogleLastSync(null)
+      return { connected: false, lastSyncAt: null }
     }
   }, [])
 
@@ -314,10 +319,40 @@ export default function CalendarPage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
+  // On open: load status. If connected and last sync is older than ~2 minutes,
+  // fire a silent incremental sync in background so the user sees fresh events
+  // without pressing anything. We never block the UI on this — events are
+  // already showing from the BD via `loadEvents`. Errors are swallowed (no toast
+  // spam during silent runs); the manual "Actualizar ahora" path surfaces them.
   useEffect(() => {
-    const t = window.setTimeout(() => { void loadGoogleStatus() }, 0)
+    const t = window.setTimeout(async () => {
+      const status = await loadGoogleStatus()
+      if (!status.connected) return
+      const lastMs = status.lastSyncAt ? new Date(status.lastSyncAt).getTime() : 0
+      const isStale = !lastMs || Date.now() - lastMs > 2 * 60_000
+      if (!isStale) return
+      setAutoSyncing(true)
+      try {
+        const res = await fetch('/api/integrations/google/calendar/import-events', { method: 'POST' })
+        const data = await res.json() as { ok?: boolean; imported?: number; updated?: number; cancelled?: number; lastSyncAt?: string; reason?: string; partialFailure?: boolean }
+        if (!data.ok || data.reason) return
+        setPartialFailure(Boolean(data.partialFailure))
+        if (data.lastSyncAt) setGoogleLastSync(data.lastSyncAt)
+        const total = (data.imported ?? 0) + (data.updated ?? 0) + (data.cancelled ?? 0)
+        if (total > 0) {
+          await loadEvents()
+          if (!data.partialFailure) {
+            toast.success('Calendario actualizado', { duration: 2500 })
+          }
+        }
+      } catch {
+        // silent — the user can press "Actualizar ahora" to get a clear error.
+      } finally {
+        setAutoSyncing(false)
+      }
+    }, 0)
     return () => window.clearTimeout(t)
-  }, [loadGoogleStatus])
+  }, [loadGoogleStatus, loadEvents])
 
   const syncGoogleCalendar = useCallback(async () => {
     if (syncingGoogle) return
@@ -326,13 +361,13 @@ export default function CalendarPage() {
       return
     }
     setSyncingGoogle(true)
-    const loadingToast = toast.loading('Sincronizando Google Calendar…')
+    const loadingToast = toast.loading('Buscando cambios en Google Calendar…')
     try {
       const res = await fetch('/api/integrations/google/calendar/import-events', { method: 'POST' })
-      const data = await res.json() as { ok?: boolean; imported?: number; updated?: number; skipped?: number; skippedAllDay?: number; cancelled?: number; lastSyncAt?: string; reason?: string; error?: string }
+      const data = await res.json() as { ok?: boolean; imported?: number; updated?: number; skipped?: number; skippedAllDay?: number; cancelled?: number; lastSyncAt?: string; reason?: string; error?: string; partialFailure?: boolean; failedCalendars?: string[] }
       toast.dismiss(loadingToast)
       if (!data.ok) {
-        toast.error('Error al sincronizar Google Calendar', { description: data.error ?? 'Revisa la conexión en Configuración.' })
+        toast.error('No se pudo actualizar el calendario', { description: data.error ?? 'Inténtalo de nuevo en unos segundos.' })
         return
       }
       if (data.reason === 'no_google_connection') {
@@ -344,7 +379,7 @@ export default function CalendarPage() {
         return
       }
       if (data.reason) {
-        toast.warning('Google Calendar no sincronizado', { description: data.reason })
+        toast.warning('Calendario no actualizado', { description: 'Inténtalo de nuevo en unos segundos.' })
         return
       }
       const imported = data.imported ?? 0
@@ -355,18 +390,28 @@ export default function CalendarPage() {
       const parts: string[] = []
       if (imported) parts.push(`${imported} importado${imported === 1 ? '' : 's'}`)
       if (updated) parts.push(`${updated} actualizado${updated === 1 ? '' : 's'}`)
-      if (cancelled) parts.push(`${cancelled} cancelado${cancelled === 1 ? '' : 's'} en Google`)
-      const description = allDay ? `${allDay} evento(s) de día completo omitidos` : undefined
-      if (total > 0) {
-        toast.success(parts.join(' · '), description ? { description } : undefined)
+      if (cancelled) parts.push(`${cancelled} cancelado${cancelled === 1 ? '' : 's'}`)
+      const description = allDay ? `${allDay} evento${allDay === 1 ? '' : 's'} de día completo omitido${allDay === 1 ? '' : 's'}` : undefined
+      if (data.partialFailure) {
+        setPartialFailure(true)
+        toast.warning('Algunos calendarios no se pudieron actualizar', {
+          description: total > 0
+            ? `${parts.join(' · ')}. Volveremos a intentarlo en la próxima sincronización.`
+            : 'Volveremos a intentarlo en la próxima sincronización.',
+        })
       } else {
-        toast.success('Google Calendar ya estaba al día', description ? { description } : undefined)
+        setPartialFailure(false)
+        if (total > 0) {
+          toast.success('Calendario actualizado', { description: [parts.join(' · '), description].filter(Boolean).join(' · ') })
+        } else {
+          toast.success('No hay cambios nuevos', description ? { description } : undefined)
+        }
       }
       if (data.lastSyncAt) setGoogleLastSync(data.lastSyncAt)
       await loadEvents()
     } catch {
       toast.dismiss(loadingToast)
-      toast.error('Error de red al sincronizar Google Calendar')
+      toast.error('Error de red al actualizar el calendario')
     } finally {
       setSyncingGoogle(false)
     }
@@ -446,23 +491,59 @@ export default function CalendarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selectedCalendarIds: selectedIds, calendarMetadata }),
       })
-      const data = await res.json() as { ok?: boolean; error?: string }
+      const data = await res.json() as {
+        ok?: boolean
+        error?: string
+        sync?: {
+          imported?: number
+          updated?: number
+          cancelled?: number
+          lastSyncAt?: string
+          skipped?: string
+          partialFailure?: boolean
+        }
+      }
       if (!data.ok) {
         toast.error('No se pudo guardar la selección', { description: data.error ?? 'Inténtalo de nuevo.' })
         return
       }
-      toast.success(
-        selectedIds.length === 1 ? 'Calendario guardado' : `${selectedIds.length} calendarios guardados`,
-      )
       setCalendarsPanelOpen(false)
-      void syncGoogleCalendar()
+      // The backend already ran a sync. Render its summary, no second roundtrip.
+      const sync = data.sync ?? {}
+      const imported = sync.imported ?? 0
+      const updated = sync.updated ?? 0
+      const cancelled = sync.cancelled ?? 0
+      const total = imported + updated + cancelled
+      const parts: string[] = []
+      if (imported) parts.push(`${imported} importado${imported === 1 ? '' : 's'}`)
+      if (updated) parts.push(`${updated} actualizado${updated === 1 ? '' : 's'}`)
+      if (cancelled) parts.push(`${cancelled} cancelado${cancelled === 1 ? '' : 's'}`)
+      if ('skipped' in sync) {
+        toast.success(selectedIds.length === 1 ? 'Calendario guardado' : `${selectedIds.length} calendarios guardados`)
+        setPartialFailure(false)
+      } else if (sync.partialFailure) {
+        setPartialFailure(true)
+        toast.warning('Algunos calendarios no se pudieron actualizar', {
+          description: total > 0
+            ? `${parts.join(' · ')}. Volveremos a intentarlo en la próxima sincronización.`
+            : 'Volveremos a intentarlo en la próxima sincronización.',
+        })
+      } else if (total > 0) {
+        setPartialFailure(false)
+        toast.success('Calendarios guardados y sincronizados', { description: parts.join(' · ') })
+      } else {
+        setPartialFailure(false)
+        toast.success('Calendarios guardados', { description: 'No hay cambios nuevos.' })
+      }
+      if (sync.lastSyncAt) setGoogleLastSync(sync.lastSyncAt)
+      await loadEvents()
     } catch (err) {
       toast.error('Error de red al guardar la selección')
       if (process.env.NODE_ENV === 'development') console.warn('[calendar/saveCalendarSelection]', err)
     } finally {
       setSavingCalendars(false)
     }
-  }, [calendarSelection, googleCalendars, savingCalendars, syncGoogleCalendar])
+  }, [calendarSelection, googleCalendars, savingCalendars, loadEvents])
 
   const toggleCalendarInSelection = useCallback((id: string) => {
     setCalendarSelection((prev) => {
@@ -619,7 +700,7 @@ export default function CalendarPage() {
       setModalOpen(false)
       setForm(emptyEventForm)
     } catch (error) {
-      toast.error('No se pudo guardar el evento', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+      toast.error('No se pudo guardar el evento', { description: error instanceof Error ? error.message : 'Inténtalo de nuevo en unos segundos.' })
     } finally {
       setSaving(false)
     }
@@ -688,7 +769,7 @@ export default function CalendarPage() {
         setForm(emptyEventForm)
       }
     } catch (error) {
-      toast.error('No se pudo cancelar el evento', { description: error instanceof Error ? error.message : 'Revisa Supabase y RLS.' })
+      toast.error('No se pudo cancelar el evento', { description: error instanceof Error ? error.message : 'Inténtalo de nuevo en unos segundos.' })
     } finally {
       setDeleting(false)
     }
@@ -711,11 +792,23 @@ export default function CalendarPage() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <div className="hidden items-center gap-2 rounded-xl border border-gray-200/80 bg-white/80 px-3 py-1.5 shadow-sm shadow-gray-950/[0.02] md:flex">
-              <span className={cn('h-1.5 w-1.5 rounded-full', googleConnected ? 'bg-emerald-500' : 'bg-gray-300')} />
+              <span className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                (syncingGoogle || autoSyncing) ? 'bg-amber-400 animate-pulse'
+                  : partialFailure && googleConnected ? 'bg-amber-500'
+                  : googleConnected ? 'bg-emerald-500'
+                  : 'bg-gray-300',
+              )} />
               <span className="text-xs font-medium text-gray-700">
-                {googleConnected ? 'Google Calendar conectado' : 'Google no conectado'}
+                {syncingGoogle || autoSyncing
+                  ? 'Actualizando…'
+                  : partialFailure && googleConnected
+                    ? 'Sincronización parcial'
+                    : googleConnected
+                      ? 'Sincronización automática'
+                      : 'Google no conectado'}
               </span>
-              {googleConnected && lastSyncLabel && (
+              {googleConnected && !syncingGoogle && !autoSyncing && lastSyncLabel && (
                 <span className="text-[10px] text-gray-400">· {lastSyncLabel}</span>
               )}
             </div>
@@ -730,16 +823,18 @@ export default function CalendarPage() {
                 Calendarios
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void syncGoogleCalendar()}
-              disabled={syncingGoogle || !googleConnected}
-              title={googleConnected ? (lastSyncLabel ?? 'Importar eventos de Google Calendar') : 'Conecta Google Calendar en Configuración'}
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', syncingGoogle && 'animate-spin')} />
-              {syncingGoogle ? 'Sincronizando…' : 'Sincronizar'}
-            </Button>
+            {googleConnected && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void syncGoogleCalendar()}
+                disabled={syncingGoogle}
+                title={lastSyncLabel ?? 'Buscar cambios en Google Calendar'}
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', syncingGoogle && 'animate-spin')} />
+                {syncingGoogle ? 'Actualizando…' : 'Actualizar ahora'}
+              </Button>
+            )}
             <Button size="sm" onClick={() => openCreateModal()}>
               <Plus className="h-3.5 w-3.5" />
               Nueva cita
@@ -752,6 +847,15 @@ export default function CalendarPage() {
         <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {loadError}
+        </div>
+      )}
+
+      {!loadError && partialFailure && googleConnected && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-2.5 text-[12px] text-amber-800">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Algunos calendarios no se pudieron actualizar del todo. Volveremos a intentarlo automáticamente en la próxima sincronización.
+          </span>
         </div>
       )}
 
@@ -1293,8 +1397,8 @@ export default function CalendarPage() {
             Google
           </span>
         </div>
-        <Badge variant={isRealMode ? 'success' : loadError ? 'warning' : 'indigo'} dot>
-          {isRealMode ? 'Datos reales' : loadError ? 'Sin datos reales' : 'Modo demo'}
+        <Badge variant={googleConnected ? 'success' : loadError ? 'warning' : 'default'} dot>
+          {googleConnected ? 'Google Calendar conectado' : loadError ? 'Sin conexión' : 'Sin Google Calendar'}
         </Badge>
       </div>
 
