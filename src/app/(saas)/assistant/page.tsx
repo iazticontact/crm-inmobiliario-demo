@@ -449,6 +449,127 @@ function missingText(fields: string[]) {
   return fields.join(', ').replace(/, ([^,]*)$/, ' y $1')
 }
 
+type ConfirmErrorCopy = {
+  // Toast title — short, recognisable.
+  title: string
+  // Toast description — actionable next step the user can actually do.
+  description: string
+  // Toast level. Validation/UX problems → warning, hard server failures → error.
+  level: 'warning' | 'error'
+}
+
+// Maps the small set of error codes /api/assistant/confirm can return to
+// user-facing copy. We never surface raw JSON or Supabase strings to the user.
+// `ambiguous_client` is handled separately by the call site because it also
+// needs to render a candidates list.
+function friendlyConfirmError(code: string | undefined): ConfirmErrorCopy {
+  switch (code) {
+    case 'client_required':
+      return {
+        title: 'Falta el cliente',
+        description: 'Dime para qué cliente es esta acción antes de confirmar.',
+        level: 'warning',
+      }
+    case 'client_not_found':
+      return {
+        title: 'No encuentro a ese cliente',
+        description: 'Revisa el nombre o búscalo en Clientes y vuelve a confirmar.',
+        level: 'warning',
+      }
+    case 'client_not_in_workspace':
+      return {
+        title: 'Cliente no pertenece a tu workspace',
+        description: 'Busca al cliente correcto antes de confirmar.',
+        level: 'error',
+      }
+    case 'invalid_client_id':
+      return {
+        title: 'Identificador de cliente inválido',
+        description: 'Selecciona el cliente desde la lista y vuelve a confirmar.',
+        level: 'error',
+      }
+    case 'client_lookup_failed':
+      return {
+        title: 'No pude buscar al cliente',
+        description: 'Hubo un problema temporal. Inténtalo de nuevo en unos segundos.',
+        level: 'error',
+      }
+    case 'booking_invalid_date':
+      return {
+        title: 'Esa fecha no existe',
+        description: 'Usa formato AAAA-MM-DD, por ejemplo 2026-06-10.',
+        level: 'warning',
+      }
+    case 'booking_invalid_time':
+      return {
+        title: 'Hora inválida',
+        description: 'Usa formato HH:MM en 24 horas, por ejemplo 10:30.',
+        level: 'warning',
+      }
+    case 'task_invalid_due_date':
+      return {
+        title: 'Fecha de vencimiento inválida',
+        description: 'La tarea necesita una fecha real (AAAA-MM-DD). Ejemplo: 2026-06-10.',
+        level: 'warning',
+      }
+    case 'invoice_invalid_due_date':
+      return {
+        title: 'Vencimiento de factura inválido',
+        description: 'Usa una fecha real en formato AAAA-MM-DD, por ejemplo 2026-06-24.',
+        level: 'warning',
+      }
+    case 'invoice_invalid_amount':
+      return {
+        title: 'Importe no válido',
+        description: 'El importe debe ser mayor que 0 y con un máximo de 2 decimales.',
+        level: 'warning',
+      }
+    case 'task_create_failed':
+      return {
+        title: 'No se pudo guardar la tarea',
+        description: 'Inténtalo de nuevo. Si vuelve a fallar, avísanos.',
+        level: 'error',
+      }
+    case 'booking_create_failed':
+      return {
+        title: 'No se pudo crear la cita',
+        description: 'Inténtalo de nuevo. Si vuelve a fallar, avísanos.',
+        level: 'error',
+      }
+    case 'invoice_create_failed':
+      return {
+        title: 'No se pudo crear la factura',
+        description: 'Inténtalo de nuevo. Si vuelve a fallar, avísanos.',
+        level: 'error',
+      }
+    case 'report_log_failed':
+      return {
+        title: 'No se pudo registrar el informe',
+        description: 'Inténtalo de nuevo en unos segundos.',
+        level: 'error',
+      }
+    default:
+      return {
+        title: 'No se pudo confirmar la acción',
+        description: 'Inténtalo de nuevo en unos segundos.',
+        level: 'error',
+      }
+  }
+}
+
+type ConfirmCandidate = { id: string; name: string; company: string | null }
+
+// Renders the candidates list /api/assistant/confirm returns on
+// `ambiguous_client`. The chat layer uses this so the user can pick one by
+// name in their next message.
+function formatAmbiguousCandidates(candidates: ConfirmCandidate[]): string {
+  const lines = candidates.slice(0, 5).map((c, idx) => {
+    const company = c.company?.trim() ? ` — ${c.company.trim()}` : ''
+    return `${idx + 1}. ${c.name || 'Sin nombre'}${company}`
+  })
+  return `He encontrado varios clientes con ese nombre. Dime cuál es:\n${lines.join('\n')}\n\nResponde con el número o el nombre completo.`
+}
+
 function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): PreparedAction | null {
   const { extracted } = intent
 
@@ -1703,17 +1824,39 @@ export default function AssistantPage() {
           message?: string
           error?: string
           missingFields?: string[]
+          candidates?: ConfirmCandidate[]
         }
 
         if (!confirmRes.ok || !confirmData.ok) {
+          // missing_fields and ambiguous_client have their own UX. Everything
+          // else funnels through friendlyConfirmError so the user never sees
+          // raw codes, Supabase strings or 500-style messages.
           if (confirmData.error === 'missing_fields' && confirmData.missingFields?.length) {
             toast.warning('Faltan datos para confirmar', { description: missingText(confirmData.missingFields) })
-          } else if (confirmData.error === 'client_not_in_workspace') {
-            toast.error('Cliente no pertenece a tu workspace', { description: 'Busca al cliente correcto antes de confirmar.' })
-          } else if (confirmData.error === 'invalid_client_id') {
-            toast.error('Identificador de cliente inválido', { description: 'Selecciona el cliente desde la lista y vuelve a confirmar.' })
+          } else if (confirmData.error === 'ambiguous_client' && confirmData.candidates?.length) {
+            const candidates = confirmData.candidates
+            const summary = candidates.slice(0, 5).map((c) => c.name).filter(Boolean).join(', ')
+            toast.warning('Hay varios clientes con ese nombre', {
+              description: summary
+                ? `Coincidencias: ${summary}. Dime cuál.`
+                : 'Dime cuál de ellos es para poder confirmar.',
+            })
+            // Append a chat message so the user can answer with a number or
+            // the full name — same conversational flow as the rest of the bot.
+            await appendAssistantMessage(
+              activeConversation.id,
+              formatAmbiguousCandidates(candidates),
+              preparedAction.clientName,
+            ).catch((error) => {
+              if (process.env.NODE_ENV === 'development') console.warn('[assistant/confirm:ambiguous_client]', error)
+            })
           } else {
-            toast.error('No se pudo confirmar la acción', { description: 'Inténtalo de nuevo en unos segundos.' })
+            const copy = friendlyConfirmError(confirmData.error)
+            if (copy.level === 'warning') {
+              toast.warning(copy.title, { description: copy.description })
+            } else {
+              toast.error(copy.title, { description: copy.description })
+            }
           }
           return
         }
@@ -1765,8 +1908,8 @@ export default function AssistantPage() {
           await appendAssistantMessage(activeConversation.id, invoiceMsg, preparedAction.clientName).catch((error) => {
             if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
           })
-          toast.success('Factura creada')
-          setLastActionStatus('Última acción confirmada: factura creada')
+          toast.success('Factura preparada')
+          setLastActionStatus('Última acción confirmada: factura preparada')
         } else if (preparedAction.type === 'task') {
           const taskMsg = summaryMessage || `Tarea creada: "${preparedAction.taskTitle}"${preparedAction.clientName ? ` para ${preparedAction.clientName}` : ''}.`
           await appendAssistantMessage(activeConversation.id, taskMsg, preparedAction.clientName).catch((error) => {
