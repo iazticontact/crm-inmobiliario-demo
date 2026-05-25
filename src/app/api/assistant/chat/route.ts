@@ -196,10 +196,20 @@ async function buildServerSupabase(): Promise<SupabaseClient | null> {
   })
 }
 
-type WorkspaceAccessResult = { ok: true } | { ok: false; status: 401 | 403; error: string }
+type WorkspaceResolution =
+  | { ok: true; workspaceId: string }
+  | { ok: false; status: 401 | 403; error: string }
 
-// Checks that the authenticated user owns the requested workspaceId.
-async function validateWorkspaceAccess(supabase: SupabaseClient, workspaceId: string): Promise<WorkspaceAccessResult> {
+// Resolves the caller's workspace strictly from the authenticated session.
+//
+// The route used to accept `workspaceId` from the request body and merely
+// verify ownership. That pattern is dangerous as soon as it's reused (the
+// body field becomes a tempting "tell the server which tenant"). We now
+// derive workspace_id from `profiles` keyed on the session user, full stop.
+// Any `workspaceId` in the body is ignored (or, if it disagrees with the
+// session's workspace, the request is rejected with 403 so the client can
+// spot the bug instead of silently being routed against the wrong tenant).
+async function resolveSessionWorkspace(supabase: SupabaseClient, bodyWorkspaceId?: string): Promise<WorkspaceResolution> {
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) return { ok: false, status: 401, error: 'unauthorized' }
 
@@ -209,20 +219,22 @@ async function validateWorkspaceAccess(supabase: SupabaseClient, workspaceId: st
     .eq('id', user.id)
     .maybeSingle()
 
-  if (!profile?.workspace_id || profile.workspace_id !== workspaceId) {
-    return { ok: false, status: 403, error: 'forbidden' }
-  }
+  const sessionWorkspaceId = profile?.workspace_id as string | null | undefined
+  if (!sessionWorkspaceId) return { ok: false, status: 403, error: 'no_workspace' }
 
-  return { ok: true }
+  if (bodyWorkspaceId && bodyWorkspaceId !== sessionWorkspaceId) {
+    return { ok: false, status: 403, error: 'workspace_mismatch' }
+  }
+  return { ok: true, workspaceId: sessionWorkspaceId }
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse<ChatResponse>> {
   try {
     const body = await req.json() as Body
-    const { workspaceId, message, mode, lastReferencedClientId, lastReferencedClientName, lastResults } = body
+    const { workspaceId: bodyWorkspaceId, message, mode, lastReferencedClientId, lastReferencedClientName, lastResults } = body
 
-    if (!workspaceId || !message?.trim()) {
-      return NextResponse.json({ ok: false, error: 'workspaceId and message are required' }, { status: 400 })
+    if (!message?.trim()) {
+      return NextResponse.json({ ok: false, error: 'message is required' }, { status: 400 })
     }
 
     // Only NowLabs AI (copilot) may access CRM tools — Inbox Assistant is blocked here
@@ -235,11 +247,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<ChatResponse>
       return NextResponse.json({ ok: false, error: 'Supabase not configured' }, { status: 503 })
     }
 
-    // Verify the authenticated user owns the requested workspace
-    const access = await validateWorkspaceAccess(supabase, workspaceId)
-    if (!access.ok) {
-      return NextResponse.json({ ok: false, error: access.error }, { status: access.status })
+    // Workspace strictly from session. The body's workspaceId is only used
+    // to detect a stale frontend (mismatch → 403, not silent reroute).
+    const resolution = await resolveSessionWorkspace(supabase, bodyWorkspaceId?.trim() || undefined)
+    if (!resolution.ok) {
+      return NextResponse.json({ ok: false, error: resolution.error }, { status: resolution.status })
     }
+    const workspaceId = resolution.workspaceId
 
     console.log('[assistant/chat][ENTRY]', {
       mode,

@@ -13,16 +13,12 @@ import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentTool
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
-import { buildCalendarEventTimes } from '@/lib/calendar-time'
 import {
   createActivity,
-  createCalendarEvent,
   updateCalendarEvent,
   createAssistantConversation,
-  createInvoice,
   createMessage,
   createAgentActionLog,
-  createTask,
   deleteConversationPermanently,
   getAssistantConversationById,
   getAssistantConversations,
@@ -1634,167 +1630,151 @@ export default function AssistantPage() {
         throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede confirmar una acción usando una conversación temporal.')
       }
 
-      if (preparedAction.type === 'booking') {
-        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.date || !preparedAction.time) {
-          toast.warning('Faltan datos para crear la cita', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
+      // -------------------------------------------------------------------
+      // BOOKING / TASK / INVOICE  →  /api/assistant/confirm
+      //
+      // We no longer write to Supabase from the browser for these three.
+      // The endpoint runs the full revalidation server-side (workspace from
+      // session, clientId belongs to workspace, type allowed, no missing
+      // fields, well-formed date/time/amount). It also fires the optional
+      // n8n webhook (`assistant.{type}_created/_prepared`) fail-soft.
+      //
+      // For booking we still trigger the Google Calendar sync from the
+      // browser using the returned eventId — that path is the user's
+      // already-audited Calendar route, which validates session itself.
+      // For invoice/task no further client-side work is needed.
+      // -------------------------------------------------------------------
+      if (preparedAction.type === 'booking' || preparedAction.type === 'task' || preparedAction.type === 'invoice') {
+        // Frontend-side guard: surface the same friendly errors the server
+        // would, before paying the round-trip. Server is still the authority.
+        if (preparedAction.type === 'booking') {
+          if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.date || !preparedAction.time) {
+            toast.warning('Faltan datos para crear la cita', { description: missingText(preparedAction.missingFields) || 'Completa la card antes de confirmar.' })
+            return
+          }
+        }
+        if (preparedAction.type === 'invoice') {
+          if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.amount) {
+            toast.warning('Faltan datos para crear la factura', { description: missingText(preparedAction.missingFields) || 'Se necesita al menos cliente e importe.' })
+            return
+          }
+        }
+        if (preparedAction.type === 'task') {
+          if (!preparedAction.taskTitle) {
+            toast.warning('Falta el título de la tarea', { description: 'Escribe el título y vuelve a confirmar.' })
+            return
+          }
+        }
+        if (!workspaceId) throw new Error('Workspace real no resuelto.')
+
+        const confirmPayload: Record<string, unknown> = {
+          type: preparedAction.type,
+          clientId: 'clientId' in preparedAction ? preparedAction.clientId : undefined,
+          clientName: 'clientName' in preparedAction ? preparedAction.clientName : undefined,
+          notes: 'notes' in preparedAction ? preparedAction.notes : undefined,
+          missingFields: preparedAction.missingFields,
+          conversationId: activeConversation.id,
+        }
+        if (preparedAction.type === 'booking') {
+          confirmPayload.service = preparedAction.service
+          confirmPayload.date = preparedAction.date
+          confirmPayload.time = preparedAction.time
+          confirmPayload.duration = preparedAction.duration
+        } else if (preparedAction.type === 'invoice') {
+          confirmPayload.amount = preparedAction.amount
+          confirmPayload.concept = preparedAction.concept
+          confirmPayload.dueDate = preparedAction.dueDate
+        } else {
+          confirmPayload.taskTitle = preparedAction.taskTitle
+          confirmPayload.description = preparedAction.description
+          confirmPayload.dueDate = preparedAction.dueDate
+        }
+        debugPayload = confirmPayload
+
+        const confirmRes = await fetch('/api/assistant/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preparedAction: confirmPayload }),
+        })
+        const confirmData = await confirmRes.json().catch(() => ({})) as {
+          ok?: boolean
+          type?: string
+          entityId?: string | null
+          message?: string
+          error?: string
+          missingFields?: string[]
+        }
+
+        if (!confirmRes.ok || !confirmData.ok) {
+          if (confirmData.error === 'missing_fields' && confirmData.missingFields?.length) {
+            toast.warning('Faltan datos para confirmar', { description: missingText(confirmData.missingFields) })
+          } else if (confirmData.error === 'client_not_in_workspace') {
+            toast.error('Cliente no pertenece a tu workspace', { description: 'Busca al cliente correcto antes de confirmar.' })
+          } else if (confirmData.error === 'invalid_client_id') {
+            toast.error('Identificador de cliente inválido', { description: 'Selecciona el cliente desde la lista y vuelve a confirmar.' })
+          } else {
+            toast.error('No se pudo confirmar la acción', { description: 'Inténtalo de nuevo en unos segundos.' })
+          }
           return
         }
-        const service = preparedAction.service || 'Reunión comercial'
-        const duration = preparedAction.duration ?? 60
-        const times = buildCalendarEventTimes({ date: preparedAction.date, time: preparedAction.time, duration })
-        const calendarPayload = {
-          title: `${service} con ${preparedAction.clientName}`,
-          date: preparedAction.date,
-          time: preparedAction.time,
-          startAt: times.startAtIso,
-          endAt: times.endAtIso,
-          startHour: times.startHour,
-          startMinute: times.startMinute,
-          duration: times.duration,
-          type: 'meeting' as const,
-          clientId: preparedAction.clientId,
-          clientName: preparedAction.clientName,
-          notes: preparedAction.notes,
-          description: preparedAction.notes || 'Cita creada desde el Asistente IA',
-          status: 'scheduled',
-          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
-        }
-        debugPayload = calendarPayload
-        if (!workspaceId) throw new Error('No hay workspace real para crear el evento.')
-        const createdEvent = await createCalendarEvent(workspaceId, calendarPayload)
 
-        // Google Calendar sync — best-effort after local creation succeeds
-        let gcalSynced = false
-        let gcalNotConnected = false
-        try {
-          const gcalRes = await fetch('/api/integrations/google/calendar/sync-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ eventId: createdEvent.id }),
-            signal: AbortSignal.timeout(9000),
-          })
-          if (gcalRes.ok) {
-            const gcalData = await gcalRes.json() as { synced?: boolean; reason?: string }
-            gcalSynced = gcalData.synced === true
-            gcalNotConnected = gcalData.reason === 'not_connected'
-          }
-        } catch {
-          // Google sync is best-effort — local creation already succeeded
-        }
+        const entityId = confirmData.entityId ?? undefined
+        const summaryMessage = confirmData.message ?? ''
 
-        if (workspaceId) {
-          void createActivity(workspaceId, { type: 'call', description: `Cita creada desde el Asistente IA: ${service} con ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
-            if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:booking]', error)
-          })
-          if (!OFFLINE_FORCE_DEV) {
-            void triggerN8nWebhook('calendar_event_created', {
-              workspace_id: workspaceId,
-              mode: 'real',
-              calendar_event: { ...calendarPayload, id: createdEvent.id },
-              client: { id: preparedAction.clientId, name: preparedAction.clientName },
-              metadata: { source: 'assistant_confirmation', google_synced: gcalSynced },
-            }).catch((error) => {
-              if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:booking]', error)
+        if (preparedAction.type === 'booking' && entityId) {
+          // Google Calendar sync — best-effort, never blocks. Uses the user's
+          // already-audited /sync-event route (session validated server-side).
+          let gcalSynced = false
+          let gcalNotConnected = false
+          try {
+            const gcalRes = await fetch('/api/integrations/google/calendar/sync-event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ eventId: entityId }),
+              signal: AbortSignal.timeout(9000),
             })
+            if (gcalRes.ok) {
+              const gcalData = await gcalRes.json() as { synced?: boolean; reason?: string }
+              gcalSynced = gcalData.synced === true
+              gcalNotConnected = gcalData.reason === 'not_connected'
+            }
+          } catch {
+            // Google sync is best-effort — the CRM event is already saved.
           }
-        }
 
-        const bookingMsg = gcalSynced
-          ? `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}. Añadida también a Google Calendar.`
-          : `Cita creada correctamente para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`
-        await appendAssistantMessage(activeConversation.id, bookingMsg, preparedAction.clientName).catch((error) => {
-          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:booking]', error)
-        })
-        const bookingToast = gcalSynced
-          ? 'Cita creada y añadida a Google Calendar'
-          : gcalNotConnected
-            ? 'Cita creada en el CRM. Google Calendar aún no está conectado.'
-            : 'Cita creada en Calendario'
-        toast.success(bookingToast)
-        setLastActionStatus('Última acción confirmada: cita creada')
-        // Store confirmed event context for potential cancellation in same conversation
-        setLastConfirmedEventId(createdEvent.id)
-        setLastConfirmedClientName(preparedAction.clientName ?? null)
-        setLastConfirmedDate(preparedAction.date ?? null)
-      }
-
-      if (preparedAction.type === 'invoice') {
-        if (preparedAction.missingFields.length || !preparedAction.clientName || !preparedAction.amount) {
-          toast.warning('Faltan datos para crear la factura', { description: missingText(preparedAction.missingFields) || 'Se necesita al menos cliente e importe.' })
-          return
-        }
-        const concept = preparedAction.concept || 'Servicio CRM'
-        const todayInvoice = new Date()
-        const dueInvoice = new Date(todayInvoice)
-        dueInvoice.setDate(todayInvoice.getDate() + 14)
-        const dueDate = preparedAction.dueDate || dueInvoice.toISOString().slice(0, 10)
-        const invoicePayload = {
-          clientId: preparedAction.clientId,
-          clientName: preparedAction.clientName,
-          concept,
-          amount: preparedAction.amount,
-          status: 'pending' as const,
-          dueDate,
-          plan: concept,
-          currency: 'EUR',
-          notes: preparedAction.notes,
-          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
-        }
-        debugPayload = invoicePayload
-        if (!workspaceId) throw new Error('No hay workspace real para crear la factura.')
-        const createdInvoice = await createInvoice(workspaceId, invoicePayload)
-
-        if (workspaceId) {
-          void createActivity(workspaceId, { type: 'deal', description: `Factura creada desde el Asistente IA: ${concept} para ${preparedAction.clientName}`, clientName: preparedAction.clientName }).catch((error) => {
-            if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:invoice]', error)
+          const bookingMsg = gcalSynced
+            ? `${summaryMessage || `Cita creada para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`} Añadida también a Google Calendar.`
+            : summaryMessage || `Cita creada para ${preparedAction.clientName} el ${preparedAction.date} a las ${preparedAction.time}.`
+          await appendAssistantMessage(activeConversation.id, bookingMsg, preparedAction.clientName).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:booking]', error)
           })
-          if (!OFFLINE_FORCE_DEV) {
-            void triggerN8nWebhook('invoice_created', {
-              workspace_id: workspaceId,
-              mode: 'real',
-              invoice: { ...invoicePayload, id: createdInvoice.id },
-              client: { id: preparedAction.clientId, name: preparedAction.clientName },
-              metadata: { source: 'assistant_confirmation' },
-            }).catch((error) => {
-              if (process.env.NODE_ENV === 'development') console.warn('[assistant/n8n:invoice]', error)
-            })
-          }
+          const bookingToast = gcalSynced
+            ? 'Cita creada y añadida a Google Calendar'
+            : gcalNotConnected
+              ? 'Cita creada en el CRM. Google Calendar aún no está conectado.'
+              : 'Cita creada en Calendario'
+          toast.success(bookingToast)
+          setLastActionStatus('Última acción confirmada: cita creada')
+          setLastConfirmedEventId(entityId)
+          setLastConfirmedClientName(preparedAction.clientName ?? null)
+          setLastConfirmedDate(preparedAction.date ?? null)
+        } else if (preparedAction.type === 'invoice') {
+          const invoiceMsg = summaryMessage
+            ? `${summaryMessage}\n\nSi quieres el PDF, escribe: "genera PDF de la factura".`
+            : `Factura creada para ${preparedAction.clientName}.\n\nSi quieres el PDF, escribe: "genera PDF de la factura".`
+          await appendAssistantMessage(activeConversation.id, invoiceMsg, preparedAction.clientName).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
+          })
+          toast.success('Factura creada')
+          setLastActionStatus('Última acción confirmada: factura creada')
+        } else if (preparedAction.type === 'task') {
+          const taskMsg = summaryMessage || `Tarea creada: "${preparedAction.taskTitle}"${preparedAction.clientName ? ` para ${preparedAction.clientName}` : ''}.`
+          await appendAssistantMessage(activeConversation.id, taskMsg, preparedAction.clientName).catch((error) => {
+            if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:task]', error)
+          })
+          toast.success('Tarea creada')
+          setLastActionStatus('Última acción confirmada: tarea creada')
         }
-
-        await appendAssistantMessage(activeConversation.id, `Factura creada correctamente para ${preparedAction.clientName}: ${concept}, ${preparedAction.amount} EUR, vence ${dueDate}.\n\nSi quieres el PDF, escribe: "genera PDF de la factura".`, preparedAction.clientName).catch((error) => {
-          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:invoice]', error)
-        })
-        toast.success('Factura creada')
-        setLastActionStatus('Última acción confirmada: factura creada')
-      }
-
-      if (preparedAction.type === 'task') {
-        if (!preparedAction.taskTitle) {
-          toast.warning('Falta el título de la tarea', { description: 'Escribe el título y vuelve a confirmar.' })
-          return
-        }
-        if (!workspaceId) throw new Error('No hay workspace real para crear la tarea.')
-        const taskPayload = {
-          title: preparedAction.taskTitle,
-          clientId: preparedAction.clientId,
-          clientName: preparedAction.clientName,
-          description: preparedAction.description,
-          dueDate: preparedAction.dueDate,
-          status: 'pending',
-          priority: 'normal',
-          metadata: { source: 'nowlabs_ai', conversation_id: activeConversation.id },
-        }
-        debugPayload = taskPayload
-        await createTask(workspaceId, taskPayload)
-        void createActivity(workspaceId, { type: 'note', description: `Tarea creada desde el Asistente IA: ${preparedAction.taskTitle}`, clientName: preparedAction.clientName }).catch((error) => {
-          if (process.env.NODE_ENV === 'development') console.warn('[assistant/createActivity:task]', error)
-        })
-        const taskMsg = `Tarea creada: "${preparedAction.taskTitle}"${preparedAction.clientName ? ` para ${preparedAction.clientName}` : ''}${preparedAction.dueDate ? `, vence ${preparedAction.dueDate}` : ''}.`
-        await appendAssistantMessage(activeConversation.id, taskMsg, preparedAction.clientName).catch((error) => {
-          if (process.env.NODE_ENV === 'development') console.warn('[assistant/message:task]', error)
-        })
-        toast.success('Tarea creada')
-        setLastActionStatus('Última acción confirmada: tarea creada')
       }
 
       if (preparedAction.type === 'cancel_booking') {
