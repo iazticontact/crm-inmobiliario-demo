@@ -1,38 +1,61 @@
+// POST /api/agent/tool
+//
+// Internal server-to-server endpoint for n8n / trusted automations.
+// NOT for browsers. NOT for user-driven actions. NOT for anything destructive.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth model
+// ─────────────────────────────────────────────────────────────────────────────
+//   - Requires the `x-nowcrm-secret` header matching `AGENT_TOOL_SECRET`
+//     (constant-time compare via node:crypto).
+//   - Uses SUPABASE_SERVICE_ROLE_KEY internally.
+//   - If `AGENT_TOOL_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` or
+//     `NEXT_PUBLIC_SUPABASE_URL` is missing, the route is hard-disabled (503
+//     `endpoint_disabled`). There is no anon-key fallback.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant model
+// ─────────────────────────────────────────────────────────────────────────────
+//   - `workspace_id` is required in the body and must be a UUID belonging to
+//     a row in `workspaces`. Every query is explicitly scoped by
+//     `.eq('workspace_id', workspace_id)` — the route can never read or write
+//     across tenants even though service role bypasses RLS.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool allowlist (read + log only)
+// ─────────────────────────────────────────────────────────────────────────────
+//   - `get_workspace_summary`         — workspace KPIs.
+//   - `get_client_summary`            — one client + tiny recent context.
+//   - `log_external_automation_event` — single activity row, length-capped.
+//
+// All previously-available mutating tools (create_client, update_client,
+// create_invoice, mark_invoice_paid, create_calendar_event, save_message,
+// create_activity, etc.) are explicitly blocked with 410 Gone. Those flows
+// now live behind `/api/assistant/confirm` or per-domain routes that resolve
+// the caller from a cookie session.
+
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { buildCalendarEventTimes } from '@/lib/calendar-time'
-import type { ActivityType, Channel, ClientStatus, EventType, InvoiceStatus, MessageSender } from '@/lib/types'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { timingSafeEqual } from 'node:crypto'
 
-type AgentTool =
+export const runtime = 'nodejs'
+
+type AllowedTool =
   | 'get_workspace_summary'
-  | 'search_clients'
   | 'get_client_summary'
-  | 'get_client_detail'
-  | 'create_client'
-  | 'update_client'
-  | 'create_invoice'
-  | 'mark_invoice_paid'
-  | 'list_invoices'
-  | 'create_calendar_event'
-  | 'list_calendar_events'
-  | 'list_conversations'
-  | 'save_message'
-  | 'create_activity'
-  | 'get_next_best_actions'
+  | 'log_external_automation_event'
 
-type AgentToolBody = {
-  tool?: string
-  workspace_id?: string
-  input?: Record<string, unknown>
-  metadata?: Record<string, unknown>
-}
-
-type DataRecord = Record<string, unknown>
-
-const allowedTools: AgentTool[] = [
+const ALLOWED_TOOLS: ReadonlySet<AllowedTool> = new Set<AllowedTool>([
   'get_workspace_summary',
-  'search_clients',
   'get_client_summary',
+  'log_external_automation_event',
+])
+
+// Tools we used to expose. Returning 410 (instead of 404) tells legacy n8n
+// workflows that these endpoints are gone on purpose so the workflow author
+// migrates the action to /api/assistant/confirm or to a per-domain route.
+const RETIRED_TOOLS: ReadonlySet<string> = new Set<string>([
+  'search_clients',
   'get_client_detail',
   'create_client',
   'update_client',
@@ -45,418 +68,273 @@ const allowedTools: AgentTool[] = [
   'save_message',
   'create_activity',
   'get_next_best_actions',
-]
+])
 
-const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
-const MESSAGE_COLUMNS = 'id, workspace_id, conversation_id, sender, body, is_ai, created_at'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function publicSupabaseKey() {
-  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value)
 }
 
-function toolSecret() {
-  return process.env.AGENT_TOOL_SECRET?.trim() || process.env.N8N_WEBHOOK_SECRET?.trim()
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
-function getServerClient(request: Request) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-  const publicKey = publicSupabaseKey()
-  const expectedSecret = toolSecret()
-  const providedSecret = request.headers.get('x-nowcrm-secret')?.trim()
-  const authorizedService = Boolean(serviceRole && expectedSecret && providedSecret && providedSecret === expectedSecret)
-  const key = authorizedService ? serviceRole : publicKey
-
-  if (!url || !key) return { supabase: null, authorizedService, hasServiceRole: Boolean(serviceRole) }
-
-  return {
-    supabase: createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    }),
-    authorizedService,
-    hasServiceRole: Boolean(serviceRole),
-  }
+// timingSafeEqual throws on length mismatch. Pad to the longer length so we
+// don't leak the secret length through the exception path, then check both
+// the constant-time bytes and the lengths.
+function constantTimeMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided, 'utf8')
+  const b = Buffer.from(expected, 'utf8')
+  const len = Math.max(a.length, b.length)
+  const ap = Buffer.alloc(len)
+  const bp = Buffer.alloc(len)
+  a.copy(ap)
+  b.copy(bp)
+  const eq = timingSafeEqual(ap, bp)
+  return eq && a.length === b.length
 }
 
-function ok(tool: AgentTool, result: unknown, message: string, extra?: Record<string, unknown>) {
-  return NextResponse.json({ ok: true, tool, result, message, ...extra })
+function buildServiceClient(url: string, key: string): SupabaseClient {
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'x-nowcrm-source': 'agent-tool' } },
+  })
 }
 
-function fail(tool: string, message: string, status = 400, extra?: Record<string, unknown>) {
-  return NextResponse.json({ ok: false, tool, result: null, message, ...extra }, { status })
+function fail(message: string, status: number, extra?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error: message, ...extra }, { status })
 }
 
-function fallback(tool: AgentTool, message: string, input: Record<string, unknown>) {
-  return ok(tool, {
-    fallback: true,
-    input,
-    next_step: 'Configura SUPABASE_SERVICE_ROLE_KEY y AGENT_TOOL_SECRET para ejecutar esta tool desde un agente externo.',
-  }, message, { mode: 'fallback' })
+function ok(tool: AllowedTool, result: unknown, message: string) {
+  return NextResponse.json({ ok: true, tool, result, message })
 }
 
-function str(value: unknown, fallback = '') {
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback
-}
-
-function num(value: unknown, fallback = 0) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return fallback
-}
-
-function channel(value: unknown): Channel {
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    if (normalized === 'internal' || normalized === 'crm') return 'crm'
-    if (normalized === 'instagram' || normalized === 'web' || normalized === 'email' || normalized === 'whatsapp') return normalized
-  }
-  return 'whatsapp'
-}
-
-function clientStatus(value: unknown): ClientStatus {
-  return value === 'active' || value === 'inactive' || value === 'churned' || value === 'lead' ? value : 'lead'
-}
-
-function invoiceStatus(value: unknown): InvoiceStatus {
-  return value === 'paid' || value === 'overdue' || value === 'pending' ? value : 'pending'
-}
-
-function eventType(value: unknown): EventType {
-  return value === 'call' || value === 'meeting' || value === 'follow-up' || value === 'demo' ? value : 'demo'
-}
-
-function activityType(value: unknown): ActivityType {
-  return value === 'email' || value === 'call' || value === 'message' || value === 'deal' || value === 'note' ? value : 'note'
-}
-
-function sender(value: unknown): MessageSender {
-  return value === 'client' || value === 'agent' || value === 'ai' ? value : 'ai'
-}
-
-async function selectWorkspaceData(supabase: NonNullable<ReturnType<typeof getServerClient>['supabase']>, workspaceId: string) {
-  const [clients, invoices, events, conversations, activities] = await Promise.all([
-    supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
-    supabase.from('invoices').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
-    supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).neq('status', 'cancelled').order('start_at', { ascending: true }),
-    supabase.from('conversations').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }),
-    supabase.from('activities').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(8),
-  ])
-
-  return {
-    clients: clients.error ? [] : clients.data ?? [],
-    invoices: invoices.error ? [] : invoices.data ?? [],
-    events: events.error ? [] : events.data ?? [],
-    conversations: conversations.error ? [] : conversations.data ?? [],
-    activities: activities.error ? [] : activities.data ?? [],
-  }
-}
-
-async function findClientById(supabase: NonNullable<ReturnType<typeof getServerClient>['supabase']>, workspaceId: string, clientId?: string) {
-  if (!clientId) return null
-  const { data } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).eq('id', clientId).maybeSingle()
-  return data as DataRecord | null
-}
-
-function nextBestActions(data: Awaited<ReturnType<typeof selectWorkspaceData>>) {
-  const overdueInvoices = data.invoices.filter((invoice) => invoice.status === 'overdue')
-  const hotLeads = data.clients.filter((client) => client.status === 'lead' && num(client.lead_score, 0) >= 75)
-  const openConversations = data.conversations.filter((conversation) => conversation.status !== 'resolved')
-  const upcomingEvents = data.events.slice(0, 3)
-
-  return [
-    overdueInvoices.length ? `Prioriza ${overdueInvoices.length} factura(s) vencida(s) — envía recordatorio hoy.` : '',
-    hotLeads.length ? `Contacta ${hotLeads.length} lead(s) con score alto hoy.` : '',
-    openConversations.length ? `Resuelve ${openConversations.length} conversacion(es) abiertas.` : '',
-    upcomingEvents.length ? `Prepara contexto para ${upcomingEvents.length} evento(s) proximo(s).` : '',
-  ].filter(Boolean)
+// Sanitised access log. Never includes the secret, the input payload or PII —
+// just enough to correlate a workflow run in server logs with an event.
+function logCall(tool: string, workspaceId: string, status: number) {
+  console.log(`[agent/tool] tool=${tool} workspace=${workspaceId.slice(0, 8)}… status=${status}`)
 }
 
 export async function POST(request: Request) {
-  let body: AgentToolBody
+  // 1. Endpoint must be fully configured to serve any request.
+  const expectedSecret = process.env.AGENT_TOOL_SECRET?.trim()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  if (!expectedSecret || !supabaseUrl || !serviceKey) {
+    return fail('endpoint_disabled', 503)
+  }
 
+  // 2. Secret check — constant time, header is the only auth vector. Browsers
+  // never send this header, so this is also what keeps the SPA from calling
+  // the endpoint directly.
+  const provided = request.headers.get('x-nowcrm-secret')?.trim() ?? ''
+  if (!provided || !constantTimeMatch(provided, expectedSecret)) {
+    return fail('unauthorized', 401)
+  }
+
+  // 3. Body parse.
+  let body: { tool?: unknown; workspace_id?: unknown; input?: unknown }
   try {
-    body = await request.json()
+    body = await request.json() as typeof body
   } catch {
-    return fail('unknown', 'Payload JSON invalido.', 400)
+    return fail('invalid_json', 400)
   }
 
-  const tool = allowedTools.find((candidate) => candidate === body.tool)
-  if (!tool) return fail(body.tool || 'unknown', 'Tool no permitida.', 400, { allowed_tools: allowedTools })
-
-  const workspaceId = str(body.workspace_id)
-  if (!workspaceId) return fail(tool, 'workspace_id es obligatorio.', 400)
-
-  const input = body.input ?? {}
-  const { supabase, authorizedService, hasServiceRole } = getServerClient(request)
-  const isDemoWorkspace = workspaceId === 'demo' || workspaceId === 'demo-workspace'
-
-  if (!supabase || isDemoWorkspace) {
-    return fallback(tool, 'Tool ejecutada en fallback demo.', input)
+  // 4. Tool allowlist. Retired tools → 410 with a migration hint.
+  const rawTool = asString(body.tool)
+  if (!rawTool) return fail('tool_required', 400, { allowed_tools: [...ALLOWED_TOOLS] })
+  if (RETIRED_TOOLS.has(rawTool)) {
+    return fail('tool_retired', 410, {
+      hint: 'Esta herramienta se retiró del endpoint server-to-server. Las acciones que mutan datos viven ahora detrás de /api/assistant/confirm o de la ruta REST por dominio con sesión.',
+      allowed_tools: [...ALLOWED_TOOLS],
+    })
   }
-
-  if (hasServiceRole && !authorizedService) {
-    return fail(tool, 'Tool protegida: falta x-nowcrm-secret valido.', 401)
+  if (!ALLOWED_TOOLS.has(rawTool as AllowedTool)) {
+    return fail('tool_not_allowed', 400, { allowed_tools: [...ALLOWED_TOOLS] })
   }
+  const tool = rawTool as AllowedTool
 
-  // This only proves the workspace exists. A shared external secret is not a
-  // tenant ownership model; keep this endpoint behind trusted server workflows.
+  // 5. Workspace — required UUID.
+  if (!isUuid(body.workspace_id)) {
+    return fail('workspace_id_required', 400)
+  }
+  const workspaceId = body.workspace_id
+
+  const input = (body.input && typeof body.input === 'object' && !Array.isArray(body.input))
+    ? body.input as Record<string, unknown>
+    : {}
+
+  const supabase = buildServiceClient(supabaseUrl, serviceKey)
+
+  // Tenant existence check — service role bypasses RLS, so we explicitly
+  // verify the workspace exists before any read.
   try {
-    const { data: wsRow, error: wsErr } = await supabase
+    const { data: ws, error } = await supabase
       .from('workspaces')
       .select('id')
       .eq('id', workspaceId)
       .maybeSingle()
-    if (wsErr || !wsRow) {
-      return fail(tool, 'workspace_id no encontrado.', 404)
+    if (error) {
+      logCall(tool, workspaceId, 503)
+      return fail('workspace_lookup_failed', 503)
+    }
+    if (!ws) {
+      logCall(tool, workspaceId, 404)
+      return fail('workspace_not_found', 404)
     }
   } catch {
-    return fail(tool, 'No se pudo validar el workspace.', 503)
+    logCall(tool, workspaceId, 503)
+    return fail('workspace_lookup_failed', 503)
   }
 
   try {
     if (tool === 'get_workspace_summary') {
-      const data = await selectWorkspaceData(supabase, workspaceId)
-      const result = {
-        total_clients: data.clients.length,
-        leads: data.clients.filter((client) => client.status === 'lead').length,
-        pending_invoices: data.invoices.filter((invoice) => invoice.status === 'pending').length,
-        overdue_invoices: data.invoices.filter((invoice) => invoice.status === 'overdue').length,
-        upcoming_events: data.events.length,
-        open_conversations: data.conversations.filter((conversation) => conversation.status !== 'resolved').length,
-        recent_activities: data.activities,
-      }
-      return ok(tool, result, 'Resumen del workspace generado.')
-    }
-
-    if (tool === 'search_clients') {
-      const { data, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(100)
-      if (error) throw error
-      const query = str(input.query).toLowerCase()
-      const status = str(input.status)
-      const channelValue = str(input.channel)
-      const result = (data ?? []).filter((client) => {
-        const matchesQuery = !query || [client.name, client.company, client.email, client.phone].some((value) => String(value ?? '').toLowerCase().includes(query))
-        const matchesStatus = !status || client.status === status
-        const matchesChannel = !channelValue || client.channel === channelValue
-        return matchesQuery && matchesStatus && matchesChannel
-      }).slice(0, 20)
-      return ok(tool, result, 'Clientes encontrados.')
-    }
-
-    if (tool === 'get_client_detail' || tool === 'get_client_summary') {
-      const clientId = str(input.client_id)
-      const email = str(input.email).toLowerCase()
-      const name = str(input.name).toLowerCase()
-      const { data: clients, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).limit(100)
-      if (error) throw error
-      const client = (clients ?? []).find((item) =>
-        (clientId && item.id === clientId) ||
-        (email && String(item.email ?? '').toLowerCase() === email) ||
-        (name && String(item.name ?? '').toLowerCase().includes(name))
-      )
-      if (!client) return ok(tool, null, 'Cliente no encontrado.')
-      const clientName = String(client.name ?? '')
-      const [invoices, events, conversationsRaw, activities] = await Promise.all([
-        supabase.from('invoices').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).limit(20),
-        supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).neq('status', 'cancelled').limit(20),
-        supabase.from('conversations').select('*').eq('workspace_id', workspaceId).limit(100),
-        supabase.from('activities').select('*').eq('workspace_id', workspaceId).eq('client_name', clientName).limit(20),
+      const today = new Date().toISOString().slice(0, 10)
+      const [clients, invoices, events, conversations] = await Promise.all([
+        supabase.from('clients').select('id, status, lead_score').eq('workspace_id', workspaceId),
+        supabase.from('invoices').select('id, status').eq('workspace_id', workspaceId),
+        supabase.from('calendar_events').select('id').eq('workspace_id', workspaceId).neq('status', 'cancelled').gte('date', today),
+        supabase.from('conversations').select('id, status').eq('workspace_id', workspaceId),
       ])
-      const conversations = conversationsRaw.error ? [] : (conversationsRaw.data ?? []).filter((conversation) => conversation.client_id === client.id || conversation.client_name === clientName)
+      const clientRows = (clients.data ?? []) as Array<{ status?: string; lead_score?: number }>
+      const invoiceRows = (invoices.data ?? []) as Array<{ status?: string }>
+      const eventRows = (events.data ?? []) as Array<unknown>
+      const conversationRows = (conversations.data ?? []) as Array<{ status?: string }>
+      const result = {
+        workspace_id: workspaceId,
+        total_clients: clientRows.length,
+        leads: clientRows.filter((c) => c.status === 'lead').length,
+        active_clients: clientRows.filter((c) => c.status === 'active').length,
+        hot_leads: clientRows.filter((c) => c.status === 'lead' && (c.lead_score ?? 0) >= 75).length,
+        pending_invoices: invoiceRows.filter((i) => i.status === 'pending').length,
+        overdue_invoices: invoiceRows.filter((i) => i.status === 'overdue').length,
+        upcoming_events: eventRows.length,
+        open_conversations: conversationRows.filter((c) => c.status !== 'resolved').length,
+        generated_at: new Date().toISOString(),
+      }
+      logCall(tool, workspaceId, 200)
+      return ok(tool, result, 'workspace_summary_ok')
+    }
+
+    if (tool === 'get_client_summary') {
+      const clientId = asString(input.client_id)
+      if (!isUuid(clientId)) {
+        logCall(tool, workspaceId, 400)
+        return fail('client_id_required', 400)
+      }
+      const { data: client, error } = await supabase
+        .from('clients')
+        .select('id, name, company, email, channel, status, lead_score, created_at, notes')
+        .eq('workspace_id', workspaceId)
+        .eq('id', clientId)
+        .maybeSingle()
+      if (error) {
+        logCall(tool, workspaceId, 503)
+        return fail('client_lookup_failed', 503)
+      }
+      if (!client) {
+        logCall(tool, workspaceId, 404)
+        return fail('client_not_in_workspace', 404)
+      }
+      const [invoices, events] = await Promise.all([
+        supabase
+          .from('invoices')
+          .select('id, status, amount, currency, due_date, concept')
+          .eq('workspace_id', workspaceId)
+          .eq('client_id', clientId)
+          .order('due_date', { ascending: false })
+          .limit(5),
+        supabase
+          .from('calendar_events')
+          .select('id, title, date, start_at, status')
+          .eq('workspace_id', workspaceId)
+          .eq('client_id', clientId)
+          .neq('status', 'cancelled')
+          .order('start_at', { ascending: false })
+          .limit(5),
+      ])
+      logCall(tool, workspaceId, 200)
       return ok(tool, {
         client,
-        invoices: invoices.error ? [] : invoices.data ?? [],
-        events: events.error ? [] : events.data ?? [],
-        conversations,
-        activities: activities.error ? [] : activities.data ?? [],
-      }, 'Detalle de cliente generado.')
+        recent_invoices: invoices.data ?? [],
+        recent_events: events.data ?? [],
+      }, 'client_summary_ok')
     }
 
-    if (tool === 'create_client') {
-      const name = str(input.name)
-      const email = str(input.email)
-      if (!name || !email) return fail(tool, 'name y email son obligatorios.', 400)
-      const { data, error } = await supabase.from('clients').insert({
-        workspace_id: workspaceId,
-        name,
-        company: str(input.company) || null,
-        email,
-        phone: str(input.phone) || null,
-        channel: channel(input.channel),
-        status: clientStatus(input.status),
-        lead_score: num(input.lead_score, 65),
-        notes: str(input.notes) || null,
-      }).select(CLIENT_COLUMNS).single()
-      if (error) throw error
-      await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'deal', description: `Agente creo cliente: ${name}`, client_name: name })
-      return ok(tool, data, 'Cliente creado.')
+    if (tool === 'log_external_automation_event') {
+      const eventType = asString(input.event_type)
+      const description = asString(input.description)
+      if (!eventType) {
+        logCall(tool, workspaceId, 400)
+        return fail('event_type_required', 400)
+      }
+      if (eventType.length > 60) {
+        logCall(tool, workspaceId, 422)
+        return fail('event_type_too_long', 422)
+      }
+      if (!description) {
+        logCall(tool, workspaceId, 400)
+        return fail('description_required', 400)
+      }
+      if (description.length > 500) {
+        logCall(tool, workspaceId, 422)
+        return fail('description_too_long', 422)
+      }
+      const rawClientName = asString(input.client_name)
+      const clientName = rawClientName ? rawClientName.slice(0, 120) : null
+
+      // If client_id is provided, validate it belongs to this workspace.
+      // We do NOT trust the client_name from the payload — if a UUID is given,
+      // we override the name with the canonical row, same contract as
+      // /api/assistant/confirm.
+      let resolvedClientName = clientName
+      const rawClientId = asString(input.client_id)
+      if (rawClientId) {
+        if (!isUuid(rawClientId)) {
+          logCall(tool, workspaceId, 400)
+          return fail('invalid_client_id', 400)
+        }
+        const { data: clientRow, error: clientErr } = await supabase
+          .from('clients')
+          .select('name')
+          .eq('workspace_id', workspaceId)
+          .eq('id', rawClientId)
+          .maybeSingle()
+        if (clientErr) {
+          logCall(tool, workspaceId, 503)
+          return fail('client_lookup_failed', 503)
+        }
+        if (!clientRow) {
+          logCall(tool, workspaceId, 404)
+          return fail('client_not_in_workspace', 404)
+        }
+        const canonicalName = typeof clientRow.name === 'string' ? clientRow.name.trim() : ''
+        if (canonicalName) resolvedClientName = canonicalName.slice(0, 120)
+      }
+
+      const { data, error } = await supabase
+        .from('activities')
+        .insert({
+          workspace_id: workspaceId,
+          type: 'note',
+          description: `[n8n:${eventType.slice(0, 50)}] ${description}`,
+          client_name: resolvedClientName,
+        })
+        .select('id')
+        .single()
+      if (error || !data) {
+        logCall(tool, workspaceId, 500)
+        return fail('activity_insert_failed', 500)
+      }
+      logCall(tool, workspaceId, 200)
+      return ok(tool, { id: String(data.id), event_type: eventType }, 'activity_logged')
     }
 
-    if (tool === 'update_client') {
-      const clientId = str(input.client_id)
-      if (!clientId) return fail(tool, 'client_id es obligatorio.', 400)
-      const patch: DataRecord = {}
-      if (input.name !== undefined) patch.name = str(input.name)
-      if (input.company !== undefined) patch.company = str(input.company) || null
-      if (input.email !== undefined) patch.email = str(input.email)
-      if (input.phone !== undefined) patch.phone = str(input.phone) || null
-      if (input.channel !== undefined) patch.channel = channel(input.channel)
-      if (input.status !== undefined) patch.status = clientStatus(input.status)
-      if (input.lead_score !== undefined) patch.lead_score = num(input.lead_score, 65)
-      if (input.notes !== undefined) patch.notes = str(input.notes) || null
-      const { data, error } = await supabase.from('clients').update(patch).eq('workspace_id', workspaceId).eq('id', clientId).select(CLIENT_COLUMNS).single()
-      if (error) throw error
-      await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'note', description: `Agente actualizo cliente: ${data.name ?? clientId}`, client_name: data.name ?? null })
-      return ok(tool, data, 'Cliente actualizado.')
-    }
-
-    if (tool === 'create_invoice') {
-      const linkedClient = await findClientById(supabase, workspaceId, str(input.client_id))
-      const clientName = str(input.client_name) || str(input.clientName) || str(linkedClient?.name) || 'Cliente'
-      const amount = num(input.amount)
-      if (!amount) return fail(tool, 'amount es obligatorio.', 400)
-      const concept = str(input.concept) || str(input.plan) || 'Servicio'
-      const issueDate = str(input.issue_date) || str(input.date) || new Date().toISOString().slice(0, 10)
-      const dueDate = str(input.due_date) || str(input.dueDate) || issueDate
-      const { data, error } = await supabase.from('invoices').insert({
-        workspace_id: workspaceId,
-        client_id: str(input.client_id) || null,
-        client_name: clientName,
-        invoice_number: str(input.invoice_number) || str(input.number) || null,
-        number: str(input.number) || str(input.invoice_number) || null,
-        concept,
-        plan: concept,
-        amount,
-        currency: str(input.currency, 'EUR'),
-        status: invoiceStatus(input.status),
-        issue_date: issueDate,
-        due_date: dueDate,
-        paid_at: str(input.paid_at) || null,
-        notes: str(input.notes) || null,
-        metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
-      }).select('*').single()
-      if (error) throw error
-      await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'deal', description: `Agente creo factura: ${clientName}`, client_name: clientName })
-      return ok(tool, data, 'Factura creada.')
-    }
-
-    if (tool === 'mark_invoice_paid') {
-      const invoiceId = str(input.invoice_id)
-      if (!invoiceId) return fail(tool, 'invoice_id es obligatorio.', 400)
-      const { data, error } = await supabase.from('invoices').update({ status: 'paid' }).eq('workspace_id', workspaceId).eq('id', invoiceId).select('*').single()
-      if (error) throw error
-      await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'deal', description: `Agente marco factura pagada: ${invoiceId}`, client_name: data.client_name ?? null })
-      return ok(tool, data, 'Factura marcada como pagada.')
-    }
-
-    if (tool === 'list_invoices') {
-      let query = supabase.from('invoices').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false })
-      const status = str(input.status)
-      if (status) query = query.eq('status', status)
-      const { data, error } = await query.limit(50)
-      if (error) throw error
-      const linkedClient = await findClientById(supabase, workspaceId, str(input.client_id))
-      const clientName = str(input.client_name) || str(linkedClient?.name)
-      const result = clientName ? (data ?? []).filter((invoice) => invoice.client_name === clientName) : data ?? []
-      return ok(tool, result, 'Facturas consultadas.')
-    }
-
-    if (tool === 'create_calendar_event') {
-      const title = str(input.title)
-      const date = str(input.date)
-      if (!title || !date) return fail(tool, 'title y date son obligatorios.', 400)
-      const time = buildCalendarEventTimes({
-        date,
-        time: str(input.time) || str(input.start_time, '10:00'),
-        endTime: str(input.end_time),
-        duration: input.duration as number | string | null | undefined,
-        startAt: str(input.start_at) || str(input.startAt) || undefined,
-        endAt: str(input.end_at) || str(input.endAt) || undefined,
-      })
-      const clientName = str(input.client_name) || str((await findClientById(supabase, workspaceId, str(input.client_id)))?.name) || null
-      const { data, error } = await supabase.from('calendar_events').insert({
-        workspace_id: workspaceId,
-        title,
-        date: time.date,
-        start_at: time.startAtIso,
-        end_at: time.endAtIso,
-        start_hour: time.startHour,
-        start_minute: time.startMinute,
-        duration: time.duration,
-        type: eventType(input.type),
-        client_id: str(input.client_id) || null,
-        client_name: clientName,
-        status: str(input.status, 'scheduled'),
-        location: str(input.location) || null,
-        notes: str(input.notes) || null,
-        description: str(input.notes) || str(input.description) || null,
-        metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
-      }).select('*').single()
-      if (error) throw error
-      await supabase.from('activities').insert({ workspace_id: workspaceId, type: 'call', description: `Agente creo evento: ${title}`, client_name: data.client_name ?? null })
-      return ok(tool, data, 'Evento creado.')
-    }
-
-    if (tool === 'list_calendar_events') {
-      const { data, error } = await supabase.from('calendar_events').select('*').eq('workspace_id', workspaceId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(80)
-      if (error) throw error
-      const from = str(input.from)
-      const to = str(input.to)
-      const linkedClient = await findClientById(supabase, workspaceId, str(input.client_id))
-      const clientName = str(input.client_name) || str(linkedClient?.name)
-      const filtered = (data ?? []).filter((event) => {
-        const eventDate = String(event.date ?? event.start_at ?? '').slice(0, 10)
-        return (!from || eventDate >= from) && (!to || eventDate <= to) && (!clientName || event.client_name === clientName)
-      })
-      return ok(tool, filtered, 'Eventos consultados.')
-    }
-
-    if (tool === 'list_conversations') {
-      const { data, error } = await supabase.from('conversations').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }).limit(50)
-      if (error) throw error
-      return ok(tool, data ?? [], 'Conversaciones consultadas.')
-    }
-
-    if (tool === 'save_message') {
-      const conversationId = str(input.conversation_id)
-      const content = str(input.content)
-      if (!conversationId || !content) return fail(tool, 'conversation_id y content son obligatorios.', 400)
-      const normalizedSender = sender(input.sender)
-      const { data, error } = await supabase.from('messages').insert({
-        workspace_id: workspaceId,
-        conversation_id: conversationId,
-        sender: normalizedSender,
-        body: content,
-        is_ai: normalizedSender === 'ai',
-        created_at: new Date().toISOString(),
-      }).select(MESSAGE_COLUMNS).single()
-      if (error) throw error
-      return ok(tool, data, 'Mensaje guardado.')
-    }
-
-    if (tool === 'create_activity') {
-      const description = str(input.description) || str(input.title)
-      if (!description) return fail(tool, 'description es obligatorio.', 400)
-      const { data, error } = await supabase.from('activities').insert({
-        workspace_id: workspaceId,
-        type: activityType(input.type),
-        description,
-        client_name: str(input.client_name) || null,
-      }).select('*').single()
-      if (error) throw error
-      return ok(tool, data, 'Actividad creada.')
-    }
-
-    if (tool === 'get_next_best_actions') {
-      const data = await selectWorkspaceData(supabase, workspaceId)
-      return ok(tool, nextBestActions(data), 'Proximas acciones sugeridas.')
-    }
-
-    return fail(tool, 'Tool no implementada.', 400)
+    logCall(tool, workspaceId, 500)
+    return fail('tool_not_implemented', 500)
   } catch {
-    return fallback(tool, 'No se pudo ejecutar la tool contra Supabase. Se devuelve fallback seguro.', input)
+    logCall(tool, workspaceId, 500)
+    return fail('tool_execution_failed', 500)
   }
 }
