@@ -24,12 +24,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getGoogleCalendarServiceClient } from '../server-utils'
 import {
+  buildCookieClient,
   resolveCalendarAuth,
   selectUserConnection,
   updateUserConnection,
   upsertUserConnection,
 } from '../_user-connection'
-import { parseConnectionForSync, runIncrementalSync, type CalendarSyncSummary } from '../_sync-engine'
+import {
+  parseConnectionForSync,
+  runIncrementalSync,
+  sanitizeFailedCalendarForWire,
+  sanitizeWriteFailureForWire,
+  type CalendarSyncSummary,
+  type CalendarWriteFailure,
+} from '../_sync-engine'
+import { dedupeCalendarIds, canonicalCalendarId, getPrimaryCalendarRealId, type CalendarLike } from '@/lib/calendar-primary'
 
 export const runtime = 'nodejs'
 
@@ -40,9 +49,21 @@ type SyncPayload =
       cancelled: number
       skippedAllDay: number
       lastSyncAt: string
-      calendars: CalendarSyncSummary[]
+      calendars: Omit<CalendarSyncSummary, 'errorDetail'>[]
       partialFailure: boolean
-      failedCalendars: string[]
+      failedCalendars: {
+        id: string
+        summary?: string
+        errorCode: string
+        reason: string
+        retryable: boolean
+        operation?: string
+        failedEventId?: string
+        failedEventTitle?: string
+        failedEventStart?: string
+        dbErrorCode?: string
+      }[]
+      safeWriteFailures: Omit<CalendarWriteFailure, 'dbErrorMessage'>[]
     }
   | { skipped: string }
 
@@ -61,6 +82,8 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
 
   const admin = getGoogleCalendarServiceClient()
   if (!admin) return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+  const eventsClient = await buildCookieClient()
+  if (!eventsClient) return NextResponse.json({ ok: false, error: 'Supabase no configurado' }, { status: 503 })
 
   let selectedCalendarIds: string[]
   let calendarMetadata: Record<string, unknown> | undefined
@@ -86,10 +109,40 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     return NextResponse.json({ ok: false, error: 'Body JSON inválido' }, { status: 400 })
   }
 
+  // Final defensive normalisation against the "primary" alias bug: collapse
+  // ["primary", "user@gmail.com"] into a single canonical entry before we
+  // touch the DB. Frontend already does this but we must NEVER trust the
+  // wire payload alone — a stale tab or a third-party caller could send
+  // duplicates and the engine would then sync the same calendar twice.
+  const metadataCalendarsForAlias: CalendarLike[] = calendarMetadata
+    ? Object.entries(calendarMetadata)
+      .filter(([id]) => typeof id === 'string' && id.length > 0)
+      .map(([id, meta]) => ({
+        id,
+        primary: typeof meta === 'object' && meta !== null && (meta as { primary?: unknown }).primary === true,
+      }))
+    : []
+  const primaryRealIdFromBody = getPrimaryCalendarRealId(metadataCalendarsForAlias)
+  selectedCalendarIds = dedupeCalendarIds(selectedCalendarIds, primaryRealIdFromBody)
+
+  // Strip ["primary"] from calendar_metadata when we have the real id so the
+  // engine only ever sees one entry per calendar in `calendar_metadata`.
+  if (calendarMetadata && primaryRealIdFromBody) {
+    if ('primary' in calendarMetadata && primaryRealIdFromBody in calendarMetadata) {
+      delete (calendarMetadata as Record<string, unknown>).primary
+    }
+  }
+
+  // Canonical first id wins for the legacy `calendar_id` column (used when the
+  // sync engine has no other hint).
+  const firstCanonical = selectedCalendarIds[0]
+    ? canonicalCalendarId(selectedCalendarIds[0], primaryRealIdFromBody)
+    : 'primary'
+
   const patch: Record<string, unknown> = {
     selected_calendar_ids: selectedCalendarIds,
     calendar_metadata: calendarMetadata ?? {},
-    calendar_id: selectedCalendarIds[0],
+    calendar_id: firstCanonical,
   }
   if (syncEnabled !== undefined) patch.sync_enabled = syncEnabled
 
@@ -171,6 +224,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
     workspaceId: auth.workspaceId,
     userId: auth.userId,
     serviceClient: admin,
+    eventsClient,
     refreshToken: parsed.refreshToken,
     selectedCalendarIds: parsed.selectedCalendarIds,
     incrementalSyncTokens: parsed.incrementalSyncTokens,
@@ -179,6 +233,12 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
   if (!syncResult.ok) {
     return NextResponse.json({ ok: true, saved: selectedCalendarIds, sync: { skipped: syncResult.reason } })
   }
+
+  const calendars = syncResult.calendars.map((c) => {
+    const { errorDetail, ...rest } = c
+    void errorDetail
+    return rest
+  })
 
   return NextResponse.json({
     ok: true,
@@ -189,9 +249,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<Result>> {
       cancelled: syncResult.cancelled,
       skippedAllDay: syncResult.skippedAllDay,
       lastSyncAt: syncResult.lastSyncAt,
-      calendars: syncResult.calendars,
+      calendars,
       partialFailure: syncResult.partialFailure,
-      failedCalendars: syncResult.failedCalendars,
+      failedCalendars: syncResult.failedCalendars.map(sanitizeFailedCalendarForWire),
+      safeWriteFailures: syncResult.safeWriteFailures.map(sanitizeWriteFailureForWire),
     },
   })
 }

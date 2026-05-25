@@ -249,10 +249,26 @@ export type GoogleCalendarListItem = {
   id: string
   summary: string
   primary: boolean
-  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader' | string
+  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader' | 'none' | string
   backgroundColor?: string
   foregroundColor?: string
   selected: boolean
+  /** True when the calendar is selected but Google's calendarList no longer
+   *  returns it (deleted, permission revoked, etc). The UI still renders it
+   *  so the user can remove it from the sync. */
+  unavailable?: boolean
+  /** False when we cannot sync this calendar (read-only accessRole or
+   *  unavailable). Used to tailor the recommended action in the modal. */
+  canSync?: boolean
+  lastSyncError?: {
+    code: string
+    reason: string
+    at: string
+    operation?: string
+    title?: string
+    start?: string
+    dbErrorCode?: string
+  }
 }
 
 // ─── Automation catalog (richer type for n8n-ready automations) ───────────────

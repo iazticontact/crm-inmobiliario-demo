@@ -134,7 +134,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const wasAlreadyCancelled = String(eventRow.status ?? '') === 'cancelled'
   const googleEventId = (eventRow.google_event_id as string | null | undefined) ?? undefined
-  console.log('[google/cancel-event:start]', { localEventId, hasGoogleEventId: Boolean(googleEventId), wasAlreadyCancelled })
+  console.info('[google/cancel-event:start]', { hasGoogleEventId: Boolean(googleEventId), wasAlreadyCancelled })
 
   // Local-only path: no Google link → just cancel local.
   if (!googleEventId) {
@@ -189,33 +189,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const gcConn = connection.row
   if (!gcConn || gcConn.status !== 'connected' || !gcConn.refresh_token_enc) {
-    // No active Google connection → cancel local only and tell the user.
-    const localOk = await softCancelLocal(supabase, localEventId, workspaceId)
-    return respond(localOk ? 200 : 500, {
-      ok: localOk,
-      localCancelled: localOk,
+    return respond(200, {
+      ok: false,
+      localCancelled: false,
       googleCancelled: false,
       googleAlreadyGone: false,
       reason: 'not_connected',
-      message: localOk
-        ? 'Evento cancelado en NowCRM. Google Calendar no está conectado — reconéctalo desde Configuración para que NowCRM borre allí también.'
-        : 'No se pudo cancelar en NowCRM ni en Google.',
+      message: 'Google Calendar no esta conectado. Reconecta Google Calendar antes de cancelar este evento sincronizado.',
     })
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim()
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim()
   if (!clientId || !clientSecret) {
-    const localOk = await softCancelLocal(supabase, localEventId, workspaceId)
-    return respond(localOk ? 200 : 500, {
-      ok: localOk,
-      localCancelled: localOk,
+    return respond(200, {
+      ok: false,
+      localCancelled: false,
       googleCancelled: false,
       googleAlreadyGone: false,
       reason: 'credentials_not_configured',
-      message: localOk
-        ? 'Evento cancelado en NowCRM. Faltan credenciales de Google en el servidor para borrarlo en Google.'
-        : 'No se pudo cancelar en NowCRM y faltan credenciales de Google.',
+      message: 'Faltan credenciales de Google en el servidor. NowCRM no cancelo el evento para evitar inconsistencia.',
     })
   }
 
@@ -225,7 +218,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     (gcConn.calendar_id as string | null) ||
     'primary'
 
-  console.log('[google/cancel-event:calendar-id]', { calendarId, source: eventRow.google_calendar_id ? 'event' : gcConn.default_calendar_id ? 'connection_default' : gcConn.calendar_id ? 'connection_primary' : 'fallback' })
+  console.info('[google/cancel-event:calendar-id]', { source: eventRow.google_calendar_id ? 'event' : gcConn.default_calendar_id ? 'connection_default' : gcConn.calendar_id ? 'connection_primary' : 'fallback' })
 
   // Refresh access token
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -274,7 +267,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } },
     )
     googleStatus = gcalRes.status
-    console.log('[google/cancel-event:google-delete]', { status: googleStatus, calendarId })
+    console.info('[google/cancel-event:google-delete]', { status: googleStatus })
 
     if (gcalRes.ok || googleStatus === 204) {
       // Deleted in Google
@@ -295,8 +288,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Google succeeded (or 404/410): now soft-cancel local with sync metadata
-  const localOk = await softCancelLocal(supabase, localEventId, workspaceId, googleAlreadyGone ? 'deleted_from_google' : 'cancelled')
-  console.log('[google/cancel-event:result]', { localOk, googleStatus, googleAlreadyGone })
+  const localOk = await softCancelLocal(supabase, localEventId, workspaceId, 'deleted_from_google')
+  console.info('[google/cancel-event:result]', { localOk, googleStatus, googleAlreadyGone })
 
   if (!localOk) {
     return respond(500, {
@@ -328,14 +321,14 @@ async function softCancelLocal(
   supabase: Awaited<ReturnType<typeof buildSupabase>>,
   eventId: string,
   workspaceId: string,
-  googleSyncStatus: 'cancelled' | 'deleted_from_google' = 'cancelled',
+  googleSyncStatus?: 'deleted_from_google',
 ): Promise<boolean> {
   if (!supabase) return false
   const patch: Record<string, unknown> = {
     status: 'cancelled',
-    google_sync_status: googleSyncStatus,
     last_synced_at: new Date().toISOString(),
   }
+  if (googleSyncStatus) patch.google_sync_status = googleSyncStatus
   const { data, error } = await supabase
     .from('calendar_events')
     .update(patch)

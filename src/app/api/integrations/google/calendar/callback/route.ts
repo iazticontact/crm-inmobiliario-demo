@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { getGoogleCalendarServiceClient } from '../server-utils'
 import { consumeOAuthState, safeEquals } from '../_oauth-state'
@@ -142,7 +143,7 @@ export async function GET(request: NextRequest) {
       }
 
       console.info('[google/calendar/callback] Reconnected reusing stored refresh_token for current user')
-      await runInitialSync(writeClient, workspaceId, user.id)
+      await runInitialSync(writeClient, supabase, workspaceId, user.id)
       return redirectTo('connected', 'connected')
     }
 
@@ -162,7 +163,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.info('[google/calendar/callback] Connection stored for current user')
-    await runInitialSync(writeClient, workspaceId, user.id)
+    await runInitialSync(writeClient, supabase, workspaceId, user.id)
     return redirectTo('connected', 'connected')
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error desconocido'
@@ -177,6 +178,7 @@ export async function GET(request: NextRequest) {
 // "Actualizar ahora" or re-open /calendar later to retry).
 async function runInitialSync(
   serviceClient: ReturnType<typeof getGoogleCalendarServiceClient>,
+  eventsClient: SupabaseClient,
   workspaceId: string,
   userId: string,
 ) {
@@ -195,6 +197,7 @@ async function runInitialSync(
       workspaceId,
       userId,
       serviceClient,
+      eventsClient,
       refreshToken: parsed.refreshToken,
       selectedCalendarIds: parsed.selectedCalendarIds,
       incrementalSyncTokens: parsed.incrementalSyncTokens,

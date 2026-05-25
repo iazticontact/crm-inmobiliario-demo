@@ -10,14 +10,50 @@ import { resolveCalendarAuth, selectUserConnection } from '../_user-connection'
 
 export const runtime = 'nodejs'
 
+type LastSyncError = {
+  code: string
+  reason: string
+  at: string
+  operation?: string
+  title?: string
+  start?: string
+  dbErrorCode?: string
+}
+
+/** Strips `dbErrorMessage` from any cached marker before sending it to the
+ *  client. Old rows may still have the field even though the engine no longer
+ *  writes it — sanitise on read so the wire payload stays clean regardless of
+ *  the BD's history. */
+function sanitizeLastSyncError(raw: unknown): LastSyncError | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  if (typeof r.code !== 'string' || typeof r.reason !== 'string' || typeof r.at !== 'string') return undefined
+  const out: LastSyncError = { code: r.code, reason: r.reason, at: r.at }
+  if (typeof r.operation === 'string') out.operation = r.operation
+  if (typeof r.title === 'string') out.title = r.title
+  if (typeof r.start === 'string') out.start = r.start
+  if (typeof r.dbErrorCode === 'string') out.dbErrorCode = r.dbErrorCode
+  return out
+}
+
 type CalendarItem = {
   id: string
   summary: string
   primary: boolean
-  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader' | string
+  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader' | 'none' | string
   backgroundColor?: string
   foregroundColor?: string
   selected: boolean
+  lastSyncError?: LastSyncError
+  /** True when the calendar is in `selected_calendar_ids` but Google's calendarList
+   *  did not return it on this call (deleted / lost access / permission revoked).
+   *  The UI uses this to render a "Revisar / Quitar" affordance even when Google
+   *  can no longer provide the calendar's metadata. */
+  unavailable?: boolean
+  /** False when the engine can no longer write or read this calendar (read-only
+   *  access-role or unavailable). Used by the UI to decide whether removing it
+   *  from the selection is the recommended action. */
+  canSync?: boolean
 }
 
 type Result =
@@ -140,26 +176,86 @@ export async function GET(): Promise<NextResponse<Result>> {
     selectedIds = [legacy]
   }
 
+  // Map calendar_metadata[id].lastSyncError onto each item so the UI can show
+  // a "Revisar" badge without a separate roundtrip. The metadata key for primary
+  // is the literal string "primary" (that's what the engine syncs against) — we
+  // also surface it on the user's email-id row when it's their primary calendar.
+  const metadata = (connRow.calendar_metadata && typeof connRow.calendar_metadata === 'object' && !Array.isArray(connRow.calendar_metadata))
+    ? (connRow.calendar_metadata as Record<string, { lastSyncError?: unknown }>)
+    : {}
+
   const calendars: CalendarItem[] = []
+  const returnedIds = new Set<string>()
   let defaultCalendarId = 'primary'
+  let primaryEmailId: string | null = null
   for (const item of items) {
     if (!item.id || item.deleted) continue
     const id = String(item.id)
-    if (item.primary) defaultCalendarId = id
+    returnedIds.add(id)
+    if (item.primary) {
+      defaultCalendarId = id
+      primaryEmailId = id
+    }
+    const directError = sanitizeLastSyncError(metadata[id]?.lastSyncError)
+    const primaryAliasError = item.primary ? sanitizeLastSyncError(metadata['primary']?.lastSyncError) : undefined
+    const lastSyncError = directError ?? primaryAliasError
+    const accessRole = String(item.accessRole ?? 'reader')
+    const canSync = accessRole === 'owner' || accessRole === 'writer' || accessRole === 'reader' || accessRole === 'freeBusyReader'
     calendars.push({
       id,
       summary: String(item.summaryOverride || item.summary || id),
       primary: Boolean(item.primary),
-      accessRole: String(item.accessRole ?? 'reader'),
+      accessRole,
       backgroundColor: item.backgroundColor ? String(item.backgroundColor) : undefined,
       foregroundColor: item.foregroundColor ? String(item.foregroundColor) : undefined,
       selected: selectedIds.includes(id) || (selectedIds.includes('primary') && Boolean(item.primary)),
+      canSync,
+      ...(lastSyncError ? { lastSyncError } : {}),
     })
   }
 
+  // Ghosts: selected calendars Google no longer returns (deleted, lost access,
+  // permission revoked). The user MUST be able to see and remove them from the
+  // modal, so we synthesise a row with whatever metadata we cached when sync
+  // was last healthy. We never re-introduce the literal "primary" string if a
+  // real primary calendar was returned by Google (otherwise the modal shows
+  // two "Principal" rows).
+  for (const selectedId of selectedIds) {
+    if (returnedIds.has(selectedId)) continue
+    if (selectedId === 'primary' && primaryEmailId) continue
+    const cachedMeta = metadata[selectedId] as { summary?: string; accessRole?: string; backgroundColor?: string; primary?: boolean; lastSyncError?: unknown } | undefined
+    const cachedError = sanitizeLastSyncError(cachedMeta?.lastSyncError)
+    const lastSyncError: LastSyncError = cachedError ?? {
+      code: selectedId === 'primary' ? 'unknown' : 'not_found',
+      reason: 'Este calendario ya no está disponible o no tenemos permisos para leerlo.',
+      at: new Date().toISOString(),
+    }
+    calendars.push({
+      id: selectedId,
+      summary: cachedMeta?.summary ?? (selectedId === 'primary' ? 'Calendario principal' : 'Calendario no disponible'),
+      primary: selectedId === 'primary' || Boolean(cachedMeta?.primary),
+      accessRole: cachedMeta?.accessRole ?? 'none',
+      backgroundColor: cachedMeta?.backgroundColor,
+      selected: true,
+      canSync: false,
+      unavailable: true,
+      lastSyncError,
+    })
+  }
+
+  // Sort: primary first, then selected+OK, then selected+error, then unselected,
+  // then unavailable at the bottom. Within a band, alphabetical by summary.
+  function rank(c: CalendarItem): number {
+    if (c.primary) return 0
+    if (c.unavailable) return 4
+    if (c.selected && c.lastSyncError) return 2
+    if (c.selected) return 1
+    return 3
+  }
   calendars.sort((a, b) => {
-    if (a.primary && !b.primary) return -1
-    if (!a.primary && b.primary) return 1
+    const ra = rank(a)
+    const rb = rank(b)
+    if (ra !== rb) return ra - rb
     return a.summary.localeCompare(b.summary)
   })
 

@@ -15,8 +15,14 @@
 
 import { NextResponse } from 'next/server'
 import { getGoogleCalendarServiceClient } from '../server-utils'
-import { resolveCalendarAuth, selectUserConnection } from '../_user-connection'
-import { parseConnectionForSync, runIncrementalSync } from '../_sync-engine'
+import { buildCookieClient, resolveCalendarAuth, selectUserConnection } from '../_user-connection'
+import {
+  parseConnectionForSync,
+  runIncrementalSync,
+  sanitizeFailedCalendarForWire,
+  sanitizeWriteFailureForWire,
+  type CalendarWriteFailure,
+} from '../_sync-engine'
 
 export const runtime = 'nodejs'
 
@@ -28,10 +34,34 @@ type ImportResult =
       skipped: number
       skippedAllDay: number
       cancelled: number
-      calendars: { id: string; summary?: string; imported: number; updated: number; cancelled: number; fullResync: boolean; hadSyncToken: boolean; criticalFailure: boolean; error?: string }[]
+      calendars: {
+        id: string
+        summary?: string
+        imported: number
+        updated: number
+        cancelled: number
+        fullResync: boolean
+        hadSyncToken: boolean
+        criticalFailure: boolean
+        errorCode?: string
+        reason?: string
+        retryable?: boolean
+      }[]
       lastSyncAt: string
       partialFailure: boolean
-      failedCalendars: string[]
+      failedCalendars: {
+        id: string
+        summary?: string
+        errorCode: string
+        reason: string
+        retryable: boolean
+        operation?: string
+        failedEventId?: string
+        failedEventTitle?: string
+        failedEventStart?: string
+        dbErrorCode?: string
+      }[]
+      safeWriteFailures: Omit<CalendarWriteFailure, 'dbErrorMessage'>[]
     }
   | { ok: true; imported: 0; updated: 0; skipped: 0; reason: string }
   | { ok: false; error: string }
@@ -48,6 +78,10 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
   const admin = getGoogleCalendarServiceClient()
   if (!admin) {
     return NextResponse.json({ ok: false, error: 'Service role no configurado' }, { status: 503 })
+  }
+  const eventsClient = await buildCookieClient()
+  if (!eventsClient) {
+    return NextResponse.json({ ok: false, error: 'Supabase no configurado' }, { status: 503 })
   }
 
   let connection
@@ -79,6 +113,7 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     workspaceId: auth.workspaceId,
     userId: auth.userId,
     serviceClient: admin,
+    eventsClient,
     refreshToken: parsed.refreshToken,
     selectedCalendarIds: parsed.selectedCalendarIds,
     incrementalSyncTokens: parsed.incrementalSyncTokens,
@@ -94,6 +129,14 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     return NextResponse.json({ ok: true, imported: 0, updated: 0, skipped: 0, reason: result.reason })
   }
 
+  // Strip the server-only `errorDetail` field from each calendar summary before
+  // serialising — it's safe to log but adds noise to the wire payload.
+  const calendars = result.calendars.map((c) => {
+    const { errorDetail, ...rest } = c
+    void errorDetail
+    return rest
+  })
+
   return NextResponse.json({
     ok: true,
     imported: result.imported,
@@ -101,9 +144,10 @@ export async function POST(): Promise<NextResponse<ImportResult>> {
     skipped: result.skipped,
     skippedAllDay: result.skippedAllDay,
     cancelled: result.cancelled,
-    calendars: result.calendars,
+    calendars,
     lastSyncAt: result.lastSyncAt,
     partialFailure: result.partialFailure,
-    failedCalendars: result.failedCalendars,
+    failedCalendars: result.failedCalendars.map(sanitizeFailedCalendarForWire),
+    safeWriteFailures: result.safeWriteFailures.map(sanitizeWriteFailureForWire),
   })
 }

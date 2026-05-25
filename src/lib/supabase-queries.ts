@@ -85,6 +85,12 @@ export type CalendarEventPayload = CalendarTimeInput & {
   metadata?: Record<string, unknown>
 }
 
+export type CalendarEventsQueryOptions = {
+  from?: string
+  to?: string
+  limit?: number
+}
+
 export type TaskPayload = {
   clientId?: string
   clientName?: string
@@ -425,6 +431,11 @@ const MESSAGE_COLUMNS = 'id, workspace_id, conversation_id, sender, body, is_ai,
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function normalizeQueryLimit(limit?: number) {
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return undefined
+  return Math.floor(limit)
 }
 
 export async function getCurrentUser() {
@@ -907,24 +918,39 @@ function toCalendarEventRow(workspaceId: string, payload: CalendarEventPayload):
   }
 }
 
-export async function getCalendarEvents(workspaceId: string) {
+export async function getCalendarEvents(workspaceId: string, options?: CalendarEventsQueryOptions) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
 
-  let result = await supabase
+  const limit = normalizeQueryLimit(options?.limit)
+  let query = supabase
     .from('calendar_events')
     .select('*')
     .eq('workspace_id', workspaceId)
     .neq('status', 'cancelled')
-    .order('start_at', { ascending: true })
 
-  if (result.error && isSchemaError(result.error) && isMissingColumn(result.error, 'start_at')) {
-    result = await supabase
+  if (options?.from) query = query.gte('end_at', options.from)
+  if (options?.to) query = query.lte('start_at', options.to)
+
+  let orderedQuery = query.order('start_at', { ascending: true })
+  if (limit) orderedQuery = orderedQuery.limit(limit)
+
+  let result = await orderedQuery
+
+  if (result.error && isSchemaError(result.error) && (isMissingColumn(result.error, 'start_at') || isMissingColumn(result.error, 'end_at'))) {
+    let fallbackQuery = supabase
       .from('calendar_events')
       .select('*')
       .eq('workspace_id', workspaceId)
       .neq('status', 'cancelled')
-      .order('date', { ascending: true })
+
+    if (options?.from) fallbackQuery = fallbackQuery.gte('date', options.from.slice(0, 10))
+    if (options?.to) fallbackQuery = fallbackQuery.lte('date', options.to.slice(0, 10))
+
+    let orderedFallbackQuery = fallbackQuery.order('date', { ascending: true })
+    if (limit) orderedFallbackQuery = orderedFallbackQuery.limit(limit)
+
+    result = await orderedFallbackQuery
   }
 
   if (result.error) throwNormalized(result.error)
