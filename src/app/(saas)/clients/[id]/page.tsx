@@ -39,6 +39,15 @@ import {
 } from '@/lib/supabase-queries'
 import { getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, Invoice } from '@/lib/types'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import {
+  clients as demoClientsList,
+  conversations as demoConversationsList,
+  calendarEvents as demoCalendarList,
+  invoices as demoInvoicesList,
+  recentActivity as demoActivityList,
+} from '@/lib/mock-data'
+import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
 
 type TabKey = 'summary' | 'documents' | 'cases' | 'calendar' | 'tasks' | 'conversations' | 'invoices'
 
@@ -175,6 +184,10 @@ export default function ClientDetailPage() {
 
   const loadDocuments = useCallback(async () => {
     if (!clientId) return
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      setDocuments([])
+      return
+    }
     setDocumentsLoading(true)
     try {
       const res = await fetch(`/api/clients/${clientId}/documents`)
@@ -195,6 +208,29 @@ export default function ClientDetailPage() {
     if (!clientId) return
     setLoading(true)
     setLoadError('')
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      const c = demoClientsList.find((x) => x.id === clientId) ?? null
+      if (!c) {
+        setClient(null)
+        setLoadError('Cliente de demo no encontrado.')
+        setLoading(false)
+        return
+      }
+      setWorkspaceId(null)
+      setClient(c)
+      setNotesDraft(c.notes && c.notes !== 'No consta' ? c.notes : '')
+      setOpportunities(demoOpportunities.filter((o) => o.client_id === clientId))
+      setCases(demoServiceCases.filter((s) => s.client_id === clientId))
+      setProperties(demoProperties.filter((p) => p.client_id === clientId))
+      setActivities(demoActivityList.filter((a) => a.clientName === c.name).slice(0, 12))
+      setConversations(demoConversationsList.filter((cv) => cv.clientName === c.name && String(cv.channel ?? '').toLowerCase() === 'whatsapp'))
+      setEvents(demoCalendarList.filter((e) => e.clientName === c.name))
+      setInvoices(demoInvoicesList.filter((i) => i.clientName === c.name))
+      setTasks([])
+      setDocuments([])
+      setLoading(false)
+      return
+    }
     try {
       const context = await getWorkspaceContext()
       const resolved = context?.workspace?.id || context?.profile?.workspace_id

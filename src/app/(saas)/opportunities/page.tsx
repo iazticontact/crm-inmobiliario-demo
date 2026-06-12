@@ -45,8 +45,9 @@ import {
 } from '@/components/VerticalEditForms'
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { cn } from '@/lib/utils'
-import { useCurrentUser } from '@/lib/current-user'
+import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags } from '@/lib/feature-flags'
+import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
 import {
   VERTICALS,
   getPipelineForVertical,
@@ -138,6 +139,14 @@ export default function OpportunitiesPage() {
   const workspaceId = currentUser?.workspaceId ?? null
 
   const loadData = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      setOpportunities(demoOpportunities)
+      setCases(demoServiceCases)
+      setProperties(demoProperties)
+      setLoadError('')
+      setLoading(false)
+      return
+    }
     if (!workspaceId) {
       setOpportunities([]); setCases([]); setProperties([])
       setLoading(false)

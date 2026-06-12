@@ -31,6 +31,8 @@ import {
   getWorkspaceContext,
   updateClient,
 } from '@/lib/supabase-queries'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { clients as demoClients } from '@/lib/mock-data'
 import type { Client, ClientStatus } from '@/lib/types'
 
 // Status filter — sólo Activos/Inactivos/Archivados como protagonistas.
@@ -244,6 +246,13 @@ export default function ClientsPage() {
   const loadClients = useCallback(async () => {
     setLoading(true)
     setLoadError('')
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      setClientList(demoClients)
+      setWorkspaceId(null)
+      setLoadError('')
+      setLoading(false)
+      return
+    }
     try {
       const context = await getWorkspaceContext()
       const resolved = context?.workspace?.id || context?.profile?.workspace_id
@@ -614,7 +623,7 @@ export default function ClientsPage() {
                       type="text"
                       value={form.name}
                       onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="Ana Rodríguez García"
+                      placeholder="Lucía Herrera García"
                       className={inputCls}
                     />
                   </Field>

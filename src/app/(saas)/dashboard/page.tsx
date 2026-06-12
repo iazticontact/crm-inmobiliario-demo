@@ -27,7 +27,7 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useCurrentUser } from '@/lib/current-user'
+import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import {
   getActivities,
   getCalendarEvents,
@@ -38,6 +38,14 @@ import {
   listTasks,
 } from '@/lib/supabase-queries'
 import { listOpportunities, listServiceCases, listProperties } from '@/lib/vertical-queries'
+import {
+  clients as demoClients,
+  invoices as demoInvoices,
+  calendarEvents as demoCalendarEvents,
+  conversations as demoConversations,
+  recentActivity as demoActivity,
+} from '@/lib/mock-data'
+import { demoOpportunities, demoServiceCases, demoProperties, demoTasks } from '@/lib/demo/demo-real-estate'
 
 type RealStats = {
   totalClients: number
@@ -143,6 +151,49 @@ export default function DashboardPage() {
     const load = async () => {
       setLoading(true)
       setLoadError('')
+
+      // Demo mode: construir KPIs y listas desde datos mock inmobiliarios, sin Supabase.
+      if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+        if (cancelled) return
+        const openOpps = demoOpportunities.filter((o) => o.stage !== 'won' && o.stage !== 'lost')
+        const activeCases = demoServiceCases.filter((c) => c.status !== 'resolved' && c.status !== 'closed')
+        const activeProps = demoProperties.filter((p) => p.status !== 'archived' && p.status !== 'sold')
+        const waConvs = demoConversations.filter((c) => String(c.channel ?? '').toLowerCase() === 'whatsapp')
+        const nowIso = new Date().toISOString()
+        const up = demoCalendarEvents
+          .filter((e) => `${e.date}T00:00:00.000Z` >= nowIso)
+          .slice(0, 5)
+          .map((e) => ({ id: e.id, title: e.title, startAt: undefined as string | undefined, clientName: e.clientName, type: e.type }))
+        setStats({
+          totalClients: demoClients.length,
+          leads: demoClients.filter((c) => c.status === 'lead').length,
+          activeClients: demoClients.filter((c) => c.status === 'active').length,
+          revenue: demoInvoices.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amount, 0),
+          pendingAmount: demoInvoices.filter((i) => i.status !== 'paid').reduce((s, i) => s + i.amount, 0),
+          pendingInvoices: demoInvoices.filter((i) => i.status !== 'paid').length,
+          upcomingEvents: up.length,
+          externalConversations: waConvs.length,
+          unreadConversations: waConvs.filter((c) => c.unread).length,
+          opportunitiesOpen: openOpps.length,
+          pipelineValue: openOpps.reduce((s, o) => s + (o.value ?? 0), 0),
+          casesActive: activeCases.length,
+          casesDocsPending: demoServiceCases.filter((c) => c.status === 'documentation_pending').length,
+          propertiesActive: activeProps.length,
+          tasksOpen: demoTasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed').length,
+        })
+        setActivity(demoActivity)
+        setUpcoming(up)
+        setHotLeads(
+          [...demoClients]
+            .filter((c) => c.status === 'lead' || c.status === 'active')
+            .sort((a, b) => b.leadScore - a.leadScore)
+            .slice(0, 5)
+            .map((c) => ({ id: c.id, name: c.name, status: c.status, leadScore: c.leadScore, company: c.company })),
+        )
+        setLoading(false)
+        return
+      }
+
       try {
         const context = await getWorkspaceContext()
         const workspaceId = context?.workspace?.id || context?.profile?.workspace_id

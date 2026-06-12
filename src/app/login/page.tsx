@@ -339,6 +339,29 @@ export default function LoginPage() {
               </Button>
             </form>
 
+            {mode === 'signin' && (
+              <div className="mt-6">
+                <div className="relative mb-4 flex items-center">
+                  <div className="h-px flex-1 bg-gray-100" />
+                  <span className="px-3 text-[11px] uppercase tracking-wide text-gray-400">o</span>
+                  <div className="h-px flex-1 bg-gray-100" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.localStorage.setItem(DEMO_MODE_KEY, 'true')
+                    toast.success('Modo demo', { description: 'Datos de ejemplo de una inmobiliaria. Sin conexión a datos reales.' })
+                    router.replace('/dashboard')
+                  }}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-800 transition hover:border-gray-900 hover:bg-gray-50"
+                >
+                  <Building2 className="h-4 w-4" />
+                  Ver demo inmobiliaria
+                </button>
+                <p className="mt-2 text-center text-[11px] text-gray-400">Entras sin registrarte, con datos de ejemplo.</p>
+              </div>
+            )}
+
             {mode === 'forgot' && (
               <button
                 type="button"

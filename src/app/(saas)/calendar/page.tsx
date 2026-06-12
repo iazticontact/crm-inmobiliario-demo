@@ -2327,7 +2327,7 @@ export default function CalendarPage() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-700">Cliente</label>
-                  <input type="text" placeholder="Ana Rodríguez" value={form.clientName} onChange={(e) => setForm((p) => ({ ...p, clientName: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
+                  <input type="text" placeholder="Lucía Herrera" value={form.clientName} onChange={(e) => setForm((p) => ({ ...p, clientName: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-700">Notas</label>

@@ -118,6 +118,16 @@ export function useCurrentUser() {
         return
       }
 
+      // Explicit demo mode (activado por el botón "Ver demo" en /login). Tiene
+      // prioridad sobre Supabase: la demo offline funciona sin backend alguno.
+      if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+        if (mounted) {
+          setCurrentUser(demoUser)
+          setIsLoading(false)
+        }
+        return
+      }
+
       // Show skeleton on every re-run (including auth-state-change re-runs) so we never
       // flash the demo workspace name while the real profile resolves in the background.
       if (mounted) setIsLoading(true)

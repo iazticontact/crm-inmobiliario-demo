@@ -2648,13 +2648,13 @@ export default function AssistantPage() {
         mode: workspaceId ? 'real' : 'demo',
         conversation: {
           id: 'test',
-          client_name: 'Ana Rodriguez',
+          client_name: 'Lucía Herrera',
           channel: 'whatsapp',
           sentiment: 'positive',
           intent: 'pricing',
         },
-        message: { content: 'Hola, me interesa saber el precio del Plan Pro y que incluye exactamente.' },
-        client: { name: 'Ana Rodriguez', status: 'lead' },
+        message: { content: 'Hola, me interesa el piso de Calle Mayor 14. ¿Cuál es el precio y qué incluye la operación?' },
+        client: { name: 'Lucía Herrera', status: 'lead' },
         metadata: { source: 'assistant_ui_test', assistant_mode: assistantMode },
         assistant_mode: assistantMode,
       })
