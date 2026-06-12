@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import { searchClients } from '@/lib/supabase-queries'
 import type { Client } from '@/lib/types'
+import { BRAND } from '@/lib/brand'
 
 const pageLabels: Record<string, { title: string; description: string }> = {
   '/dashboard':     { title: 'Dashboard',     description: 'Resumen del día y estado del negocio' },
@@ -24,7 +25,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
 
 export function Topbar() {
   const pathname = usePathname()
-  const page = pageLabels[pathname] ?? { title: 'Costa del Sol CRM', description: '' }
+  const page = pageLabels[pathname] ?? { title: BRAND.appName, description: '' }
   const { currentUser, isLoading } = useCurrentUser()
 
   const [notifOpen, setNotifOpen] = useState(false)
@@ -195,7 +196,7 @@ export function Topbar() {
         </div>
 
         <button
-          onClick={() => toast.info('Ayuda', { description: 'Para soporte técnico contacta con el equipo de NOWLabs.' })}
+          onClick={() => toast.info('Ayuda', { description: `Para soporte técnico contacta con el ${BRAND.supportName}.` })}
           aria-label="Ayuda"
           className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
         >

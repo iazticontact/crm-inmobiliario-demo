@@ -15,6 +15,7 @@ import { CheckCircle2, Clock, Loader2, Users } from 'lucide-react'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import type { ProfileRole } from '@/lib/current-user'
+import { BRAND } from '@/lib/brand'
 
 type TeamConnection = {
   id: string
@@ -78,7 +79,7 @@ export function TeamCalendarStatusCard({ currentRole }: { currentRole: ProfileRo
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
           <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
           <p className="text-[11px] leading-5 text-amber-800">
-            Conexión individual por usuario pendiente de configuración técnica. Contacta con NOWLabs.
+            Conexión individual por usuario pendiente de configuración técnica. Contacta con el {BRAND.supportName}.
           </p>
         </div>
       )}

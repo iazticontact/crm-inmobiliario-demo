@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2, ShieldCheck } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { BRAND } from '@/lib/brand'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
@@ -86,7 +87,7 @@ export default function AuthCallbackPage() {
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-indigo-700">
           <ShieldCheck className="h-5 w-5" />
         </div>
-        <h1 className="text-lg font-bold">Costa del Sol CRM</h1>
+        <h1 className="text-lg font-bold">{BRAND.appName}</h1>
         <p className="mt-2 text-sm leading-6 text-slate-300">{message}</p>
         <Loader2 className="mx-auto mt-5 h-5 w-5 animate-spin text-indigo-200" />
       </div>

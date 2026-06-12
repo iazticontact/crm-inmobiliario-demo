@@ -1,5 +1,5 @@
 // Feature flags — minimalist gating layer used to hide top-level modules when
-// cloning NowCRM for a client that has not contracted them.
+// cloning the CRM for a client that has not contracted them.
 //
 // Design rules:
 //   - Read-only at runtime. No UI, no DB, no per-user toggles.
@@ -65,7 +65,7 @@ function readFlag(envName: string, defaultEnabled: boolean): boolean {
 // explicitly. Every other flag stays default-on so a missing env var never
 // silently disables a module. `nowlabsInternal` surfaces operator-only
 // sections (Automatizaciones nav entry, Facturación nav entry, technical
-// settings tiles, n8n editor, env checklists, etc.) for the NOWLabs team.
+// settings tiles, n8n editor, env checklists, etc.) for the internal team.
 const FLAG_DEFAULT: Record<FlagKey, boolean> = {
   billing:         true,
   automations:     true,

@@ -1,3 +1,7 @@
+> ⚠️ **LEGACY — NO VIGENTE.** Archivado en Fase 1D. Guion de demo personal
+> antiguo (marca NowCRM/NowLabs, URLs y nombre propio "Andrei") que **ya no se
+> usa**. Se conserva solo como referencia histórica.
+
 # NowCRM — guion de demo comercial (Andrei)
 
 > Versión 2026-05-18 · Fase E.

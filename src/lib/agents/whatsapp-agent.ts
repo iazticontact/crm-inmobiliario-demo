@@ -1,4 +1,4 @@
-// NowLabs WhatsApp Agent — server-side helpers for Inbox conversations.
+// Asistente IA de WhatsApp — server-side helpers for Inbox conversations.
 //
 // Capabilities:
 //   - summarize_conversation
@@ -13,7 +13,7 @@
 //   - Workspace-scoped: the caller must already have validated the conversation.
 //   - Never logs OpenAI keys, refresh tokens or PII beyond what was already in messages.
 //
-// This is a thin wrapper over OpenAI's Responses API (same backend as NowLabs main
+// This is a thin wrapper over OpenAI's Responses API (same backend as the main
 // agent). It deliberately ships a small, deterministic JSON schema instead of free
 // text so callers can drive the UI predictably.
 
@@ -76,7 +76,7 @@ function buildInstructions(task: AgentTask, ctx: WhatsappAgentContext): string {
   const businessContext = ctx.businessContext || 'PYME que usa WhatsApp para hablar con clientes.'
 
   const base = [
-    'Eres NowLabs WhatsApp Agent, un asistente operativo para la Inbox de WhatsApp de un CRM real.',
+    'Eres el Asistente IA de WhatsApp, un asistente operativo para la Inbox de WhatsApp de un CRM real.',
     `Contexto de negocio: ${businessContext}`,
     `Tono esperado: ${tone}.`,
     'Reglas estrictas:',

@@ -3,7 +3,7 @@
 // Vertical Pack v1 — create drawers shared across /opportunities, /clients (360)
 // and (later) /inbox CTAs. Each drawer wraps the workspace-scoped helpers in
 // vertical-queries.ts so the same write path (with activity log) is used from
-// every UI entry point. NowLabs AI hits the parallel helpers in
+// every UI entry point. El Asistente IA hits the parallel helpers in
 // vertical-server.ts; both paths converge on the same Supabase tables.
 
 import { useState } from 'react'

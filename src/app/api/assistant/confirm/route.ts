@@ -387,7 +387,7 @@ export async function POST(req: NextRequest) {
       client_id: clientId,
       client_name: clientName,
       notes,
-      description: notes ?? 'Cita creada desde NowLabs AI',
+      description: notes ?? 'Cita creada desde el Asistente IA',
       status: 'scheduled',
       metadata: baseMetadata,
     }).select('id').single()
@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
     void supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'call',
-      description: `Cita creada desde NowLabs AI: ${service} con ${clientName}`,
+      description: `Cita creada desde el Asistente IA: ${service} con ${clientName}`,
       client_name: clientName,
     }).then(() => undefined, () => undefined)
 
@@ -451,7 +451,7 @@ export async function POST(req: NextRequest) {
     void supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'note',
-      description: `Tarea creada desde NowLabs AI: ${taskTitle}`,
+      description: `Tarea creada desde el Asistente IA: ${taskTitle}`,
       client_name: clientName,
     }).then(() => undefined, () => undefined)
 
@@ -512,7 +512,7 @@ export async function POST(req: NextRequest) {
     void supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'deal',
-      description: `Factura creada desde NowLabs AI: ${concept} para ${clientName}`,
+      description: `Factura creada desde el Asistente IA: ${concept} para ${clientName}`,
       client_name: clientName,
     }).then(() => undefined, () => undefined)
 
@@ -537,11 +537,11 @@ export async function POST(req: NextRequest) {
   // (auditable trail in the workspace feed) and surface the n8n hook so a
   // downstream workflow can produce a PDF / Notion page / Slack post.
   if (type === 'report') {
-    const summary = asString(action.description) || asString(action.taskTitle) || 'Informe NowLabs AI'
+    const summary = asString(action.description) || asString(action.taskTitle) || 'Informe del Asistente IA'
     const { data, error } = await supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'note',
-      description: `Informe preparado desde NowLabs AI: ${summary}`,
+      description: `Informe preparado desde el Asistente IA: ${summary}`,
       client_name: clientName,
     }).select('id').single()
 

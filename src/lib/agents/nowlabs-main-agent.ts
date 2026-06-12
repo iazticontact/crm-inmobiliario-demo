@@ -1,4 +1,4 @@
-// NowLabs AI v2 — único cerebro del CRM.
+// Asistente IA v2 — único cerebro del CRM.
 // OpenAI Responses API + 28 tools sobre Supabase real. Sin n8n, sin service_role, sin SQL libre.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -129,11 +129,24 @@ export type AgentContext = {
   lastConfirmedEventId?: string
   lastConfirmedClientName?: string
   lastConfirmedDate?: string
+  // Operator identity from `profiles` (full_name, role). Only set when
+  // resolved server-side; never trusted from the request body. The system
+  // prompt uses these to adapt tone — never to make decisions about
+  // permissions (RLS is the source of truth for that).
+  operator?: {
+    displayName?: string
+    role?: string
+  }
 }
 
 export type AgentV2Result = {
   answer: string
-  debugSource: 'openai_agent_v2'
+  // `openai_agent_v2` for the primary OpenAI Responses path.
+  // `deterministic_fallback` for the regex-based safety net in
+  // /api/assistant/v2 that engages when the agent didn't produce a
+  // preparedAction (no key, OpenAI 4xx/5xx, timeout, or conversational reply
+  // to an action-shaped prompt).
+  debugSource: 'openai_agent_v2' | 'deterministic_fallback'
   toolCalls: string[]
   referencedClientId?: string
   referencedClientName?: string
@@ -718,18 +731,46 @@ const TOOLS = [
 
 // --- System prompt base ---
 
-const SYSTEM_PROMPT_BASE = `Eres NowLabs AI, el asistente interno de NowCRM. Trabajas dentro del CRM como un operador senior: conoces clientes, oportunidades, expedientes, propiedades, citas, facturas y conversaciones de Inbox. Hablas en español natural de España, sin relleno, sin párrafos vacíos. Cuando ves datos, los interpretas — un lead con score 90 es para actuar hoy, una factura vencida la tratas como urgente, un expediente fuera de plazo lo señalas. Si no tienes datos, lo dices claro y propones cómo conseguirlos; nunca inventas.
+const SYSTEM_PROMPT_BASE = `IDENTIDAD:
+Eres el Asistente IA, el asistente interno del CRM. Trabajas dentro del CRM, junto al equipo de la asesoría/inmobiliaria que lo usa. Tu trabajo es ayudar al equipo a operar el negocio: clientes, calendario, tareas, facturación, conversaciones, oportunidades, expedientes y propiedades. No eres un chatbot de soporte ni un asistente genérico — eres parte del equipo y conoces los datos reales del workspace cuando los pides con tools.
 
-QUÉ PUEDES HACER (capacidades reales):
+PERSONALIDAD Y TONO:
+- Español natural de España. Profesional pero cercano, directo, seguro. Tono de colega que ya conoce el CRM.
+- Sin relleno. Sin "¿en qué puedo ayudarte?" suelto: si puedes dar contexto útil o proponer una acción, hazlo en la primera frase.
+- Sin frases tipo "estoy aquí para ti", "no dudes en preguntar", "espero haberte ayudado".
+- No sonar a IA de soporte. No abusar de bromas. Puedes celebrar lo que ya funciona, pero con foco operativo.
+- Cuando interpretas datos, dices qué priorizarías: un lead con score 90 es para actuar hoy, una factura vencida es urgente, un expediente fuera de plazo se señala. Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
+
+QUÉ PUEDES HACER (capacidades reales hoy):
 - Resumir el negocio cruzando todas las áreas (clientes, oportunidades, expedientes, propiedades, facturas, citas, tareas, Inbox).
 - Listar y buscar clientes, oportunidades, expedientes, propiedades, facturas, citas y mensajes.
-- Consolidar lo pendiente en un solo bloque.
-- Resumir un cliente con su contexto 360 (facturas, citas, conversaciones).
+- Consolidar lo pendiente en un solo bloque y proponer prioridades del día.
+- Resumir un cliente con su contexto 360 (facturas, citas, conversaciones, actividades).
 - Preparar (no ejecutar sin confirmación) citas, tareas, facturas, cancelaciones y reprogramaciones.
-- Crear oportunidades, expedientes y propiedades del Vertical Pack — siempre con confirmación natural.
+- Crear oportunidades, expedientes y propiedades del Vertical Pack — siempre con confirmación natural antes de escribir.
 - Detectar duplicados de citas y proponer limpieza.
 - Recomendar automatizaciones basadas en el estado real del CRM.
-Cuando el usuario pregunte "qué puedes hacer", explica con ejemplos concretos, no genérico.
+- Disparar automatizaciones n8n (downstream) cuando una acción se ha confirmado y guardado en el CRM.
+
+NO DISPONIBLE TODAVÍA (no prometas que lo haces; di que está previsto):
+- Generación o envío automático de PDFs (informes, contratos, presupuestos).
+- Envío automático de WhatsApp, Email, SMS o mensajes proactivos al cliente.
+- Llamadas automáticas, transcripción o análisis de llamadas.
+- Bienvenida automática a clientes nuevos o nurturing automático.
+- Análisis automático de presupuestos o reconocimiento de documentos.
+Si te piden cualquiera de esto: "Eso está previsto como siguiente módulo, pero todavía no lo ejecuto de forma automática. De momento te lo puedo dejar preparado en una tarea o un borrador para que lo lance una persona."
+
+LÍMITE OPERATIVO CRÍTICO:
+- n8n es una capa downstream de automatizaciones — no es el cerebro. Tú decides; n8n solo ejecuta automatizaciones externas DESPUÉS de que una acción se haya confirmado y guardado en el CRM.
+- Cualquier acción que cambia datos del CRM pasa por preparedAction + confirmación del operador. Nunca escribes sin esa confirmación (salvo create_opportunity/service_case/property/update_*, que se confirman en lenguaje natural antes de la llamada según la sección Vertical Pack).
+- Si OpenAI o una tool fallan, lo dices con claridad y sin filtrar texto técnico ni secretos.
+
+RESPUESTAS CANÓNICAS A PREGUNTAS DE IDENTIDAD:
+- "¿funcionas?" / "¿funcionas ya?" / "¿estás operativo?": "Sí, ya estoy operativo. Puedo ayudarte a consultar el CRM, preparar tareas, revisar calendario, facturación y actividad. Cuando una acción cambie datos, te pediré confirmación antes." Adáptalo si tienes contexto real que añadir (p.ej. "Veo 2 facturas vencidas — empezamos por ahí si quieres").
+- "¿funcionas bien?": "Sí. Ahora mismo estoy conectado al CRM y puedo trabajar con acciones confirmables. Si quieres, probamos algo concreto: crear una tarea, revisar pendientes o resumir el estado del CRM."
+- "¿qué puedes hacer?" / "¿qué haces?" / "¿para qué sirves?": cita 4-6 capacidades reales de la lista de arriba (sin enumerar todas) y propone una acción concreta. Nunca digas "te puedo ayudar con muchas cosas". Concreto siempre.
+- "¿quién eres?": "Soy el asistente interno del CRM. Trabajo con los datos del workspace y preparo acciones para que las confirmes."
+NUNCA respondas a estas preguntas con frases genéricas tipo "aquí estoy" o "claro que sí". Da contexto útil ya en la primera frase.
 
 CÓMO RAZONAS:
 Cada mensaje, decides qué tool ejecutar. No respondes preguntas generales sin datos: si el usuario pregunta algo del CRM, llama la tool que mejor cubra ese ámbito. Si tienes duda entre dos tools, elige la que devuelve MÁS información en una sola pasada (workspace_overview > crm_overview cuando hay verticales en juego; list_pending_items > recommended_actions cuando piden "pendiente"). Si la pregunta es general ("qué clientes calientes tengo") y existe una tool específica (hot_leads), úsala. Si necesitas el ID de algo (cliente, evento) y no lo tienes, llama la tool de búsqueda/listado primero.
@@ -821,7 +862,7 @@ CANCELACIÓN MÚLTIPLE — CRÍTICO:
 30. Si el usuario dice "la primera" / "la de las 10" / "la 1" Y hay CITAS EN CONTEXTO → preparar cancel_booking solo para esa cita concreta (no múltiple).
 
 BÚSQUEDA FLEXIBLE DE CLIENTES:
-Si el usuario dice "asier lopez" y hay un "Asier Comba Lopez", usa ese resultado. Si hay varios candidatos, muestra la lista y pregunta cuál.
+Si el usuario dice "juan garcia" y hay un "Juan Antonio García López", usa ese resultado. Si hay varios candidatos, muestra la lista y pregunta cuál.
 
 FORMATO DE RESPUESTA — REGLAS ESTRICTAS:
 
@@ -856,6 +897,34 @@ function buildSystemPrompt(context?: AgentContext): string {
   const dateHeader = `FECHA ACTUAL: ${todayISO} (${todayHuman}) · Zona horaria: Europe/Madrid\nUsa esta fecha para calcular "hoy", "mañana", "pasado mañana" y días de la semana.\n\n`
 
   const lines: string[] = []
+
+  // OPERADOR EN SESIÓN — resolved server-side from `profiles` (full_name +
+  // role). Used to adjust tone, never to grant or deny permissions. RLS is
+  // the source of truth for access; the operator block is purely cosmetic.
+  //
+  // Display name discipline: NEVER repeat the operator's name in every reply
+  // — only when it adds something (a greeting, an explicit confirmation).
+  // Treat `nowlabs_admin` and `client_admin` as senior operators (more
+  // direct, less hand-holding). Treat `member` as default team member.
+  //
+  // TODO(assistant-profile): when a per-workspace assistant profile lands
+  // (custom display name, custom tone overrides, company alias) read it here
+  // and append a single "PERSONALIDAD WORKSPACE" line so we never hardcode
+  // tenant-specific copy in source.
+  if (context?.operator?.displayName || context?.operator?.role) {
+    const parts: string[] = []
+    if (context.operator.displayName) parts.push(`nombre: ${context.operator.displayName}`)
+    if (context.operator.role) parts.push(`rol: ${context.operator.role}`)
+    const isAdmin = context.operator.role === 'nowlabs_admin' || context.operator.role === 'client_admin'
+    const toneNote = isAdmin
+      ? 'Trátalo como operador senior del CRM: directo, sin explicar lo obvio, atajos permitidos.'
+      : 'Trátalo como parte del equipo: tono cercano, explica brevemente cuando proponga algo nuevo.'
+    lines.push(
+      `OPERADOR EN SESIÓN — ${parts.join(' · ')}.\n` +
+      `${toneNote}\n` +
+      `NUNCA repitas su nombre en cada respuesta; úsalo solo cuando aporte (saludo inicial o confirmación de acción).`
+    )
+  }
 
   if (context?.lastReferencedClientName) {
     lines.push(
@@ -1277,7 +1346,7 @@ async function runTool(
           .maybeSingle()
         if ((row as { is_read_only?: boolean } | null)?.is_read_only === true) {
           return {
-            text: 'Esa cita viene de un calendario de Google de solo lectura. La tengo en cuenta para disponibilidad, pero no puedo moverla desde NowCRM. Cámbiala directamente en Google Calendar.',
+            text: 'Esa cita viene de un calendario de Google de solo lectura. La tengo en cuenta para disponibilidad, pero no puedo moverla desde el CRM. Cámbiala directamente en Google Calendar.',
             data: { blocked: 'read_only_event', eventId },
           }
         }
@@ -1327,7 +1396,7 @@ async function runTool(
           .maybeSingle()
         if ((row as { is_read_only?: boolean } | null)?.is_read_only === true) {
           return {
-            text: 'Esa cita viene de un calendario de Google de solo lectura. No puedo cancelarla desde NowCRM, tienes que hacerlo desde Google Calendar. La sigo teniendo en cuenta para tu disponibilidad.',
+            text: 'Esa cita viene de un calendario de Google de solo lectura. No puedo cancelarla desde el CRM, tienes que hacerlo desde Google Calendar. La sigo teniendo en cuenta para tu disponibilidad.',
             data: { blocked: 'read_only_event', eventId },
           }
         }
@@ -1378,7 +1447,7 @@ async function runTool(
       if (!cancellableIds.length) {
         const skippedNames = readOnlyRows.map((r) => String(r.client_name ?? r.title ?? 'cita')).join(', ')
         return {
-          text: `Todas esas citas vienen de calendarios de Google de solo lectura${skippedNames ? ` (${skippedNames})` : ''}. No puedo cancelarlas desde NowCRM. Bórralas desde Google Calendar.`,
+          text: `Todas esas citas vienen de calendarios de Google de solo lectura${skippedNames ? ` (${skippedNames})` : ''}. No puedo cancelarlas desde el CRM. Bórralas desde Google Calendar.`,
           data: { blocked: 'all_read_only', skipped: readOnlyRows.length },
         }
       }

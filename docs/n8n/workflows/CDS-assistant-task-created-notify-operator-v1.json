@@ -1,0 +1,151 @@
+{
+  "name": "CDS - assistant.task_created - notify operator - v1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "assistant-task-created",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "cds-assistant-task-created-v1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (const it of items) {\n  const root = it.json || {};\n  const payload = (root && typeof root.body === 'object' && root.body !== null) ? root.body : root;\n  const receivedAt = new Date().toISOString();\n  const missingFields = [];\n  const str = (v) => typeof v === 'string' ? v.trim() : '';\n  const eventType = str(payload.eventType);\n  const source = str(payload.source);\n  const workspaceId = str(payload.workspaceId);\n  const entityId = str(payload.entityId);\n  const summary = str(payload.summary);\n  if (eventType !== 'assistant.task_created') missingFields.push('eventType');\n  if (source !== 'nowcrm') missingFields.push('source');\n  if (!workspaceId) missingFields.push('workspaceId');\n  if (!entityId) missingFields.push('entityId');\n  if (!summary) missingFields.push('summary');\n  if (missingFields.length > 0) {\n    out.push({ json: { isValid: false, error: 'invalid_payload', missingFields, receivedAt } });\n    continue;\n  }\n  const clientIdRaw = str(payload.clientId);\n  const clientNameRaw = str(payload.clientName);\n  const timestampRaw = str(payload.timestamp);\n  const clientId = clientIdRaw ? clientIdRaw : null;\n  const clientName = clientNameRaw ? clientNameRaw : null;\n  const timestamp = timestampRaw ? timestampRaw : receivedAt;\n  out.push({ json: {\n    isValid: true,\n    eventType,\n    source,\n    workspaceId,\n    entityId,\n    clientId,\n    clientName,\n    summary,\n    timestamp,\n    receivedAt,\n    message: `Nueva tarea creada desde NowLabs AI: ${summary}`\n  }});\n}\nreturn out;"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-222222222222",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-isvalid",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-333333333333",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            { "id": "f1", "name": "message", "value": "={{ $json.message }}", "type": "string" },
+            { "id": "f2", "name": "eventType", "value": "={{ $json.eventType }}", "type": "string" },
+            { "id": "f3", "name": "workspaceId", "value": "={{ $json.workspaceId }}", "type": "string" },
+            { "id": "f4", "name": "entityId", "value": "={{ $json.entityId }}", "type": "string" },
+            { "id": "f5", "name": "clientId", "value": "={{ $json.clientId }}", "type": "string" },
+            { "id": "f6", "name": "clientName", "value": "={{ $json.clientName }}", "type": "string" },
+            { "id": "f7", "name": "summary", "value": "={{ $json.summary }}", "type": "string" },
+            { "id": "f8", "name": "receivedAt", "value": "={{ $json.receivedAt }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-444444444444",
+      "name": "Format Operator Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"ok\": true,\n  \"received\": true,\n  \"eventType\": \"assistant.task_created\"\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-555555555555",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'invalid_payload', missingFields: $json.missingFields }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-666666666666",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "Validate Payload", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          { "node": "Is Valid?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          { "node": "Format Operator Message", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Respond Error", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Operator Message": {
+      "main": [
+        [
+          { "node": "Respond OK", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

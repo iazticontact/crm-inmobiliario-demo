@@ -1,3 +1,9 @@
+> ⚠️ **LEGACY — NO VIGENTE.** Archivado en Fase 1D. Describe la
+> marca/infraestructura antigua (NowLabs / NowCRM / VPS Contabo, dominios
+> `*.nowlabs.es`) que **ya no se usa** en CRM Inmobiliario Demo. Se conserva
+> solo como referencia histórica; **no** seguir estas instrucciones para la
+> infraestructura nueva.
+
 # Infraestructura NowLabs — arquitectura objetivo
 
 Documento de referencia: **dónde corre cada cosa**, **qué se aloja en cada

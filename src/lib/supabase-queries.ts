@@ -261,7 +261,7 @@ function inferAssistantMode(row: DataRecord): AssistantMode {
     asString(row.ai_summary),
   ].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
-  if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('consulta nowlabs ai') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
+  if (marker.includes('assistant_copilot') || marker.includes('copilot') || marker.includes('consulta crm') || marker.includes('consulta asistente ia') || marker.includes('asistente ia') || marker.includes('consulta nowlabs ai') || marker.includes('operacion comercial') || marker.includes('asistente interno') || marker.includes('crm')) {
     return 'copilot'
   }
 
@@ -1429,7 +1429,7 @@ export function mapSupabaseConversation(row: DataRecord): Conversation {
   const assistantMode = inferAssistantMode(row)
   const metadataTitle = typeof metadata.title === 'string' && metadata.title ? metadata.title : undefined
   const metadataClientName = typeof metadata.clientName === 'string' && metadata.clientName ? metadata.clientName : undefined
-  const clientName = asString(row.client_name) || metadataTitle || metadataClientName || asString(row.title ?? row.name, '') || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion cliente')
+  const clientName = asString(row.client_name) || metadataTitle || metadataClientName || asString(row.title ?? row.name, '') || (assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Conversacion cliente')
   return {
     id: asString(row.id),
     workspaceId: asString(row.workspace_id) || undefined,
@@ -1453,14 +1453,14 @@ export function mapSupabaseConversation(row: DataRecord): Conversation {
 function toConversationRow(workspaceId: string, payload: ConversationPayload): DataRecord {
   const assistantMode = payload.assistantMode
   const metadataBase = payload.metadata ?? {}
-  const title = payload.clientName || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant')
+  const title = payload.clientName || (assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Conversacion Inbox Assistant')
   return {
     workspace_id: workspaceId,
     channel: assistantChannelForPayload(assistantMode, payload.channel),
     status: payload.status || 'open',
     sentiment: payload.sentiment || 'neutral',
     intent: assistantIntentForMode(assistantMode),
-    ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
+    ai_summary: payload.lastMessage || (assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Conversacion Inbox Assistant'),
     metadata: { ...metadataBase, assistant_mode: assistantMode, title, clientName: title, clientId: payload.clientId || null, clientAvatar: payload.clientAvatar || null, unread: payload.unread ?? false },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -1538,12 +1538,12 @@ export async function createConversation(workspaceId: string, payload: Conversat
 export async function createAssistantConversation(workspaceId: string, mode: AssistantMode, input: Partial<ConversationPayload> = {}) {
   const isCopilot = mode === 'copilot'
   return createConversation(workspaceId, {
-    clientName: input.clientName || (isCopilot ? 'Consulta NowLabs AI' : 'Nueva conversacion'),
+    clientName: input.clientName || (isCopilot ? 'Consulta Asistente IA' : 'Nueva conversacion'),
     clientAvatar: input.clientAvatar || (isCopilot ? 'CRM' : 'IN'),
     channel: input.channel || (isCopilot ? 'crm' : 'web'),
     sentiment: input.sentiment || 'neutral',
     intent: input.intent || assistantIntentForMode(mode),
-    lastMessage: input.lastMessage || (isCopilot ? 'Consulta NowLabs AI' : 'Conversacion Inbox Assistant'),
+    lastMessage: input.lastMessage || (isCopilot ? 'Consulta Asistente IA' : 'Conversacion Inbox Assistant'),
     unread: input.unread ?? false,
     assistantMode: mode,
     metadata: {
@@ -1905,7 +1905,7 @@ export function mapSupabaseN8nFlow(row: DataRecord): N8nFlow {
     event,
     label: asString(row.name ?? row.label, event),
     description: asString(row.description, 'Flujo preparado para n8n.'),
-    trigger: asString(row.trigger_event ?? row.trigger, 'Evento NowCRM'),
+    trigger: asString(row.trigger_event ?? row.trigger, 'Evento del CRM'),
     webhookUrl: asString(row.webhook_url ?? row.endpoint ?? row.url),
     status: normalizeN8nFlowStatus(row.status ?? (row.enabled === true ? 'active' : undefined)),
     requires: requiresFromRow(row),

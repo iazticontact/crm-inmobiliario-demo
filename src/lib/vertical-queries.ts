@@ -9,7 +9,7 @@
 // rendering empty states instead of crashing.
 //
 // Writes append an `activities` row best-effort with metadata.source='ui_manual'
-// so the dashboard timeline shows UI and NowLabs AI actions side by side. The
+// so the dashboard timeline shows UI and Asistente IA actions side by side. The
 // server-side mirror (vertical-server.ts) writes the same activity types with
 // metadata.source='nowlabs_agent'.
 

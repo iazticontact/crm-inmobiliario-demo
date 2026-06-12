@@ -46,7 +46,7 @@ type InvoiceForm = {
 }
 
 const today = new Date().toISOString().slice(0, 10)
-const emptyForm: InvoiceForm = { clientName: '', amount: '', plan: 'Pro', status: 'pending', date: today, dueDate: today, notes: '' }
+const emptyForm: InvoiceForm = { clientName: '', amount: '', plan: 'Honorarios venta', status: 'pending', date: today, dueDate: today, notes: '' }
 
 function toForm(invoice: Invoice): InvoiceForm {
   return {
@@ -155,7 +155,7 @@ export default function BillingPage() {
   }, [invoiceList])
 
   const revenueByPlan = useMemo(() => {
-    const plans = ['Starter', 'Pro', 'Business', 'Enterprise']
+    const plans = ['Honorarios venta', 'Gestión alquiler', 'Tasación', 'Asesoría']
     return plans.map((plan) => {
       const planInvoices = invoiceList.filter((inv) => inv.plan === plan)
       return {

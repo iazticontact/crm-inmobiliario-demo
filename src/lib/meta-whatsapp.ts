@@ -93,7 +93,7 @@ export async function sendWhatsAppMessage(args: SendWhatsAppArgs): Promise<MetaS
     return {
       ok: false,
       reason: 'token_missing',
-      message: 'Falta META_WHATSAPP_ACCESS_TOKEN en el servidor. NowCRM no enviará mensajes reales sin él.',
+      message: 'Falta META_WHATSAPP_ACCESS_TOKEN en el servidor. El CRM no enviará mensajes reales sin él.',
       phoneNumberId,
     }
   }

@@ -39,7 +39,7 @@ const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 
 const OFFLINE_WORKSPACE_ID = 'offline-workspace'
 const OFFLINE_USER_ID = 'offline-user'
-const OFFLINE_USER_EMAIL = 'local@nowcrm.local'
+const OFFLINE_USER_EMAIL = 'local@crm-demo.local'
 const OFFLINE_STORAGE_KEY_CONVERSATIONS = 'nowcrm-offline-conversations'
 const OFFLINE_STORAGE_KEY_MESSAGES = 'nowcrm-offline-messages'
 
@@ -892,6 +892,11 @@ function formatToolResult(tool: AgentToolName, result: unknown) {
 
 
 const GENERIC_COPILOT_TITLES = new Set([
+  // Títulos por defecto actuales del Asistente IA.
+  'consulta asistente ia',
+  'nueva consulta asistente ia',
+  'consulta asistente ia demo',
+  // Legacy (datos antiguos/demo) — se mantienen para no romper la detección.
   'consulta nowlabs ai',
   'nueva consulta nowlabs ai',
   'consulta nowlabs ai demo',
@@ -948,7 +953,7 @@ export default function AssistantPage() {
   const [assistantFlowStatus, setAssistantFlowStatus] = useState<N8nFlowStatus>('demo')
   const [lastResponseSource, setLastResponseSource] = useState<'n8n' | 'fallback' | 'supabase' | null>(null)
   // Tracks where the most recent /api/assistant/v2 answer came from. Surfaces
-  // as a discreet badge so the operator knows whether NowLabs AI is running on
+  // as a discreet badge so the operator knows whether the Asistente IA is running on
   // the n8n orchestrator, the local agent or fell back to local mid-flight.
   const [lastAgentMode, setLastAgentMode] = useState<'local' | 'n8n' | 'hybrid_fallback' | null>(null)
   const [lastActionStatus, setLastActionStatus] = useState('')
@@ -1517,7 +1522,7 @@ export default function AssistantPage() {
         setPreparedAction(null)
         setEditingAction(false)
 
-        // --- NowLabs AI v2: único cerebro real del CRM ---
+        // --- Asistente IA v2: único cerebro real del CRM ---
         try {
           const v2Res = await fetch('/api/assistant/v2', {
             method: 'POST',
@@ -1540,7 +1545,12 @@ export default function AssistantPage() {
             ok: boolean
             answer?: string
             debugSource?: string
-            // Source of the answer: 'local' (legacy agent), 'n8n' (NowLabs n8n
+            // Discrete error code surfaced by /api/assistant/v2 (see
+            // AssistantErrorCode there). Populated when ok:false to let the UI
+            // style the message; the user-facing copy already lives in
+            // `answer`, so the UI never builds the message text from this.
+            errorCode?: string | null
+            // Source of the answer: 'local' (legacy agent), 'n8n' (Asistente IA n8n
             // orchestrator), 'hybrid_fallback' (tried n8n, fell back to local).
             // Undefined in old responses — treat as 'local'.
             mode?: 'local' | 'n8n' | 'hybrid_fallback'
@@ -1579,7 +1589,7 @@ export default function AssistantPage() {
             error?: string
           }
           const v2Data = await v2Res.json() as V2Response
-          // Track agent mode so the operator can see whether NowLabs AI is on
+          // Track agent mode so the operator can see whether the Asistente IA is on
           // n8n or the local agent. Undefined → legacy response → assume local.
           if (v2Data.mode === 'n8n' || v2Data.mode === 'hybrid_fallback' || v2Data.mode === 'local') {
             setLastAgentMode(v2Data.mode)
@@ -1589,10 +1599,12 @@ export default function AssistantPage() {
           console.log('[assistant/ui] v2 response', {
             ok: v2Data.ok,
             debugSource: v2Data.debugSource,
+            errorCode: v2Data.errorCode ?? null,
             mode: v2Data.mode,
             traceId: v2Data.trace_id,
             toolCalls: v2Data.toolCalls,
-            referencedClientName: v2Data.referencedClientName,
+            hasReferencedClient: Boolean(v2Data.referencedClientId),
+            hasPreparedAction: Boolean(v2Data.preparedAction),
           })
 
           if (v2Data.ok && v2Data.answer) {
@@ -1636,12 +1648,28 @@ export default function AssistantPage() {
             setLastResponseSource('supabase')
             return
           }
-        } catch {
-          // v2 unavailable
+
+          // Controlled error path. /api/assistant/v2 already provides a safe,
+          // user-facing `answer` derived from `errorCode` (missing_api_key,
+          // openai_unauthorized, openai_timeout, …). We trust that copy and
+          // surface it instead of the generic "no he podido consultar" line.
+          if (v2Data?.answer) {
+            await appendAssistantMessage(conversationId, v2Data.answer, activeConversation.clientName)
+            setLastResponseSource(null)
+            return
+          }
+        } catch (v2Err) {
+          // Network-level failure (server unreachable, JSON parse error). Only
+          // metadata is logged — no PII, no headers, no body.
+          console.warn('[assistant/ui] v2 fetch failed', {
+            error: v2Err instanceof Error ? v2Err.message : String(v2Err),
+          })
         }
+        // Truly nothing to show — request didn't complete or response had no
+        // `answer` field at all.
         await appendAssistantMessage(
           conversationId,
-          'No he podido consultar el CRM ahora mismo. Reinténtalo en unos segundos.',
+          'No he podido contactar con el asistente. Inténtalo de nuevo en unos segundos.',
           activeConversation.clientName
         )
         setLastResponseSource(null)

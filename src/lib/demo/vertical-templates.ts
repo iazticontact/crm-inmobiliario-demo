@@ -1,5 +1,5 @@
 // Vertical Pack v1 — static catalog used by /opportunities, dashboard cards,
-// docs and (later) the NowLabs agent. Not a database seed: it never gets
+// docs and (later) the Asistente IA agent. Not a database seed: it never gets
 // inserted automatically. Workspaces remain empty until the operator creates
 // rows from the UI or the agent.
 //
@@ -185,7 +185,7 @@ export const CASE_TYPES: CaseType[] = [
 ]
 
 // -----------------------------------------------------------------------------
-// Proposal / message templates (used by NowLabs and the Inbox composer)
+// Proposal / message templates (used by the Asistente IA and the Inbox composer)
 // -----------------------------------------------------------------------------
 
 export type MessageTemplate = {
@@ -300,7 +300,7 @@ export const MESSAGE_TEMPLATES: MessageTemplate[] = [
 ]
 
 // -----------------------------------------------------------------------------
-// Automation catalog — what NowCRM will eventually trigger via n8n
+// Automation catalog — what the CRM will eventually trigger via n8n
 // -----------------------------------------------------------------------------
 
 export type AutomationTemplate = {
@@ -344,7 +344,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     name: 'Lead frío 48h → follow-up',
     vertical: 'any',
     channel: 'whatsapp',
-    description: 'Si un lead no recibe contacto en 48h, NowLabs prepara un follow-up con la plantilla adecuada.',
+    description: 'Si un lead no recibe contacto en 48h, el asistente prepara un follow-up con la plantilla adecuada.',
     triggerEvent: 'lead_cold_48h',
     requires: ['n8n', 'whatsapp', 'openai'],
     status: 'prepared',
@@ -399,7 +399,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     name: 'Resumen diario → operador',
     vertical: 'any',
     channel: 'internal',
-    description: 'Cada mañana NowLabs prepara un resumen con leads nuevos, expedientes activos y cobros pendientes.',
+    description: 'Cada mañana el asistente prepara un resumen con leads nuevos, expedientes activos y cobros pendientes.',
     triggerEvent: 'daily_summary',
     requires: ['n8n', 'openai'],
     status: 'prepared',
@@ -410,7 +410,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     name: 'Nueva captación → checklist',
     vertical: 'real_estate',
     channel: 'internal',
-    description: 'Al crear una propiedad nueva, NowLabs genera el checklist de documentación del propietario.',
+    description: 'Al crear una propiedad nueva, el CRM genera el checklist de documentación del propietario.',
     triggerEvent: 'property_created',
     requires: ['n8n', 'openai'],
     status: 'prepared',

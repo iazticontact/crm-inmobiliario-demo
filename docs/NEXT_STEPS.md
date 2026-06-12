@@ -1,4 +1,4 @@
-# NowCRM Next Steps
+# Próximos pasos — CRM Inmobiliario Demo
 
 ## Prioridad inmediata
 
@@ -18,7 +18,7 @@
 
 ## Fase IA real
 
-- NowLabs AI usa OpenAI server-side mediante `/api/assistant/chat`; n8n queda como brazo externo.
+- El Asistente IA usa OpenAI server-side mediante `/api/assistant/v2`; n8n queda como brazo externo.
 - El frontend detecta intenciones operativas locales para ahorrar tokens: reservas, facturas, cliente, cobros y proximas acciones.
 - Las acciones criticas se preparan como cards y requieren confirmacion antes de escribir.
 - Ampliar contexto de workspace, cliente, conversacion, facturas y eventos en el payload solo cuando aporte valor.

@@ -513,16 +513,20 @@ export async function toolAutomationRecommendations(supabase: SupabaseClient, wo
   return { text: lines.join('\n'), data: recs }
 }
 
-// 16b. Prepare a task action card (no Supabase needed)
+// 16b. Prepare a task action card (no Supabase needed).
+// Tasks do not structurally require a client: /api/assistant/confirm inserts
+// tasks with client_id/client_name=null cleanly. Title is the only mandatory
+// field. Keeping clientName out of missingFields lets the user confirm a
+// no-client task without having to satisfy a phantom gate in the UI.
 export function toolPrepareTask(
   extracted: { clientId?: string; clientName?: string; taskTitle?: string; description?: string; dueDate?: string }
 ): ToolResult & { preparedAction: PreparedActionData } {
   const { clientId, clientName, taskTitle, description, dueDate } = extracted
-  const missingFields = [!clientName && 'cliente', !taskTitle && 'título'].filter(Boolean) as string[]
+  const missingFields = !taskTitle ? ['título'] : []
   const action: PreparedActionData = { type: 'task', clientId, clientName, taskTitle, description, dueDate, missingFields }
   const text = missingFields.length
-    ? `✅ Tarea casi lista — falta: ${missingFields.join(', ')}. Dímelos y la dejo lista para confirmar.`
-    : `✅ Tarea lista para ${clientName}: ${taskTitle}. Confirma cuando quieras.`
+    ? `✅ Tarea casi lista — falta: ${missingFields.join(', ')}. Dímelo y la dejo lista para confirmar.`
+    : `✅ Tarea lista${clientName ? ` para ${clientName}` : ''}: ${taskTitle}. Confirma cuando quieras.`
   return { text, data: action, preparedAction: action }
 }
 

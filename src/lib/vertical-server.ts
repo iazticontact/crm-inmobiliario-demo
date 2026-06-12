@@ -1,4 +1,4 @@
-// Server-side Vertical Pack helpers — used by the NowLabs agent and any
+// Server-side Vertical Pack helpers — used by the Asistente IA agent and any
 // future server-side route that needs to read/write opportunities, service
 // cases or properties **with an explicit Supabase client** (SSR or service
 // role). Mirrors src/lib/vertical-queries.ts but accepts the client as an
@@ -94,7 +94,7 @@ export async function listPropertiesServer(
 //   - Default vertical='general', sensible defaults per entity.
 //   - Pass metadata through unchanged (never overwrites server-set fields).
 //   - Append a small activity log row so the dashboard timeline shows what
-//     NowLabs did (and a human reviewer can audit it).
+//     the Asistente IA did (and a human reviewer can audit it).
 //
 // They return the inserted row or null on failure. They never throw.
 // -----------------------------------------------------------------------------
@@ -102,7 +102,7 @@ export async function listPropertiesServer(
 type WriteContext = {
   supabase: SupabaseClient
   workspaceId: string
-  /** Optional: agent description ("creada desde NowLabs") to attribute the action. */
+  /** Optional: agent description ("creada desde el Asistente IA") to attribute the action. */
   origin?: string
 }
 

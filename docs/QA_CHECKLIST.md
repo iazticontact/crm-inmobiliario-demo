@@ -1,4 +1,4 @@
-# NowCRM QA Checklist
+# QA Checklist — CRM Inmobiliario Demo
 
 ## Auth
 
@@ -48,7 +48,7 @@
 
 - Cargar `/assistant`.
 - Verificar que no aparece flash demo con usuario real.
-- Verificar badges: `Mensajes reales`, `NowLabs AI backend activo`, `Workspace real`.
+- Verificar badges: `Mensajes reales`, `Asistente IA backend activo`, `Workspace real`.
 - Seleccionar `Conversaciones / Inbox Assistant`.
 - Crear conversacion real Inbox.
 - Enviar `Hola, quiero saber precios`.
@@ -68,7 +68,7 @@
 - Enviar `30 minutos`, confirmar card y comprobar evento en `/calendar`.
 - Enviar `Crea una factura a Ana de 299€ por Plan Pro`.
 - Verificar card de factura y confirmacion bloqueada si falta vencimiento.
-- Con NowLabs AI en modo real, verificar respuesta desde `/api/assistant/chat` y mensaje assistant guardado.
+- Con el Asistente IA en modo real, verificar respuesta desde `/api/assistant/v2` y mensaje assistant guardado.
 - Si n8n falla, verificar fallback seguro sin cambiar la pantalla a demo.
 - Probar quick action `Resumen cliente`.
 - Probar quick action `Proxima accion`.
@@ -125,7 +125,7 @@
 
 - Comprobar KPIs con usuario real.
 - Comprobar activities recientes si existen.
-- Confirmar badges de datos reales, NowLabs AI backend y n8n externo preparado.
+- Confirmar badges de datos reales, Asistente IA backend y n8n externo preparado.
 
 ## Lockdown antes de demo
 
@@ -155,12 +155,12 @@ Estos checks cubren los fixes del último hardening. **Ejecutarlos antes de cual
 - [ ] Importar y verificar que aparece con badge "Solo lectura" en `/calendar`.
 - [ ] Abrir un evento read-only: el modal lo abre como "Ver evento", inputs deshabilitados, botón Guardar oculto.
 - [ ] Intentar borrar un evento read-only desde el botón Trash: debe mostrar toast informativo, no borrar.
-- [ ] Desde NowLabs AI: `cancela esa cita de los festivos` → debe responder algo como "viene de un calendario de solo lectura...".
-- [ ] Desde NowLabs AI: `muévela a otra hora` sobre un evento read-only → mismo bloqueo claro.
-- [ ] Cancelar un evento **propio** desde NowLabs AI → confirmar que aparece como cancelado en NowCRM y en Google.
+- [ ] Desde Asistente IA: `cancela esa cita de los festivos` → debe responder algo como "viene de un calendario de solo lectura...".
+- [ ] Desde Asistente IA: `muévela a otra hora` sobre un evento read-only → mismo bloqueo claro.
+- [ ] Cancelar un evento **propio** desde Asistente IA → confirmar que aparece como cancelado en NowCRM y en Google.
 - [ ] Cancelar dos veces el mismo evento (segunda vez ya está borrado en Google): debe responder `ok:true, synced:true` o `ok:true, synced:false, reason:'google_api_error'` solo si fue otro fallo. **No debe fallar con 5xx** por el 410 Gone.
 
-### NowLabs AI — bloqueos read-only
+### Asistente IA — bloqueos read-only
 
 - [ ] `search_calendar_events` devuelve `[solo lectura]` en la línea de eventos importados read-only.
 - [ ] `prepare_cancel_multiple_bookings` ejecutada sobre una lista mixta (read-only + escribibles): debe cancelar solo las escribibles y avisar `No incluyo N cita(s) de calendarios de Google de solo lectura`.
@@ -245,8 +245,8 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 
 ### Checklist Assistant cancel sync
 
-- [ ] Crear cita con NowLabs AI → Google la recibe.
-- [ ] Cancelar con NowLabs AI ("cancela esa cita") → confirmar → mensaje: "Cita ... cancelada (también en Google)."
+- [ ] Crear cita con Asistente IA → Google la recibe.
+- [ ] Cancelar con Asistente IA ("cancela esa cita") → confirmar → mensaje: "Cita ... cancelada (también en Google)."
 - [ ] Cancelar cita ya borrada en Google → mensaje: "... cancelada (en Google ya no existía)."
 - [ ] Pedir cancelar todas las citas del día con read-only entre medias → resumen: "X canceladas correctamente (Y sincronizada(s) con Google, Z omitida(s) por solo lectura)".
 - [ ] Cleanup duplicates con read-only entre los duplicados → resumen incluye "N omitida(s) por solo lectura".
@@ -291,7 +291,7 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 - [ ] Cambiar status desde el dropdown se persiste.
 - [ ] Botón "Archivar" mueve a archived y refresca lista.
 
-### NowLabs WhatsApp Agent
+### Asistente IA de WhatsApp
 
 - [ ] Botón "Sugerir respuesta" rellena el composer con texto en español.
 - [ ] Botón "Resumir" con persist=true actualiza `ai_summary` (visible en lista).
@@ -304,7 +304,7 @@ Cubre el bug crítico: "cancelar desde el Calendar del CRM no eliminaba el event
 
 ---
 
-## Vertical Pack v1 — NowLabs AI tools (2026-05-18)
+## Vertical Pack v1 — Asistente IA tools (2026-05-18)
 
 Cubre las 9 tools verticales (3 reads + 6 writes) sobre `opportunities`,
 `service_cases` y `properties`. Todas son workspace-scoped y RLS-aware.
@@ -319,7 +319,7 @@ Las escrituras requieren confirmación verbal en chat.
 - [ ] Refrescar (botón) recarga las 3 listas.
 - [ ] Catálogos de plantillas y automatizaciones se muestran como estáticos.
 
-### NowLabs — lecturas verticales
+### Asistente IA — lecturas verticales
 
 - [ ] `Enséñame oportunidades abiertas` → lista numerada, sin asteriscos.
 - [ ] `Qué oportunidades tengo en negociación` → filtra por stage.
@@ -327,7 +327,7 @@ Las escrituras requieren confirmación verbal en chat.
 - [ ] `Propiedades activas en Marbella` → filtra por city.
 - [ ] Si no hay rows, responde "Sin … en ese filtro."
 
-### NowLabs — escrituras (con confirmación verbal)
+### Asistente IA — escrituras (con confirmación verbal)
 
 - [ ] `Crea un lead inmobiliario para Ana que quiere vender un piso en Málaga` →
       el agente describe la oportunidad y pregunta "¿la creo?" antes de
@@ -351,7 +351,7 @@ Las escrituras requieren confirmación verbal en chat.
 ### Multi-tenant y RLS
 
 - [ ] El agente NUNCA devuelve rows de otro workspace en `list_*`.
-- [ ] Crear una oportunidad desde NowLabs deja un row en `activities` con
+- [ ] Crear una oportunidad desde Asistente IA deja un row en `activities` con
       `type=opportunity_created`, `workspace_id` del usuario y
       `metadata.source='nowlabs_agent'`.
 - [ ] Cambiar stage de una oportunidad deja un row con
@@ -371,7 +371,7 @@ Las escrituras requieren confirmación verbal en chat.
 ## Vertical Pack v1 — UI humana (Prompt B, 2026-05-18)
 
 Cubre la fase B: creación/edición desde UI, Cliente 360 y operaciones
-vinculadas a entidades verticales sin pasar por NowLabs AI. Las acciones
+vinculadas a entidades verticales sin pasar por Asistente IA. Las acciones
 UI y las del agente convergen sobre las mismas tablas con activity log
 paralelo (`metadata.source` = `ui_manual` vs `nowlabs_agent`).
 
@@ -458,7 +458,7 @@ paralelo (`metadata.source` = `ui_manual` vs `nowlabs_agent`).
 
 - [ ] Crear oportunidad desde UI deja `activities.metadata.source =
       'ui_manual'` y `type = 'opportunity_created'`.
-- [ ] Crear oportunidad desde NowLabs AI deja `metadata.source =
+- [ ] Crear oportunidad desde Asistente IA deja `metadata.source =
       'nowlabs_agent'` y mismo `type`.
 - [ ] Cambiar stage desde UI registra `opportunity_stage_updated`.
 - [ ] Cambiar stage vía agente registra el mismo type con otro source.
@@ -593,7 +593,7 @@ sin fire-and-forget, dedupe inbound, outbound persistido, config server-side.
 
 - [ ] `GET /api/config/status` sin sesión → 401.
 - [ ] Con sesión → devuelve booleans (`hasAccessToken`, `hasAppSecret`, …) y `missingVariables: ['NAMES_ONLY']`. **Ningún valor.**
-- [ ] Quitar `OPENAI_API_KEY` → Inbox muestra banner "NowLabs AI no está activo", botones IA disabled, toggle de auto-reply bloqueado en Settings.
+- [ ] Quitar `OPENAI_API_KEY` → Inbox muestra banner "Asistente IA no está activo", botones IA disabled, toggle de auto-reply bloqueado en Settings.
 - [ ] Quitar `META_APP_SECRET` → Settings/WhatsApp muestra "Pendiente en servidor: META_APP_SECRET".
 - [ ] Cuando todo está ready, los banners desaparecen.
 
@@ -681,7 +681,7 @@ cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
       `Distribuciones Martínez`, `Carlos Méndez`, etc.).
 - [ ] Si el workspace está vacío, los empty states explican "Sin datos reales
       todavía" sin mostrar mock data.
-- [ ] Badges del header reflejan el estado real (NowLabs AI ready, n8n
+- [ ] Badges del header reflejan el estado real (Asistente IA ready, n8n
       pendiente, etc.) y no fingen integraciones.
 
 ### Clients / Cliente 360
@@ -711,7 +711,7 @@ cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
 ### Asistente
 
 - [ ] `/assistant` distingue Inbox copilot y Copilot CRM interno.
-- [ ] Sin `OPENAI_API_KEY`: banner "NowLabs AI no está activo", botones IA
+- [ ] Sin `OPENAI_API_KEY`: banner "Asistente IA no está activo", botones IA
       disabled, no respuestas falsas.
 
 ### Calendar

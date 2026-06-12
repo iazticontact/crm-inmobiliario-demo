@@ -1,17 +1,40 @@
-# NowCRM
+# CRM Inmobiliario Demo
 
-CRM con IA omnicanal — base reutilizable de NowLabs.
+Prototipo funcional de CRM para inmobiliarias.
 
-NowCRM es un workspace SaaS construido en Next.js + Supabase con:
+CRM Inmobiliario Demo es un workspace SaaS construido en Next.js + Supabase con:
 
 - Inbox omnicanal (WhatsApp, Instagram, web, email).
-- Asistente NowLabs AI (Inbox copilot + Copilot CRM interno).
+- Asistente IA (Inbox copilot + Copilot CRM interno).
 - Clientes con vista 360 y vinculación por canal.
 - Operaciones por vertical: pipeline de oportunidades, expedientes y
   propiedades (Vertical Pack v1 — inmobiliaria, extranjería, servicios).
 - Calendario interno + Google Calendar (OAuth).
 - Facturación básica y automatizaciones (catálogo n8n).
 - Settings por workspace con plantillas editables y vertical configurable.
+
+---
+
+## Estado actual
+
+- **Demo funcional en local.** Arranca y se navega sin infraestructura externa
+  (modo demo con datos mock profesionales de inmobiliaria).
+- **Pendiente de infraestructura nueva.** Supabase, n8n, Google y WhatsApp/Meta
+  reales se conectan en fases posteriores; sin claves, la app degrada con
+  honestidad a `pending_config` en lugar de fingir éxito.
+- Marca comercial final aún por definir; el nombre visible provisional es
+  "CRM Inmobiliario Demo".
+
+---
+
+## Stack
+
+- **Next.js 16** (App Router) · **React 19** · **TypeScript 5**
+- **Supabase** (`@supabase/ssr` + `@supabase/supabase-js`) — Auth, Postgres con
+  RLS, Storage
+- **Tailwind CSS v4**, framer-motion, lucide-react, recharts, sonner
+- **OpenAI** (Responses API) para el Asistente IA · **n8n** como brazo de
+  automatización externo
 
 ---
 
@@ -32,10 +55,16 @@ npm run dev
 # Abre http://localhost:3000.
 ```
 
-> **Aviso:** la versión de Next.js de este repo es **16.x con Turbopack** y
-> tiene cambios respecto a la documentación pública generalista. Antes de
-> escribir código, consulta `node_modules/next/dist/docs/` y respeta los avisos
-> de deprecación. Ver `AGENTS.md`.
+> **Variables de entorno:** los valores reales van en `.env.local`, que **no se
+> commitea** (está en `.gitignore`). `.env.example` es la plantilla de
+> referencia y **no contiene secretos**. Nunca pongas claves en variables
+> `NEXT_PUBLIC_*`.
+
+> **Aviso Next.js 16:** esta versión introduce cambios respecto a la
+> documentación pública generalista. Antes de escribir código, consulta
+> `node_modules/next/dist/docs/` y respeta los avisos de deprecación
+> (ver `AGENTS.md`). El servidor de desarrollo usa **Webpack**
+> (`next dev --webpack`); el build de producción usa Turbopack.
 
 ---
 
@@ -43,13 +72,13 @@ npm run dev
 
 | Comando | Acción |
 |---------|--------|
-| `npm run dev`   | Servidor de desarrollo (Turbopack). |
-| `npm run build` | Build de producción. |
+| `npm run dev`   | Servidor de desarrollo (Webpack). |
+| `npm run build` | Build de producción (Turbopack). |
 | `npm run start` | Sirve el build de producción. |
-| `npm run lint`  | ESLint con flags estrictos. |
+| `npm run lint`  | ESLint. |
 
-QA y CI esperan: `npm run lint -- --max-warnings=0`, `npx tsc --noEmit` y
-`npm run build` verdes antes de commitear cierres de fase.
+QA y CI esperan `npm run lint`, `npx tsc --noEmit` y `npm run build` verdes
+antes de commitear cierres de fase.
 
 ---
 
@@ -62,16 +91,17 @@ src/
                      # /automations, /calendar, /billing, /settings
     api/             # route handlers: assistant, inbox, integraciones, n8n
     login/, reset-password/, auth/callback
-  components/        # UI: Sidebar, MetricCard, drawers, ClientPicker, etc.
+  components/        # UI: Sidebar, Topbar, SectionCard, drawers, ClientPicker, etc.
   lib/
+    brand.ts         # nombres/textos de producto visibles (fuente central)
     supabase.ts      # cliente browser/server con SSR
     supabase-queries.ts
     vertical-queries.ts, workspace-settings.ts, workspace-templates.ts
     feature-flags.ts # gating de módulos por env
-    assistant-agent.ts, agents/*  # NowLabs AI + Copilot CRM
+    ai.ts, agents/*  # Asistente IA + Copilot CRM (cerebro en agents/nowlabs-main-agent.ts)
     n8n-client.ts, meta-whatsapp.ts, integrations.ts
     mock-data.ts     # demo data — SOLO se sirve en modo demo
-docs/                # playbooks, contratos n8n, QA, schema notes
+docs/                # ver docs/README.md (índice de documentación)
 ```
 
 ---
@@ -79,7 +109,7 @@ docs/                # playbooks, contratos n8n, QA, schema notes
 ## Demo vs real
 
 - En `/login` se puede entrar como **usuario demo**. Activa `DEMO_MODE_KEY`
-  y la UI sirve datos de `src/lib/mock-data.ts` (Ana Rodríguez, Miguel Torres,
+  y la UI sirve datos de `src/lib/mock-data.ts` (Lucía Herrera, Roberto Díaz,
   etc.).
 - Con sesión real (Supabase Auth), `useCurrentUser` resuelve el workspace y
   todas las páginas leen de Supabase. Los datos demo dejan de mostrarse.
@@ -91,14 +121,14 @@ docs/                # playbooks, contratos n8n, QA, schema notes
 
 ## Documentación
 
-- **`docs/CLIENT_ADAPTATION_PLAYBOOK.md`** — clonar NowCRM para un cliente real.
-- **`docs/INFRASTRUCTURE_NOWLABS.md`** — arquitectura objetivo (Vercel,
-  Supabase, VPS, Cloudflare).
+Índice completo en **`docs/README.md`**. Punteros rápidos:
+
 - **`docs/ENVIRONMENT_VARIABLES.md`** — todas las env vars con dónde sacarlas.
 - **`docs/QA_CHECKLIST.md`** — QA por fase + sección clone readiness.
 - **`docs/META_WHATSAPP_OFFICIAL_SETUP.md`** — conectar WhatsApp real.
 - **`docs/GOOGLE_CALENDAR_OFFICIAL_SETUP.md`** — conectar Google Calendar real.
 - **`docs/N8N_PAYLOAD_CONTRACT.md`** — formato de eventos enviados a n8n.
+- **`docs/supabase/`** — schema, Storage y RLS (zona protegida, no tocar sin revisión).
 
 ---
 
@@ -116,4 +146,4 @@ docs/                # playbooks, contratos n8n, QA, schema notes
 
 ## Licencia
 
-Propietario — NowLabs. Uso interno y para clientes contratados.
+Propietario. Uso interno y para clientes contratados.

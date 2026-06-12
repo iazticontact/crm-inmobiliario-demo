@@ -1,4 +1,4 @@
-# NowCRM n8n Plan
+# Plan n8n — CRM Inmobiliario Demo
 
 ## Estado actual
 
@@ -149,7 +149,7 @@ Para `assistant_message`:
 5. Devolver `suggested_response`.
 6. NowCRM guardara la respuesta como mensaje assistant.
 
-NowCRM resuelve NowLabs AI desde `/api/assistant/chat`: OpenAI server-side puede usar tools backend y las escrituras siguen pasando por confirmacion. n8n queda como brazo externo para canales, PDFs, recordatorios y workflows.
+El CRM resuelve el Asistente IA desde `/api/assistant/v2`: OpenAI server-side puede usar tools backend y las escrituras siguen pasando por confirmacion. n8n queda como brazo externo para canales, PDFs, recordatorios y workflows.
 
 ## Separacion de roles Assistant
 
@@ -212,7 +212,7 @@ Payload de prueba desde Settings:
 }
 ```
 
-Si n8n falla, NowCRM conserva la conversacion. NowLabs AI no depende de n8n para responder en modo real.
+Si n8n falla, NowCRM conserva la conversacion. Asistente IA no depende de n8n para responder en modo real.
 
 ## AI Agent Tools
 
@@ -293,7 +293,7 @@ Pasos recomendados:
 3. Normalizar contacto, telefono y mensaje.
 4. Usar `/api/agent/tool` para buscar o crear cliente con confirmacion/validacion.
 5. Crear conversacion y mensaje en Supabase.
-6. Pedir borrador a NowLabs AI o usar plantilla aprobada cuando haga falta respuesta.
+6. Pedir borrador a Asistente IA o usar plantilla aprobada cuando haga falta respuesta.
 7. Devolver respuesta por Meta Cloud API si el flujo esta aprobado.
 8. Registrar activity en NowCRM.
 

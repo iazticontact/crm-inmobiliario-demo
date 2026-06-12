@@ -25,7 +25,7 @@ const statusConfig: Record<AutomationStatus, { label: string; variant: 'success'
 }
 
 const flowStatusConfig: Record<N8nFlowStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'indigo' | 'default' }> = {
-  active: { label: 'Control NowCRM activo', variant: 'success' },
+  active: { label: 'Control CRM activo', variant: 'success' },
   demo: { label: 'Preparado demo', variant: 'indigo' },
   pending_config: { label: 'n8n pendiente', variant: 'warning' },
   inactive: { label: 'Inactivo', variant: 'default' },
@@ -97,7 +97,7 @@ function defaultFlowUrl(event: N8nEventType) {
 export default function AutomationsPage() {
   // Operator-only surface. Hidden from the client sidebar by default and
   // blocked from direct URL access unless NEXT_PUBLIC_NOWLABS_INTERNAL=true.
-  // Route kept alive on purpose — NOWLabs uses it to manage flows.
+  // Route kept alive on purpose — the internal team uses it to manage flows.
   if (!featureFlags.nowlabsInternal) redirect('/dashboard')
 
   const [activeStatuses, setActiveStatuses] = useState<Record<string, AutomationStatus>>(
@@ -197,7 +197,7 @@ export default function AutomationsPage() {
     const nextAppStatus: AutomationStatus = isCurrentlyActive ? 'paused' : 'active'
     setActiveStatuses((prev) => ({ ...prev, [id]: nextAppStatus }))
     toast.success(
-      nextAppStatus === 'active' ? 'Control NowCRM activo. n8n pendiente de conexion segura.' : 'Desactivada en NowCRM.',
+      nextAppStatus === 'active' ? 'Control CRM activo. n8n pendiente de conexion segura.' : 'Desactivada en el CRM.',
       { description: automations.find((a) => a.id === id)?.name }
     )
 
@@ -276,7 +276,7 @@ export default function AutomationsPage() {
       {/* Category legend — three families of automations on this page */}
       <div className="grid gap-2 md:grid-cols-3">
         {[
-          { tone: 'border-emerald-100 bg-emerald-50/60', dot: 'bg-emerald-500', title: 'CRM interno', desc: 'Controla NowCRM. Toggles aplican aquí sin tocar n8n real.' },
+          { tone: 'border-emerald-100 bg-emerald-50/60', dot: 'bg-emerald-500', title: 'CRM interno', desc: 'Controla el CRM. Toggles aplican aquí sin tocar n8n real.' },
           { tone: 'border-violet-100 bg-violet-50/60', dot: 'bg-violet-500', title: 'Vertical Pack', desc: 'Catálogo preparado para inmobiliaria, extranjería y servicios.' },
           { tone: 'border-amber-100 bg-amber-50/60', dot: 'bg-amber-500', title: 'Integraciones pendientes', desc: 'n8n / Meta / Calendar reales. Se activan tras VPS + credenciales.' },
         ].map((cat) => (
@@ -549,7 +549,7 @@ export default function AutomationsPage() {
 
       <SectionCard
         title="Contrato n8n"
-        description="Payload exacto que NowCRM enviará a cada workflow. Sirve para que el operador construya los nodos en n8n antes del VPS."
+        description="Payload exacto que el CRM enviará a cada workflow. Sirve para que el operador construya los nodos en n8n antes del VPS."
         action={<Badge variant="indigo" dot>preparado</Badge>}
       >
         <details className="group rounded-xl border border-gray-100 bg-gray-50/60 p-3">

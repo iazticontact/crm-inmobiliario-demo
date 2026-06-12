@@ -490,7 +490,7 @@ export default function DashboardPage() {
             <div className="flex-1">
               <p className="text-sm font-semibold text-gray-900">Tu workspace está listo. Empieza por crear el primer cliente.</p>
               <p className="mt-1 text-xs text-gray-500">
-                A medida que crees clientes, citas y expedientes, este panel se irá rellenando con los datos reales de Costa del Sol Real Homes.
+                A medida que crees clientes, citas y expedientes, este panel se irá rellenando con los datos reales de tu inmobiliaria.
               </p>
               <Button size="sm" className="mt-3" onClick={handleNewClient}>
                 <Plus className="h-3.5 w-3.5" />

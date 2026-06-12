@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { featureFlags } from '@/lib/feature-flags'
 import { getResolvedWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
+import { BRAND } from '@/lib/brand'
 
 export type ProfileRole = 'nowlabs_admin' | 'client_admin' | 'member'
 
@@ -45,10 +46,10 @@ const OFFLINE_FORCE_DEV =
   process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 
 const demoUser: CurrentUser = {
-  name: 'NowCRM Demo',
-  email: 'demo@nowcrm.local',
-  workspaceName: 'NowCRM Demo',
-  initials: 'N',
+  name: BRAND.workspaceName,
+  email: 'demo@crm-demo.local',
+  workspaceName: BRAND.workspaceName,
+  initials: 'DI',
   isDemo: true,
   isAuthenticated: false,
   isFallback: false,
@@ -58,10 +59,10 @@ const demoUser: CurrentUser = {
 }
 
 const offlineCurrentUser: CurrentUser = {
-  name: 'NowCRM Local',
-  email: 'local@nowcrm.local',
-  workspaceName: 'NowCRM Local',
-  initials: 'NL',
+  name: BRAND.workspaceName,
+  email: 'local@crm-demo.local',
+  workspaceName: BRAND.workspaceName,
+  initials: 'DI',
   isDemo: true,
   isAuthenticated: false,
   isFallback: false,
@@ -118,7 +119,7 @@ export function useCurrentUser() {
       }
 
       // Show skeleton on every re-run (including auth-state-change re-runs) so we never
-      // flash "NowCRM Demo" while the real profile resolves in the background.
+      // flash the demo workspace name while the real profile resolves in the background.
       if (mounted) setIsLoading(true)
 
       const supabase = getSupabaseBrowserClient()

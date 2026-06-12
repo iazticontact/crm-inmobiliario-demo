@@ -54,7 +54,7 @@ import {
 } from '@/lib/supabase-queries'
 import type { IntegrationSetting, IntegrationStatus, N8nFlow, N8nFlowStatus } from '@/lib/types'
 
-// Surfaces the internal NowLabs-only sections (n8n flow editor, Assistant Agent
+// Surfaces the internal operator-only sections (n8n flow editor, Assistant Agent
 // external webhook, Meta technical IDs, raw webhook URLs, env-var checklists,
 // Instagram roadmap, production checklist). Off by default so a client clone
 // never sees the operator-facing surface. Set NEXT_PUBLIC_NOWLABS_INTERNAL=true
@@ -72,8 +72,8 @@ type IntegrationCard = {
 }
 
 const integrations: IntegrationCard[] = [
-  { id: 'supabase', name: 'Base de datos', description: 'Auth, datos y persistencia del workspace. Gestionado por NOWLabs.', status: supabaseStatus.configured ? 'connected' : 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Plataforma' },
-  { id: 'agent-tools', name: 'Asistente IA · Tools', description: 'Acciones internas del asistente sobre el CRM. Gestionado por NOWLabs.', status: 'connected', icon: <Zap className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'supabase', name: 'Base de datos', description: 'Auth, datos y persistencia del workspace. Gestionado por el equipo técnico.', status: supabaseStatus.configured ? 'connected' : 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Plataforma' },
+  { id: 'agent-tools', name: 'Asistente IA · Tools', description: 'Acciones internas del asistente sobre el CRM. Gestionado por el equipo técnico.', status: 'connected', icon: <Zap className="h-5 w-5" />, category: 'Plataforma' },
   { id: 'n8n', name: 'Automatizaciones', description: 'Motor interno de flujos para WhatsApp, email y recordatorios.', status: 'demo_ready', icon: <Zap className="h-5 w-5" />, category: 'Automatizacion' },
   { id: 'whatsapp', name: 'WhatsApp Business', description: 'Conexión oficial con Meta Business para recibir y responder mensajes.', status: 'pending_config', icon: <MessageSquare className="h-5 w-5" />, info: 'Pendiente verificación', category: 'Mensajeria' },
   { id: 'instagram', name: 'Instagram', description: 'Mensajes directos desde Instagram, próxima fase.', status: 'pending', icon: <Globe className="h-5 w-5" />, category: 'Social' },
@@ -108,7 +108,7 @@ const supabaseReadiness = [
   { label: 'n8n', value: 'Brazo externo', status: 'Workflows para integraciones, no cerebro del asistente' },
   { label: 'Documentos', value: 'Preparado', status: 'PDFs de informes y facturas generados' },
   { label: 'Dashboard', value: 'Real', status: 'KPIs de clientes, facturas y calendario reales' },
-  { label: 'Automatizaciones avanzadas', value: 'Configurable', status: 'Workflows gestionados por NOWLabs' },
+  { label: 'Automatizaciones avanzadas', value: 'Configurable', status: 'Workflows gestionados por el equipo técnico' },
   { label: 'Produccion', value: 'Pendiente', status: 'Dominio, Resend y deploy en siguiente fase' },
 ]
 
@@ -214,7 +214,7 @@ export default function SettingsPage() {
     { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
   ] : currentUser.isDemo ? [
     { label: 'Nombre del workspace', value: 'Workspace de prueba', icon: <Building2 className="h-4 w-4" /> },
-    { label: 'Email de administrador', value: 'demo@costadelsol.local', icon: <Mail className="h-4 w-4" /> },
+    { label: 'Email de administrador', value: 'admin@inmobiliaria-demo.example', icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: 'Entorno de prueba', icon: <Shield className="h-4 w-4" /> },
     { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
   ] : [
@@ -388,9 +388,9 @@ export default function SettingsPage() {
           ? 'Google no concedio acceso permanente. Ve a myaccount.google.com → Seguridad → Aplicaciones de terceros, revoca el acceso y vuelve a autorizar.'
           : reason === 'unauthenticated'
             ? 'Tu sesion expiro durante la autorizacion. Inicia sesion e intentalo de nuevo.'
-            : 'No se pudo completar la autorizacion. Contacta con el equipo tecnico de NOWLabs.'
+            : 'No se pudo completar la autorizacion. Contacta con el equipo tecnico.'
       const internalDesc = reason === 'not_configured'
-        ? 'La plataforma aún no tiene Google OAuth configurado. Contacta con el equipo técnico de NOWLabs.'
+        ? 'La plataforma aún no tiene Google OAuth configurado. Contacta con el equipo técnico.'
         : reason === 'missing_schema'
           ? 'La tabla google_calendar_connections no existe o le faltan columnas en Supabase. Aplica el SQL de schema y vuelve a intentarlo.'
           : reason === 'missing_unique_index'
@@ -404,12 +404,12 @@ export default function SettingsPage() {
                   : reason === 'db_upsert_failed' || reason === 'db_error'
                     ? 'Google autorizó correctamente pero no se pudo guardar la conexión. Revisa los logs del servidor y el schema de google_calendar_connections.'
                     : reason === 'no_workspace'
-                      ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo técnico de NOWLabs.'
+                      ? 'Tu cuenta no tiene workspace asignado. Contacta con el equipo técnico.'
                       : genericDesc
       const desc = SHOW_INTERNAL_TECH ? internalDesc : genericDesc
       toast.error('No se pudo conectar Google Calendar', { description: desc })
     } else if (status === 'pending') {
-      toast.info('Google Calendar pendiente', { description: 'La conexión OAuth está pendiente. Contacta con el equipo técnico de NOWLabs.' })
+      toast.info('Google Calendar pendiente', { description: 'La conexión OAuth está pendiente. Contacta con el equipo técnico.' })
     }
   }, [])
 
@@ -665,8 +665,8 @@ export default function SettingsPage() {
   const handleIntegrationAction = async (integration: IntegrationCard) => {
     const managedByNowCRM = ['supabase', 'agent-tools', 'n8n', 'whatsapp', 'storage'].includes(integration.id)
     if (managedByNowCRM) {
-      toast.info('Integración gestionada por NOWLabs', {
-        description: 'Esta integración se configura desde la sección correspondiente o directamente por el equipo técnico de NOWLabs.',
+      toast.info('Integración gestionada por el equipo técnico', {
+        description: 'Esta integración se configura desde la sección correspondiente o directamente por el equipo técnico.',
       })
       return
     }
@@ -780,7 +780,7 @@ export default function SettingsPage() {
       if (data.ok) {
         toast.success('Conexion WhatsApp OK', { description: data.message ?? 'Test enviado correctamente.' })
       } else if (data.simulated) {
-        toast.info('Test simulado', { description: data.message ?? (SHOW_INTERNAL_TECH ? 'La plataforma necesita META_ACCESS_TOKEN para envios reales.' : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.') })
+        toast.info('Test simulado', { description: data.message ?? (SHOW_INTERNAL_TECH ? 'La plataforma necesita META_ACCESS_TOKEN para envios reales.' : 'WhatsApp pendiente de configuracion tecnica por el equipo técnico.') })
       } else {
         toast.error('Test fallido', { description: data.message ?? 'Revisa la configuracion del webhook en Meta.' })
       }
@@ -897,7 +897,7 @@ export default function SettingsPage() {
           {SHOW_INTERNAL_TECH && (
           <SectionCard
             title="Infraestructura"
-            description="Base de datos, autenticación y persistencia. Gestionado por NOWLabs."
+            description="Base de datos, autenticación y persistencia. Gestionado por el equipo técnico."
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
               <div className={cn('rounded-xl border px-4 py-3', supabaseStatus.configured ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50')}>
@@ -1013,7 +1013,7 @@ export default function SettingsPage() {
                     <Badge variant={assistantAgentActive ? 'success' : 'warning'} dot>{assistantAgentActive ? 'n8n externo activo' : 'Pendiente de configurar'}</Badge>
                   </div>
                   <p className="text-xs leading-5 text-gray-600">
-                    Brazo externo opcional para automatizaciones. NowLabs AI no usa n8n como cerebro: responde por `/api/assistant/v2` y tools backend.
+                    Brazo externo opcional para automatizaciones. El asistente IA no usa n8n como cerebro: responde por `/api/assistant/v2` y tools backend.
                   </p>
                   <p className="mt-2 truncate rounded-lg bg-white/80 px-2.5 py-1.5 font-mono text-[10px] text-emerald-700 ring-1 ring-emerald-100">
                     {assistantAgentUrl || 'Pendiente de endpoint n8n externo'}
@@ -1102,7 +1102,7 @@ export default function SettingsPage() {
 
           <SectionCard
             title="Plataforma IA"
-            description="Inteligencia artificial y mantenimiento gestionados por NOWLabs."
+            description="Inteligencia artificial y mantenimiento gestionados por el equipo técnico."
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="flex items-start gap-3">
@@ -1110,9 +1110,9 @@ export default function SettingsPage() {
                   <Zap className="h-4 w-4 text-indigo-700" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por NOWLabs</p>
+                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por el equipo técnico</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    La inteligencia artificial, las automatizaciones backend y el mantenimiento están gestionados por NOWLabs. No necesitas configurar ninguna clave de IA.
+                    La inteligencia artificial, las automatizaciones backend y el mantenimiento están gestionados por el equipo técnico. No necesitas configurar ninguna clave de IA.
                   </p>
                 </div>
               </div>
@@ -1121,7 +1121,7 @@ export default function SettingsPage() {
               {[
                 { label: 'Asistente IA', detail: 'Activo', desc: 'Responde en Inbox, Dashboard y Asistente IA' },
                 { label: 'Automatizaciones', detail: 'Configurable', desc: 'Flujos internos preparados, sin envíos reales aún' },
-                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por NOWLabs' },
+                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por el equipo técnico' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
                   <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
@@ -1146,7 +1146,7 @@ export default function SettingsPage() {
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                 <p className="text-[11px] leading-5 text-amber-800">
-                  Conexión individual pendiente de configuración técnica. Contacta con NOWLabs.
+                  Conexión individual pendiente de configuración técnica. Contacta con el equipo técnico.
                 </p>
               </div>
             )}
@@ -1300,11 +1300,11 @@ export default function SettingsPage() {
                                 description: !metaReady
                                   ? SHOW_INTERNAL_TECH
                                     ? `Falta server config Meta: ${metaServerConfig?.missingVariables.join(', ') || '—'}`
-                                    : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.'
+                                    : 'WhatsApp pendiente de configuracion tecnica por el equipo técnico.'
                                   : !openaiReady
                                     ? SHOW_INTERNAL_TECH
                                       ? 'Falta OPENAI_API_KEY en el servidor.'
-                                      : 'Asistente IA pendiente de configuración técnica por NOWLabs.'
+                                      : 'Asistente IA pendiente de configuración técnica por el equipo técnico.'
                                     : 'Conecta WhatsApp Business antes de activar el modo automatico.',
                               })
                               return
@@ -1327,13 +1327,13 @@ export default function SettingsPage() {
                             {!metaReady
                               ? SHOW_INTERNAL_TECH
                                 ? `Servidor WhatsApp pendiente: ${metaServerConfig?.missingVariables.join(', ') || '—'}.`
-                                : 'WhatsApp pendiente de configuracion tecnica por NOWLabs.'
+                                : 'WhatsApp pendiente de configuracion tecnica por el equipo técnico.'
                               : !openaiReady
                                 ? SHOW_INTERNAL_TECH
                                   ? 'Asistente IA pendiente: falta OPENAI_API_KEY en el servidor.'
-                                  : 'Asistente IA pendiente de configuración técnica por NOWLabs.'
+                                  : 'Asistente IA pendiente de configuración técnica por el equipo técnico.'
                                 : !waConnection || String(waConnection.status ?? '') === 'disconnected'
-                                  ? 'El modo automatico requiere WhatsApp conectado. Cuando NOWLabs complete la configuracion tecnica podras activarlo.'
+                                  ? 'El modo automatico requiere WhatsApp conectado. Cuando el equipo técnico complete la configuracion tecnica podras activarlo.'
                                   : 'La respuesta automatica se activara cuando WhatsApp este verificado y conectado.'}
                           </p>
                         </div>
@@ -1366,7 +1366,7 @@ export default function SettingsPage() {
             title={SHOW_INTERNAL_TECH ? 'WhatsApp Business' : 'WhatsApp'}
             description={SHOW_INTERNAL_TECH
               ? 'Conectar número verificado via Meta Business API para recibir leads entrantes y activar Inbox Assistant'
-              : 'Conexión de WhatsApp gestionada por NOWLabs.'}
+              : 'Conexión de WhatsApp gestionada por el equipo técnico.'}
             action={
               SHOW_INTERNAL_TECH && waConnection && String(waConnection.status ?? '') !== 'disconnected'
                 ? <button onClick={() => void handleWADisconnect()} className="text-xs font-medium text-red-500 hover:text-red-600">Desconectar</button>
@@ -1399,12 +1399,12 @@ export default function SettingsPage() {
                           ].filter(Boolean).join(' · ') || 'Conexión activa'
                         : SHOW_INTERNAL_TECH
                           ? 'Introduce los IDs de tu cuenta Meta para vincular WhatsApp Business.'
-                          : 'Pendiente de configuración técnica por NOWLabs.'}
+                          : 'Pendiente de configuración técnica por el equipo técnico.'}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-gray-600">
                       {SHOW_INTERNAL_TECH
-                        ? 'NOWLabs gestiona la conexión técnica con Meta. Tú introduces los IDs de tu Business y el número verificado. El CRM recibe los mensajes entrantes y los procesa en el Inbox.'
-                        : 'Conexión y atención por WhatsApp gestionada por NOWLabs.'}
+                        ? 'El equipo técnico gestiona la conexión técnica con Meta. Tú introduces los IDs de tu Business y el número verificado. El CRM recibe los mensajes entrantes y los procesa en el Inbox.'
+                        : 'Conexión y atención por WhatsApp gestionada por el equipo técnico.'}
                     </p>
                   </div>
                 </div>
@@ -1412,7 +1412,7 @@ export default function SettingsPage() {
                   <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                     <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
                     <div>
-                      <p className="text-xs font-semibold text-slate-900">Configuración de plataforma — gestionada por NOWLabs</p>
+                      <p className="text-xs font-semibold text-slate-900">Configuración de plataforma — gestionada por el equipo técnico</p>
                       <p className="text-[11px] leading-5 text-slate-600">
                         META_WHATSAPP_ACCESS_TOKEN, META_APP_SECRET, META_WEBHOOK_VERIFY_TOKEN y NOWCRM_WEBHOOK_SECRET estan configurados en el servidor por el equipo tecnico. Tu solo introduces los IDs de tu cuenta Meta en el formulario de abajo. No introduzcas tokens ni claves API aqui.
                       </p>
@@ -1514,7 +1514,7 @@ export default function SettingsPage() {
                     <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
                       <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                       <p className="text-[11px] leading-5 text-emerald-700">
-                        No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona NOWLabs en el servidor. El número requiere verificación en Meta antes de recibir mensajes reales.
+                        No introduzcas tokens ni claves API en este panel — solo los IDs de Meta Business. Los secretos los gestiona el equipo técnico en el servidor. El número requiere verificación en Meta antes de recibir mensajes reales.
                       </p>
                     </div>
                   </>
@@ -1522,9 +1522,9 @@ export default function SettingsPage() {
                   <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                     <div>
-                      <p className="text-xs font-semibold text-amber-900">Pendiente de configuracion tecnica por NOWLabs</p>
+                      <p className="text-xs font-semibold text-amber-900">Pendiente de configuracion tecnica por el equipo técnico</p>
                       <p className="mt-1 text-[11px] leading-5 text-amber-700">
-                        El equipo tecnico de NOWLabs configurara la conexion WhatsApp para tu workspace. Cuando este lista veras el estado de conexion aqui.
+                        El equipo tecnico configurara la conexion WhatsApp para tu workspace. Cuando este lista veras el estado de conexion aqui.
                       </p>
                     </div>
                   </div>
@@ -1664,7 +1664,7 @@ export default function SettingsPage() {
                       )}
                     >
                       {managedByDedicatedConfig
-                        ? 'Gestionado por NOWLabs'
+                        ? 'Gestionado por el equipo técnico'
                         : currentStatus === 'connected'
                           ? 'Pasar a pendiente'
                           : currentStatus === 'pending'
@@ -1699,7 +1699,7 @@ export default function SettingsPage() {
             <div className="mt-3 grid gap-2">
               {[
                 { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Auth y core CRM activos' },
-                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'NowLabs AI backend activo' },
+                { icon: <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />, label: 'Asistente IA backend activo' },
                 { icon: gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" /> : <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: gcalConnection && String(gcalConnection.status ?? '') === 'connected' ? 'Google Calendar conectado' : 'Google Calendar pendiente' },
                 { icon: <AlertCircle className="h-3.5 w-3.5 text-amber-500" />, label: 'WhatsApp/Stripe/Resend pendientes' },
               ].map((item) => (
@@ -1710,7 +1710,7 @@ export default function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              <Button size="sm" onClick={() => toast.success('Próximas integraciones', { description: 'Conexión técnica gestionada por NOWLabs. Google Calendar, WhatsApp y Email próximamente.' })}>
+              <Button size="sm" onClick={() => toast.success('Próximas integraciones', { description: 'Conexión técnica gestionada por el equipo técnico. Google Calendar, WhatsApp y Email próximamente.' })}>
                 Ver próximas integraciones
               </Button>
             </div>

@@ -1,8 +1,8 @@
-# NowCRM Functional Audit
+# Auditoría funcional — CRM Inmobiliario Demo
 
 ## Estado general
 
-NowCRM ya no es solo una demo visual. Auth, usuario/workspace, clientes, facturacion, calendario y parte del assistant estan conectados a Supabase cuando existe una sesion real y un workspace. El modo demo sigue disponible y mantiene mock data para poder ensenar el producto sin cuenta real.
+el CRM ya no es solo una demo visual. Auth, usuario/workspace, clientes, facturacion, calendario y parte del assistant estan conectados a Supabase cuando existe una sesion real y un workspace. El modo demo sigue disponible y mantiene mock data para poder ensenar el producto sin cuenta real.
 
 La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS bloquea una consulta o una tabla no coincide con el schema esperado, la pantalla cae a demo/local state y muestra feedback sin romper la UI.
 
@@ -13,7 +13,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 | Auth | Login, signup, callback, reset password y logout usan Supabase. Demo mode sigue entrando a `/dashboard`. | Real + demo | Confirm email puede estar OFF en local; middleware server no implementado. | Activar confirm email con dominio/Resend y cerrar proteccion server. |
 | Usuario/workspace | Sidebar, Topbar, Dashboard y Settings usan usuario/workspace real con fallback a metadata/demo. | Mixto | Si profile/workspace falta por RLS, usa fallback. | Tipos DB generados y helper server compartido. |
 | Dashboard | Lee clientes, facturas, eventos, conversaciones y activities si hay workspace real. | Mixto | Insights/grafica semanal siguen mock. | KPIs historicos reales y analytics por fecha. |
-| Assistant | Carga conversations/messages reales, guarda mensajes y usa `/api/assistant/chat` con OpenAI server-side y tools backend cuando esta configurado. Prepara cards con confirmacion y usa tools seguras para lecturas. | Mixto avanzado | Schema `messages` debe aceptar `sender` o ajustarse; disponibilidad avanzada de calendario no calcula huecos complejos. | Conectar WhatsApp Business oficial y ampliar workflows operativos. |
+| Assistant | Carga conversations/messages reales, guarda mensajes y usa `/api/assistant/v2` con OpenAI server-side y tools backend cuando esta configurado. Prepara cards con confirmacion y usa tools seguras para lecturas. | Mixto avanzado | Schema `messages` debe aceptar `sender` o ajustarse; disponibilidad avanzada de calendario no calcula huecos complejos. | Conectar WhatsApp Business oficial y ampliar workflows operativos. |
 | Clients | CRUD real de clients, notas incluidas, confirmacion de borrado y fallback demo. | Real + demo | Falta detalle avanzado y importacion. | Vista detalle, tags y pipeline. |
 | Automations | UI premium alineada con `n8n_flows`, pruebas via `/api/n8n/trigger` y fallback demo. | Mixto | Las metricas/email history siguen mock. | Migrar `automations` reales si se necesita producto completo. |
 | Calendar | CRUD real de `calendar_events`, modal, loading, empty state y fallback demo. | Real + demo | Semana demo fija para vista principal. | Calendario por fecha actual y sincronizacion externa. |
@@ -21,7 +21,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 | Settings | Control center actualizado: Supabase, Auth, Clients, Billing, Calendar, Assistant, n8n y canales. Carga y guarda `n8n_flows`/`integrations` si hay workspace real. | Mixto | Si el schema de `n8n_flows` o `integrations` difiere, cae a fallback demo. | Verificar columnas y RLS en Supabase. |
 | Supabase | Browser client, helpers por entidad y escritura real en varias tablas. | Mixto | No hay tipos generados de Supabase. | Generar `database.types.ts`. |
 | n8n | API route `/api/n8n/trigger`, payload estandar, aliases heredados, secret opcional y Settings persistente. Queda como brazo externo, no como cerebro. | Mixto | Falta conectar workflows reales. | Probar workflows externos en produccion y anadir siguientes webhooks. |
-| IA | OpenAI se usa server-side desde NowLabs AI mediante `/api/assistant/chat`; Agent Tools legacy sigue en `/api/agent/tool`. | Mixto | `/api/agent/tool` necesita endurecimiento antes de exponerlo a n8n real. | Mantener tools backend allowlist y auditar service_role. |
+| IA | OpenAI se usa server-side desde el Asistente IA mediante `/api/assistant/v2`; Agent Tools legacy sigue en `/api/agent/tool`. | Mixto | `/api/agent/tool` necesita endurecimiento antes de exponerlo a n8n real. | Mantener tools backend allowlist y auditar service_role. |
 
 ## Que funciona ya
 
@@ -31,7 +31,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 - CRUD real de clientes con notas.
 - CRUD real de facturas y metricas basicas reales.
 - CRUD real de eventos de calendario.
-- Persistencia de conversations/messages en Assistant con respuesta desde `/api/assistant/chat` y fallback backend determinista.
+- Persistencia de conversations/messages en Assistant con respuesta desde `/api/assistant/v2` y fallback backend determinista.
 - Cards operativas del Assistant para preparar citas/facturas sin escribir hasta confirmar.
 - Lecturas de Agent Tools desde Assistant para resumen, cobros, huecos y proximas acciones.
 - Activities best-effort para acciones importantes.
@@ -85,7 +85,7 @@ La app sigue usando fallbacks prudentes: si Supabase no devuelve workspace, RLS 
 ### Fase 3: Assistant persistente
 
 - Mantener persistence actual de messages.
-- Mantener `/api/assistant/chat` como backend IA principal.
+- Mantener `/api/assistant/v2` como backend IA principal.
 - Usar deteccion local para intenciones operativas simples.
 - Convertir actions cards en ejecuciones reales confirmadas con calendario, facturacion y clientes.
 

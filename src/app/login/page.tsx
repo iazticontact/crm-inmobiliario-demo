@@ -9,6 +9,7 @@ import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { BRAND } from '@/lib/brand'
 
 type AuthMode = 'signin' | 'forgot'
 type AuthFieldErrors = Partial<Record<'email' | 'password', string>>
@@ -96,7 +97,7 @@ export default function LoginPage() {
 
     if (error === 'no_profile') {
       toast.error('Tu usuario no está vinculado a un workspace', {
-        description: 'Contacta con el responsable interno o con NOWLabs para que te asignen acceso.',
+        description: `Contacta con el responsable interno o con el ${BRAND.supportName} para que te asignen acceso.`,
       })
       window.history.replaceState(null, '', '/login')
     }
@@ -212,7 +213,7 @@ export default function LoginPage() {
               <Building2 className="h-5 w-5" />
             </div>
             <div className="leading-tight">
-              <p className="text-base font-semibold tracking-tight text-gray-950">Costa del Sol Real Homes</p>
+              <p className="text-base font-semibold tracking-tight text-gray-950">{BRAND.appName}</p>
               <p className="text-[11px] uppercase tracking-[0.22em] text-gray-500">Acceso privado</p>
             </div>
           </div>
@@ -227,8 +228,8 @@ export default function LoginPage() {
           </div>
 
           <footer className="flex items-center justify-between text-[11px] text-gray-500">
-            <span>Tecnología por NOWLabs</span>
-            <span>© {new Date().getFullYear()} Costa del Sol Real Homes</span>
+            <span>{BRAND.poweredBy}</span>
+            <span>© {new Date().getFullYear()} {BRAND.appName}</span>
           </footer>
 
           {/* Acento gráfico mínimo en esquina inferior */}
@@ -256,7 +257,7 @@ export default function LoginPage() {
                 <Building2 className="h-4 w-4" />
               </div>
               <div className="leading-tight">
-                <p className="text-base font-semibold text-gray-950">Costa del Sol Real Homes</p>
+                <p className="text-base font-semibold text-gray-950">{BRAND.appName}</p>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-gray-500">Acceso privado</p>
               </div>
             </div>
@@ -279,7 +280,7 @@ export default function LoginPage() {
                     type="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    placeholder="nombre@costadelsol.com"
+                    placeholder="nombre@inmobiliaria.com"
                     autoComplete="email"
                     className={cn(
                       'h-12 w-full rounded-xl border bg-white pl-11 pr-3.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10',
@@ -355,7 +356,7 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <p className="mt-6 text-[11px] text-gray-400 lg:hidden">Tecnología por NOWLabs</p>
+            {BRAND.poweredBy && <p className="mt-6 text-[11px] text-gray-400 lg:hidden">{BRAND.poweredBy}</p>}
           </motion.div>
         </section>
       </main>

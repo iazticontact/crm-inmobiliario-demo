@@ -1,3 +1,8 @@
+> ⚠️ **LEGACY — NO VIGENTE.** Archivado en Fase 1D. Plan de migración ligado a
+> la infraestructura antigua (VPS/n8n previos, marca NowCRM) que **ya no se
+> reutiliza**. Algunas notas de "listo en código" pueden seguir siendo válidas,
+> pero el plan de infraestructura no aplica a la infra nueva.
+
 # Plan de migración a nuevo VPS — n8n + WhatsApp real
 
 Este documento describe el orden quirúrgico para pasar de "todo preparado en

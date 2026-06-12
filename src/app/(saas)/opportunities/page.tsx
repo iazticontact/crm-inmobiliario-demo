@@ -9,7 +9,7 @@
 // Lecturas: helpers workspace-scoped en vertical-queries.ts (RLS al fondo).
 // Escrituras: drawers laterales en src/components/VerticalForms.tsx — usan los
 // mismos helpers que crean (con activity log) las mismas entidades que crea
-// NowLabs AI desde el chat. Inline status/stage edit reescribe vía
+// el Asistente IA desde el chat. Inline status/stage edit reescribe vía
 // updateOpportunityStage / updateServiceCaseStatus / updatePropertyStatus.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'

@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
   if (!canAssignRole(caller, roleRaw)) {
     return NextResponse.json({
-      error: 'No puedes asignar ese rol. Solo un operador NOWLabs puede crear nowlabs_admin.',
+      error: 'No puedes asignar ese rol. Solo un operador interno puede crear nowlabs_admin.',
     }, { status: 403 })
   }
 

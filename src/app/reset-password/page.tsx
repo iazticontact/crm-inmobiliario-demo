@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { BRAND } from '@/lib/brand'
 
 function getPasswordStrength(password: string) {
   let score = 0
@@ -112,7 +113,7 @@ export default function ResetPasswordPage() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-[11px] font-semibold text-indigo-100">
               <Sparkles className="h-3.5 w-3.5" />
-              Costa del Sol CRM
+              {BRAND.appName}
             </div>
             <ShieldCheck className="h-4 w-4 text-emerald-200" />
           </div>

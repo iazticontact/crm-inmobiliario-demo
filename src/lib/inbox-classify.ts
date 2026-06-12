@@ -8,7 +8,7 @@
 //   - email
 //
 // Special lanes:
-//   - crm_internal → NowLabs Copilot / Assistant conversations that should never
+//   - crm_internal → Asistente IA / Copilot conversations that should never
 //     be confused with a real customer thread.
 //   - unknown → defensive fallback.
 //
@@ -179,7 +179,7 @@ export type ChannelDescriptor = {
   tone: string
   /** Default human-readable fallback when there is no client_name nor phone. */
   fallbackContactLabel: string
-  /** Whether NowCRM has any code path that can produce a real message here. */
+  /** Whether the CRM has any code path that can produce a real message here. */
   productionReady: boolean
 }
 
@@ -239,7 +239,7 @@ export const SOURCE_PILL: Record<SourceType, { label: string; tone: string }> = 
   simulated: { label: 'Simulado',   tone: 'bg-amber-50 text-amber-700 border-amber-100' },
   imported:  { label: 'Importado',  tone: 'bg-sky-50 text-sky-700 border-sky-100' },
   pending:   { label: 'Sin marcar', tone: 'bg-slate-50 text-slate-500 border-slate-100' },
-  internal:  { label: 'NowLabs',    tone: 'bg-violet-50 text-violet-700 border-violet-100' },
+  internal:  { label: 'Interno',    tone: 'bg-violet-50 text-violet-700 border-violet-100' },
 }
 
 // Backwards-compat: legacy callers still want SOURCE_BADGE keyed by the old
@@ -296,7 +296,7 @@ export function getConversationDisplay(opts: {
 // -----------------------------------------------------------------------------
 // Tabs — primary lane filter for /inbox.
 //
-// CRM internal (NowLabs Copilot / Assistant) does NOT appear here on purpose.
+// CRM internal (Asistente IA / Copilot) does NOT appear here on purpose.
 // Internal conversations live in /assistant and the dashboard timeline. The
 // Inbox is the operator's channel for **external customer traffic only**.
 // -----------------------------------------------------------------------------
@@ -312,7 +312,7 @@ export type InboxTabDescriptor = {
   key: InboxTab
   label: string
   description: string
-  /** When true, this tab points at a channel NowCRM cannot deliver real
+  /** When true, this tab points at a channel the CRM cannot deliver real
    *  messages to yet. The UI renders the tab but with a "próxima" hint. */
   future?: boolean
 }

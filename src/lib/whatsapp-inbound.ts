@@ -22,7 +22,7 @@
 //
 // What this does NOT do:
 //   - Send auto-replies.
-//   - Call OpenAI / NowLabs.
+//   - Call OpenAI / Asistente IA.
 //   - Trigger n8n.
 //   - Re-broadcast the message anywhere.
 

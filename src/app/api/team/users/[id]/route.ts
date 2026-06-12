@@ -118,7 +118,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // para que un client_admin no pueda renombrar a un operador NOWLabs.
   if (target.role === 'nowlabs_admin' && !caller.isNowlabsAdmin) {
     return NextResponse.json({
-      error: 'Solo un operador NOWLabs puede modificar el perfil de otro nowlabs_admin.',
+      error: 'Solo un operador interno puede modificar el perfil de otro nowlabs_admin.',
     }, { status: 403 })
   }
 
@@ -137,7 +137,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!isValidRole(body.role)) return NextResponse.json({ error: 'Rol no permitido.' }, { status: 400 })
     if (!canAssignRole(caller, body.role)) {
       return NextResponse.json({
-        error: 'No puedes asignar ese rol. Solo un operador NOWLabs puede crear nowlabs_admin.',
+        error: 'No puedes asignar ese rol. Solo un operador interno puede crear nowlabs_admin.',
       }, { status: 403 })
     }
 
@@ -190,7 +190,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   // RLS `profiles_delete_admins` restricts DELETE to nowlabs_admin. Mirror that.
   if (!caller.isNowlabsAdmin) {
     return NextResponse.json({
-      error: 'Sólo un operador NOWLabs puede eliminar usuarios.',
+      error: 'Sólo un operador interno puede eliminar usuarios.',
     }, { status: 403 })
   }
   if (targetId === caller.userId) {

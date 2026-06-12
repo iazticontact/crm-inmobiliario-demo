@@ -37,6 +37,18 @@
 import { NextResponse } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { timingSafeEqual } from 'node:crypto'
+import {
+  getCrmOverview,
+  searchClients,
+  getClient360,
+  getPendingTasks,
+  getInvoicesSummary,
+  getCalendarSummary,
+  getRecentActivity,
+  getConversationsSummary,
+  getDocumentsMetadata,
+  isReaderError,
+} from '@/lib/agent-tool-readers'
 
 export const runtime = 'nodejs'
 
@@ -44,12 +56,88 @@ type AllowedTool =
   | 'get_workspace_summary'
   | 'get_client_summary'
   | 'log_external_automation_event'
+  // Brain reader tools — added for the n8n CRM Agent Brain. All read-only.
+  | 'get_crm_overview'
+  | 'search_clients'
+  | 'get_client_360'
+  | 'get_pending_tasks'
+  | 'get_invoices_summary'
+  | 'get_calendar_summary'
+  | 'get_recent_activity'
+  | 'get_conversations_summary'
+  | 'get_documents_metadata'
 
 const ALLOWED_TOOLS: ReadonlySet<AllowedTool> = new Set<AllowedTool>([
   'get_workspace_summary',
   'get_client_summary',
   'log_external_automation_event',
+  'get_crm_overview',
+  'search_clients',
+  'get_client_360',
+  'get_pending_tasks',
+  'get_invoices_summary',
+  'get_calendar_summary',
+  'get_recent_activity',
+  'get_conversations_summary',
+  'get_documents_metadata',
 ])
+
+// Brain reader dispatch. Each handler is read-only, workspace-scoped, and
+// returns either a shape-stable result object or `{ error, message }`.
+// Keeping this table separate from the original three tools preserves the
+// existing response contract (no `meta` field on legacy responses).
+type BrainTool =
+  | 'get_crm_overview'
+  | 'search_clients'
+  | 'get_client_360'
+  | 'get_pending_tasks'
+  | 'get_invoices_summary'
+  | 'get_calendar_summary'
+  | 'get_recent_activity'
+  | 'get_conversations_summary'
+  | 'get_documents_metadata'
+
+const BRAIN_TOOLS: Record<BrainTool, (s: SupabaseClient, w: string, i: Record<string, unknown>) => Promise<unknown>> = {
+  get_crm_overview: (s, w) => getCrmOverview(s, w),
+  search_clients: (s, w, i) => searchClients(s, w, i),
+  get_client_360: (s, w, i) => getClient360(s, w, i),
+  get_pending_tasks: (s, w, i) => getPendingTasks(s, w, i),
+  get_invoices_summary: (s, w, i) => getInvoicesSummary(s, w, i),
+  get_calendar_summary: (s, w, i) => getCalendarSummary(s, w, i),
+  get_recent_activity: (s, w, i) => getRecentActivity(s, w, i),
+  get_conversations_summary: (s, w, i) => getConversationsSummary(s, w, i),
+  get_documents_metadata: (s, w, i) => getDocumentsMetadata(s, w, i),
+}
+
+function isBrainTool(t: string): t is BrainTool {
+  return Object.prototype.hasOwnProperty.call(BRAIN_TOOLS, t)
+}
+
+// Counts the "natural" result quantity per brain tool so the access log can
+// surface it without scanning the full payload. Returns null when not
+// applicable.
+function brainResultCount(tool: BrainTool, result: unknown): number | null {
+  if (!result || typeof result !== 'object') return null
+  const r = result as Record<string, unknown>
+  switch (tool) {
+    case 'get_crm_overview': {
+      const c = r.clients as { total?: number } | undefined
+      return c?.total ?? null
+    }
+    case 'search_clients': return Array.isArray(r.results) ? r.results.length : null
+    case 'get_client_360': return r.client ? 1 : 0
+    case 'get_pending_tasks': return Array.isArray(r.tasks) ? r.tasks.length : null
+    case 'get_invoices_summary': {
+      const totals = r.totals as { pendingCount?: number; overdueCount?: number } | undefined
+      if (!totals) return null
+      return (totals.pendingCount ?? 0) + (totals.overdueCount ?? 0)
+    }
+    case 'get_calendar_summary': return Array.isArray(r.events) ? r.events.length : null
+    case 'get_recent_activity': return Array.isArray(r.activity) ? r.activity.length : null
+    case 'get_conversations_summary': return Array.isArray(r.conversations) ? r.conversations.length : null
+    case 'get_documents_metadata': return Array.isArray(r.documents) ? r.documents.length : null
+  }
+}
 
 // Tools we used to expose. Returning 410 (instead of 404) tells legacy n8n
 // workflows that these endpoints are gone on purpose so the workflow author
@@ -112,11 +200,29 @@ function ok(tool: AllowedTool, result: unknown, message: string) {
 
 // Sanitised access log. Never includes the secret, the input payload or PII —
 // just enough to correlate a workflow run in server logs with an event.
-function logCall(tool: string, workspaceId: string, status: number) {
-  console.log(`[agent/tool] tool=${tool} workspace=${workspaceId.slice(0, 8)}… status=${status}`)
+//
+// `meta` is optional and only populated for brain tools (the read tools used
+// by the n8n CRM Agent Brain). Existing callers stay backwards-compatible
+// because the 4th argument is optional.
+function logCall(
+  tool: string,
+  workspaceId: string,
+  status: number,
+  meta?: { durationMs?: number; count?: number | null; errorCode?: string },
+) {
+  const parts = [
+    `tool=${tool}`,
+    `workspace=${workspaceId.slice(0, 8)}…`,
+    `status=${status}`,
+  ]
+  if (meta?.durationMs !== undefined) parts.push(`durationMs=${meta.durationMs}`)
+  if (meta?.count !== undefined && meta.count !== null) parts.push(`count=${meta.count}`)
+  if (meta?.errorCode) parts.push(`errorCode=${meta.errorCode}`)
+  console.log(`[agent/tool] ${parts.join(' ')}`)
 }
 
 export async function POST(request: Request) {
+  const start = Date.now()
   // 1. Endpoint must be fully configured to serve any request.
   const expectedSecret = process.env.AGENT_TOOL_SECRET?.trim()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
@@ -186,6 +292,49 @@ export async function POST(request: Request) {
   } catch {
     logCall(tool, workspaceId, 503)
     return fail('workspace_lookup_failed', 503)
+  }
+
+  // Brain reader tools — used by the n8n CRM Agent Brain. Dispatch through a
+  // dedicated table and return early so the legacy three-tool branch below
+  // stays untouched (preserves its response contract). Brain responses
+  // include a `meta` block with workspaceId, count and durationMs; legacy
+  // ones do not.
+  if (isBrainTool(tool)) {
+    try {
+      const result = await BRAIN_TOOLS[tool](supabase, workspaceId, input)
+      const durationMs = Date.now() - start
+      if (isReaderError(result)) {
+        const code = result.error
+        const status = code === 'not_found' ? 404 : code === 'invalid_input' ? 422 : 500
+        logCall(tool, workspaceId, status, { durationMs, errorCode: code })
+        return NextResponse.json({
+          ok: false,
+          tool,
+          error: code,
+          message: result.message,
+          meta: { workspaceId, durationMs },
+        }, { status })
+      }
+      const count = brainResultCount(tool, result)
+      logCall(tool, workspaceId, 200, { durationMs, count })
+      return NextResponse.json({
+        ok: true,
+        tool,
+        result,
+        message: `${tool}_ok`,
+        meta: { workspaceId, count, durationMs },
+      })
+    } catch {
+      const durationMs = Date.now() - start
+      logCall(tool, workspaceId, 500, { durationMs, errorCode: 'tool_execution_failed' })
+      return NextResponse.json({
+        ok: false,
+        tool,
+        error: 'tool_execution_failed',
+        message: 'Error inesperado al ejecutar la herramienta.',
+        meta: { workspaceId, durationMs },
+      }, { status: 500 })
+    }
   }
 
   try {

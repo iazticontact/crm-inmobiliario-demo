@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags, type FlagKey } from '@/lib/feature-flags'
+import { BRAND } from '@/lib/brand'
 
 // `flag` lets a client clone hide a module via NEXT_PUBLIC_ENABLE_* env vars
 // without touching code. `internal` marks entries that only appear when
@@ -89,9 +90,9 @@ export function Sidebar() {
         </div>
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-bold text-white">Costa del Sol CRM</span>
+            <span className="text-sm font-bold text-white">{BRAND.appName}</span>
           </div>
-          <p className="text-[10px] text-slate-500">Tecnología por NOWLabs</p>
+          {BRAND.poweredBy && <p className="text-[10px] text-slate-500">{BRAND.poweredBy}</p>}
         </div>
       </div>
 
@@ -141,7 +142,7 @@ export function Sidebar() {
         {/* Divider + quick links */}
         <div className="mt-4 space-y-0.5 border-t border-white/10 pt-4">
           <button
-            onClick={() => toast.info('Soporte', { description: 'Para incidencias contacta con el responsable interno o con el equipo técnico de NOWLabs.' })}
+            onClick={() => toast.info('Soporte', { description: `Para incidencias contacta con el responsable interno o con el ${BRAND.supportName}.` })}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <HelpCircle className="h-4 w-4 shrink-0 text-slate-500" />

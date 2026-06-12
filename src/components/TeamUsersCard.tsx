@@ -16,6 +16,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { cn } from '@/lib/utils'
 import type { ProfileRole } from '@/lib/current-user'
+import { BRAND } from '@/lib/brand'
 
 type TeamUser = {
   id: string
@@ -29,7 +30,7 @@ type TeamUser = {
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  nowlabs_admin: 'Operador NOWLabs',
+  nowlabs_admin: 'Operador interno',
   client_admin: 'Administrador',
   member: 'Usuario',
 }
@@ -292,7 +293,7 @@ function InviteUserModal({
       ? [
           { value: 'member', label: 'Usuario' },
           { value: 'client_admin', label: 'Administrador' },
-          { value: 'nowlabs_admin', label: 'Operador NOWLabs' },
+          { value: 'nowlabs_admin', label: 'Operador interno' },
         ]
       : [
           { value: 'member', label: 'Usuario' },
@@ -337,7 +338,7 @@ function InviteUserModal({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-gray-950">Invitar usuario</h3>
-              <p className="text-[11px] text-gray-500">El usuario recibirá acceso al workspace de Costa del Sol Real Homes.</p>
+              <p className="text-[11px] text-gray-500">El usuario recibirá acceso al workspace de {BRAND.workspaceName}.</p>
             </div>
           </div>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
@@ -367,7 +368,7 @@ function InviteUserModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="nombre@costadelsol.com"
+                placeholder="nombre@inmobiliaria.com"
                 className="h-10 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>

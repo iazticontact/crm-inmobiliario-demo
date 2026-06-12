@@ -312,7 +312,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
     : 'Modo CRM Copilot: eres empleado interno del CRM. Ayudas al usuario del CRM a consultar Supabase, preparar citas, facturas, cobros, propuestas y próximas acciones.'
 
   return [
-    'Eres Assistant Agent de NowCRM y debes respetar el modo activo.',
+    'Eres el Asistente IA del CRM y debes respetar el modo activo.',
     modeDescription,
     'Si el usuario pregunta de forma consultiva, responde humano, concreto y adaptado a su negocio; no contestes como menu.',
     'Si detectas reserva/cita, pide solo datos mínimos o prepara la cita; no propongas llamadas comerciales genéricas.',
@@ -320,7 +320,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
     'Si preguntan por precios/planes, no inventes importes: pide tipo de negocio, usuarios y modulos a activar.',
     'WhatsApp Business (Meta Cloud API) es la siguiente fase; no digas que ya está conectado.',
     'Responde en español, maximo 3 frases, con tono operativo.',
-    'No confirmes acciones críticas como creadas si el usuario no las ha confirmado en NowCRM.',
+    'No confirmes acciones críticas como creadas si el usuario no las ha confirmado en el CRM.',
     `Conversacion actual: ${conversation?.clientName ?? 'consulta interna'} · ${conversation?.intent ?? 'sin intencion asignada'}.`,
     `assistant_mode: ${assistantMode}.`,
     `Historial reciente:\n${formatRecentHistory(messages)}`,
@@ -340,8 +340,8 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   if (isCapabilityQuestion(normalized)) {
     const summaryText = workspaceSummary ? `En ${workspaceName || 'tu workspace'}, tienes ${workspaceSummary.total_clients} clientes, ${workspaceSummary.leads} leads, ${workspaceSummary.pending_invoices} facturas pendientes y ${workspaceSummary.overdue_invoices} vencidas.` : ''
     return isInbox
-      ? `Soy Inbox Assistant: la capa de conversaciones de NowCRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. ${summaryText} WhatsApp Business (Meta Cloud API) es la siguiente fase para que esos mensajes entren solos.`
-      : `Soy tu CRM Copilot interno de NowCRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. ${summaryText} También puedo preparar respuestas o propuestas para clientes.`
+      ? `Soy el Asistente IA del Inbox: la capa de conversaciones del CRM. Puedo ayudarte a responder clientes, detectar intención, resumir conversaciones y preparar citas o facturas con confirmación. ${summaryText} WhatsApp Business (Meta Cloud API) es la siguiente fase para que esos mensajes entren solos.`
+      : `Soy tu Asistente IA interno del CRM. Puedo ayudarte a buscar clientes, preparar citas, crear facturas con confirmación, revisar cobros y proponerte próximas acciones comerciales. ${summaryText} También puedo preparar respuestas o propuestas para clientes.`
   }
 
   if (isPricingQuestion(normalized)) {
@@ -350,7 +350,7 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
 
   if (isConsultativeBusinessQuestion(normalized) || isReservationAutomationQuery(normalized)) {
     const businessLabel = normalized.includes('peluqueria') ? 'una peluquería' : normalized.includes('clinica') ? 'una clínica' : normalized.includes('restaurante') ? 'un restaurante' : 'ese negocio'
-    return `Para ${businessLabel}, NowCRM puede centralizar la gestión de clientes, preparar reservas en calendario y automatizar seguimientos. El asistente puede recopilar nombre, servicio, fecha y hora, y crear la cita con confirmación. Si deseas integrar WhatsApp o llamadas reales, esa sería la siguiente fase con WhatsApp Business (Meta Cloud API).`
+    return `Para ${businessLabel}, el CRM puede centralizar la gestión de clientes, preparar reservas en calendario y automatizar seguimientos. El asistente puede recopilar nombre, servicio, fecha y hora, y crear la cita con confirmación. Si deseas integrar WhatsApp o llamadas reales, esa sería la siguiente fase con WhatsApp Business (Meta Cloud API).`
   }
 
   if (hasAny(text, ['demo', 'reunion', 'reunir', 'llamada', 'agenda', 'cita', 'calendario', 'reserva'])) {
@@ -370,11 +370,11 @@ export function generateMockAIResponse({ input, workspaceName, conversation, mes
   }
 
   if (hasAny(text, ['automatizacion', 'automatizar', 'n8n', 'webhook', 'flujo', 'workflow'])) {
-    return `Recomiendo plantearlo como flujo n8n: trigger claro, payload desde NowCRM, validación de requisitos y actividad final. Para empezar, usar "Nuevo lead" o "Factura vencida", ya que tienen datos reales en Supabase.`
+    return `Recomiendo plantearlo como flujo n8n: trigger claro, payload desde el CRM, validación de requisitos y actividad final. Para empezar, usar "Nuevo lead" o "Factura vencida", ya que tienen datos reales en Supabase.`
   }
 
   if (hasAny(text, ['funciona', 'caracteristica', 'feature', 'ia', 'crm'])) {
-    return `NowCRM es un CRM con datos reales, asistente persistente e integraciones preparadas. El mensaje clave: menos tareas manuales, más seguimiento comercial y una base lista para IA/n8n reales.`
+    return `Este CRM tiene datos reales, asistente persistente e integraciones preparadas. El mensaje clave: menos tareas manuales, más seguimiento comercial y una base lista para IA/n8n reales.`
   }
 
   return `Mensaje registrado para ${client}. Próximo paso recomendado: resumir el contexto, confirmar necesidad y proponer una acción concreta en las próximas 24 horas. ${contextSize}`

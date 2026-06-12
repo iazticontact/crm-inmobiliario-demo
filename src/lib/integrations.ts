@@ -133,7 +133,7 @@ export const n8nWebhookConfigs: WebhookConfig[] = [
   { event: 'client_updated', label: 'Cliente actualizado', description: 'Sincroniza cambios del perfil comercial y registra seguimiento.', trigger: 'Edicion de cliente', url: 'https://n8n.tudominio.com/webhook/client-updated', status: 'pending_config', requires: ['Supabase', 'n8n'] },
   { event: 'client_deleted', label: 'Cliente eliminado', description: 'Limpia tareas pendientes o avisa al equipo antes de borrar contexto.', trigger: 'Borrado de cliente', url: 'https://n8n.tudominio.com/webhook/client-deleted', status: 'inactive', requires: ['Supabase', 'n8n'] },
   { event: 'whatsapp_message', label: 'Mensaje WhatsApp', description: 'Registra conversacion, clasifica intencion y propone respuesta IA.', trigger: 'Mensaje WhatsApp Business', url: 'https://n8n.tudominio.com/webhook/whatsapp-message', status: 'pending_config', requires: ['Supabase', 'n8n', 'WhatsApp/API'] },
-  { event: 'assistant_message', label: 'Assistant Agent externo', description: 'Workflow n8n opcional para integraciones externas. NowLabs AI responde por /api/assistant/v2.', trigger: 'Mensaje enviado al assistant', url: ASSISTANT_AGENT_WEBHOOK_URL, status: 'pending_config', requires: ['n8n'] },
+  { event: 'assistant_message', label: 'Assistant Agent externo', description: 'Workflow n8n opcional para integraciones externas. El Asistente IA responde por /api/assistant/v2.', trigger: 'Mensaje enviado al assistant', url: ASSISTANT_AGENT_WEBHOOK_URL, status: 'pending_config', requires: ['n8n'] },
   { event: 'conversation_resolved', label: 'Conversacion resuelta', description: 'Registra cierre, resumen y siguiente accion si procede.', trigger: 'Conversacion marcada como resuelta', url: 'https://n8n.tudominio.com/webhook/conversation-resolved', status: 'demo', requires: ['Supabase', 'n8n'] },
   { event: 'appointment_booked', label: 'Reunion agendada', description: 'Guarda evento, envia confirmacion y prepara resumen previo.', trigger: 'Nueva cita en calendario', url: 'https://n8n.tudominio.com/webhook/appointment-booked', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
   { event: 'calendar_event_created', label: 'Evento de calendario', description: 'Dispara recordatorios o preparacion comercial para reuniones.', trigger: 'Nuevo evento en calendario', url: 'https://n8n.tudominio.com/webhook/calendar-event-created', status: 'demo', requires: ['Supabase', 'n8n', 'Email/API'] },
@@ -282,7 +282,7 @@ export async function simulateWhatsAppIncomingLead(
   const lead = {
     name: 'Lead WhatsApp Demo',
     phone: options.phone?.trim() || '+34600000000',
-    message: 'Hola, vi vuestro anuncio y me interesa NowCRM. ¿Podéis darme más información?',
+    message: 'Hola, vi vuestro anuncio y me interesa una de vuestras propiedades. ¿Podéis darme más información?',
   }
 
   lead.message = 'Hola, estoy interesado en recibir informacion.'
@@ -329,7 +329,7 @@ export async function simulateWhatsAppIncomingLead(
         provider: 'test',
         phone: lead.phone,
         customerName: lead.name,
-        customerEmail: 'lead.demo@nowcrm.local',
+        customerEmail: 'lead.demo@example.com',
         message: lead.message,
         externalConversationId: `demo-whatsapp-${workspaceId}-${lead.phone}`,
         externalMessageId: `demo-${requestId}`,

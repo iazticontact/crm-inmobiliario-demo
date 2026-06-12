@@ -380,7 +380,7 @@ export default function InboxPage() {
       })
       const data = await res.json()
       if (!data.ok) {
-        toast.error('NowLabs no pudo procesar', { description: data.error })
+        toast.error('El asistente no pudo procesar', { description: data.error })
         return
       }
       const decision = data.decision as AgentDecision
@@ -391,7 +391,7 @@ export default function InboxPage() {
             SHOW_INTERNAL_TECH
               ? 'Falta OPENAI_API_KEY en el servidor'
               : 'IA pendiente de configuracion del servidor',
-            { description: SHOW_INTERNAL_TECH ? undefined : 'Contacta con NOWLabs para activar esta integracion.' },
+            { description: SHOW_INTERNAL_TECH ? undefined : 'Contacta con el equipo técnico para activar esta integración.' },
           )
         } else if (decision.reason === 'empty_conversation') {
           toast.info('No hay mensajes para analizar')
@@ -410,7 +410,7 @@ export default function InboxPage() {
         await loadConversations()
         toast.success('Análisis guardado en la conversación')
       } else {
-        toast.success('NowLabs ha procesado la conversación')
+        toast.success('El asistente ha procesado la conversación')
       }
     } catch (err) {
       console.error('[inbox/agent] error', err)
@@ -513,7 +513,7 @@ export default function InboxPage() {
                   Hasta entonces los envios manuales se guardaran como borrador.
                 </>
               ) : (
-                <>Conexion Meta pendiente. La conexion tecnica esta gestionada por NOWLabs. Hasta que se complete, los envios manuales se guardaran como borrador.</>
+                <>Conexion Meta pendiente. La conexion tecnica esta gestionada por el equipo técnico. Hasta que se complete, los envios manuales se guardaran como borrador.</>
               )}
             </p>
           </div>
@@ -531,7 +531,7 @@ export default function InboxPage() {
                   Falta <code className="rounded bg-white px-1 text-[10px]">OPENAI_API_KEY</code> en el servidor. Los botones IA estaran desactivados hasta que se configure.
                 </>
               ) : (
-                <>IA pendiente de configuracion del servidor. Contacta con NOWLabs para activar esta integracion. Los botones IA estaran desactivados hasta entonces.</>
+                <>IA pendiente de configuracion del servidor. Contacta con el equipo técnico para activar esta integración. Los botones IA estaran desactivados hasta entonces.</>
               )}
             </p>
           </div>
@@ -594,7 +594,7 @@ export default function InboxPage() {
                 description={
                   SHOW_INTERNAL_TECH
                     ? 'Configura Meta Cloud API en el servidor (claves) y registra el webhook público (Vercel o cloudflared). Cuando llegue el primer mensaje real aparecerá aquí.'
-                    : 'Conexión de WhatsApp pendiente. Gestionada por NOWLabs. Cuando llegue el primer mensaje real aparecerá aquí.'
+                    : 'Conexión de WhatsApp pendiente. Gestionada por el equipo técnico. Cuando llegue el primer mensaje real aparecerá aquí.'
                 }
               />
             ) : (
@@ -773,7 +773,7 @@ export default function InboxPage() {
                         return (
                           <div key={m.id} className="flex justify-center">
                             <div className="max-w-[72%] rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-center text-[11px] leading-snug text-slate-600">
-                              <span className="font-semibold text-slate-500">NowLabs · </span>
+                              <span className="font-semibold text-slate-500">Asistente · </span>
                               <span className="whitespace-pre-wrap">{m.body}</span>
                               <span className="ml-2 text-[10px] text-slate-400">{formatDateTime(m.created_at)}</span>
                             </div>
@@ -845,7 +845,7 @@ export default function InboxPage() {
                     const aiTitle = aiDisabled
                       ? (SHOW_INTERNAL_TECH
                           ? 'Configura OPENAI_API_KEY en el servidor para activar el agente IA.'
-                          : 'IA pendiente de configuracion del servidor. Contacta con NOWLabs.')
+                          : 'IA pendiente de configuracion del servidor. Contacta con el equipo técnico.')
                       : undefined
                     return (
                       <>

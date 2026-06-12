@@ -1,14 +1,14 @@
-# NowCRM AI Agent Plan
+# Plan del Asistente IA — CRM Inmobiliario Demo
 
 ## Objetivo
 
-Preparar un agente IA tipo empleado del CRM que pueda consultar y ejecutar acciones controladas en NowCRM desde `/api/assistant/chat`, OpenAI server-side y tools backend seguras.
+Preparar un agente IA tipo empleado del CRM que pueda consultar y ejecutar acciones controladas en el CRM desde `/api/assistant/v2`, OpenAI server-side y tools backend seguras.
 
 Arquitectura:
 
 ```text
-UI NowLabs AI
-  -> POST /api/assistant/chat
+UI Asistente IA
+  -> POST /api/assistant/v2
   -> OpenAI Responses API opcional
   -> tools backend allowlist
   -> Supabase guarda/consulta desde servidor
@@ -106,7 +106,7 @@ Empleado interno del CRM. El usuario le pide buscar clientes, resumir cuentas, p
 5. URL: `https://tu-dominio.com/api/agent/tool`.
 6. Header opcional: `x-nowcrm-secret`.
 7. Body JSON con `tool`, `workspace_id`, `input`, `metadata`.
-8. Usar `result` para workflows externos. n8n no debe ser el cerebro de NowLabs AI.
+8. Usar `result` para workflows externos. n8n no debe ser el cerebro de Asistente IA.
 
 ## Assistant Agent real
 
@@ -114,13 +114,13 @@ Flujo actual:
 
 ```text
 /assistant
-  -> POST /api/assistant/chat
+  -> POST /api/assistant/v2
   -> OpenAI Responses API si OPENAI_AGENT_ENABLED=true
   -> tools backend seguras
-  -> NowCRM devuelve respuesta y preparedAction
+  -> el CRM devuelve respuesta y preparedAction
 ```
 
-La API key de OpenAI vive solo en el backend de NowCRM. n8n queda reservado para WhatsApp, email, PDFs, recordatorios y workflows externos.
+La API key de OpenAI vive solo en el backend del CRM. n8n queda reservado para WhatsApp, email, PDFs, recordatorios y workflows externos.
 
 ## Storage / Documents readiness
 
@@ -134,12 +134,12 @@ Supabase Storage queda como siguiente fase para propuestas, PDFs de factura y ad
 
 El CRM debe indexar esos archivos en una tabla `documents` con `workspace_id`, `client_id`, `storage_bucket`, `storage_path`, `mime_type` y `size`. Las tools futuras deben crear primero el archivo en Storage y después registrar el documento.
 
-## OpenAI server-side en NowLabs AI
+## OpenAI server-side en Asistente IA
 
 Prompt recomendado:
 
 ```text
-Eres el empleado IA de NowCRM.
+Eres el empleado IA del CRM.
 Puedes pedir herramientas internas via /api/agent/tool.
 No inventes datos. Si falta informacion, usa get_workspace_summary, search_clients o get_client_detail.
 Cuando propongas una accion, devuelve JSON con tool, input y explicacion.
@@ -155,7 +155,7 @@ Ejemplos de usuario:
 
 ## Proximos pasos
 
-1. Mantener `/api/assistant/chat` como flujo real principal.
+1. `/api/assistant/v2` es el flujo real principal del asistente (la ruta legacy `/api/assistant/chat` se eliminó).
 2. Conectar Meta Cloud API para Inbox Assistant.
 3. Permitir que OpenAI use tools backend allowlist.
 4. Revisar `/api/agent/tool` antes de exponerlo a n8n real.
