@@ -44,3 +44,6 @@ next-env.d.ts
 
 # claude code
 .claude/
+
+# agent memory (internal Claude notes — not part of the repo)
+/memory/
