@@ -340,6 +340,10 @@ export default function ClientsPage() {
       toast.error('Falta el nombre del cliente.')
       return
     }
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (solo lectura)', { description: 'Crear y editar clientes estará disponible al conectar tu cuenta.' })
+      return
+    }
     if (!workspaceId) {
       toast.error('No se ha encontrado workspace activo.')
       return
@@ -396,6 +400,11 @@ export default function ClientsPage() {
 
   const handleDelete = async () => {
     if (!clientToDelete) return
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (solo lectura)', { description: 'Eliminar clientes estará disponible al conectar tu cuenta.' })
+      setClientToDelete(null)
+      return
+    }
     setDeleting(true)
     try {
       await deleteClient(clientToDelete.id)

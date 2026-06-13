@@ -215,8 +215,12 @@ export default function OpportunitiesPage() {
   // Inline stage / status edits — optimistic + persisted.
   async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
     if (nextStage === opp.stage) return
-    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setOpportunities((prev) => prev.map((o) => (o.id === opp.id ? { ...o, stage: nextStage } : o)))
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo: cambio aplicado en pantalla (no se guarda).')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updateOpportunityStage(workspaceId, opp.id, nextStage)
     if (!ok) {
       toast.error('No se pudo cambiar la etapa.')
@@ -228,8 +232,12 @@ export default function OpportunitiesPage() {
 
   async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
     if (nextStatus === row.status) return
-    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setCases((prev) => prev.map((c) => (c.id === row.id ? { ...c, status: nextStatus } : c)))
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo: cambio aplicado en pantalla (no se guarda).')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updateServiceCaseStatus(workspaceId, row.id, nextStatus)
     if (!ok) {
       toast.error('No se pudo cambiar el estado del expediente.')
@@ -241,8 +249,12 @@ export default function OpportunitiesPage() {
 
   async function handlePropertyStatus(row: PropertyRow, nextStatus: string) {
     if (nextStatus === row.status) return
-    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setProperties((prev) => prev.map((p) => (p.id === row.id ? { ...p, status: nextStatus } : p)))
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo: cambio aplicado en pantalla (no se guarda).')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updatePropertyStatus(workspaceId, row.id, nextStatus)
     if (!ok) {
       toast.error('No se pudo cambiar el estado de la propiedad.')
