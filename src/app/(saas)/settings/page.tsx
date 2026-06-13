@@ -808,7 +808,9 @@ export default function SettingsPage() {
 
   const settingsBadge = userLoading
     ? { label: 'Cargando', variant: 'default' as const }
-    : { label: 'Workspace activo', variant: 'success' as const }
+    : currentUser.isDemo
+      ? { label: 'Modo demo', variant: 'indigo' as const }
+      : { label: 'Workspace activo', variant: 'success' as const }
 
   return (
     <motion.div

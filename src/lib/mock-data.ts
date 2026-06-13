@@ -25,6 +25,7 @@ import type {
   WeeklyLeads,
   RevenueByPlan,
 } from './types'
+import { demoDate } from './demo/demo-dates'
 
 export const dashboardMetrics = [
   { label: 'Clientes activos', value: '342', change: 9.4, changeLabel: 'vs. mes anterior', icon: 'Users' },
@@ -149,25 +150,29 @@ export const automationEmails: AutomationEmail[] = [
   { id: 'e6', automationId: '3', recipient: 'interesado.inactivo@example.com', subject: '¿Seguimos buscando tu próxima vivienda?', sentAt: 'Hace 3 días', status: 'opened' },
 ]
 
+// Fechas relativas a hoy para que la agenda demo siempre muestre visitas
+// próximas de esta semana, sin importar cuándo se abra la demo.
 export const calendarEvents: CalendarEvent[] = [
-  { id: 'ev1', title: 'Visita piso Calle Mayor 14', date: '2026-06-15', startHour: 18, startMinute: 0, duration: 60, type: 'demo', clientName: 'Lucía Herrera', description: 'Vivienda de 3 dormitorios' },
-  { id: 'ev2', title: 'Llamada de seguimiento', date: '2026-06-15', startHour: 12, startMinute: 30, duration: 30, type: 'call', clientName: 'Marcos Beltrán' },
-  { id: 'ev3', title: 'Reunión interna equipo comercial', date: '2026-06-16', startHour: 9, startMinute: 0, duration: 90, type: 'meeting', description: 'Revisión de cartera y nuevos encargos' },
-  { id: 'ev4', title: 'Seguimiento Familia Soler', date: '2026-06-16', startHour: 11, startMinute: 0, duration: 45, type: 'follow-up', clientName: 'Familia Soler' },
-  { id: 'ev5', title: 'Visita ático Plaza España', date: '2026-06-17', startHour: 17, startMinute: 0, duration: 60, type: 'demo', clientName: 'Roberto Díaz' },
-  { id: 'ev6', title: 'Firma de reserva — chalet Los Robles', date: '2026-06-18', startHour: 10, startMinute: 0, duration: 90, type: 'meeting', clientName: 'Marta Vidal', description: 'Chalet en Urbanización Los Robles' },
-  { id: 'ev7', title: 'Revisión de propuesta de inversión', date: '2026-06-19', startHour: 11, startMinute: 30, duration: 45, type: 'call', clientName: 'Inversiones Atlántico SL' },
+  { id: 'ev1', title: 'Visita piso Calle Mayor 14', date: demoDate(1), startHour: 18, startMinute: 0, duration: 60, type: 'demo', clientName: 'Lucía Herrera', description: 'Vivienda de 3 dormitorios' },
+  { id: 'ev2', title: 'Llamada de seguimiento', date: demoDate(1), startHour: 12, startMinute: 30, duration: 30, type: 'call', clientName: 'Marcos Beltrán' },
+  { id: 'ev3', title: 'Reunión interna equipo comercial', date: demoDate(2), startHour: 9, startMinute: 0, duration: 90, type: 'meeting', description: 'Revisión de cartera y nuevos encargos' },
+  { id: 'ev4', title: 'Seguimiento Familia Soler', date: demoDate(2), startHour: 11, startMinute: 0, duration: 45, type: 'follow-up', clientName: 'Familia Soler' },
+  { id: 'ev5', title: 'Visita ático Plaza España', date: demoDate(3), startHour: 17, startMinute: 0, duration: 60, type: 'demo', clientName: 'Roberto Díaz' },
+  { id: 'ev6', title: 'Firma de reserva — chalet Los Robles', date: demoDate(4), startHour: 10, startMinute: 0, duration: 90, type: 'meeting', clientName: 'Marta Vidal', description: 'Chalet en Urbanización Los Robles' },
+  { id: 'ev7', title: 'Revisión de propuesta de inversión', date: demoDate(5), startHour: 11, startMinute: 30, duration: 45, type: 'call', clientName: 'Inversiones Atlántico SL' },
 ]
 
+// Fechas relativas: facturas pagadas/pendientes recientes con vencimiento
+// próximo; las vencidas quedan claramente en el pasado.
 export const invoices: Invoice[] = [
-  { id: 'F-2026-001', clientName: 'Familia Soler', amount: 3500, status: 'paid', date: '2026-06-01', dueDate: '2026-06-15', plan: 'Honorarios venta' },
-  { id: 'F-2026-002', clientName: 'Marcos Beltrán', amount: 150, status: 'pending', date: '2026-06-02', dueDate: '2026-06-16', plan: 'Tasación' },
-  { id: 'F-2026-003', clientName: 'Inversiones Atlántico SL', amount: 4200, status: 'paid', date: '2026-06-01', dueDate: '2026-06-15', plan: 'Honorarios venta' },
-  { id: 'F-2026-004', clientName: 'Pablo Ferrer', amount: 600, status: 'overdue', date: '2026-05-01', dueDate: '2026-05-15', plan: 'Gestión alquiler' },
-  { id: 'F-2026-005', clientName: 'Marta Vidal', amount: 150, status: 'pending', date: '2026-06-03', dueDate: '2026-06-17', plan: 'Tasación' },
-  { id: 'F-2026-006', clientName: 'Carmen Lozano', amount: 2800, status: 'overdue', date: '2026-05-05', dueDate: '2026-05-19', plan: 'Honorarios venta' },
-  { id: 'F-2026-007', clientName: 'Roberto Díaz', amount: 900, status: 'paid', date: '2026-06-01', dueDate: '2026-06-15', plan: 'Asesoría' },
-  { id: 'F-2026-008', clientName: 'Lucía Herrera', amount: 300, status: 'paid', date: '2026-06-01', dueDate: '2026-06-15', plan: 'Gestión alquiler' },
+  { id: 'F-2026-001', clientName: 'Familia Soler', amount: 3500, status: 'paid', date: demoDate(-12), dueDate: demoDate(3), plan: 'Honorarios venta' },
+  { id: 'F-2026-002', clientName: 'Marcos Beltrán', amount: 150, status: 'pending', date: demoDate(-11), dueDate: demoDate(4), plan: 'Tasación' },
+  { id: 'F-2026-003', clientName: 'Inversiones Atlántico SL', amount: 4200, status: 'paid', date: demoDate(-12), dueDate: demoDate(3), plan: 'Honorarios venta' },
+  { id: 'F-2026-004', clientName: 'Pablo Ferrer', amount: 600, status: 'overdue', date: demoDate(-43), dueDate: demoDate(-29), plan: 'Gestión alquiler' },
+  { id: 'F-2026-005', clientName: 'Marta Vidal', amount: 150, status: 'pending', date: demoDate(-10), dueDate: demoDate(5), plan: 'Tasación' },
+  { id: 'F-2026-006', clientName: 'Carmen Lozano', amount: 2800, status: 'overdue', date: demoDate(-39), dueDate: demoDate(-25), plan: 'Honorarios venta' },
+  { id: 'F-2026-007', clientName: 'Roberto Díaz', amount: 900, status: 'paid', date: demoDate(-12), dueDate: demoDate(3), plan: 'Asesoría' },
+  { id: 'F-2026-008', clientName: 'Lucía Herrera', amount: 300, status: 'paid', date: demoDate(-12), dueDate: demoDate(3), plan: 'Gestión alquiler' },
 ]
 
 export const revenueByPlan: RevenueByPlan[] = [

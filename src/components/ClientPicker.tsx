@@ -90,7 +90,7 @@ export function ClientPicker({
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
             onFocus={() => setOpen(true)}
-            placeholder={!workspaceId ? 'Sin workspace activo' : placeholder}
+            placeholder={!workspaceId ? 'Vincular cliente: disponible al conectar tu cuenta' : placeholder}
             className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-50"
           />
         </div>

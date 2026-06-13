@@ -34,6 +34,13 @@ import {
   GENERAL_PIPELINE,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+
+// En modo demo offline no hay workspace real: las ediciones se simulan y
+// avisamos con un toast amable en vez de un error técnico de sesión.
+function isDemoMode() {
+  return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+}
 
 const SELECT_CLS =
   'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
@@ -138,6 +145,11 @@ function EditOpportunityInner({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar oportunidades estará disponible al conectar tu cuenta.' })
+      onClose()
+      return
+    }
     if (!workspaceId) { toast.error('Sin workspace activo. Inicia sesión real.'); return }
     setSaving(true)
     try {
@@ -288,6 +300,11 @@ function EditServiceCaseInner({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar expedientes estará disponible al conectar tu cuenta.' })
+      onClose()
+      return
+    }
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setSaving(true)
     try {
@@ -440,6 +457,11 @@ function EditPropertyInner({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar propiedades estará disponible al conectar tu cuenta.' })
+      onClose()
+      return
+    }
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setSaving(true)
     try {

@@ -27,6 +27,13 @@ import {
   GENERAL_PIPELINE,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+
+// En modo demo offline no hay workspace real: las acciones de escritura se
+// simulan y avisamos con un toast amable en vez de un error técnico de sesión.
+function isDemoMode() {
+  return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+}
 
 const SELECT_CLS =
   'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
@@ -94,6 +101,12 @@ export function NewOpportunityDrawer({
     e.preventDefault()
     if (!title.trim()) {
       toast.error('Necesito al menos un título.')
+      return
+    }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: crear oportunidades estará disponible al conectar tu cuenta.' })
+      reset()
+      onClose()
       return
     }
     if (!workspaceId) {
@@ -293,6 +306,12 @@ export function NewServiceCaseDrawer({
       toast.error('Selecciona un tipo de expediente.')
       return
     }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: abrir expedientes estará disponible al conectar tu cuenta.' })
+      reset()
+      onClose()
+      return
+    }
     if (!workspaceId) {
       toast.error('Sin workspace activo. Inicia sesión real.')
       return
@@ -485,6 +504,12 @@ export function NewPropertyDrawer({
     e.preventDefault()
     if (!title.trim()) {
       toast.error('Necesito al menos un título.')
+      return
+    }
+    if (isDemoMode()) {
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: registrar propiedades estará disponible al conectar tu cuenta.' })
+      reset()
+      onClose()
       return
     }
     if (!workspaceId) {
