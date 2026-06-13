@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
+import { BRAND } from '@/lib/brand'
 
 export const runtime = 'nodejs'
 
@@ -54,7 +55,7 @@ function buildInvoiceText(invoice: DataRow): string {
     `- Concepto: ${concept}`,
     `- Importe: ${money(amount)} ${currency}`,
     notes ? `\n4. NOTAS\n- ${notes}` : '',
-    `\n---\nDocumento generado por NowCRM. Pendiente de firma electronica real.`,
+    `\n---\nDocumento generado por ${BRAND.appName}. Pendiente de firma electronica real.`,
   ].filter(Boolean).join('\n')
 }
 

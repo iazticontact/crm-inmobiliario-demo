@@ -288,6 +288,11 @@ export default function ClientDetailPage() {
 
   const handleFileSelect = async (file: File | null) => {
     if (!file || !clientId) return
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (solo lectura)', { description: 'Subir documentos estará disponible al conectar tu cuenta.' })
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     setUploading(true)
     try {
       const formData = new FormData()
@@ -334,7 +339,13 @@ export default function ClientDetailPage() {
   }
 
   const handleSaveNotes = async () => {
-    if (!client || !workspaceId) return
+    if (!client) return
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (solo lectura)', { description: 'Guardar notas estará disponible al conectar tu cuenta.' })
+      setEditingNotes(false)
+      return
+    }
+    if (!workspaceId) return
     setSavingNotes(true)
     try {
       await updateClient(client.id, {
