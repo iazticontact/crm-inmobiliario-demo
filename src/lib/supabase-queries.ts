@@ -1094,6 +1094,31 @@ export async function getClientActivities(workspaceId: string, clientIdOrName: s
   return activities.filter(a => a.clientName && a.clientName.toLowerCase().includes(clientIdOrName.toLowerCase()))
 }
 
+// Per-client activity feed — scoped at the DB level by client_id OR client_name
+// so it does not depend on the workspace-wide recent-activities limit (which can
+// hide a specific client's history). Returns newest first.
+export async function getClientActivityFeed(workspaceId: string, clientId: string, clientName?: string, limit = 20) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId) return [] as Activity[]
+  const ors: string[] = []
+  if (clientId) ors.push(`client_id.eq.${clientId}`)
+  const term = (clientName ?? '').trim().replace(/[%,()]/g, '')
+  if (term) ors.push(`client_name.ilike.%${term}%`)
+  let query = supabase
+    .from('activities')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (ors.length) query = query.or(ors.join(','))
+  const { data, error } = await query
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[getClientActivityFeed]', error.message)
+    return [] as Activity[]
+  }
+  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseActivity)
+}
+
 export async function getClientFullContext(workspaceId: string, clientId: string) {
   const client = await getClientDetail(workspaceId, clientId)
   if (!client) return null

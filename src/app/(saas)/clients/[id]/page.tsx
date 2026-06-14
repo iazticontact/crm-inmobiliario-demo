@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar as CalendarIcon,
   CheckSquare,
+  Clock,
   Copy,
   CreditCard,
   Download,
@@ -29,7 +30,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { cn } from '@/lib/utils'
 import {
-  getClientActivities,
+  getClientActivityFeed,
   getClientCalendarEvents,
   getClientConversations,
   getClientDetail,
@@ -83,6 +84,7 @@ type TaskRow = {
   priority: string
   due_date?: string
   created_at: string
+  client_id?: string
   client_name?: string
 }
 
@@ -122,7 +124,15 @@ const SERVICE_INTEREST_LABEL: Record<string, string> = {
 // Mapeos DB → etiqueta visible (es-ES). Fallback al valor crudo si el
 // vocabulario no está contemplado (permite verticalización sin romper UI).
 const TASK_PRIORITY_LABEL: Record<string, string> = { low: 'Baja', normal: 'Normal', high: 'Alta' }
-const TASK_STATUS_LABEL: Record<string, string> = { pending: 'Pendiente', done: 'Hecha', completed: 'Hecha', closed: 'Cerrada' }
+const TASK_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendiente',
+  open: 'Pendiente',
+  in_progress: 'En curso',
+  done: 'Completada',
+  completed: 'Completada',
+  closed: 'Cerrada',
+  cancelled: 'Cancelada',
+}
 const CASE_STATUS_LABEL: Record<string, string> = {
   open: 'Abierto',
   documentation_pending: 'Documentación pendiente',
@@ -140,6 +150,14 @@ const PROPERTY_STATUS_LABEL: Record<string, string> = {
   available: 'Disponible',
   sold: 'Vendido',
   archived: 'Archivado',
+}
+
+const CHANNEL_LABEL: Record<string, string> = {
+  web: 'Web',
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  email: 'Email',
+  crm: 'Alta manual',
 }
 
 function labelOr(map: Record<string, string>, value?: string | null): string {
@@ -187,6 +205,30 @@ function formatEuro(amount: number, currency = 'EUR') {
   } catch {
     return `${amount} ${currency}`
   }
+}
+
+// Icono por tipo de actividad (los tipos verticales se normalizan a 'note').
+function activityIcon(type: string) {
+  switch (type) {
+    case 'email': return <Mail className="h-3.5 w-3.5" />
+    case 'call': return <Phone className="h-3.5 w-3.5" />
+    case 'message': return <MessageSquare className="h-3.5 w-3.5" />
+    case 'deal': return <Target className="h-3.5 w-3.5" />
+    default: return <FileText className="h-3.5 w-3.5" />
+  }
+}
+
+// Estado de vencimiento de una tarea (no aplica si ya está cerrada).
+function taskDueState(due?: string | null, status?: string): 'overdue' | 'soon' | 'none' {
+  if (!due || status === 'done' || status === 'completed' || status === 'closed' || status === 'cancelled') return 'none'
+  const d = new Date(due)
+  if (Number.isNaN(d.getTime())) return 'none'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diffDays = Math.floor((d.getTime() - today.getTime()) / 86_400_000)
+  if (diffDays < 0) return 'overdue'
+  if (diffDays <= 3) return 'soon'
+  return 'none'
 }
 
 export default function ClientDetailPage() {
@@ -286,7 +328,7 @@ export default function ClientDetailPage() {
       setNotesDraft(detail.notes && detail.notes !== 'No consta' ? detail.notes : '')
 
       const [acts, convs, evts, invs, tasksRows, vertical] = await Promise.all([
-        getClientActivities(resolved, detail.name).catch(() => [] as Activity[]),
+        getClientActivityFeed(resolved, clientId, detail.name).catch(() => [] as Activity[]),
         getClientConversations(resolved, clientId).catch(() => [] as Conversation[]),
         getClientCalendarEvents(resolved, detail.name).catch(() => [] as CalendarEvent[]),
         getClientInvoices(resolved, detail.name).catch(() => [] as Invoice[]),
@@ -294,13 +336,15 @@ export default function ClientDetailPage() {
         getClientVerticalSummary(resolved, clientId).catch(() => ({ opportunities: [], cases: [], properties: [] })),
       ])
 
-      setActivities(acts.slice(0, 12))
+      setActivities(acts)
       // Vista cliente WhatsApp-only: ocultamos conversaciones de otros canales
       // aunque existan en DB.
       setConversations(convs.filter((c) => String(c.channel ?? '').toLowerCase() === 'whatsapp'))
       setEvents(evts)
       setInvoices(invs)
-      setTasks(tasksRows.filter((t) => t.client_name?.toLowerCase().includes(detail.name.toLowerCase())))
+      // Tareas del cliente: por client_id (robusto) o, si falta, por nombre.
+      const nameLc = detail.name.toLowerCase()
+      setTasks(tasksRows.filter((t) => (t.client_id && t.client_id === clientId) || (!!t.client_name && t.client_name.toLowerCase().includes(nameLc))))
       setOpportunities(vertical.opportunities)
       setCases(vertical.cases)
       setProperties(vertical.properties)
@@ -445,6 +489,25 @@ export default function ClientDetailPage() {
     invoices: invoices.length,
   }), [documents.length, cases.length, opportunities.length, properties.length, events.length, tasks.length, conversations.length, invoices.length])
 
+  // Tareas ordenadas: vencidas primero, luego "vence pronto", luego el resto y
+  // las cerradas al final; dentro de cada grupo, por fecha de vencimiento.
+  const sortedTasks = useMemo(() => {
+    const rank = (t: TaskRow) => {
+      const closed = t.status === 'done' || t.status === 'completed' || t.status === 'closed' || t.status === 'cancelled'
+      if (closed) return 3
+      const due = taskDueState(t.due_date, t.status)
+      return due === 'overdue' ? 0 : due === 'soon' ? 1 : 2
+    }
+    return [...tasks].sort((a, b) => {
+      const ra = rank(a)
+      const rb = rank(b)
+      if (ra !== rb) return ra - rb
+      const da = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
+      const db = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY
+      return da - db
+    })
+  }, [tasks])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-sm text-gray-500">
@@ -493,6 +556,12 @@ export default function ClientDetailPage() {
               )}
               {meta.mainArea && MAIN_AREA_LABEL[meta.mainArea] && (
                 <Badge variant="purple">{MAIN_AREA_LABEL[meta.mainArea]}</Badge>
+              )}
+              {client.channel && (
+                <Badge variant="info">{CHANNEL_LABEL[client.channel] ?? client.channel}</Badge>
+              )}
+              {client.leadScore > 0 && (
+                <Badge variant="default">Score {client.leadScore}</Badge>
               )}
             </div>
             <p className="mt-1 text-sm text-gray-500">
@@ -657,13 +726,18 @@ export default function ClientDetailPage() {
 
             <SectionCard title="Actividad reciente" description="Acciones registradas">
               {activities.length === 0 ? (
-                <p className="text-sm text-gray-500">Sin actividad registrada todavía.</p>
+                <p className="text-sm text-gray-500">No hay actividad registrada todavía.</p>
               ) : (
                 <ul className="space-y-2">
                   {activities.map((a) => (
-                    <li key={a.id} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
-                      <p className="text-xs leading-5 text-gray-700">{a.description}</p>
-                      <p className="mt-0.5 text-[10px] text-gray-400">{a.timestamp}</p>
+                    <li key={a.id} className="flex gap-2.5 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-indigo-600 ring-1 ring-gray-100">
+                        {activityIcon(a.type)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs leading-5 text-gray-700">{a.description}</p>
+                        <p className="mt-0.5 text-[10px] text-gray-400">{a.timestamp}</p>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -768,7 +842,7 @@ export default function ClientDetailPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{c.title}</p>
                       <p className="text-[11px] text-gray-500">
-                        {[c.case_type, labelOr(CASE_STATUS_LABEL, c.status), c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
+                        {[c.case_type, labelOr(CASE_STATUS_LABEL, c.status), c.priority && c.priority !== 'normal' ? `prioridad ${labelOr(TASK_PRIORITY_LABEL, c.priority)}` : null, c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <Badge variant={c.status === 'documentation_pending' ? 'warning' : c.status === 'resolved' || c.status === 'closed' ? 'default' : 'purple'}>
@@ -810,7 +884,7 @@ export default function ClientDetailPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
                       <p className="text-[11px] text-gray-500">
-                        {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null].filter(Boolean).join(' · ')}
+                        {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null, o.probability != null ? `${o.probability}%` : null, o.expected_close_date ? `cierre ${formatDate(o.expected_close_date)}` : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <Badge variant={o.stage === 'won' ? 'success' : o.stage === 'lost' ? 'danger' : 'indigo'}>
@@ -852,22 +926,33 @@ export default function ClientDetailPage() {
       )}
 
       {activeTab === 'tasks' && (
-        <SectionCard title="Tareas" description="Pendientes asignadas para este cliente">
-          {tasks.length === 0 ? (
-            <p className="text-sm text-gray-500">Sin tareas pendientes.</p>
+        <SectionCard title="Tareas" description="Tareas vinculadas a este cliente">
+          {sortedTasks.length === 0 ? (
+            <p className="text-sm text-gray-500">No hay tareas pendientes.</p>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {tasks.map((t) => (
-                <li key={t.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900">{t.title}</p>
-                    <p className="text-[11px] text-gray-500">
-                      {[labelOr(TASK_PRIORITY_LABEL, t.priority), t.due_date ? `vence ${formatDate(t.due_date)}` : null].filter(Boolean).join(' · ')}
-                    </p>
-                  </div>
-                  <Badge variant={t.status === 'done' ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
-                </li>
-              ))}
+              {sortedTasks.map((t) => {
+                const due = taskDueState(t.due_date, t.status)
+                const closed = t.status === 'done' || t.status === 'completed' || t.status === 'closed' || t.status === 'cancelled'
+                return (
+                  <li key={t.id} className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className={cn('truncate text-sm font-semibold', closed ? 'text-gray-400 line-through' : 'text-gray-900')}>{t.title}</p>
+                      {t.description && <p className="mt-0.5 line-clamp-2 text-[11px] text-gray-500">{t.description}</p>}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                        <Badge variant={t.priority === 'high' ? 'danger' : t.priority === 'low' ? 'default' : 'indigo'}>{labelOr(TASK_PRIORITY_LABEL, t.priority)}</Badge>
+                        {t.due_date && (
+                          <span className={cn('inline-flex items-center gap-1', due === 'overdue' ? 'font-semibold text-red-600' : due === 'soon' ? 'font-medium text-amber-600' : 'text-gray-500')}>
+                            <Clock className="h-3 w-3" />
+                            {due === 'overdue' ? 'Vencida · ' : due === 'soon' ? 'Vence pronto · ' : 'Vence '}{formatDate(t.due_date)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Badge variant={closed ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </SectionCard>
