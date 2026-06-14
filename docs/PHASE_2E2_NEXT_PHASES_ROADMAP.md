@@ -12,9 +12,11 @@ operaciones, calendario), demo offline intacta, datos reales verificados
   real + activity. Ver [PHASE_2E2_RT4_MUTATIONS_REPORT.md](PHASE_2E2_RT4_MUTATIONS_REPORT.md).
 - **RT4.2 (hecho):** crear **operaciones / expedientes / eventos** desde la ficha
   + responsable + activity. Ver [PHASE_2E2_RT4_2_MUTATIONS_REPORT.md](PHASE_2E2_RT4_2_MUTATIONS_REPORT.md).
-- **RT4.3 (pendiente):** cambiar etapa/estado y edición avanzada desde la ficha
-  (los helpers `updateOpportunityStage`/`updateServiceCaseStatus`/`updateTask`
-  ya existen; el pipeline `/opportunities` ya mueve etapa).
+- **RT4.3 (hecho):** edición inline desde la ficha (operaciones: etapa/valor/
+  prob/responsable/cierre; expedientes: estado/prioridad/responsable/venc;
+  tareas: prioridad/fecha/responsable/desc; eventos: reprogramar) + activity.
+  Ver [PHASE_2E2_RT4_3_EDITING_REPORT.md](PHASE_2E2_RT4_3_EDITING_REPORT.md).
+- **Pendiente menor:** borrado desde ficha y vínculos cruzados opcionales.
 
 Notas originales de la fase (referencia):
 - Crear/editar tareas, operaciones, expedientes y eventos (helpers de escritura

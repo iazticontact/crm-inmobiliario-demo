@@ -43,11 +43,12 @@ import {
   createCalendarEvent,
   listTasks,
   listWorkspaceProfiles,
+  updateCalendarEvent,
   updateClient,
   updateTask,
   type WorkspaceMember,
 } from '@/lib/supabase-queries'
-import { createOpportunity, createServiceCase, getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
+import { createOpportunity, createServiceCase, getClientVerticalSummary, updateOpportunity, updateServiceCase, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, EventType, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -303,6 +304,16 @@ export default function ClientDetailPage() {
   const [evFormOpen, setEvFormOpen] = useState(false)
   const [evForm, setEvForm] = useState({ title: '', type: 'meeting', date: '', time: '10:00', duration: '60', location: '', notes: '' })
   const [evSaving, setEvSaving] = useState(false)
+
+  // RT4.3 — edición inline (etapas/estados/reprogramación)
+  const [editOp, setEditOp] = useState<{ id: string; stage: string; value: string; probability: string; assignedTo: string; expectedCloseDate: string; notes: string } | null>(null)
+  const [opEditSaving, setOpEditSaving] = useState(false)
+  const [editCase, setEditCase] = useState<{ id: string; status: string; priority: string; assignedTo: string; dueDate: string; notes: string } | null>(null)
+  const [caseEditSaving, setCaseEditSaving] = useState(false)
+  const [editTask, setEditTask] = useState<{ id: string; priority: string; dueDate: string; assignedTo: string; description: string } | null>(null)
+  const [taskEditSaving, setTaskEditSaving] = useState(false)
+  const [editEvent, setEditEvent] = useState<{ id: string; title: string; type: string; date: string; time: string; duration: string; location: string; notes: string } | null>(null)
+  const [eventEditSaving, setEventEditSaving] = useState(false)
 
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState('')
@@ -609,6 +620,119 @@ export default function ClientDetailPage() {
       toast.error('No se pudo crear el evento', { description: error instanceof Error ? error.message : '' })
     } finally {
       setEvSaving(false)
+    }
+  }
+
+  // RT4.3 — guardar edición de operación (etapa/valor/probabilidad/responsable/cierre/notas).
+  const handleSaveOp = async () => {
+    if (!editOp) return
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)'); return }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setOpEditSaving(true)
+    try {
+      const updated = await updateOpportunity(workspaceId, editOp.id, {
+        stage: editOp.stage,
+        value: editOp.value ? Number(editOp.value) : null,
+        probability: editOp.probability ? Number(editOp.probability) : null,
+        assignedTo: editOp.assignedTo || null,
+        expectedCloseDate: editOp.expectedCloseDate || null,
+        notes: editOp.notes.trim() || null,
+      })
+      if (!updated) { toast.error('No se pudo actualizar la operación'); return }
+      setOpportunities((prev) => prev.map((o) => (o.id === updated.id ? updated : o)))
+      await reloadActivityFeed()
+      toast.success('Operación actualizada')
+      setEditOp(null)
+    } catch (error) {
+      toast.error('No se pudo actualizar la operación', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setOpEditSaving(false)
+    }
+  }
+
+  // RT4.3 — guardar edición de expediente (estado/prioridad/responsable/vencimiento/notas).
+  const handleSaveCase = async () => {
+    if (!editCase) return
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)'); return }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setCaseEditSaving(true)
+    try {
+      const updated = await updateServiceCase(workspaceId, editCase.id, {
+        status: editCase.status,
+        priority: editCase.priority,
+        assignedTo: editCase.assignedTo || null,
+        dueDate: editCase.dueDate || null,
+        notes: editCase.notes.trim() || null,
+      })
+      if (!updated) { toast.error('No se pudo actualizar el expediente'); return }
+      setCases((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      await reloadActivityFeed()
+      toast.success('Expediente actualizado')
+      setEditCase(null)
+    } catch (error) {
+      toast.error('No se pudo actualizar el expediente', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setCaseEditSaving(false)
+    }
+  }
+
+  // RT4.3 — guardar edición de tarea (prioridad/fecha/responsable/descripción).
+  const handleSaveTask = async () => {
+    if (!editTask) return
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)'); return }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    setTaskEditSaving(true)
+    try {
+      const updated = await updateTask(workspaceId, editTask.id, {
+        priority: editTask.priority,
+        dueDate: editTask.dueDate || null,
+        assignedTo: editTask.assignedTo || null,
+        description: editTask.description.trim() || null,
+      })
+      if (!updated) { toast.error('No se pudo actualizar la tarea'); return }
+      setTasks((prev) => prev.map((t) => (t.id === editTask.id ? { ...t, priority: editTask.priority, due_date: editTask.dueDate || undefined, assigned_to: editTask.assignedTo || undefined, description: editTask.description } : t)))
+      const act = await createActivity(workspaceId, { type: 'note', description: `Tarea actualizada: ${updated.title}`, clientName: client.name }).catch(() => null)
+      if (act) setActivities((prev) => [act, ...prev])
+      toast.success('Tarea actualizada')
+      setEditTask(null)
+    } catch (error) {
+      toast.error('No se pudo actualizar la tarea', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setTaskEditSaving(false)
+    }
+  }
+
+  // RT4.3 — reprogramar / editar evento (sin Google).
+  const handleSaveEvent = async () => {
+    if (!editEvent) return
+    if (!editEvent.title.trim()) { toast.error('Falta el título del evento.'); return }
+    if (!editEvent.date) { toast.error('Falta la fecha del evento.'); return }
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)'); return }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    const [hh, mm] = (editEvent.time || '10:00').split(':').map((n) => Number(n))
+    setEventEditSaving(true)
+    try {
+      const updated = await updateCalendarEvent(editEvent.id, workspaceId, {
+        title: editEvent.title.trim(),
+        type: editEvent.type as EventType,
+        date: editEvent.date,
+        time: editEvent.time || '10:00',
+        startHour: Number.isFinite(hh) ? hh : 10,
+        startMinute: Number.isFinite(mm) ? mm : 0,
+        duration: Number(editEvent.duration) || 60,
+        location: editEvent.location.trim() || undefined,
+        notes: editEvent.notes.trim() || undefined,
+        description: editEvent.notes.trim() || undefined,
+      })
+      setEvents((prev) => prev.map((ev) => (ev.id === updated.id ? updated : ev)))
+      const act = await createActivity(workspaceId, { type: 'note', description: `Evento actualizado: ${updated.title}`, clientName: client.name }).catch(() => null)
+      if (act) setActivities((prev) => [act, ...prev])
+      toast.success('Evento actualizado')
+      setEditEvent(null)
+    } catch (error) {
+      toast.error('No se pudo actualizar el evento', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setEventEditSaving(false)
     }
   }
 
@@ -1084,16 +1208,33 @@ export default function ClientDetailPage() {
             ) : (
               <ul className="divide-y divide-gray-100">
                 {cases.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-gray-900">{c.title}</p>
-                      <p className="text-[11px] text-gray-500">
-                        {[c.case_type, labelOr(CASE_STATUS_LABEL, c.status), c.priority && c.priority !== 'normal' ? `prioridad ${labelOr(TASK_PRIORITY_LABEL, c.priority)}` : null, c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
-                      </p>
+                  <li key={c.id} className="py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-900">{c.title}</p>
+                        <p className="text-[11px] text-gray-500">
+                          {[c.case_type, labelOr(CASE_STATUS_LABEL, c.status), c.priority && c.priority !== 'normal' ? `prioridad ${labelOr(TASK_PRIORITY_LABEL, c.priority)}` : null, c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant={c.status === 'documentation_pending' ? 'warning' : c.status === 'resolved' || c.status === 'closed' ? 'default' : 'purple'}>
+                          {labelOr(CASE_STATUS_LABEL, c.status)}
+                        </Badge>
+                        <button type="button" onClick={() => setEditCase(editCase?.id === c.id ? null : { id: c.id, status: c.status, priority: c.priority || 'normal', assignedTo: c.assigned_to ?? '', dueDate: c.due_date ?? '', notes: c.notes ?? '' })} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Editar</button>
+                      </div>
                     </div>
-                    <Badge variant={c.status === 'documentation_pending' ? 'warning' : c.status === 'resolved' || c.status === 'closed' ? 'default' : 'purple'}>
-                      {labelOr(CASE_STATUS_LABEL, c.status)}
-                    </Badge>
+                    {editCase?.id === c.id && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Estado</span><select value={editCase.status} onChange={(e) => setEditCase((p) => p && { ...p, status: e.target.value })} className={taskInputCls}>{Object.entries(CASE_STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Prioridad</span><select value={editCase.priority} onChange={(e) => setEditCase((p) => p && { ...p, priority: e.target.value })} className={taskInputCls}><option value="low">Baja</option><option value="normal">Normal</option><option value="high">Alta</option></select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={editCase.assignedTo} onChange={(e) => setEditCase((p) => p && { ...p, assignedTo: e.target.value })} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Vencimiento</span><input type="date" value={editCase.dueDate} onChange={(e) => setEditCase((p) => p && { ...p, dueDate: e.target.value })} className={taskInputCls} /></label>
+                          <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={editCase.notes} onChange={(e) => setEditCase((p) => p && { ...p, notes: e.target.value })} className={taskInputCls} /></label>
+                        </div>
+                        <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setEditCase(null)}>Cancelar</Button><Button size="sm" loading={caseEditSaving} onClick={handleSaveCase}>Guardar</Button></div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1148,16 +1289,34 @@ export default function ClientDetailPage() {
             ) : (
               <ul className="divide-y divide-gray-100">
                 {opportunities.map((o) => (
-                  <li key={o.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
-                      <p className="text-[11px] text-gray-500">
-                        {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null, o.probability != null ? `${o.probability}%` : null, o.expected_close_date ? `cierre ${formatDate(o.expected_close_date)}` : null].filter(Boolean).join(' · ')}
-                      </p>
+                  <li key={o.id} className="py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
+                        <p className="text-[11px] text-gray-500">
+                          {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null, o.probability != null ? `${o.probability}%` : null, o.expected_close_date ? `cierre ${formatDate(o.expected_close_date)}` : null].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant={o.stage === 'won' ? 'success' : o.stage === 'lost' ? 'danger' : 'indigo'}>
+                          <Target className="h-3 w-3" /> {stageLabel(o.vertical, o.stage)}
+                        </Badge>
+                        <button type="button" onClick={() => setEditOp(editOp?.id === o.id ? null : { id: o.id, stage: o.stage, value: o.value != null ? String(o.value) : '', probability: o.probability != null ? String(o.probability) : '', assignedTo: o.assigned_to ?? '', expectedCloseDate: o.expected_close_date ?? '', notes: o.notes ?? '' })} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Editar</button>
+                      </div>
                     </div>
-                    <Badge variant={o.stage === 'won' ? 'success' : o.stage === 'lost' ? 'danger' : 'indigo'}>
-                      <Target className="h-3 w-3" /> {stageLabel(o.vertical, o.stage)}
-                    </Badge>
+                    {editOp?.id === o.id && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Etapa</span><select value={editOp.stage} onChange={(e) => setEditOp((p) => p && { ...p, stage: e.target.value })} className={taskInputCls}>{REAL_ESTATE_STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={editOp.assignedTo} onChange={(e) => setEditOp((p) => p && { ...p, assignedTo: e.target.value })} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Valor (€)</span><input type="number" value={editOp.value} onChange={(e) => setEditOp((p) => p && { ...p, value: e.target.value })} className={taskInputCls} /></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Probabilidad (%)</span><input type="number" value={editOp.probability} onChange={(e) => setEditOp((p) => p && { ...p, probability: e.target.value })} className={taskInputCls} /></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Cierre estimado</span><input type="date" value={editOp.expectedCloseDate} onChange={(e) => setEditOp((p) => p && { ...p, expectedCloseDate: e.target.value })} className={taskInputCls} /></label>
+                          <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={editOp.notes} onChange={(e) => setEditOp((p) => p && { ...p, notes: e.target.value })} className={taskInputCls} /></label>
+                        </div>
+                        <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setEditOp(null)}>Cancelar</Button><Button size="sm" loading={opEditSaving} onClick={handleSaveOp}>Guardar</Button></div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1199,14 +1358,33 @@ export default function ClientDetailPage() {
           ) : (
             <ul className="divide-y divide-gray-100">
               {events.map((event) => (
-                <li key={event.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
-                    <p className="text-[11px] text-gray-500">
-                      {[formatDate(event.startAt ?? event.date, true), event.location, labelOr(EVENT_TYPE_LABEL, event.type)].filter(Boolean).join(' · ')}
-                    </p>
+                <li key={event.id} className="py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {[formatDate(event.startAt ?? event.date, true), event.location, labelOr(EVENT_TYPE_LABEL, event.type)].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge variant="indigo">{labelOr(EVENT_TYPE_LABEL, event.type)}</Badge>
+                      <button type="button" onClick={() => setEditEvent(editEvent?.id === event.id ? null : { id: event.id, title: event.title, type: event.type, date: event.date, time: `${String(event.startHour).padStart(2, '0')}:${String(event.startMinute ?? 0).padStart(2, '0')}`, duration: event.duration != null ? String(event.duration) : '60', location: event.location ?? '', notes: event.notes ?? '' })} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Editar</button>
+                    </div>
                   </div>
-                  <Badge variant="indigo">{labelOr(EVENT_TYPE_LABEL, event.type)}</Badge>
+                  {editEvent?.id === event.id && (
+                    <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={editEvent.title} onChange={(e) => setEditEvent((p) => p && { ...p, title: e.target.value })} className={taskInputCls} /></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={editEvent.type} onChange={(e) => setEditEvent((p) => p && { ...p, type: e.target.value })} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Demo</option></select></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={editEvent.duration} onChange={(e) => setEditEvent((p) => p && { ...p, duration: e.target.value })} className={taskInputCls} /></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={editEvent.date} onChange={(e) => setEditEvent((p) => p && { ...p, date: e.target.value })} className={taskInputCls} /></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={editEvent.time} onChange={(e) => setEditEvent((p) => p && { ...p, time: e.target.value })} className={taskInputCls} /></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Ubicación</span><input value={editEvent.location} onChange={(e) => setEditEvent((p) => p && { ...p, location: e.target.value })} className={taskInputCls} /></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={editEvent.notes} onChange={(e) => setEditEvent((p) => p && { ...p, notes: e.target.value })} className={taskInputCls} /></label>
+                      </div>
+                      <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setEditEvent(null)}>Cancelar</Button><Button size="sm" loading={eventEditSaving} onClick={handleSaveEvent}>Guardar</Button></div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1269,34 +1447,48 @@ export default function ClientDetailPage() {
                 const due = taskDueState(t.due_date, t.status)
                 const closed = t.status === 'done' || t.status === 'completed' || t.status === 'closed' || t.status === 'cancelled'
                 return (
-                  <li key={t.id} className="flex items-start justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className={cn('truncate text-sm font-semibold', closed ? 'text-gray-400 line-through' : 'text-gray-900')}>{t.title}</p>
-                      {t.description && <p className="mt-0.5 line-clamp-2 text-[11px] text-gray-500">{t.description}</p>}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                        <Badge variant={t.priority === 'high' ? 'danger' : t.priority === 'low' ? 'default' : 'indigo'}>{labelOr(TASK_PRIORITY_LABEL, t.priority)}</Badge>
-                        {t.due_date && (
-                          <span className={cn('inline-flex items-center gap-1', due === 'overdue' ? 'font-semibold text-red-600' : due === 'soon' ? 'font-medium text-amber-600' : 'text-gray-500')}>
-                            <Clock className="h-3 w-3" />
-                            {due === 'overdue' ? 'Vencida · ' : due === 'soon' ? 'Vence pronto · ' : 'Vence '}{formatDate(t.due_date)}
-                          </span>
-                        )}
-                        <span className="text-gray-400">· {t.assigned_to ? (memberNameById[t.assigned_to] ?? 'Responsable') : 'Sin asignar'}</span>
+                  <li key={t.id} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className={cn('truncate text-sm font-semibold', closed ? 'text-gray-400 line-through' : 'text-gray-900')}>{t.title}</p>
+                        {t.description && <p className="mt-0.5 line-clamp-2 text-[11px] text-gray-500">{t.description}</p>}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                          <Badge variant={t.priority === 'high' ? 'danger' : t.priority === 'low' ? 'default' : 'indigo'}>{labelOr(TASK_PRIORITY_LABEL, t.priority)}</Badge>
+                          {t.due_date && (
+                            <span className={cn('inline-flex items-center gap-1', due === 'overdue' ? 'font-semibold text-red-600' : due === 'soon' ? 'font-medium text-amber-600' : 'text-gray-500')}>
+                              <Clock className="h-3 w-3" />
+                              {due === 'overdue' ? 'Vencida · ' : due === 'soon' ? 'Vence pronto · ' : 'Vence '}{formatDate(t.due_date)}
+                            </span>
+                          )}
+                          <span className="text-gray-400">· {t.assigned_to ? (memberNameById[t.assigned_to] ?? 'Responsable') : 'Sin asignar'}</span>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant={closed ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
+                        <button type="button" onClick={() => setEditTask(editTask?.id === t.id ? null : { id: t.id, priority: t.priority, dueDate: t.due_date ?? '', assignedTo: t.assigned_to ?? '', description: t.description ?? '' })} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Editar</button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTask(t)}
+                          disabled={taskBusyId === t.id}
+                          title={closed ? 'Reabrir tarea' : 'Marcar completada'}
+                          className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          {taskBusyId === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          {closed ? 'Reabrir' : 'Completar'}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Badge variant={closed ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleTask(t)}
-                        disabled={taskBusyId === t.id}
-                        title={closed ? 'Reabrir tarea' : 'Marcar completada'}
-                        className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {taskBusyId === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                        {closed ? 'Reabrir' : 'Completar'}
-                      </button>
-                    </div>
+                    {editTask?.id === t.id && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Prioridad</span><select value={editTask.priority} onChange={(e) => setEditTask((p) => p && { ...p, priority: e.target.value })} className={taskInputCls}><option value="low">Baja</option><option value="normal">Normal</option><option value="high">Alta</option></select></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Vencimiento</span><input type="date" value={editTask.dueDate} onChange={(e) => setEditTask((p) => p && { ...p, dueDate: e.target.value })} className={taskInputCls} /></label>
+                          <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={editTask.assignedTo} onChange={(e) => setEditTask((p) => p && { ...p, assignedTo: e.target.value })} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+                          <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Descripción</span><input value={editTask.description} onChange={(e) => setEditTask((p) => p && { ...p, description: e.target.value })} className={taskInputCls} /></label>
+                        </div>
+                        <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setEditTask(null)}>Cancelar</Button><Button size="sm" loading={taskEditSaving} onClick={handleSaveTask}>Guardar</Button></div>
+                      </div>
+                    )}
                   </li>
                 )
               })}

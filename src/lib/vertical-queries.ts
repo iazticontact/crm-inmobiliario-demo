@@ -277,6 +277,7 @@ export type UpdateOpportunityInput = {
   value?: number | null
   probability?: number | null
   source?: string | null
+  assignedTo?: string | null
   expectedCloseDate?: string | null
   notes?: string | null
 }
@@ -292,6 +293,7 @@ export async function updateOpportunity(workspaceId: string, id: string, input: 
   if (input.value !== undefined) patch.value = input.value
   if (input.probability !== undefined) patch.probability = input.probability
   if (input.source !== undefined) patch.source = input.source
+  if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
   if (input.expectedCloseDate !== undefined) patch.expected_close_date = input.expectedCloseDate
   if (input.notes !== undefined) patch.notes = input.notes
 
@@ -401,6 +403,7 @@ export type UpdateServiceCaseInput = {
   status?: string
   priority?: string
   clientId?: string | null
+  assignedTo?: string | null
   dueDate?: string | null
   notes?: string | null
 }
@@ -415,6 +418,7 @@ export async function updateServiceCase(workspaceId: string, id: string, input: 
   if (input.status) patch.status = input.status
   if (input.priority) patch.priority = input.priority
   if (input.clientId !== undefined) patch.client_id = input.clientId
+  if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
   if (input.dueDate !== undefined) patch.due_date = input.dueDate
   if (input.notes !== undefined) patch.notes = input.notes
 
