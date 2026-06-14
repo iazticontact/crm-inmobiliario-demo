@@ -38,6 +38,7 @@ import {
   updateClient,
 } from '@/lib/supabase-queries'
 import { getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
+import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import {
@@ -115,6 +116,40 @@ const SERVICE_INTEREST_LABEL: Record<string, string> = {
   nie_extranjeria: 'NIE / extranjería',
   fiscalidad: 'Fiscalidad / gestoría',
   otro: 'Otro',
+}
+
+// Mapeos DB → etiqueta visible (es-ES). Fallback al valor crudo si el
+// vocabulario no está contemplado (permite verticalización sin romper UI).
+const TASK_PRIORITY_LABEL: Record<string, string> = { low: 'Baja', normal: 'Normal', high: 'Alta' }
+const TASK_STATUS_LABEL: Record<string, string> = { pending: 'Pendiente', done: 'Hecha', completed: 'Hecha', closed: 'Cerrada' }
+const CASE_STATUS_LABEL: Record<string, string> = {
+  open: 'Abierto',
+  documentation_pending: 'Documentación pendiente',
+  in_review: 'En revisión',
+  in_follow_up: 'En seguimiento',
+  submitted: 'Presentado',
+  resolved: 'Resuelto',
+  closed: 'Cerrado',
+}
+const PROPERTY_STATUS_LABEL: Record<string, string> = {
+  prospecting: 'Captación',
+  listed: 'Publicado',
+  under_contract: 'Reservado',
+  reserved: 'Reservado',
+  available: 'Disponible',
+  sold: 'Vendido',
+  archived: 'Archivado',
+}
+
+function labelOr(map: Record<string, string>, value?: string | null): string {
+  if (!value) return ''
+  return map[value] ?? value
+}
+
+// Etiqueta visible de la etapa de la operación según el pipeline del vertical.
+function stageLabel(vertical: string | null | undefined, stage: string): string {
+  const pipeline = getPipelineForVertical((vertical as VerticalKey) || 'general')
+  return pipeline.find((s) => s.id === stage)?.label ?? stage
 }
 
 function readMeta(client: Client | null, key: string): string {
@@ -701,11 +736,11 @@ export default function ClientDetailPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{c.title}</p>
                       <p className="text-[11px] text-gray-500">
-                        {[c.case_type, c.status, c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
+                        {[c.case_type, labelOr(CASE_STATUS_LABEL, c.status), c.due_date ? `vence ${formatDate(c.due_date)}` : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <Badge variant={c.status === 'documentation_pending' ? 'warning' : c.status === 'resolved' || c.status === 'closed' ? 'default' : 'purple'}>
-                      {c.status}
+                      {labelOr(CASE_STATUS_LABEL, c.status)}
                     </Badge>
                   </li>
                 ))}
@@ -726,7 +761,7 @@ export default function ClientDetailPage() {
                         {[p.property_type, p.operation_type, p.city, p.price ? formatEuro(p.price, p.currency ?? 'EUR') : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    <Badge variant={p.status === 'sold' ? 'success' : 'info'}>{p.status}</Badge>
+                    <Badge variant={p.status === 'sold' ? 'success' : 'info'}>{labelOr(PROPERTY_STATUS_LABEL, p.status)}</Badge>
                   </li>
                 ))}
               </ul>
@@ -743,11 +778,11 @@ export default function ClientDetailPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
                       <p className="text-[11px] text-gray-500">
-                        {[o.stage, o.vertical, o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null].filter(Boolean).join(' · ')}
+                        {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <Badge variant={o.stage === 'won' ? 'success' : o.stage === 'lost' ? 'danger' : 'indigo'}>
-                      <Target className="h-3 w-3" /> {o.stage}
+                      <Target className="h-3 w-3" /> {stageLabel(o.vertical, o.stage)}
                     </Badge>
                   </li>
                 ))}
@@ -795,10 +830,10 @@ export default function ClientDetailPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-gray-900">{t.title}</p>
                     <p className="text-[11px] text-gray-500">
-                      {[t.priority, t.due_date ? `vence ${formatDate(t.due_date)}` : null].filter(Boolean).join(' · ')}
+                      {[labelOr(TASK_PRIORITY_LABEL, t.priority), t.due_date ? `vence ${formatDate(t.due_date)}` : null].filter(Boolean).join(' · ')}
                     </p>
                   </div>
-                  <Badge variant={t.status === 'done' ? 'success' : 'indigo'}>{t.status}</Badge>
+                  <Badge variant={t.status === 'done' ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
                 </li>
               ))}
             </ul>
