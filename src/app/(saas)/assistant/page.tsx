@@ -1170,7 +1170,7 @@ export default function AssistantPage() {
         filteredConversationsForMode: 0,
         queryMode: isDemoMode ? 'demo' : 'context-error',
       })
-      if (!isDemoMode) toast.warning('Assistant en modo demo', { description: 'No se pudieron cargar conversaciones reales.' })
+      if (!isDemoMode) toast.warning('No se pudieron cargar conversaciones', { description: 'Hubo un error al leer tus datos reales. Revisa la conexión o inténtalo de nuevo.' })
     } finally {
       setLoadingConversations(false)
       setAssistantReady(true)

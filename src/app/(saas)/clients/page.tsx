@@ -632,7 +632,7 @@ export default function ClientsPage() {
                       type="text"
                       value={form.name}
                       onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="Lucía Herrera García"
+                      placeholder="Nombre y apellidos"
                       className={inputCls}
                     />
                   </Field>

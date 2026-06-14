@@ -2,6 +2,8 @@
 
 **Fecha:** 2026-06-14 · **Estado:** plan (NO implementar aún). Sigue a [PHASE_2E2_RT1_IMPLEMENTATION_REPORT.md](PHASE_2E2_RT1_IMPLEMENTATION_REPORT.md).
 
+> **Regla transversal:** RT2 debe respetar [DATA_REALITY_POLICY.md](DATA_REALITY_POLICY.md). Tasks/activities reales por workspace (gate demo primero, sin fallback a mock en modo real); workspace vacío → empty state profesional, nunca datos de ejemplo.
+
 ## 1. Objetivo
 Profundizar la **ficha de cliente** (relaciones completas) y conectar **tasks** y **activities** en lectura sobre Supabase real, preservando la demo offline. La mayoría ya está cableada (RT0/RT1); RT2 es verificación + pulido + cualquier hueco de lectura.
 
