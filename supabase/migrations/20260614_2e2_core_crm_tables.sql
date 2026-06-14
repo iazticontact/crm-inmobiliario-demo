@@ -27,6 +27,12 @@
 --      solo_lectura solo SELECT; DELETE fisico solo owner/admin.
 --   Q4 vertical_config: DIFERIDO. La parametrizacion vive en el catalogo
 --      estatico vertical-templates.ts + workspaces.settings (jsonb). Sin tabla.
+--   Naming (2E-2N): `opportunities` es el nombre TECNICO interno (estandar CRM,
+--      generico y verticalizable; el codigo lo usa en ~331 sitios y las tools
+--      del agente dependen de el) -> NO se renombra. Etiqueta visible
+--      recomendada en la UI: "Operaciones" (modulo) / "Pipeline comercial"
+--      (tablero). Evitar "Oportunidades" como titulo principal. Ver seccion
+--      Naming en docs/PHASE_2E2_SCHEMA_REVIEW.md.
 --
 -- Idempotente (IF NOT EXISTS / OR REPLACE / drop policy/trigger if exists).
 -- NO EJECUTAR contra proyectos legacy. Solo crm-inmobiliario-demo
@@ -154,9 +160,13 @@ create trigger trg_properties_updated before update on public.properties
   for each row execute function public.set_updated_at();
 
 -- ============================================================================
--- 3) opportunities  (pipeline comercial). El estado ganado/perdido se modela
--- via `stage` (won/lost), por eso NO hay columna status. property_id promovido
--- desde metadata.property_id. stage/pipeline = texto libre (vertical).
+-- 3) opportunities  (= OPERACIONES COMERCIALES; UI: "Operaciones" / "Pipeline
+-- comercial"). Nombre tecnico interno, NO se renombra (contrato del codigo).
+-- El estado ganado/perdido se modela via `stage` (won/lost), por eso NO hay
+-- columna status. property_id promovido desde metadata.property_id.
+-- stage/pipeline = texto libre (vertical). El lado de la operacion
+-- (compra/venta/alquiler) se expresa via title + properties.operation_type +
+-- (opcional) metadata.operation_side; no requiere columna dedicada.
 -- ============================================================================
 create table if not exists public.opportunities (
   id                  uuid primary key default gen_random_uuid(),

@@ -71,3 +71,6 @@ Esperado:
 
 ## 10. No tocar
 `.env.local`, `.env.local.backup_antiguo`, secretos, API keys, Auth users, Storage, runtime `src/*`, n8n, proyectos legacy. No deploy. No commits de runtime.
+
+## 11. Naming (2E-2N)
+La tabla se llama `opportunities` (técnico) y **no se renombra** en el APPLY. La UI debe mostrar **"Operaciones" / "Pipeline comercial"** (no "Oportunidades"); la unificación de textos es trabajo de la fase runtime, no del APPLY. Ver sección Naming en [PHASE_2E2_SCHEMA_REVIEW.md](PHASE_2E2_SCHEMA_REVIEW.md).

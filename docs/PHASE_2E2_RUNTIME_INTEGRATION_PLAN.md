@@ -17,7 +17,7 @@ El esquema CRM ya existe en Supabase tras 2E-2 APPLY. La integración runtime co
 ## 2. Orden recomendado de integración (server-first, módulo a módulo)
 1. **Clients** — la base; casi todo enlaza a `client_id`. Validar listado, ficha, crear/editar.
 2. **Properties** — inmuebles; pestaña de propiedades y relación con oportunidades.
-3. **Opportunities** — pipeline; usar `property_id` real (en vez de `metadata.property_id`).
+3. **Opportunities** — pipeline; usar `property_id` real (en vez de `metadata.property_id`). **Naming (2E-2N):** tabla `opportunities` sin cambios; en esta fase RT, unificar la UI a **"Operaciones" / "Pipeline comercial"** (nav hoy "Gestión", sección "Seguimiento comercial") y sustituir los literales residuales "oportunidad" (drawers, toasts, ficha cliente, inbox, contador de columna, títulos de actividad). Ver sección Naming en [PHASE_2E2_SCHEMA_REVIEW.md](PHASE_2E2_SCHEMA_REVIEW.md).
 4. **Tasks / Calendar** — operativa y agenda (el sync Google ya tiene columnas; conectar OAuth aparte).
 5. **Activities** — timeline; `logActivity` best-effort en cada escritura de negocio.
 6. **Documents / Billing / Inbox** — requieren 2E-3 (Storage + comms) y 2E-4 (facturación).

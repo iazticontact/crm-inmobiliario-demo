@@ -124,3 +124,39 @@ Detallado en [PHASE_2E2_RUNTIME_INTEGRATION_PLAN.md](PHASE_2E2_RUNTIME_INTEGRATI
 2. **`assigned_to`/`created_by` → FK a `auth.users` + trigger de pertenencia para `assigned_to`.** Se mantiene la FK a `auth.users` (id compartido con `profiles`). Se añade `enforce_member_refs` (reusable, SECURITY DEFINER, `search_path=''`) que valida que `assigned_to` sea miembro del workspace al insertar o al cambiarlo. `created_by` **no** se valida (es procedencia; validar rompería ediciones si el creador deja el workspace). Implementado en `clients`/`opportunities`/`service_cases`/`tasks`.
 3. **Soft delete por `comercial` → bloqueado vía RLS.** UPDATE partido en dos policies (admin libre / comercial con `WITH CHECK deleted_at is null`). `comercial` edita pero no puede fijar `deleted_at` ni hard-delete; owner/admin sí. Sin triggers extra.
 4. **`vertical_config` → DIFERIDO (sin tabla).** La parametrización de pipelines/case_types/canales vive en el **catálogo estático** `vertical-templates.ts` (viaja con el código, igual para todos los workspaces, sin migración) y, para overrides por cliente, en **`workspaces.settings` (jsonb)** que ya existe. No se crea tabla hasta que haya necesidad real de personalización persistida por workspace.
+
+## 15. Naming de `opportunities` (decisión 2E-2N)
+
+**Contexto:** "Oportunidades" suena poco natural en un CRM inmobiliario español. El término del dominio es **"Operación"** (compraventa/alquiler). Pero la tabla `opportunities` está embebida en ~331 referencias del código (`vertical-queries.ts`, `vertical-server.ts`, las tools del agente `list_opportunities`/`create_opportunity`/`update_opportunity_stage`, rutas, tipos) → **renombrar la tabla rompería runtime**, lo que está fuera de alcance.
+
+**Decisión final:**
+| Capa | Nombre |
+|---|---|
+| Tabla DB (técnico) | **`opportunities`** (sin cambio; estándar CRM, genérico y verticalizable) |
+| Módulo UI (recomendado) | **"Operaciones"** |
+| Etiqueta secundaria / tablero | **"Pipeline comercial"** |
+| Docs técnicas | `opportunities` (operaciones comerciales) |
+| Docs comerciales | "Operaciones / Pipeline comercial" |
+| Evitar | "Oportunidades" como título principal visible |
+
+Opciones descartadas: `deals` / `commercial_operations` (rename masivo, riesgo alto, sin ganancia de claridad en ES); **`real_estate_deals` (rompería la verticalización**: la misma tabla sirve a immigration / professional_services / general — ver `IMMIGRATION_PIPELINE`, etc.).
+
+**Estado actual del runtime (inconsistente, a converger en fase RT — NO tocado aquí):**
+- Sidebar nav `/opportunities` = **"Gestión"** ([Sidebar.tsx:27](../src/components/Sidebar.tsx#L27)).
+- Página: KPI "Seguimientos", sección "Seguimiento comercial", vacíos "Nuevo seguimiento" ([opportunities/page.tsx](../src/app/(saas)/opportunities/page.tsx)).
+- Residuales literales "oportunidad/Oportunidad" a sustituir por "operación/Operación": drawers `VerticalForms.tsx` / `VerticalEditForms.tsx` (títulos + toasts), `opportunities/page.tsx:409` (contador de columna), `clients/[id]/page.tsx:736-738` ("Oportunidades vinculadas" / "Sin oportunidades activas"), `inbox/page.tsx:1041`, y los títulos de actividad en `vertical-queries.ts` / `vertical-server.ts` ("Oportunidad creada/editada/→").
+- **Recomendación RT:** unificar nav "Gestión" → "Operaciones", sección "Seguimiento comercial" → "Pipeline comercial", y reemplazar los residuales. La tabla y las claves (`stage`, `pipeline`) **no cambian**.
+
+### Mapping visible de `stage` (real_estate; del catálogo `REAL_ESTATE_PIPELINE`)
+| `stage` (DB) | Etiqueta visible |
+|---|---|
+| `new` | Nuevo lead |
+| `contacted` | Contactado |
+| `qualified` | Cualificado |
+| `visit_scheduled` | Visita agendada |
+| `offer` | Oferta/propuesta |
+| `negotiation` | Negociación |
+| `won` | Cerrado ganado |
+| `lost` | Cerrado perdido |
+
+`stage` se mantiene **texto libre** (verticalizable): immigration usa `consultation/documentation/in_review/submitted/...`. El seed real_estate usa exactamente los 8 ids de arriba (renderizan en el board). El lado de la operación (compra/venta/alquiler) se expresa con `title` + `properties.operation_type` + (opcional) `metadata.operation_side ∈ {buy,sell,rent}`; **no se añade columna** (no es crítico y el código no la usa).
