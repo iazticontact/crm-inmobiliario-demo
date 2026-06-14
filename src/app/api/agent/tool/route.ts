@@ -56,6 +56,8 @@ type AllowedTool =
   | 'get_workspace_summary'
   | 'get_client_summary'
   | 'log_external_automation_event'
+  | 'get_open_operations'
+  | 'get_open_service_cases'
   // Brain reader tools — added for the n8n CRM Agent Brain. All read-only.
   | 'get_crm_overview'
   | 'search_clients'
@@ -71,6 +73,8 @@ const ALLOWED_TOOLS: ReadonlySet<AllowedTool> = new Set<AllowedTool>([
   'get_workspace_summary',
   'get_client_summary',
   'log_external_automation_event',
+  'get_open_operations',
+  'get_open_service_cases',
   'get_crm_overview',
   'search_clients',
   'get_client_360',
@@ -364,6 +368,40 @@ export async function POST(request: Request) {
       }
       logCall(tool, workspaceId, 200)
       return ok(tool, result, 'workspace_summary_ok')
+    }
+
+    if (tool === 'get_open_operations') {
+      const { data, error } = await supabase
+        .from('opportunities')
+        .select('id, title, stage, value')
+        .eq('workspace_id', workspaceId)
+        .not('stage', 'in', '("won","lost")')
+        .order('updated_at', { ascending: false })
+        .limit(25)
+      if (error) {
+        logCall(tool, workspaceId, 503)
+        return fail('operations_lookup_failed', 503)
+      }
+      const rows = ((data ?? []) as Array<Record<string, unknown>>).map((o) => ({ title: o.title, status: o.stage, value: o.value }))
+      logCall(tool, workspaceId, 200)
+      return ok(tool, rows, 'open_operations_ok')
+    }
+
+    if (tool === 'get_open_service_cases') {
+      const { data, error } = await supabase
+        .from('service_cases')
+        .select('id, title, status, case_type')
+        .eq('workspace_id', workspaceId)
+        .not('status', 'in', '("resolved","closed")')
+        .order('updated_at', { ascending: false })
+        .limit(25)
+      if (error) {
+        logCall(tool, workspaceId, 503)
+        return fail('service_cases_lookup_failed', 503)
+      }
+      const rows = ((data ?? []) as Array<Record<string, unknown>>).map((c) => ({ title: c.title, status: c.status, case_type: c.case_type }))
+      logCall(tool, workspaceId, 200)
+      return ok(tool, rows, 'open_service_cases_ok')
     }
 
     if (tool === 'get_client_summary') {

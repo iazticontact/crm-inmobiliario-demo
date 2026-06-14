@@ -1688,6 +1688,25 @@ export default function AssistantPage() {
         return
       }
 
+      // RT5 — lecturas reales directas de operaciones / expedientes abiertos.
+      // Mismo camino seguro (callAgentTool → formatToolResult, RLS server-side,
+      // sin inventar): si no hay datos, formatToolResult ya dice que no hay.
+      const readLc = content.toLowerCase()
+      const directReadTool: AgentToolName | null =
+        /\boperaci(o|ó)n|pipeline|negociaci/.test(readLc) ? 'get_open_operations' :
+        /\bexpediente|tr[aá]mite/.test(readLc) ? 'get_open_service_cases' : null
+      if (!OFFLINE_FORCE_DEV && assistantMode === 'copilot' && directReadTool && workspaceId) {
+        const directResult = await callAgentTool(directReadTool, workspaceId, {}, {
+          source: 'assistant_local_read',
+          conversation_id: activeConversation.id,
+        }).catch(() => null)
+        if (directResult?.ok) {
+          await appendAssistantMessage(conversationId, formatToolResult(directReadTool, directResult.result), activeConversation.clientName)
+          setLastResponseSource(null)
+          return
+        }
+      }
+
       const safeToolByIntent: Partial<Record<AssistantIntent['intent'], AgentToolName>> = {
         client_search: 'search_clients',
         client_summary: 'get_client_summary',
@@ -2648,13 +2667,13 @@ export default function AssistantPage() {
         mode: workspaceId ? 'real' : 'demo',
         conversation: {
           id: 'test',
-          client_name: 'Lucía Herrera',
+          client_name: 'Cliente de prueba',
           channel: 'whatsapp',
           sentiment: 'positive',
           intent: 'pricing',
         },
-        message: { content: 'Hola, me interesa el piso de Calle Mayor 14. ¿Cuál es el precio y qué incluye la operación?' },
-        client: { name: 'Lucía Herrera', status: 'lead' },
+        message: { content: 'Mensaje de prueba del flujo n8n: consulta de ejemplo sobre una operación.' },
+        client: { name: 'Cliente de prueba', status: 'lead' },
         metadata: { source: 'assistant_ui_test', assistant_mode: assistantMode },
         assistant_mode: assistantMode,
       })

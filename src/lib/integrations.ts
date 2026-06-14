@@ -59,6 +59,8 @@ export type N8nTriggerResult = {
 
 export type AgentToolName =
   | 'get_workspace_summary'
+  | 'get_open_operations'
+  | 'get_open_service_cases'
   | 'search_clients'
   | 'get_client_summary'
   | 'get_client_detail'

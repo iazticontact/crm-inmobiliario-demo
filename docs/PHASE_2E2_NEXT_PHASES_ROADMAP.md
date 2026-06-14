@@ -26,9 +26,15 @@ Notas originales de la fase (referencia):
 - Confirmaciones, optimistic UI, toasts; bloqueo en modo demo (solo lectura).
 - Registrar `activities` (`source: 'ui_manual'`) por cada mutación.
 
-## RT5 — Assistant tools reales
-- Conectar las tools del asistente a lecturas/escrituras reales con confirmación.
-- Mantener guardrail anti-invención (no afirmar datos inexistentes).
+## RT5 — Assistant tools reales (PARCIAL SEGURA)
+- **Hecho:** arquitectura real verificada (READ tools `/api/agent/tool`, PREPARE
+  `/api/assistant/v2`, CONFIRM `/api/assistant/confirm` con auth+RLS para
+  booking/task/invoice/report), guardrail anti-invención, service_role solo
+  server. Añadidas READ tools reales `get_open_operations`/`get_open_service_cases`
+  + cableado; neutralizado el último dato de muestra ("Lucía Herrera"). Ver
+  [PHASE_2E2_RT5_ASSISTANT_TOOLS_REPORT.md](PHASE_2E2_RT5_ASSISTANT_TOOLS_REPORT.md).
+- **RT5.1 (pendiente):** confirm-execute desde el asistente para operaciones/
+  expedientes/updates/stage-move (reutilizando helpers RT4.x); intents más ricos.
 - Sin promesas de WhatsApp/Meta hasta su fase.
 
 ## 2E-3 — Storage / documents
