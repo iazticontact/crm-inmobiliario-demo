@@ -546,7 +546,12 @@ export default function ClientsPage() {
                     </td>
 
                     <td className="px-4 py-3.5">
-                      <Badge variant={status.variant} dot>{status.label}</Badge>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant={status.variant} dot>{status.label}</Badge>
+                        {client.leadScore > 0 && (
+                          <span className="text-[10px] font-medium text-gray-400">Score {client.leadScore}</span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="px-4 py-3.5">
@@ -554,8 +559,8 @@ export default function ClientsPage() {
                     </td>
 
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <button onClick={() => router.push(`/clients/${client.id}`)} title="Abrir ficha" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><FolderOpen className="h-3.5 w-3.5" /></button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => router.push(`/clients/${client.id}`)} title="Abrir ficha del cliente" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"><FolderOpen className="h-3.5 w-3.5" /> Ver ficha</button>
                         {email && (
                           <a href={`mailto:${email}`} title={`Email a ${email}`} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Mail className="h-3.5 w-3.5" /></a>
                         )}

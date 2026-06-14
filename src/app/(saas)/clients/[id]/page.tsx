@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar as CalendarIcon,
   CheckSquare,
+  Copy,
   CreditCard,
   Download,
   FileText,
@@ -58,7 +59,7 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'cases', label: 'Expedientes', icon: <Building2 className="h-3.5 w-3.5" /> },
   { key: 'calendar', label: 'Visitas y citas', icon: <CalendarIcon className="h-3.5 w-3.5" /> },
   { key: 'tasks', label: 'Tareas', icon: <CheckSquare className="h-3.5 w-3.5" /> },
-  { key: 'conversations', label: 'WhatsApp', icon: <MessageSquare className="h-3.5 w-3.5" /> },
+  { key: 'conversations', label: 'Conversaciones', icon: <MessageSquare className="h-3.5 w-3.5" /> },
   { key: 'invoices', label: 'Facturación', icon: <CreditCard className="h-3.5 w-3.5" /> },
 ]
 
@@ -404,8 +405,19 @@ export default function ClientDetailPage() {
     }
   }
 
+  const copyToClipboard = useCallback(async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copiado al portapapeles`)
+    } catch {
+      toast.error(`No se pudo copiar ${label.toLowerCase()}`)
+    }
+  }, [])
+
   const status = client ? STATUS_BADGE[client.status] : null
   const safeNotes = client?.notes && client.notes !== 'No consta' ? client.notes : ''
+  const cleanEmail = client?.email && client.email !== 'No consta' ? client.email : ''
+  const cleanPhone = client?.phone && client.phone !== '-' && client.phone !== 'No consta' ? client.phone : ''
 
   // Datos derivados del metadata para mostrar profesionalmente.
   const meta = useMemo(() => ({
@@ -486,16 +498,26 @@ export default function ClientDetailPage() {
             <p className="mt-1 text-sm text-gray-500">
               {client.company === 'No consta' || !client.company ? 'Sin empresa registrada' : client.company}
             </p>
-            <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-600">
-              {client.email && client.email !== 'No consta' && (
-                <a href={`mailto:${client.email}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
-                  <Mail className="h-3.5 w-3.5" /> {client.email}
-                </a>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-600">
+              {cleanEmail && (
+                <span className="inline-flex items-center gap-1">
+                  <a href={`mailto:${cleanEmail}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
+                    <Mail className="h-3.5 w-3.5" /> {cleanEmail}
+                  </a>
+                  <button type="button" onClick={() => copyToClipboard(cleanEmail, 'Email')} title="Copiar email" className="text-gray-300 transition-colors hover:text-indigo-600">
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </span>
               )}
-              {client.phone && client.phone !== '-' && client.phone !== 'No consta' && (
-                <a href={`tel:${client.phone}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
-                  <Phone className="h-3.5 w-3.5" /> {client.phone}
-                </a>
+              {cleanPhone && (
+                <span className="inline-flex items-center gap-1">
+                  <a href={`tel:${cleanPhone}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
+                    <Phone className="h-3.5 w-3.5" /> {cleanPhone}
+                  </a>
+                  <button type="button" onClick={() => copyToClipboard(cleanPhone, 'Teléfono')} title="Copiar teléfono" className="text-gray-300 transition-colors hover:text-indigo-600">
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </span>
               )}
               {meta.secondaryPhone && (
                 <a href={`tel:${meta.secondaryPhone}`} className="inline-flex items-center gap-1.5 text-gray-500 hover:text-indigo-600">
@@ -509,9 +531,19 @@ export default function ClientDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {cleanPhone && (
+              <a href={`tel:${cleanPhone}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
+                <Phone className="h-3.5 w-3.5" /> Llamar
+              </a>
+            )}
+            {cleanEmail && (
+              <a href={`mailto:${cleanEmail}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
+                <Mail className="h-3.5 w-3.5" /> Email
+              </a>
+            )}
             <Button variant="secondary" size="sm" onClick={() => router.push(`/clients?edit=${client.id}`)}>
-              <Pencil className="h-3.5 w-3.5" /> Editar cliente
+              <Pencil className="h-3.5 w-3.5" /> Editar
             </Button>
           </div>
         </div>
@@ -842,9 +874,9 @@ export default function ClientDetailPage() {
       )}
 
       {activeTab === 'conversations' && (
-        <SectionCard title="Conversaciones de WhatsApp" description="Mensajes recibidos y enviados a este cliente">
+        <SectionCard title="Conversaciones" description="Mensajes registrados con este cliente">
           {conversations.length === 0 ? (
-            <p className="text-sm text-gray-500">Sin conversaciones de WhatsApp para este cliente.</p>
+            <p className="text-sm text-gray-500">Sin conversaciones registradas para este cliente.</p>
           ) : (
             <ul className="divide-y divide-gray-100">
               {conversations.map((c) => (
@@ -852,7 +884,7 @@ export default function ClientDetailPage() {
                   <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-sm font-semibold text-gray-900">{c.lastMessage}</p>
                     <Badge variant={c.sentiment === 'positive' ? 'success' : c.sentiment === 'negative' ? 'danger' : 'default'}>
-                      WhatsApp
+                      {c.channel === 'whatsapp' ? 'WhatsApp' : c.channel || 'Conversación'}
                     </Badge>
                   </div>
                   <p className="mt-1 text-[11px] text-gray-500">
