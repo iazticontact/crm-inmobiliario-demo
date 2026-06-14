@@ -160,6 +160,17 @@ const CHANNEL_LABEL: Record<string, string> = {
   crm: 'Alta manual',
 }
 
+// Tipos de evento de calendario → etiqueta es-ES (fallback al valor crudo).
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  visit: 'Visita',
+  meeting: 'Reunión',
+  call: 'Llamada',
+  demo: 'Demo',
+  'follow-up': 'Seguimiento',
+  task: 'Tarea',
+  deadline: 'Vencimiento',
+}
+
 function labelOr(map: Record<string, string>, value?: string | null): string {
   if (!value) return ''
   return map[value] ?? value
@@ -914,10 +925,10 @@ export default function ClientDetailPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
                     <p className="text-[11px] text-gray-500">
-                      {[formatDate(event.startAt ?? event.date, true), event.location, event.type].filter(Boolean).join(' · ')}
+                      {[formatDate(event.startAt ?? event.date, true), event.location, labelOr(EVENT_TYPE_LABEL, event.type)].filter(Boolean).join(' · ')}
                     </p>
                   </div>
-                  <Badge variant="indigo">{event.type}</Badge>
+                  <Badge variant="indigo">{labelOr(EVENT_TYPE_LABEL, event.type)}</Badge>
                 </li>
               ))}
             </ul>
