@@ -37,6 +37,8 @@ Criterio de corte por módulo: leer real → escribir real (con guard demo) → 
 - Rutas API en `src/app/api/*` (clients/documents, reports, agent/tool, integrations) — derivan workspace de sesión; respetar.
 - Tipos en `src/lib/types.ts` — mapear columnas snake_case ↔ camelCase (p.ej. `lead_score`↔`leadScore`); derivar `avatar` (iniciales) y `lastInteraction` (de `activities`).
 
+> **Nota 2E-2R (integridad de asignación):** el selector de `assigned_to` (tareas/expedientes/oportunidades/clientes) debe ofrecer **solo miembros del workspace** (de `workspace_members`/`profiles`). La BD lo refuerza con el trigger `enforce_member_refs`: asignar a un `user_id` que no sea miembro falla con `check_violation`. `created_by` debe rellenarse con el `auth.uid()` de la sesión (no validado en BD, pero es lo correcto).
+
 ## 5. Qué NO tocar todavía
 - `src/lib/agents/nowlabs-main-agent.ts` y el contrato `runNowLabsAgent` / `NOWCRM_*` / `x-nowcrm-*` (protegidos).
 - Tokens de integraciones (WhatsApp/Google): siguen en backend/service_role; no exponer vía anon.
