@@ -40,15 +40,16 @@ import {
   getClientDetail,
   getClientInvoices,
   getWorkspaceContext,
+  createCalendarEvent,
   listTasks,
   listWorkspaceProfiles,
   updateClient,
   updateTask,
   type WorkspaceMember,
 } from '@/lib/supabase-queries'
-import { getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
+import { createOpportunity, createServiceCase, getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
-import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, Invoice } from '@/lib/types'
+import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, EventType, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import {
   clients as demoClientsList,
@@ -182,6 +183,13 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 const taskInputCls =
   'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500'
 
+// Etapas del pipeline inmobiliario para el alta de operaciones (estático).
+const REAL_ESTATE_STAGES = getPipelineForVertical('real_estate')
+
+function isDemoMode() {
+  return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+}
+
 function labelOr(map: Record<string, string>, value?: string | null): string {
   if (!value) return ''
   return map[value] ?? value
@@ -284,6 +292,17 @@ export default function ClientDetailPage() {
   const [taskForm, setTaskForm] = useState({ title: '', priority: 'normal', dueDate: '', assignedTo: '', description: '' })
   const [taskSaving, setTaskSaving] = useState(false)
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null)
+
+  // RT4.2 — alta de operaciones / expedientes / eventos
+  const [opFormOpen, setOpFormOpen] = useState(false)
+  const [opForm, setOpForm] = useState({ title: '', stage: REAL_ESTATE_STAGES[0]?.id ?? 'new', value: '', probability: '', assignedTo: '', expectedCloseDate: '', notes: '' })
+  const [opSaving, setOpSaving] = useState(false)
+  const [caseFormOpen, setCaseFormOpen] = useState(false)
+  const [caseForm, setCaseForm] = useState({ title: '', caseType: '', status: 'open', priority: 'normal', dueDate: '', assignedTo: '', notes: '' })
+  const [caseSaving, setCaseSaving] = useState(false)
+  const [evFormOpen, setEvFormOpen] = useState(false)
+  const [evForm, setEvForm] = useState({ title: '', type: 'meeting', date: '', time: '10:00', duration: '60', location: '', notes: '' })
+  const [evSaving, setEvSaving] = useState(false)
 
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState('')
@@ -482,6 +501,114 @@ export default function ClientDetailPage() {
       toast.error('No se pudo actualizar la tarea', { description: error instanceof Error ? error.message : '' })
     } finally {
       setTaskBusyId(null)
+    }
+  }
+
+  // Refresca el feed de actividad real tras una mutación que loggea internamente.
+  const reloadActivityFeed = async () => {
+    if (!workspaceId || !client) return
+    const acts = await getClientActivityFeed(workspaceId, client.id, client.name).catch(() => null)
+    if (acts) setActivities(acts)
+  }
+
+  // RT4.2 — crear operación real vinculada al cliente (RLS; activity interna).
+  const handleCreateOperation = async () => {
+    if (!opForm.title.trim()) { toast.error('Falta el título de la operación.'); return }
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)', { description: 'Crear operaciones estará disponible al conectar tu cuenta.' }); return }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    setOpSaving(true)
+    try {
+      const created = await createOpportunity(workspaceId, {
+        title: opForm.title.trim(),
+        vertical: 'real_estate',
+        pipeline: 'real_estate',
+        stage: opForm.stage,
+        clientId: client.id,
+        clientName: client.name,
+        value: opForm.value ? Number(opForm.value) : null,
+        probability: opForm.probability ? Number(opForm.probability) : null,
+        assignedTo: opForm.assignedTo || null,
+        expectedCloseDate: opForm.expectedCloseDate || null,
+        notes: opForm.notes.trim() || null,
+      })
+      if (!created) { toast.error('No se pudo crear la operación'); return }
+      setOpportunities((prev) => [created, ...prev])
+      await reloadActivityFeed()
+      toast.success('Operación creada')
+      setOpForm({ title: '', stage: REAL_ESTATE_STAGES[0]?.id ?? 'new', value: '', probability: '', assignedTo: '', expectedCloseDate: '', notes: '' })
+      setOpFormOpen(false)
+    } catch (error) {
+      toast.error('No se pudo crear la operación', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setOpSaving(false)
+    }
+  }
+
+  // RT4.2 — crear expediente real vinculado al cliente (RLS; activity interna).
+  const handleCreateCase = async () => {
+    if (!caseForm.title.trim()) { toast.error('Falta el título del expediente.'); return }
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)', { description: 'Crear expedientes estará disponible al conectar tu cuenta.' }); return }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    setCaseSaving(true)
+    try {
+      const created = await createServiceCase(workspaceId, {
+        title: caseForm.title.trim(),
+        caseType: caseForm.caseType.trim() || 'general',
+        vertical: 'real_estate',
+        clientId: client.id,
+        clientName: client.name,
+        status: caseForm.status,
+        priority: caseForm.priority,
+        assignedTo: caseForm.assignedTo || null,
+        dueDate: caseForm.dueDate || null,
+        notes: caseForm.notes.trim() || null,
+      })
+      if (!created) { toast.error('No se pudo crear el expediente'); return }
+      setCases((prev) => [created, ...prev])
+      await reloadActivityFeed()
+      toast.success('Expediente creado')
+      setCaseForm({ title: '', caseType: '', status: 'open', priority: 'normal', dueDate: '', assignedTo: '', notes: '' })
+      setCaseFormOpen(false)
+    } catch (error) {
+      toast.error('No se pudo crear el expediente', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setCaseSaving(false)
+    }
+  }
+
+  // RT4.2 — crear evento básico (sin Google). Activity manual (no loggea solo).
+  const handleCreateEvent = async () => {
+    if (!evForm.title.trim()) { toast.error('Falta el título del evento.'); return }
+    if (!evForm.date) { toast.error('Falta la fecha del evento.'); return }
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)', { description: 'Crear eventos estará disponible al conectar tu cuenta.' }); return }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    const [hh, mm] = (evForm.time || '10:00').split(':').map((n) => Number(n))
+    setEvSaving(true)
+    try {
+      const created = await createCalendarEvent(workspaceId, {
+        title: evForm.title.trim(),
+        type: evForm.type as EventType,
+        date: evForm.date,
+        time: evForm.time || '10:00',
+        startHour: Number.isFinite(hh) ? hh : 10,
+        startMinute: Number.isFinite(mm) ? mm : 0,
+        duration: Number(evForm.duration) || 60,
+        clientId: client.id,
+        clientName: client.name,
+        location: evForm.location.trim() || undefined,
+        notes: evForm.notes.trim() || undefined,
+        description: evForm.notes.trim() || undefined,
+      })
+      setEvents((prev) => [created, ...prev])
+      const act = await createActivity(workspaceId, { type: 'note', description: `Evento creado: ${created.title}`, clientName: client.name }).catch(() => null)
+      if (act) setActivities((prev) => [act, ...prev])
+      toast.success('Evento creado')
+      setEvForm({ title: '', type: 'meeting', date: '', time: '10:00', duration: '60', location: '', notes: '' })
+      setEvFormOpen(false)
+    } catch (error) {
+      toast.error('No se pudo crear el evento', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setEvSaving(false)
     }
   }
 
@@ -929,8 +1056,29 @@ export default function ClientDetailPage() {
           <SectionCard
             title="Expedientes"
             description="Trámites de gestoría y extranjería"
-            action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ir a Gestión</Link>}
+            action={
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant={caseFormOpen ? 'secondary' : 'primary'} onClick={() => setCaseFormOpen((v) => !v)}>
+                  <Plus className="h-3.5 w-3.5" /> {caseFormOpen ? 'Cerrar' : 'Nuevo expediente'}
+                </Button>
+                <Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ir a Gestión</Link>
+              </div>
+            }
           >
+            {caseFormOpen && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={caseForm.title} onChange={(e) => setCaseForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Expediente NIE" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><input value={caseForm.caseType} onChange={(e) => setCaseForm((p) => ({ ...p, caseType: e.target.value }))} placeholder="NIE, residencia…" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Estado</span><select value={caseForm.status} onChange={(e) => setCaseForm((p) => ({ ...p, status: e.target.value }))} className={taskInputCls}>{Object.entries(CASE_STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Prioridad</span><select value={caseForm.priority} onChange={(e) => setCaseForm((p) => ({ ...p, priority: e.target.value }))} className={taskInputCls}><option value="low">Baja</option><option value="normal">Normal</option><option value="high">Alta</option></select></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Vencimiento</span><input type="date" value={caseForm.dueDate} onChange={(e) => setCaseForm((p) => ({ ...p, dueDate: e.target.value }))} className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={caseForm.assignedTo} onChange={(e) => setCaseForm((p) => ({ ...p, assignedTo: e.target.value }))} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={caseForm.notes} onChange={(e) => setCaseForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+                </div>
+                <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setCaseFormOpen(false)}>Cancelar</Button><Button size="sm" loading={caseSaving} onClick={handleCreateCase}>Crear expediente</Button></div>
+              </div>
+            )}
             {cases.length === 0 ? (
               <p className="text-sm text-gray-500">Sin expedientes abiertos para este cliente.</p>
             ) : (
@@ -972,7 +1120,29 @@ export default function ClientDetailPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Pipeline comercial" description="Operaciones vinculadas">
+          <SectionCard
+            title="Pipeline comercial"
+            description="Operaciones vinculadas"
+            action={
+              <Button size="sm" variant={opFormOpen ? 'secondary' : 'primary'} onClick={() => setOpFormOpen((v) => !v)}>
+                <Plus className="h-3.5 w-3.5" /> {opFormOpen ? 'Cerrar' : 'Nueva operación'}
+              </Button>
+            }
+          >
+            {opFormOpen && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={opForm.title} onChange={(e) => setOpForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Compra piso Centro" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Etapa</span><select value={opForm.stage} onChange={(e) => setOpForm((p) => ({ ...p, stage: e.target.value }))} className={taskInputCls}>{REAL_ESTATE_STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={opForm.assignedTo} onChange={(e) => setOpForm((p) => ({ ...p, assignedTo: e.target.value }))} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Valor (€)</span><input type="number" value={opForm.value} onChange={(e) => setOpForm((p) => ({ ...p, value: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Probabilidad (%)</span><input type="number" value={opForm.probability} onChange={(e) => setOpForm((p) => ({ ...p, probability: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Cierre estimado</span><input type="date" value={opForm.expectedCloseDate} onChange={(e) => setOpForm((p) => ({ ...p, expectedCloseDate: e.target.value }))} className={taskInputCls} /></label>
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={opForm.notes} onChange={(e) => setOpForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+                </div>
+                <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setOpFormOpen(false)}>Cancelar</Button><Button size="sm" loading={opSaving} onClick={handleCreateOperation}>Crear operación</Button></div>
+              </div>
+            )}
             {opportunities.length === 0 ? (
               <p className="text-sm text-gray-500">Sin operaciones activas.</p>
             ) : (
@@ -1001,8 +1171,29 @@ export default function ClientDetailPage() {
         <SectionCard
           title="Visitas y citas"
           description="Eventos del calendario asociados al cliente"
-          action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Abrir calendario</Link>}
+          action={
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant={evFormOpen ? 'secondary' : 'primary'} onClick={() => setEvFormOpen((v) => !v)}>
+                <Plus className="h-3.5 w-3.5" /> {evFormOpen ? 'Cerrar' : 'Nuevo evento'}
+              </Button>
+              <Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Abrir calendario</Link>
+            </div>
+          }
         >
+          {evFormOpen && (
+            <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={evForm.title} onChange={(e) => setEvForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Visita al piso" className={taskInputCls} /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={evForm.type} onChange={(e) => setEvForm((p) => ({ ...p, type: e.target.value }))} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Demo</option></select></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={evForm.duration} onChange={(e) => setEvForm((p) => ({ ...p, duration: e.target.value }))} className={taskInputCls} /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={evForm.date} onChange={(e) => setEvForm((p) => ({ ...p, date: e.target.value }))} className={taskInputCls} /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={evForm.time} onChange={(e) => setEvForm((p) => ({ ...p, time: e.target.value }))} className={taskInputCls} /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Ubicación</span><input value={evForm.location} onChange={(e) => setEvForm((p) => ({ ...p, location: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={evForm.notes} onChange={(e) => setEvForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
+              </div>
+              <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setEvFormOpen(false)}>Cancelar</Button><Button size="sm" loading={evSaving} onClick={handleCreateEvent}>Crear evento</Button></div>
+            </div>
+          )}
           {events.length === 0 ? (
             <p className="text-sm text-gray-500">Sin citas programadas para este cliente.</p>
           ) : (

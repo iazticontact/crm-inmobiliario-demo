@@ -201,6 +201,7 @@ export async function createOpportunity(workspaceId: string, input: {
   value?: number | null
   probability?: number | null
   source?: string | null
+  assignedTo?: string | null
   expectedCloseDate?: string | null
   notes?: string | null
   metadata?: Record<string, unknown>
@@ -219,6 +220,7 @@ export async function createOpportunity(workspaceId: string, input: {
       value: input.value ?? null,
       probability: input.probability ?? null,
       source: input.source ?? null,
+      assigned_to: input.assignedTo ?? null,
       expected_close_date: input.expectedCloseDate ?? null,
       notes: input.notes ?? null,
       metadata: input.metadata ?? {},
@@ -233,7 +235,7 @@ export async function createOpportunity(workspaceId: string, input: {
   await logActivity(supabase, {
     workspaceId,
     type: 'opportunity_created',
-    title: `Oportunidad creada: ${row.title}`,
+    title: `Operación creada: ${row.title}`,
     description: `Vertical ${row.vertical} · stage ${row.stage}${row.value ? ` · ${row.value}€` : ''}`,
     clientId: row.client_id,
     clientName: input.clientName ?? null,
@@ -259,7 +261,7 @@ export async function updateOpportunityStage(workspaceId: string, id: string, st
   await logActivity(supabase, {
     workspaceId,
     type: 'opportunity_stage_updated',
-    title: `Oportunidad → ${stage}`,
+    title: `Operación → ${stage}`,
     description: `"${data.title}" pasa a etapa ${stage}.`,
     clientId: data.client_id,
     metadata: { opportunity_id: data.id, stage },
@@ -308,7 +310,7 @@ export async function updateOpportunity(workspaceId: string, id: string, input: 
   await logActivity(supabase, {
     workspaceId,
     type: 'opportunity_updated',
-    title: `Oportunidad editada: ${row.title}`,
+    title: `Operación editada: ${row.title}`,
     description: `Stage ${row.stage}${row.value ? ` · ${row.value}€` : ''}${row.probability != null ? ` · ${row.probability}%` : ''}`,
     clientId: row.client_id,
     metadata: { opportunity_id: row.id },
@@ -325,6 +327,7 @@ export async function createServiceCase(workspaceId: string, input: {
   opportunityId?: string | null
   status?: string
   priority?: string
+  assignedTo?: string | null
   dueDate?: string | null
   notes?: string | null
   metadata?: Record<string, unknown>
@@ -342,6 +345,7 @@ export async function createServiceCase(workspaceId: string, input: {
       vertical: input.vertical,
       status: input.status ?? 'open',
       priority: input.priority ?? 'normal',
+      assigned_to: input.assignedTo ?? null,
       due_date: input.dueDate ?? null,
       notes: input.notes ?? null,
       metadata: input.metadata ?? {},

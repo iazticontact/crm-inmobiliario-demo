@@ -7,8 +7,16 @@ Estado actual: lectura real conectada (dashboard, clientes, ficha profunda,
 operaciones, calendario), demo offline intacta, datos reales verificados
 (8/7/7/5/10/8/14). Lo que sigue, en orden de valor/riesgo:
 
-## RT4 — Mutaciones controladas (siguiente)
-Escrituras reales seguras desde la UI sobre lo ya leído:
+## RT4 — Mutaciones controladas ✅ (RT4 + RT4.2 hechas)
+- **RT4 (hecho):** crear/completar/reabrir **tareas** + selector de responsable
+  real + activity. Ver [PHASE_2E2_RT4_MUTATIONS_REPORT.md](PHASE_2E2_RT4_MUTATIONS_REPORT.md).
+- **RT4.2 (hecho):** crear **operaciones / expedientes / eventos** desde la ficha
+  + responsable + activity. Ver [PHASE_2E2_RT4_2_MUTATIONS_REPORT.md](PHASE_2E2_RT4_2_MUTATIONS_REPORT.md).
+- **RT4.3 (pendiente):** cambiar etapa/estado y edición avanzada desde la ficha
+  (los helpers `updateOpportunityStage`/`updateServiceCaseStatus`/`updateTask`
+  ya existen; el pipeline `/opportunities` ya mueve etapa).
+
+Notas originales de la fase (referencia):
 - Crear/editar tareas, operaciones, expedientes y eventos (helpers de escritura
   ya existen en `vertical-queries.ts`/`supabase-queries.ts`).
 - **Responsables (RT2.5 efectivo):** al crear/editar, selector de responsable
