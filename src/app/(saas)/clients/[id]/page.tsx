@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Building2,
   Calendar as CalendarIcon,
+  Check,
   CheckSquare,
   Clock,
   Copy,
@@ -19,6 +20,7 @@ import {
   MessageSquare,
   Pencil,
   Phone,
+  Plus,
   Target,
   Trash2,
   Upload,
@@ -30,6 +32,8 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { cn } from '@/lib/utils'
 import {
+  createActivity,
+  createTask,
   getClientActivityFeed,
   getClientCalendarEvents,
   getClientConversations,
@@ -37,7 +41,10 @@ import {
   getClientInvoices,
   getWorkspaceContext,
   listTasks,
+  listWorkspaceProfiles,
   updateClient,
+  updateTask,
+  type WorkspaceMember,
 } from '@/lib/supabase-queries'
 import { getClientVerticalSummary, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
@@ -86,6 +93,7 @@ type TaskRow = {
   created_at: string
   client_id?: string
   client_name?: string
+  assigned_to?: string
 }
 
 const STATUS_BADGE: Record<ClientStatus, { label: string; variant: 'success' | 'indigo' | 'default' | 'danger' }> = {
@@ -170,6 +178,9 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   task: 'Tarea',
   deadline: 'Vencimiento',
 }
+
+const taskInputCls =
+  'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500'
 
 function labelOr(map: Record<string, string>, value?: string | null): string {
   if (!value) return ''
@@ -266,6 +277,13 @@ export default function ClientDetailPage() {
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
+  const [members, setMembers] = useState<WorkspaceMember[]>([])
+
+  // RT4 — alta/edición de tareas reales (mutaciones controladas vía RLS).
+  const [taskFormOpen, setTaskFormOpen] = useState(false)
+  const [taskForm, setTaskForm] = useState({ title: '', priority: 'normal', dueDate: '', assignedTo: '', description: '' })
+  const [taskSaving, setTaskSaving] = useState(false)
+  const [taskBusyId, setTaskBusyId] = useState<string | null>(null)
 
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState('')
@@ -316,6 +334,7 @@ export default function ClientDetailPage() {
       setEvents(demoCalendarList.filter((e) => e.clientName === c.name))
       setInvoices(demoInvoicesList.filter((i) => i.clientName === c.name))
       setTasks([])
+      setMembers([])
       setDocuments([])
       setLoading(false)
       return
@@ -338,13 +357,14 @@ export default function ClientDetailPage() {
       setClient(detail)
       setNotesDraft(detail.notes && detail.notes !== 'No consta' ? detail.notes : '')
 
-      const [acts, convs, evts, invs, tasksRows, vertical] = await Promise.all([
+      const [acts, convs, evts, invs, tasksRows, vertical, wsMembers] = await Promise.all([
         getClientActivityFeed(resolved, clientId, detail.name).catch(() => [] as Activity[]),
         getClientConversations(resolved, clientId).catch(() => [] as Conversation[]),
         getClientCalendarEvents(resolved, detail.name).catch(() => [] as CalendarEvent[]),
         getClientInvoices(resolved, detail.name).catch(() => [] as Invoice[]),
         listTasks(resolved).catch(() => [] as TaskRow[]),
         getClientVerticalSummary(resolved, clientId).catch(() => ({ opportunities: [], cases: [], properties: [] })),
+        listWorkspaceProfiles(resolved).catch(() => [] as WorkspaceMember[]),
       ])
 
       setActivities(acts)
@@ -359,6 +379,7 @@ export default function ClientDetailPage() {
       setOpportunities(vertical.opportunities)
       setCases(vertical.cases)
       setProperties(vertical.properties)
+      setMembers(wsMembers)
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'No se pudo cargar la ficha del cliente.')
     } finally {
@@ -402,6 +423,65 @@ export default function ClientDetailPage() {
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // RT4 — crear tarea real vinculada al cliente (RLS), con actividad automática.
+  const handleCreateTask = async () => {
+    if (!taskForm.title.trim()) { toast.error('Falta el título de la tarea.'); return }
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (no se guarda)', { description: 'Crear tareas estará disponible al conectar tu cuenta.' })
+      return
+    }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    setTaskSaving(true)
+    try {
+      const created = await createTask(workspaceId, {
+        clientId: client.id,
+        clientName: client.name,
+        title: taskForm.title.trim(),
+        priority: taskForm.priority,
+        status: 'pending',
+        dueDate: taskForm.dueDate || undefined,
+        assigned_to: taskForm.assignedTo || undefined,
+        description: taskForm.description.trim() || undefined,
+      })
+      setTasks((prev) => [created as TaskRow, ...prev])
+      const act = await createActivity(workspaceId, { type: 'note', description: `Tarea creada: ${created.title}`, clientName: client.name }).catch(() => null)
+      if (act) setActivities((prev) => [act, ...prev])
+      toast.success('Tarea creada')
+      setTaskForm({ title: '', priority: 'normal', dueDate: '', assignedTo: '', description: '' })
+      setTaskFormOpen(false)
+    } catch (error) {
+      toast.error('No se pudo crear la tarea', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setTaskSaving(false)
+    }
+  }
+
+  // RT4 — marcar tarea completada / reabrir (RLS), con actividad al completar.
+  const handleToggleTask = async (t: TaskRow) => {
+    const closed = t.status === 'done' || t.status === 'completed' || t.status === 'closed'
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (no se guarda)')
+      return
+    }
+    if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
+    const nextStatus = closed ? 'pending' : 'completed'
+    setTaskBusyId(t.id)
+    try {
+      const updated = await updateTask(workspaceId, t.id, { status: nextStatus })
+      if (!updated) { toast.error('No se pudo actualizar la tarea'); return }
+      setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: nextStatus } : x)))
+      if (!closed) {
+        const act = await createActivity(workspaceId, { type: 'note', description: `Tarea completada: ${t.title}`, clientName: client.name }).catch(() => null)
+        if (act) setActivities((prev) => [act, ...prev])
+      }
+      toast.success(closed ? 'Tarea reabierta' : 'Tarea completada')
+    } catch (error) {
+      toast.error('No se pudo actualizar la tarea', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setTaskBusyId(null)
     }
   }
 
@@ -518,6 +598,13 @@ export default function ClientDetailPage() {
       return da - db
     })
   }, [tasks])
+
+  // Mapa id→nombre de miembros del workspace (para mostrar responsables, nunca UUID).
+  const memberNameById = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const m of members) map[m.id] = m.name
+    return map
+  }, [members])
 
   if (loading) {
     return (
@@ -937,7 +1024,52 @@ export default function ClientDetailPage() {
       )}
 
       {activeTab === 'tasks' && (
-        <SectionCard title="Tareas" description="Tareas vinculadas a este cliente">
+        <SectionCard
+          title="Tareas"
+          description="Tareas vinculadas a este cliente"
+          action={
+            <Button size="sm" variant={taskFormOpen ? 'secondary' : 'primary'} onClick={() => setTaskFormOpen((v) => !v)}>
+              <Plus className="h-3.5 w-3.5" /> {taskFormOpen ? 'Cerrar' : 'Nueva tarea'}
+            </Button>
+          }
+        >
+          {taskFormOpen && (
+            <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span>
+                  <input value={taskForm.title} onChange={(e) => setTaskForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Llamar para confirmar visita" className={taskInputCls} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-gray-600">Prioridad</span>
+                  <select value={taskForm.priority} onChange={(e) => setTaskForm((p) => ({ ...p, priority: e.target.value }))} className={taskInputCls}>
+                    <option value="low">Baja</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">Alta</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-gray-600">Vencimiento</span>
+                  <input type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm((p) => ({ ...p, dueDate: e.target.value }))} className={taskInputCls} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span>
+                  <select value={taskForm.assignedTo} onChange={(e) => setTaskForm((p) => ({ ...p, assignedTo: e.target.value }))} className={taskInputCls}>
+                    <option value="">Sin asignar</option>
+                    {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-gray-600">Descripción</span>
+                  <input value={taskForm.description} onChange={(e) => setTaskForm((p) => ({ ...p, description: e.target.value }))} placeholder="Opcional" className={taskInputCls} />
+                </label>
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setTaskFormOpen(false)}>Cancelar</Button>
+                <Button size="sm" loading={taskSaving} onClick={handleCreateTask}>Crear tarea</Button>
+              </div>
+            </div>
+          )}
           {sortedTasks.length === 0 ? (
             <p className="text-sm text-gray-500">No hay tareas pendientes.</p>
           ) : (
@@ -958,9 +1090,22 @@ export default function ClientDetailPage() {
                             {due === 'overdue' ? 'Vencida · ' : due === 'soon' ? 'Vence pronto · ' : 'Vence '}{formatDate(t.due_date)}
                           </span>
                         )}
+                        <span className="text-gray-400">· {t.assigned_to ? (memberNameById[t.assigned_to] ?? 'Responsable') : 'Sin asignar'}</span>
                       </div>
                     </div>
-                    <Badge variant={closed ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge variant={closed ? 'success' : 'indigo'}>{labelOr(TASK_STATUS_LABEL, t.status)}</Badge>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTask(t)}
+                        disabled={taskBusyId === t.id}
+                        title={closed ? 'Reabrir tarea' : 'Marcar completada'}
+                        className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {taskBusyId === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                        {closed ? 'Reabrir' : 'Completar'}
+                      </button>
+                    </div>
                   </li>
                 )
               })}

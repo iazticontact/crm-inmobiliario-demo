@@ -508,6 +508,34 @@ export async function getCurrentProfile(userId?: string, email?: string) {
   return result.profile
 }
 
+// Workspace members for the "responsable" selector. Returns display-ready
+// members (name/email/role) — never raw UUIDs to the UI. Scoped by RLS.
+export type WorkspaceMember = { id: string; name: string; email: string | null; role: string | null }
+
+export async function listWorkspaceProfiles(workspaceId: string): Promise<WorkspaceMember[]> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId) return []
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role')
+    .eq('workspace_id', workspaceId)
+    .order('full_name', { ascending: true })
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[listWorkspaceProfiles]', error.message)
+    return []
+  }
+  return ((data as DataRecord[] | null) ?? []).map((r) => {
+    const fullName = asString(r.full_name)
+    const email = asString(r.email) || null
+    return {
+      id: asString(r.id),
+      name: fullName || (email ? email.split('@')[0] : '') || 'Miembro',
+      email,
+      role: asString(r.role) || null,
+    }
+  })
+}
+
 export async function getCurrentWorkspace(profile?: ProfileRecord | null) {
   const resolvedProfile = profile ?? (await getCurrentProfile())
   const workspaceId = resolvedProfile?.workspace_id
@@ -2460,6 +2488,39 @@ export async function createTask(workspaceId: string, payload: TaskPayload) {
   }
 
   throw new Error('No se pudo crear la tarea con el schema disponible')
+}
+
+export type UpdateTaskInput = {
+  title?: string
+  description?: string | null
+  status?: string
+  priority?: string
+  dueDate?: string | null
+  assignedTo?: string | null
+}
+
+export async function updateTask(workspaceId: string, id: string, input: UpdateTaskInput) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return null
+  const patch: Record<string, unknown> = {}
+  if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (input.description !== undefined) patch.description = input.description
+  if (input.status) patch.status = input.status
+  if (input.priority) patch.priority = input.priority
+  if (input.dueDate !== undefined) patch.due_date = input.dueDate
+  if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(patch)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .single()
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[updateTask]', error.message)
+    return null
+  }
+  return mapSupabaseTask(data as DataRecord)
 }
 
 // Notifications helpers
