@@ -1,6 +1,6 @@
 # Fase 2E-2 — Checklist de APPLY (CRM core + seed)
 
-**Fecha:** 2026-06-14 · **Estado:** preparado tras 2E-2R. **Aún NO aplicado.**
+**Fecha:** 2026-06-14 · **Estado:** ✅ **EJECUTADO el 2026-06-14** (core version `20260614172930` + seed `20260614173117`). Este checklist queda como **referencia histórica/reutilizable**; la ejecución concreta ya se hizo (ver [PHASE_2E2_REMOTE_APPLY_REPORT.md](PHASE_2E2_REMOTE_APPLY_REPORT.md)).
 **Proyecto:** `crm-inmobiliario-demo` · ref `ylhdbawrllqygfvllhdo` · conector `claude.ai Supabase`.
 
 Archivos:

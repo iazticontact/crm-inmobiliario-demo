@@ -1,7 +1,7 @@
 # Fase 2E-2 — Revisión de schema CRM core (PREP, sin aplicar)
 
 **Fecha:** 2026-06-14
-**Estado:** PREPARADO y **endurecido en 2E-2R**, **NO aplicado**. Migraciones versionadas listas para 2E-2 APPLY (checklist en [PHASE_2E2_APPLY_CHECKLIST.md](PHASE_2E2_APPLY_CHECKLIST.md); verificación en `supabase/manual/20260614_2e2_post_apply_verification.sql`).
+**Estado:** ✅ **APLICADO remotamente el 2026-06-14** sobre `crm-inmobiliario-demo` (ref `ylhdbawrllqygfvllhdo`). Migraciones: core `20260614_2e2_core_crm_tables` (version `20260614172930`) + seed `20260614_2e2_seed_real_estate_demo_data` (version `20260614173117`). Counts reales: clients=8, properties=7, opportunities=7, service_cases=5, tasks=10, calendar_events=8, activities=14; RLS/policies/triggers OK; núcleo 2E-1 intacto; advisors sin ERROR. Informe completo en [PHASE_2E2_REMOTE_APPLY_REPORT.md](PHASE_2E2_REMOTE_APPLY_REPORT.md). (Endurecido en 2E-2R; checklist histórico en [PHASE_2E2_APPLY_CHECKLIST.md](PHASE_2E2_APPLY_CHECKLIST.md).)
 **Conector:** solo `claude.ai Supabase` · proyecto `crm-inmobiliario-demo` (ref `ylhdbawrllqygfvllhdo`).
 
 Anclado en [PHASE_2_CODE_SUPABASE_AUDIT.md](PHASE_2_CODE_SUPABASE_AUDIT.md) (fuente de verdad de columnas) y [PHASE_2_SCHEMA_DESIGN.md](PHASE_2_SCHEMA_DESIGN.md) (diseño). Continúa [PHASE_2E1_REMOTE_APPLY_REPORT.md](PHASE_2E1_REMOTE_APPLY_REPORT.md).

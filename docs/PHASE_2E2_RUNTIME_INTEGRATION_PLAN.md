@@ -1,7 +1,7 @@
 # Fase 2E-2 — Plan de integración runtime (de demo offline a Supabase real)
 
 **Fecha:** 2026-06-14
-**Estado:** plan. **NO se toca `src/*` en 2E-2 PREP.** Esto guía las fases de integración posteriores (2E-2 RT y siguientes).
+**Estado:** plan. El schema 2E-2 **ya está APLICADO** en Supabase (ver [PHASE_2E2_REMOTE_APPLY_REPORT.md](PHASE_2E2_REMOTE_APPLY_REPORT.md)); **NO se toca `src/*` todavía**. Esto guía la integración runtime (2E-2 RT). Auditoría runtime detallada en [PHASE_2E2_RT0_RUNTIME_AUDIT.md](PHASE_2E2_RT0_RUNTIME_AUDIT.md); plan concreto en [PHASE_2E2_RT1_CLIENTS_PROPERTIES_OPERATIONS_PLAN.md](PHASE_2E2_RT1_CLIENTS_PROPERTIES_OPERATIONS_PLAN.md).
 
 Anclado en [PHASE_2_CODE_SUPABASE_AUDIT.md](PHASE_2_CODE_SUPABASE_AUDIT.md), [PHASE_2E2_SCHEMA_REVIEW.md](PHASE_2E2_SCHEMA_REVIEW.md), [PHASE_2_IMPLEMENTATION_PLAN.md](PHASE_2_IMPLEMENTATION_PLAN.md).
 
