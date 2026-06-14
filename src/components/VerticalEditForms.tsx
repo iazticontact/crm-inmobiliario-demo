@@ -146,7 +146,7 @@ function EditOpportunityInner({
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
     if (isDemoMode()) {
-      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar oportunidades estará disponible al conectar tu cuenta.' })
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar operaciones estará disponible al conectar tu cuenta.' })
       onClose()
       return
     }
@@ -164,8 +164,8 @@ function EditOpportunityInner({
         expectedCloseDate: expectedClose.trim() || null,
         notes: notes.trim() || null,
       })
-      if (!row) { toast.error('No se pudo actualizar la oportunidad.'); return }
-      toast.success(`Oportunidad actualizada: ${row.title}`)
+      if (!row) { toast.error('No se pudo actualizar la operación.'); return }
+      toast.success(`Operación actualizada: ${row.title}`)
       onUpdated?.(row)
       onClose()
     } finally {
@@ -177,7 +177,7 @@ function EditOpportunityInner({
     <SideDrawer
       open={open}
       onClose={onClose}
-      title="Editar oportunidad"
+      title="Editar operación"
       description="Cambia datos del pipeline. Cada edición deja un registro en la actividad."
       width="md"
       footer={

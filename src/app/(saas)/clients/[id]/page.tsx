@@ -733,9 +733,9 @@ export default function ClientDetailPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Seguimiento comercial" description="Oportunidades vinculadas">
+          <SectionCard title="Pipeline comercial" description="Operaciones vinculadas">
             {opportunities.length === 0 ? (
-              <p className="text-sm text-gray-500">Sin oportunidades activas.</p>
+              <p className="text-sm text-gray-500">Sin operaciones activas.</p>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {opportunities.map((o) => (

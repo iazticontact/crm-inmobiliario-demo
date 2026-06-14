@@ -87,7 +87,7 @@ const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: strin
 const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }>; internal?: boolean }> = [
   { key: 'cases',        label: 'Expedientes',      icon: FileText },
   { key: 'properties',   label: 'Propiedades',      icon: Building2 },
-  { key: 'pipeline',     label: 'Seguimiento',      icon: Target },
+  { key: 'pipeline',     label: 'Operaciones',      icon: Target },
   { key: 'templates',    label: 'Plantillas',       icon: Sparkles },
   { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
@@ -227,7 +227,7 @@ export default function OpportunitiesPage() {
       void loadData()
       return
     }
-    toast.success(`Seguimiento → ${nextStage}`)
+    toast.success(`Operación → ${nextStage}`)
   }
 
   async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
@@ -361,9 +361,9 @@ export default function OpportunitiesPage() {
         />
         <KpiCard
           icon={<Target className="h-4 w-4 text-indigo-600" />}
-          label="Seguimientos"
+          label="Operaciones"
           value={String(visibleOpportunities.length)}
-          detail={visibleOpportunities.length ? `${formatCurrency(totalPipelineValue)} en seguimiento` : 'Sin seguimientos aún'}
+          detail={visibleOpportunities.length ? `${formatCurrency(totalPipelineValue)} en pipeline` : 'Sin operaciones aún'}
           tone="border-indigo-100 bg-indigo-50/40"
         />
       </div>
@@ -371,9 +371,9 @@ export default function OpportunitiesPage() {
       {/* PIPELINE */}
       {subtab === 'pipeline' && (
         <SectionCard
-          title="Seguimiento comercial"
+          title="Pipeline comercial"
           description={`Etapas operativas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
-          action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} seguimientos</Badge>}
+          action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} operaciones</Badge>}
         >
           {loading ? (
             <div className="flex items-center justify-center py-8 text-xs text-gray-400">
@@ -382,15 +382,15 @@ export default function OpportunitiesPage() {
           ) : visibleOpportunities.length === 0 ? (
             <EmptyState
               icon={<Target className="h-6 w-6 text-gray-300" />}
-              title="Sin seguimientos abiertos"
+              title="Sin operaciones abiertas"
               description={
                 vertical === 'all'
-                  ? 'Crea un seguimiento comercial para vincular un cliente con una operación o trámite.'
-                  : `Sin seguimientos en ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`
+                  ? 'Crea una operación para vincular un cliente con un inmueble o trámite.'
+                  : `Sin operaciones en ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`
               }
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nuevo seguimiento
+                  <Plus className="h-3.5 w-3.5" /> Nueva operación
                 </Button>
               }
             />
@@ -406,7 +406,7 @@ export default function OpportunitiesPage() {
                         <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
                         <span className="text-[10px] text-gray-400">{stage.description}</span>
                       </div>
-                      <span className="text-[10px] text-gray-400">{items.length} oportunidad{items.length !== 1 ? 'es' : ''}</span>
+                      <span className="text-[10px] text-gray-400">{items.length} {items.length !== 1 ? 'operaciones' : 'operación'}</span>
                     </div>
                     <ul className="space-y-1.5">
                       {items.map((opp) => (
@@ -442,7 +442,7 @@ export default function OpportunitiesPage() {
                             <button
                               type="button"
                               onClick={() => setEditOpp(opp)}
-                              title="Editar oportunidad"
+                              title="Editar operación"
                               className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
                             >
                               <Pencil className="h-3 w-3" />

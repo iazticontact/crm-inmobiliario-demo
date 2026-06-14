@@ -1038,7 +1038,7 @@ export default function InboxPage() {
                     onClick={() => setOpenCreateOppFromInbox(true)}
                   >
                     <Target className="h-3.5 w-3.5" />
-                    Crear oportunidad desde esta conversación
+                    Crear operación desde esta conversación
                   </Button>
                 </div>
               </div>
@@ -1050,7 +1050,7 @@ export default function InboxPage() {
         })()}
       </div>
 
-      {/* Manual: crear oportunidad desde la conversación seleccionada. */}
+      {/* Manual: crear operación desde la conversación seleccionada. */}
       <NewOpportunityDrawer
         open={openCreateOppFromInbox}
         onClose={() => setOpenCreateOppFromInbox(false)}

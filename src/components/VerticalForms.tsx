@@ -104,7 +104,7 @@ export function NewOpportunityDrawer({
       return
     }
     if (isDemoMode()) {
-      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: crear oportunidades estará disponible al conectar tu cuenta.' })
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: crear operaciones estará disponible al conectar tu cuenta.' })
       reset()
       onClose()
       return
@@ -127,10 +127,10 @@ export function NewOpportunityDrawer({
         notes: notes.trim() || null,
       })
       if (!row) {
-        toast.error('No se pudo crear la oportunidad. Revisa la sesión y vuelve a intentarlo.')
+        toast.error('No se pudo crear la operación. Revisa la sesión y vuelve a intentarlo.')
         return
       }
-      toast.success(`Oportunidad creada: ${row.title}`)
+      toast.success(`Operación creada: ${row.title}`)
       onCreated?.(row)
       reset()
       onClose()
@@ -143,12 +143,12 @@ export function NewOpportunityDrawer({
     <SideDrawer
       open={open}
       onClose={onClose}
-      title="Nueva oportunidad"
+      title="Nueva operación"
       description="Pipeline comercial. Se registra como activity y respeta tu vertical activo."
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button variant="primary" size="sm" type="submit" form="new-opportunity-form" loading={saving} disabled={saving}>Crear oportunidad</Button>
+          <Button variant="primary" size="sm" type="submit" form="new-opportunity-form" loading={saving} disabled={saving}>Crear operación</Button>
         </div>
       }
     >
