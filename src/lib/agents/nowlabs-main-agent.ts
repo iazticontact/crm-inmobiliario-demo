@@ -10,6 +10,7 @@ import {
   toolOverdueInvoices,
   toolUpcomingEvents,
   toolPendingTasks,
+  toolRecentActivity,
   toolRecentMessages,
   toolRecentConversations,
   toolRecommendedActions,
@@ -416,6 +417,12 @@ const TOOLS = [
   },
   {
     type: 'function',
+    name: 'recent_activity',
+    description: 'Actividad reciente REAL del CRM (tabla activities: creaciones, cambios, notas). Para: "qué ha pasado recientemente", "qué actividad hay", "resumen del día" (eventos del CRM). Distinto de mensajes/conversaciones de Inbox.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    type: 'function',
     name: 'recommended_actions',
     description: 'Acciones comerciales prioritarias del día: facturas vencidas, leads calientes, próximas citas. Para: "qué debería hacer hoy", "plan del día".',
     parameters: { type: 'object', properties: {}, required: [] },
@@ -753,6 +760,11 @@ PERSONALIDAD Y TONO:
 - Sin frases tipo "estoy aquí para ti", "no dudes en preguntar", "espero haberte ayudado".
 - No sonar a IA de soporte. Puedes usar algún emoji ligero y elegante cuando aporte (ver la guía de emojis), sin abusar. Puedes celebrar lo que ya funciona, pero con foco operativo.
 - Cuando interpretas datos, dices qué priorizarías: un lead con score 90 es para actuar hoy, una factura vencida es urgente, un expediente fuera de plazo se señala. Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
+
+ALCANCE (CRM del negocio):
+- Tu ámbito es el CRM: clientes, operaciones, expedientes, propiedades, tareas, calendario, actividad y próximas acciones. Para eso, tira de tools y responde con datos reales.
+- Si te piden algo claramente fuera del negocio (recetas, cultura general, programar, etc.): NO llames tools ni te enrolles. Una frase, amable, y reconduce: "Puedo ayudarte con el CRM —clientes, operaciones, expedientes, tareas, calendario y próximas acciones—. Para temas fuera del negocio, mejor otro chat. 🙂"
+- No gastes tokens en conversaciones largas no relacionadas con el CRM.
 
 QUÉ PUEDES HACER (capacidades reales hoy):
 - Resumir el negocio cruzando todas las áreas (clientes, oportunidades, expedientes, propiedades, facturas, citas, tareas, Inbox).
@@ -1158,6 +1170,11 @@ async function runTool(
 
     case 'recommended_actions': {
       const res = await toolRecommendedActions(supabase, workspaceId)
+      return { text: res.text, data: res.data }
+    }
+
+    case 'recent_activity': {
+      const res = await toolRecentActivity(supabase, workspaceId)
       return { text: res.text, data: res.data }
     }
 

@@ -338,6 +338,23 @@ export async function toolPendingTasks(supabase: SupabaseClient, workspaceId: st
   return { text: `✅ ${rows.length} tarea${rows.length > 1 ? 's' : ''} pendiente${rows.length > 1 ? 's' : ''}:\n${list}`, data: rows }
 }
 
+// 11b. Recent activity from public.activities (real CRM events: creations, edits,
+// notes). Distinct from the deferred Inbox/WhatsApp messages. Read-only, RLS.
+export async function toolRecentActivity(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
+  const { data, error } = await supabase
+    .from('activities').select('type, description, client_name, created_at').eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false }).limit(15)
+  if (error) return { text: 'No pude leer la actividad reciente ahora mismo. Prueba de nuevo.', data: [] }
+  const rows = data ?? []
+  if (!rows.length) return { text: 'Aún no hay actividad registrada en este workspace.', data: [] }
+  const list = rows.map((a, i) => {
+    const who = a.client_name ? ` · ${a.client_name}` : ''
+    const when = a.created_at ? ` · ${String(a.created_at).slice(0, 10)}` : ''
+    return `${i + 1}. ${a.description || a.type || 'Actividad'}${who}${when}`
+  }).join('\n')
+  return { text: `🗒️ Últimas ${rows.length} actividad(es):\n${list}`, data: rows }
+}
+
 // 12. Recent open conversations (uses actual schema: no client_name or last_message columns)
 export async function toolRecentConversations(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
   const { data } = await supabase
