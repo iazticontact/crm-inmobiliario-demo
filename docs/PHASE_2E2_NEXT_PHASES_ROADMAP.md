@@ -37,10 +37,19 @@ Notas originales de la fase (referencia):
   (create_operation, move_operation_stage, create_service_case,
   update_service_case, update_task, update_calendar_event) con auth+RLS y activity.
   Ver [PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md](PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md).
-- **RT5.1b (pendiente):** cablear el lado conversacional (PREPARE en
-  `/api/assistant/v2` + unión discriminada/card en `assistant/page.tsx`) para
-  disparar esas acciones desde el chat. Executor ya listo; es el grueso de UX.
+- **RT5.1b (auditado + diseñado; impl pendiente):** cablear el lado conversacional
+  (PREPARE en `/api/assistant/v2`/agente + unión discriminada/card en
+  `assistant/page.tsx`) para disparar las 6 acciones desde el chat. Executor ya
+  listo. Diseño accionable y motivo del diferido (riesgo agente 2018l + page 3369l)
+  en [PHASE_2E2_RT5_1B_ASSISTANT_END_TO_END_REPORT.md](PHASE_2E2_RT5_1B_ASSISTANT_END_TO_END_REPORT.md).
+  Empezar por create_operation/create_service_case (vía fallback, bajo riesgo).
 - Sin promesas de WhatsApp/Meta hasta su fase.
+
+## Arquitectura IA a largo plazo y readiness
+- Visión/North star + roadmap IA (Storage/RAG/n8n/MCP/personalidad):
+  [AI_ASSISTANT_LONG_TERM_ARCHITECTURE.md](AI_ASSISTANT_LONG_TERM_ARCHITECTURE.md).
+- Preparación de deploy (sin desplegar):
+  [PRE_HOSTINGER_PRODUCTION_READINESS.md](PRE_HOSTINGER_PRODUCTION_READINESS.md).
 
 ## 2E-3 — Storage / documents
 - Subida/listado/descarga real de documentos del cliente (bucket privado + RLS).
