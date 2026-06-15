@@ -41,9 +41,12 @@ Notas originales de la fase (referencia):
   `create_operation` y `create_service_case` (vía fallback determinista + confirm-card
   + executor RT5.1), con resolución de cliente/candidatos server-side y demo guard.
   Ver [PHASE_2E2_RT5_1B_IMPL_REPORT.md](PHASE_2E2_RT5_1B_IMPL_REPORT.md).
-- **RT5.1b-2 (pendiente):** move_operation_stage/update_task/update_service_case/
-  update_calendar_event por chat (executor listo; falta emitir el preparedAction
-  desde el agente OpenAI — necesita resolución de IDs).
+- **RT5.1b-2 (hecho):** move_operation_stage + update_task + update_service_case
+  por chat (resolver DB `deterministic-db-actions.ts` → confirm-card → executor
+  RT5.1; resolución de cliente/entidad server-side con RLS, sin tocar el agente
+  OpenAI). Ver [PHASE_2E2_RT5_1B_2_ASSISTANT_UPDATE_ACTIONS_REPORT.md](PHASE_2E2_RT5_1B_2_ASSISTANT_UPDATE_ACTIONS_REPORT.md).
+- **RT5.1b-3 (pendiente):** update_calendar_event (reprogramar) + due_date/
+  assigned_to por chat. Después: parar features del asistente, smoke completo y staging.
 - Sin promesas de WhatsApp/Meta hasta su fase.
 
 ## Arquitectura IA a largo plazo y readiness

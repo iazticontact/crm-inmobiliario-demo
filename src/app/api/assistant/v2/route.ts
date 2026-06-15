@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runNowLabsAgent, type AgentContext, type AgentV2Result } from '@/lib/agents/nowlabs-main-agent'
 import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
+import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -261,6 +262,20 @@ export async function POST(req: NextRequest) {
         preparedAction: det.preparedAction,
         debugSource: 'deterministic_fallback',
         error: undefined,
+      }
+    } else {
+      // RT5.1b-2 — resolución DB para mover etapa / actualizar tarea o
+      // expediente (necesita el id real de la entidad, RLS, sin inventar).
+      const dbAction = await resolveDbAction(supabase, workspaceId, message).catch(() => null)
+      if (dbAction) {
+        usedFallback = true
+        finalResult = {
+          ...agentResult,
+          answer: dbAction.answer,
+          preparedAction: dbAction.preparedAction,
+          debugSource: 'deterministic_fallback',
+          error: undefined,
+        }
       }
     }
   }

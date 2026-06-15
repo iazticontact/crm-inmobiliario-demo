@@ -209,6 +209,12 @@ const assistantModes: Array<{
   },
 ]
 
+const OP_STAGE_LABEL: Record<string, string> = {
+  new: 'Nuevo', contacted: 'Contactado', qualified: 'Cualificado',
+  visit_scheduled: 'Visita programada', offer: 'Oferta', negotiation: 'Negociación',
+  won: 'Ganada', lost: 'Perdida',
+}
+
 type PreparedAction =
   | {
       id: string
@@ -273,6 +279,39 @@ type PreparedAction =
       status?: string
       priority?: string
       notes?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'move_operation_stage'
+      title: string
+      assistantMode: AssistantMode
+      clientName?: string
+      opportunityId: string
+      stage: string
+      currentStageLabel?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'update_task'
+      title: string
+      assistantMode: AssistantMode
+      clientName?: string
+      taskId: string
+      status?: string
+      priority?: string
+      missingFields: string[]
+    }
+  | {
+      id: string
+      type: 'update_service_case'
+      title: string
+      assistantMode: AssistantMode
+      clientName?: string
+      caseId: string
+      status?: string
+      priority?: string
       missingFields: string[]
     }
   | {
@@ -1588,7 +1627,7 @@ export default function AssistantPage() {
             referencedCalendarList?: Record<string, unknown>[] | null
             dataPreview?: unknown
             preparedAction?: {
-              type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings' | 'create_operation' | 'create_service_case'
+              type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings' | 'create_operation' | 'create_service_case' | 'move_operation_stage' | 'update_task' | 'update_service_case'
               clientId?: string
               clientName?: string
               service?: string
@@ -1606,6 +1645,10 @@ export default function AssistantPage() {
               caseType?: string
               status?: string
               priority?: string
+              opportunityId?: string
+              taskId?: string
+              caseId?: string
+              currentStageLabel?: string
               missingFields: string[]
               // cancel_booking / reschedule_booking
               eventId?: string
@@ -1675,6 +1718,12 @@ export default function AssistantPage() {
                 frontendAction = { id: paId, type: 'create_operation', title: pa.title ?? `Operación para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, stage: pa.stage, value: pa.value, probability: pa.probability, missingFields: pa.missingFields }
               } else if (pa.type === 'create_service_case') {
                 frontendAction = { id: paId, type: 'create_service_case', title: pa.title ?? `Expediente para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, caseType: pa.caseType, status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
+              } else if (pa.type === 'move_operation_stage') {
+                frontendAction = { id: paId, type: 'move_operation_stage', title: pa.title ?? 'Operación', assistantMode: 'copilot', clientName: pa.clientName, opportunityId: pa.opportunityId ?? '', stage: pa.stage ?? '', currentStageLabel: pa.currentStageLabel, missingFields: pa.missingFields }
+              } else if (pa.type === 'update_task') {
+                frontendAction = { id: paId, type: 'update_task', title: pa.title ?? 'Tarea', assistantMode: 'copilot', clientName: pa.clientName, taskId: pa.taskId ?? '', status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
+              } else if (pa.type === 'update_service_case') {
+                frontendAction = { id: paId, type: 'update_service_case', title: pa.title ?? 'Expediente', assistantMode: 'copilot', clientName: pa.clientName, caseId: pa.caseId ?? '', status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
               } else {
                 frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? pa.description ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
               }
@@ -1857,7 +1906,7 @@ export default function AssistantPage() {
       // already-audited Calendar route, which validates session itself.
       // For invoice/task no further client-side work is needed.
       // -------------------------------------------------------------------
-      if (preparedAction.type === 'booking' || preparedAction.type === 'task' || preparedAction.type === 'invoice' || preparedAction.type === 'create_operation' || preparedAction.type === 'create_service_case') {
+      if (preparedAction.type === 'booking' || preparedAction.type === 'task' || preparedAction.type === 'invoice' || preparedAction.type === 'create_operation' || preparedAction.type === 'create_service_case' || preparedAction.type === 'move_operation_stage' || preparedAction.type === 'update_task' || preparedAction.type === 'update_service_case') {
         // Frontend-side guard: surface the same friendly errors the server
         // would, before paying the round-trip. Server is still the authority.
         if (preparedAction.type === 'booking') {
@@ -1883,6 +1932,18 @@ export default function AssistantPage() {
             toast.warning('Falta el cliente', { description: 'Dime para qué cliente real es y vuelve a confirmar.' })
             return
           }
+        }
+        if (preparedAction.type === 'move_operation_stage' && !preparedAction.opportunityId) {
+          toast.warning('No tengo la operación exacta', { description: 'Dime de qué operación se trata y vuelve a intentarlo.' })
+          return
+        }
+        if (preparedAction.type === 'update_task' && !preparedAction.taskId) {
+          toast.warning('No tengo la tarea exacta', { description: 'Especifica la tarea y vuelve a intentarlo.' })
+          return
+        }
+        if (preparedAction.type === 'update_service_case' && !preparedAction.caseId) {
+          toast.warning('No tengo el expediente exacto', { description: 'Especifica el expediente y vuelve a intentarlo.' })
+          return
         }
         if (!workspaceId) throw new Error('Workspace real no resuelto.')
 
@@ -1911,6 +1972,23 @@ export default function AssistantPage() {
         } else if (preparedAction.type === 'create_service_case') {
           confirmPayload.title = preparedAction.title
           confirmPayload.caseType = preparedAction.caseType
+          confirmPayload.status = preparedAction.status
+          confirmPayload.priority = preparedAction.priority
+        } else if (preparedAction.type === 'move_operation_stage') {
+          confirmPayload.clientId = undefined
+          confirmPayload.clientName = undefined
+          confirmPayload.opportunityId = preparedAction.opportunityId
+          confirmPayload.stage = preparedAction.stage
+        } else if (preparedAction.type === 'update_task') {
+          confirmPayload.clientId = undefined
+          confirmPayload.clientName = undefined
+          confirmPayload.taskId = preparedAction.taskId
+          confirmPayload.status = preparedAction.status
+          confirmPayload.priority = preparedAction.priority
+        } else if (preparedAction.type === 'update_service_case') {
+          confirmPayload.clientId = undefined
+          confirmPayload.clientName = undefined
+          confirmPayload.caseId = preparedAction.caseId
           confirmPayload.status = preparedAction.status
           confirmPayload.priority = preparedAction.priority
         } else {
@@ -2035,6 +2113,21 @@ export default function AssistantPage() {
           await appendAssistantMessage(activeConversation.id, caseMsg, preparedAction.clientName).catch(() => null)
           toast.success('Expediente creado')
           setLastActionStatus('Última acción confirmada: expediente creado')
+        } else if (preparedAction.type === 'move_operation_stage') {
+          const opMsg = summaryMessage || `Operación "${preparedAction.title}" movida.`
+          await appendAssistantMessage(activeConversation.id, opMsg, preparedAction.clientName).catch(() => null)
+          toast.success('Operación actualizada')
+          setLastActionStatus('Última acción confirmada: operación movida')
+        } else if (preparedAction.type === 'update_task') {
+          const tMsg = summaryMessage || `Tarea "${preparedAction.title}" actualizada.`
+          await appendAssistantMessage(activeConversation.id, tMsg, preparedAction.clientName).catch(() => null)
+          toast.success('Tarea actualizada')
+          setLastActionStatus('Última acción confirmada: tarea actualizada')
+        } else if (preparedAction.type === 'update_service_case') {
+          const cMsg = summaryMessage || `Expediente "${preparedAction.title}" actualizado.`
+          await appendAssistantMessage(activeConversation.id, cMsg, preparedAction.clientName).catch(() => null)
+          toast.success('Expediente actualizado')
+          setLastActionStatus('Última acción confirmada: expediente actualizado')
         }
       }
 
@@ -3133,13 +3226,13 @@ export default function AssistantPage() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-950">
-                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'create_operation' ? 'Crear operación' : preparedAction.type === 'create_service_case' ? 'Crear expediente' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
+                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'create_operation' ? 'Crear operación' : preparedAction.type === 'create_service_case' ? 'Crear expediente' : preparedAction.type === 'move_operation_stage' ? 'Mover operación' : preparedAction.type === 'update_task' ? 'Actualizar tarea' : preparedAction.type === 'update_service_case' ? 'Actualizar expediente' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
                             </p>
                             <p className="text-[11px] text-gray-500">{preparedAction.title} · Asistente IA</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {preparedAction.type !== 'prepare_pdf' && preparedAction.type !== 'generate_invoice_pdf' && preparedAction.type !== 'cancel_booking' && preparedAction.type !== 'reschedule_booking' && preparedAction.type !== 'cancel_multiple_bookings' && preparedAction.type !== 'cleanup_duplicate_bookings' && preparedAction.type !== 'create_operation' && preparedAction.type !== 'create_service_case' && !editingAction && (
+                          {preparedAction.type !== 'prepare_pdf' && preparedAction.type !== 'generate_invoice_pdf' && preparedAction.type !== 'cancel_booking' && preparedAction.type !== 'reschedule_booking' && preparedAction.type !== 'cancel_multiple_bookings' && preparedAction.type !== 'cleanup_duplicate_bookings' && preparedAction.type !== 'create_operation' && preparedAction.type !== 'create_service_case' && preparedAction.type !== 'move_operation_stage' && preparedAction.type !== 'update_task' && preparedAction.type !== 'update_service_case' && !editingAction && (
                             <button onClick={startEditingAction} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium text-gray-500 transition-colors hover:bg-white/70 hover:text-indigo-600">
                               <Pencil className="h-3 w-3" />
                               Editar
@@ -3302,6 +3395,44 @@ export default function AssistantPage() {
                                 <span className="block text-[10px] font-semibold uppercase text-gray-400">Expediente</span>
                                 {preparedAction.title}
                               </div>
+                              {preparedAction.priority && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Prioridad</span>
+                                  {preparedAction.priority === 'high' ? 'Alta' : preparedAction.priority === 'low' ? 'Baja' : 'Normal'}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {preparedAction.type === 'move_operation_stage' && (
+                            <>
+                              <div className="col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Operación</span>
+                                {preparedAction.title}
+                              </div>
+                              {preparedAction.currentStageLabel && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Etapa actual</span>
+                                  {preparedAction.currentStageLabel}
+                                </div>
+                              )}
+                              <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Nueva etapa</span>
+                                {OP_STAGE_LABEL[preparedAction.stage] ?? preparedAction.stage}
+                              </div>
+                            </>
+                          )}
+                          {(preparedAction.type === 'update_task' || preparedAction.type === 'update_service_case') && (
+                            <>
+                              <div className="col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">{preparedAction.type === 'update_task' ? 'Tarea' : 'Expediente'}</span>
+                                {preparedAction.title}
+                              </div>
+                              {preparedAction.status && (
+                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
+                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Nuevo estado</span>
+                                  {preparedAction.status}
+                                </div>
+                              )}
                               {preparedAction.priority && (
                                 <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                                   <span className="block text-[10px] font-semibold uppercase text-gray-400">Prioridad</span>

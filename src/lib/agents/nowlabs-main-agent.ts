@@ -84,7 +84,7 @@ export type CancelEventItem = {
 
 
 export type PreparedActionDraft = {
-  type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings' | 'create_operation' | 'create_service_case'
+  type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings' | 'create_operation' | 'create_service_case' | 'move_operation_stage' | 'update_task' | 'update_service_case'
   clientId?: string
   clientName?: string
   service?: string
@@ -96,13 +96,18 @@ export type PreparedActionDraft = {
   dueDate?: string
   taskTitle?: string
   description?: string
-  // RT5.1b — create_operation / create_service_case (fallback determinista)
+  // RT5.1b / RT5.1b-2 — create + update CRM actions
   stage?: string
   value?: number
   probability?: number
   caseType?: string
   status?: string
   priority?: string
+  // RT5.1b-2 — ids reales resueltos por el resolver DB (move/update)
+  opportunityId?: string
+  taskId?: string
+  caseId?: string
+  currentStageLabel?: string
   missingFields: string[]
   // cancel_booking / reschedule_booking
   eventId?: string

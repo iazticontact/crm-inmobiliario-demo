@@ -15,8 +15,10 @@ asistente para 6 acciones CRM (RT5.1). `npm run build` ✅ (46 rutas).
 - Política anti-invención en el asistente.
 
 ## 3. Qué NO está listo (pre-deploy)
-- **RT5.1b:** disparar por chat las 6 acciones CRM (executor listo; wiring
-  conversacional pendiente — ver [RT5.1b report](PHASE_2E2_RT5_1B_ASSISTANT_END_TO_END_REPORT.md)).
+- **Asistente IA (estado actual):** ya disparan por chat (preparar→confirmar→RLS)
+  create_operation, create_service_case (RT5.1b), y move_operation_stage,
+  update_task, update_service_case (RT5.1b-2). **Pendiente (RT5.1b-3):**
+  update_calendar_event (reprogramar) + due_date/assigned_to por chat.
 - Storage/documents, RAG, billing real, inbox real, WhatsApp/Meta, Google
   Calendar OAuth: **no son producción** (futuro).
 - Smoke test en navegador contra el Supabase de producción: pendiente (Oier).
