@@ -49,6 +49,34 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 3 — Re-validación + persistencia + plan staging (2026-06-15, HEAD `2ccfa76`)
+
+**Prechecks automáticos (verde):** git `2ccfa76` limpio/sincronizado · env OK
+(OpenAI real + agent secret, no placeholder, no legacy, no trackeado) ·
+`tsc` ✅ · `lint` ✅ · `build` ✅ (46 rutas) · dev server `:3000` responde HTTP 200.
+
+**Certificación de persistencia (FASE H) — read-only:**
+counts actuales = `opportunities 7 · service_cases 5 · tasks 10 ·
+calendar_events 8 · activities 14 · clients 8` → **IDÉNTICOS al baseline**.
+➡️ **Conclusión objetiva: la smoke de mutaciones (FASE D) y las acciones-confirmar
+del asistente (FASE E) AÚN NO se han ejecutado en navegador** (si se hubieran
+hecho, estos counts y `activities` habrían subido). No hay leakage; un único
+workspace.
+
+**Plan de staging:** creado [EASYPANEL_STAGING_DEPLOYMENT_PLAN.md](EASYPANEL_STAGING_DEPLOYMENT_PLAN.md)
+(VPS Hostinger + EasyPanel, n8n separado/dormido, env names sin valores, pasos,
+smoke post-deploy, rollback, seguridad).
+
+**Estado de las fases de navegador:** C/D/E/F/G **pendientes de ejecución por
+Oier** (la app está lista y arriba; nada técnico lo bloquea).
+
+**Veredicto Sesión 3:** **SMOKE TÉCNICO OK — pendiente la ejecución de navegador
+por Oier.** No se puede certificar "SMOKE OK — LISTO PARA STAGING" sobre
+resultados de navegador que todavía no existen; **no se inventan**. El plan de
+staging queda listo para usarse en cuanto el smoke de navegador pase.
+
+---
+
 ## 0. Resumen ejecutivo / Veredicto
 
 **VEREDICTO: SMOKE AUTOMÁTICO OK — CRM CORE LISTO PARA SMOKE DE NAVEGADOR /
