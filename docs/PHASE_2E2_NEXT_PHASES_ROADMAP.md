@@ -37,12 +37,13 @@ Notas originales de la fase (referencia):
   (create_operation, move_operation_stage, create_service_case,
   update_service_case, update_task, update_calendar_event) con auth+RLS y activity.
   Ver [PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md](PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md).
-- **RT5.1b (auditado + diseñado; impl pendiente):** cablear el lado conversacional
-  (PREPARE en `/api/assistant/v2`/agente + unión discriminada/card en
-  `assistant/page.tsx`) para disparar las 6 acciones desde el chat. Executor ya
-  listo. Diseño accionable y motivo del diferido (riesgo agente 2018l + page 3369l)
-  en [PHASE_2E2_RT5_1B_ASSISTANT_END_TO_END_REPORT.md](PHASE_2E2_RT5_1B_ASSISTANT_END_TO_END_REPORT.md).
-  Empezar por create_operation/create_service_case (vía fallback, bajo riesgo).
+- **RT5.1b (create_* hecho end-to-end):** el chat **prepara y confirma**
+  `create_operation` y `create_service_case` (vía fallback determinista + confirm-card
+  + executor RT5.1), con resolución de cliente/candidatos server-side y demo guard.
+  Ver [PHASE_2E2_RT5_1B_IMPL_REPORT.md](PHASE_2E2_RT5_1B_IMPL_REPORT.md).
+- **RT5.1b-2 (pendiente):** move_operation_stage/update_task/update_service_case/
+  update_calendar_event por chat (executor listo; falta emitir el preparedAction
+  desde el agente OpenAI — necesita resolución de IDs).
 - Sin promesas de WhatsApp/Meta hasta su fase.
 
 ## Arquitectura IA a largo plazo y readiness

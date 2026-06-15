@@ -178,6 +178,48 @@ const TASK_TRIGGER = /\b(?:crea(?:r|me|nos)?|añade(?:me)?|anade(?:me)?)\s+(?:un
 const TASK_REC_TRIGGER = /\brecu[eé]rdame\b/i
 const BOOKING_TRIGGER = /\b(?:prepara(?:r|me)?|crea(?:r|me)?|agenda(?:r|me)?|reserva(?:r|me)?|pon(?:me)?|programa(?:r|me)?)\s+(?:una\s+)?(?:cita|reunion|reunión)\b/i
 const INVOICE_TRIGGER = /\b(?:crea(?:r|me)?|prepara(?:r|me)?|hazme)\s+(?:una\s+)?factura\b/i
+// RT5.1b — creación conversacional de operaciones / expedientes. El cliente se
+// resuelve canónicamente en /api/assistant/confirm (por nombre; candidatos si
+// hay ambigüedad). Aquí nunca se inventa cliente ni id.
+const OPERATION_TRIGGER = /\b(?:crea(?:r|me)?|abre(?:me)?|registra(?:r|me)?)\s+(?:una\s+)?operaci[oó]n\b/i
+const CASE_TRIGGER = /\b(?:abre(?:me)?|crea(?:r|me)?|a[ñn]ade(?:me)?)\s+(?:un\s+)?(?:expediente|caso)\b/i
+
+function extractOperationTitle(message: string): string {
+  const t = normalize(message)
+  if (/\bventa\b/.test(t)) return 'Operación de venta'
+  if (/\balquiler\b/.test(t)) return 'Operación de alquiler'
+  if (/\bcompra\b/.test(t)) return 'Operación de compra'
+  return 'Nueva operación'
+}
+
+function extractOperationValue(message: string): number | undefined {
+  const euros = extractAmount(message)
+  if (euros) return euros
+  const m = message.match(/\bpor\s+(\d[\d.]*(?:,\d+)?)\b/)
+  if (m) {
+    const value = Number(m[1].replace(/\./g, '').replace(',', '.'))
+    if (value > 0) return value
+  }
+  return undefined
+}
+
+function extractProbability(message: string): number | undefined {
+  const m = message.match(/\b(\d{1,3})\s*%/)
+  if (!m) return undefined
+  const value = Number(m[1])
+  return value >= 0 && value <= 100 ? value : undefined
+}
+
+function extractCaseTitle(message: string): string {
+  const m = message.match(/\b(?:expediente|caso)\s+(?:de\s+)?([^.,;\n]+?)(?:\s+(?:para|del?|al)\s+[A-ZÁÉÍÓÚÑ]|$)/i)
+  if (m) {
+    const cleaned = stripDateNoise(m[1]).trim()
+    if (cleaned.length >= 3 && cleaned.length <= 80 && !isStopWord(cleaned)) {
+      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+    }
+  }
+  return 'Expediente'
+}
 
 export type DeterministicOutcome = {
   preparedAction: PreparedActionDraft
@@ -255,6 +297,48 @@ export function detectDeterministicAction(message: string): DeterministicOutcome
     const answer = missingFields.length
       ? `Factura casi lista — falta ${missingFields.join(', ')}. Dímelos y la preparo para confirmar.`
       : `Factura preparada para ${clientName}: ${amount}€ por ${concept}, vence ${dueDate}. Confirma cuando quieras.`
+    return { preparedAction: action, answer }
+  }
+
+  if (OPERATION_TRIGGER.test(raw)) {
+    const clientName = extractClientName(raw)
+    const title = extractOperationTitle(raw)
+    const value = extractOperationValue(raw)
+    const probability = extractProbability(raw)
+    // El executor resuelve el cliente por nombre; si falta, lo pedimos.
+    const missingFields = !clientName ? ['cliente'] : []
+    const action: PreparedActionDraft = {
+      type: 'create_operation',
+      clientName,
+      title,
+      stage: 'new',
+      value,
+      probability,
+      missingFields,
+    }
+    const answer = missingFields.length
+      ? `Para crear la operación necesito el cliente. Dime para quién es y la dejo preparada.`
+      : `Operación preparada: "${title}" para ${clientName}${value ? ` · ${value}€` : ''}${probability != null ? ` · ${probability}%` : ''}. Revísala y pulsa Confirmar.`
+    return { preparedAction: action, answer }
+  }
+
+  if (CASE_TRIGGER.test(raw)) {
+    const clientName = extractClientName(raw)
+    const title = extractCaseTitle(raw)
+    const priority = /\burgente\b/i.test(raw) ? 'high' : undefined
+    const missingFields = !clientName ? ['cliente'] : []
+    const action: PreparedActionDraft = {
+      type: 'create_service_case',
+      clientName,
+      title,
+      caseType: 'general',
+      status: 'open',
+      priority,
+      missingFields,
+    }
+    const answer = missingFields.length
+      ? `Para abrir el expediente necesito el cliente. Dime para quién es y lo dejo preparado.`
+      : `Expediente preparado: "${title}" para ${clientName}${priority === 'high' ? ' · prioridad alta' : ''}. Revísalo y pulsa Confirmar.`
     return { preparedAction: action, answer }
   }
 

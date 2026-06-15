@@ -84,7 +84,7 @@ export type CancelEventItem = {
 
 
 export type PreparedActionDraft = {
-  type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings'
+  type: 'booking' | 'invoice' | 'task' | 'cancel_booking' | 'reschedule_booking' | 'cancel_multiple_bookings' | 'cleanup_duplicate_bookings' | 'create_operation' | 'create_service_case'
   clientId?: string
   clientName?: string
   service?: string
@@ -96,6 +96,13 @@ export type PreparedActionDraft = {
   dueDate?: string
   taskTitle?: string
   description?: string
+  // RT5.1b — create_operation / create_service_case (fallback determinista)
+  stage?: string
+  value?: number
+  probability?: number
+  caseType?: string
+  status?: string
+  priority?: string
   missingFields: string[]
   // cancel_booking / reschedule_booking
   eventId?: string
