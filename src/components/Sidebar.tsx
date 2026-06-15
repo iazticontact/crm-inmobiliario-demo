@@ -19,15 +19,17 @@ import { BRAND } from '@/lib/brand'
 // without touching code. `internal` marks entries that only appear when
 // NEXT_PUBLIC_NOWLABS_INTERNAL=true — used for operator-only modules that
 // still exist as routes but are not part of the client navigation surface
-// (Automatizaciones, Facturación). See src/lib/feature-flags.ts.
+// (WhatsApp/Inbox, Automatizaciones, Facturación). See src/lib/feature-flags.ts.
 const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean }> = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
-  { href: '/inbox',         label: 'WhatsApp',          icon: Inbox,      flag: 'inbox' },
   { href: '/clients',       label: 'Clientes',          icon: Users },
-  { href: '/opportunities', label: 'Gestión',           icon: Target,     flag: 'opportunities' },
-  { href: '/calendar',      label: 'Calendar',          icon: Calendar,   flag: 'calendar' },
+  { href: '/opportunities', label: 'Operaciones',       icon: Target,     flag: 'opportunities' },
+  { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
   { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
   // Operator-only routes kept in code but hidden from the client sidebar.
+  // WhatsApp/Inbox has no real backend yet (no conversations/messages tables,
+  // no Meta Cloud API) — keep it operator-only until its phase. Route/page intact.
+  { href: '/inbox',         label: 'WhatsApp',          icon: Inbox,      flag: 'inbox',       internal: true },
   { href: '/automations',   label: 'Automatizaciones',  icon: Zap,        flag: 'automations', internal: true },
   { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing',     internal: true },
   { href: '/settings',      label: 'Configuración',     icon: Settings },
