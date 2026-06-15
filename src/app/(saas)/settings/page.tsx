@@ -91,9 +91,9 @@ const architectureCards = [
 ]
 
 const notifDefaults = [
-  { key: 'leads', label: 'Nuevos leads', description: 'Cuando un lead entra por cualquier canal', enabled: true },
+  { key: 'leads', label: 'Nuevos leads', description: 'Cuando se registra un nuevo cliente o lead en el CRM', enabled: true },
   { key: 'invoices', label: 'Facturas vencidas', description: 'Alertas de pagos pendientes y recordatorios IA', enabled: true },
-  { key: 'dailyReport', label: 'Resumen diario IA', description: 'Briefing matutino con ventas, alertas y siguientes acciones', enabled: true },
+  { key: 'dailyReport', label: 'Resumen diario IA', description: 'Briefing diario con tareas, citas y siguientes acciones', enabled: true },
   { key: 'urgent', label: 'Conversaciones urgentes', description: 'Cuando la IA detecta sentimiento negativo o alta intencion', enabled: false },
 ]
 
@@ -1372,6 +1372,9 @@ export default function SettingsPage() {
           </>
           )}
 
+          {/* WhatsApp: módulo dormido (Meta no conectado). Oculto para el cliente;
+              solo operador interno. Código y rutas intactos. */}
+          {SHOW_INTERNAL_TECH && (
           <SectionCard
             title={SHOW_INTERNAL_TECH ? 'WhatsApp Business' : 'WhatsApp'}
             description={SHOW_INTERNAL_TECH
@@ -1562,6 +1565,7 @@ export default function SettingsPage() {
               )}
             </div>
           </SectionCard>
+          )}
 
           {SHOW_INTERNAL_TECH && (
           <SectionCard
@@ -1729,7 +1733,7 @@ export default function SettingsPage() {
 
           <SectionCard title="Notificaciones" description="Alertas del workspace">
             <div className="space-y-3">
-              {notifDefaults.map(({ key, label, description }) => (
+              {notifDefaults.filter((n) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['invoices', 'urgent'].includes(n.key)).map(({ key, label, description }) => (
                 <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
                   <div>
                     <p className="text-sm font-medium text-gray-900">{label}</p>

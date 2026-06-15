@@ -49,6 +49,22 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 6 — H5: settings final cleanup (2026-06-15, HEAD `dd31b48`+)
+
+**H5 COMPLETADO** (solo `settings/page.tsx`, gateado por `NOWLABS_INTERNAL`, sin
+backend): ocultada al cliente la **tarjeta WhatsApp** completa y los toggles de
+notificación dormidos **Facturas vencidas** y **Conversaciones urgentes**;
+quedan **Nuevos leads** y **Resumen diario IA** con copy suavizado. Settings
+cliente ya no muestra Google OAuth / Inbox Agent / WhatsApp / facturación.
+Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H5_SETTINGS_FINAL_CLEANUP_REPORT.md](PHASE_2E2_H5_SETTINGS_FINAL_CLEANUP_REPORT.md).
+
+**Veredicto Sesión 6:** UI cliente honesta y completa. **No quedan polish
+pendientes.** Único siguiente paso: **smoke navegador real** (Oier: reiniciar dev
++ hard refresh + password ≥8 + probar). Counts aún = baseline (smoke sin ejecutar).
+
+---
+
 ## SESIÓN 5 — H4: coherencia UI profunda (2026-06-15, HEAD `2ac7446`+)
 
 Limpieza profunda (gateada por `NOWLABS_INTERNAL`, sin tocar backend/schema):
