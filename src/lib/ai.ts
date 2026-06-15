@@ -322,7 +322,7 @@ function buildOperationalPrompt(input: string, messages: Message[] = [], convers
     'Si no dispones de datos reales del workspace, dilo de forma explícita ("No encuentro datos reales en este workspace") y ofrece crearlos; no simules ni rellenes registros.',
     'Usa ejemplos concretos solo si el usuario los pide explícitamente o si la sesión está en modo demo.',
     'WhatsApp Business (Meta Cloud API) es la siguiente fase; no digas que ya está conectado.',
-    'Responde en español, maximo 3 frases, con tono operativo.',
+    'Responde en español de España, claro y al grano (2-4 frases), con tono profesional pero majo y cercano, de compañero del equipo. Puedes usar algún emoji ligero cuando aporte; nada de relleno ni de sonar a IA de soporte.',
     'No confirmes acciones críticas como creadas si el usuario no las ha confirmado en el CRM.',
     `Conversacion actual: ${conversation?.clientName ?? 'consulta interna'} · ${conversation?.intent ?? 'sin intencion asignada'}.`,
     `assistant_mode: ${assistantMode}.`,

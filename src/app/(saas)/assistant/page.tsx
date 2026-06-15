@@ -33,6 +33,7 @@ import {
   updateConversationTitle,
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
+import { listAssistantThreads, createAssistantThread, listThreadMessages, appendThreadMessage, renameAssistantThread } from '@/lib/assistant-threads'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
@@ -1154,7 +1155,7 @@ export default function AssistantPage() {
       let realConversations: Conversation[] = []
       if (resolvedWorkspaceId) {
         try {
-          realConversations = await getAssistantConversations(resolvedWorkspaceId)
+          realConversations = await listAssistantThreads(resolvedWorkspaceId)
           updateDiagnostics({
             lastReadConversationsStatus: `OK workspace: ${realConversations.length} conversación(es)`,
             lastSupabaseError: '',
@@ -1293,7 +1294,7 @@ export default function AssistantPage() {
     const loadMessages = async () => {
       setLoadingMessages(true)
       try {
-        const realMessages = await getConversationMessages(selected.id, workspaceId ?? undefined)
+        const realMessages = await listThreadMessages(selected.id)
         setLocalMessages((prev) => ({ ...prev, [selected.id]: realMessages }))
         updateDiagnostics({
           lastReadMessagesStatus: `OK: ${realMessages.length} mensaje(s) en ${selected.id}`,
@@ -1424,6 +1425,10 @@ export default function AssistantPage() {
     }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
+    // Persistencia REAL del copiloto (assistant_messages), fail-soft.
+    if (isRealMode && workspaceId && assistantMode === 'copilot' && isUuid(conversationId)) {
+      void appendThreadMessage(workspaceId, conversationId, { sender: 'ai', content })
+    }
     if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId && ASSISTANT_CONVERSATION_PERSISTENCE) {
       let saved: Message
       try {
@@ -1472,6 +1477,11 @@ export default function AssistantPage() {
     const localResponse = buildLocalOperationalResponse(operationalIntent, assistantMode)
 
     appendLocalMessage(conversationId, userMsg)
+    // Persistencia REAL del copiloto (assistant_messages), fail-soft.
+    if (isRealMode && workspaceId && assistantMode === 'copilot' && isUuid(conversationId)) {
+      void appendThreadMessage(workspaceId, conversationId, { sender: userSender, content, metadata: { detected_intent: operationalIntent.intent } })
+      if (isFirstUserMessage) void renameAssistantThread(conversationId, generateAutoTitle(content, lastReferencedClientName))
+    }
     setInput('')
     setDetectedIntent(localIntentLabel)
     setIsTyping(true)
@@ -2623,6 +2633,20 @@ export default function AssistantPage() {
     }
 
     try {
+      // Copiloto interno: persistencia REAL en assistant_threads (dedicada, RLS;
+      // NO public.conversations de Inbox/WhatsApp). Crea el hilo y lo abre.
+      if (assistantMode === 'copilot' && isRealMode && !OFFLINE_FORCE_DEV && workspaceId && currentUser.id) {
+        const thread = await createAssistantThread(workspaceId, currentUser.id)
+        if (thread) {
+          setConversationList((prev) => [thread, ...prev])
+          setLocalMessages((prev) => ({ ...prev, [thread.id]: [] }))
+          setSelectedIds((prev) => ({ ...prev, copilot: thread.id }))
+          updateDiagnostics({ lastCreateConversationStatus: `OK thread: ${thread.id}`, lastSupabaseError: '' })
+          toast.success('Consulta interna lista')
+          return
+        }
+        // Fail-soft: si no se pudo crear el hilo, sigue el flujo local de abajo.
+      }
       if (isRealMode && !OFFLINE_FORCE_DEV && ASSISTANT_CONVERSATION_PERSISTENCE) {
         if (!workspaceId) {
           const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
@@ -3637,7 +3661,7 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pide al asistente IA que opere tu CRM...'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Escribe a tu copiloto: clientes, operaciones, tareas, citas…'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
@@ -3659,12 +3683,12 @@ export default function AssistantPage() {
                   <Bot className="h-5 w-5" />
                 </div>
                 <p className="text-sm font-semibold text-gray-900">
-                  {assistantMode === 'inbox' ? 'No hay conversaciones todavía' : 'No hay consultas internas todavía'}
+                  {assistantMode === 'inbox' ? 'No hay conversaciones todavía' : 'Tu copiloto del CRM, listo cuando quieras 👋'}
                 </p>
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp Business, los mensajes reales aparecerán aquí.'
-                    : 'Abre una consulta interna para que el Asistente IA opere tu CRM: clientes, calendario, facturas, cobros y próximas acciones.'}
+                    : 'Pregúntame por tus clientes, operaciones, expedientes, tareas o calendario, y preparo acciones (siempre con tu confirmación). Tus consultas se guardan aquí.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
                   {capabilityExamples.slice(0, 4).map((example) => (

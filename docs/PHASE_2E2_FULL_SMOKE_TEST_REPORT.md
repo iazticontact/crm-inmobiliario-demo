@@ -49,6 +49,23 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 10 — H8: persistencia real del copiloto + personalidad + UX (2026-06-16)
+
+Tablas dedicadas **`assistant_threads`/`assistant_messages`** (migración
+`20260616_2e2_assistant_threads.sql`, **aplicada**) con RLS por workspace + GRANT
+a authenticated; lib `assistant-threads.ts` (client RLS); el copiloto ahora
+**crea/lista/reabre hilos y persiste mensajes reales** (sobreviven al refresh),
+SIN tocar conversations/messages de Inbox ni el cerebro (v2/confirm). Personalidad
+del agente (`nowlabs-main-agent.ts`) y fallback (`ai.ts`) más **majo/cercano** con
+emoji ligero. UX: empty state + placeholder más premium. Validaciones verdes (46
+rutas). Detalle:
+[PHASE_2E2_H8_ASSISTANT_PERSISTENCE_PERSONALITY_REPORT.md](PHASE_2E2_H8_ASSISTANT_PERSISTENCE_PERSONALITY_REPORT.md).
+
+**Veredicto Sesión 10:** asistente con persistencia real + personalidad; pendiente
+smoke navegador (consulta → refresh persiste → acción confirmada).
+
+---
+
 ## SESIÓN 9 — H7: asistente desacoplado de public.conversations (2026-06-15, HEAD `2fb9625`+)
 
 **BUG asistente RESUELTO.** En `/assistant`, "Nueva consulta"/enviar mensaje
