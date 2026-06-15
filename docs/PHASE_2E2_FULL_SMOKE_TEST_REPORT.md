@@ -49,6 +49,23 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 11 — H9 smoke certification (2026-06-16, HEAD `0f9e4c6`)
+
+Validaciones verdes (tsc/lint/build, 46 rutas); dev server :3000 HTTP 200; env OK.
+**Baseline pre-smoke:** clients8/properties7/opportunities7/service_cases5/tasks10/
+calendar_events8/activities14/**assistant_threads0/assistant_messages0**. → **El
+smoke de navegador AÚN NO se ha ejecutado** (threads/messages en 0; CRM en
+baseline). Readiness técnico verificado: tablas de persistencia + RLS OK;
+`recent_activity` ve 14 actividades reales bajo RLS; off-topic policy activa.
+Detalle + checklist:
+[PHASE_2E2_H9_SMOKE_CERTIFICATION_REPORT.md](PHASE_2E2_H9_SMOKE_CERTIFICATION_REPORT.md)
++ [ASSISTANT_CRM_INTELLIGENCE_EVALS.md](ASSISTANT_CRM_INTELLIGENCE_EVALS.md).
+
+**Veredicto Sesión 11:** readiness técnica OK; ejecución de navegador pendiente
+(no se inventan resultados).
+
+---
+
 ## SESIÓN 10 — H8: persistencia real del copiloto + personalidad + UX (2026-06-16)
 
 Tablas dedicadas **`assistant_threads`/`assistant_messages`** (migración
