@@ -967,9 +967,11 @@ export default function ClientDetailPage() {
         </div>
       </SectionCard>
 
-      {/* Tabs */}
+      {/* Tabs — los módulos sin backend real (Documentos/Storage, Conversaciones,
+          Facturación) se ocultan al cliente; solo visibles con NOWLABS_INTERNAL.
+          El contenido/código de esas pestañas se mantiene intacto. */}
       <div className="flex flex-wrap items-center gap-1 rounded-xl border border-gray-200/70 bg-white p-1 shadow-sm">
-        {TABS.map((tab) => {
+        {TABS.filter((t) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['documents', 'conversations', 'invoices'].includes(t.key)).map((tab) => {
           const count = tab.key in tabCount ? tabCount[tab.key as keyof typeof tabCount] : null
           const isActive = activeTab === tab.key
           return (

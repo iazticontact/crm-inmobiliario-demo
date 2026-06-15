@@ -274,8 +274,8 @@ export default function OpportunitiesPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Gestión"
-        description="Expedientes, propiedades, visitas y seguimiento operativo."
+        title="Operaciones"
+        description="Pipeline comercial, expedientes y propiedades del workspace."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>

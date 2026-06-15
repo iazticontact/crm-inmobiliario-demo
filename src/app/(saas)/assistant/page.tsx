@@ -161,13 +161,13 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
     { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
     { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
-    { label: 'Crear factura', prompt: 'Quiero crear una factura. Pídeme cliente, importe, concepto y vencimiento si falta algo.', intent: 'invoice', sender: 'agent' },
-    { label: 'Revisar cobros', prompt: 'Revisa facturas pendientes o vencidas y dime qué seguimiento harías.', intent: 'billing', sender: 'agent' },
-    { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, cobros y citas.', intent: 'daily_plan', sender: 'agent' },
+    { label: 'Crear operación', prompt: 'Quiero crear una operación. Pídeme el cliente si falta.', intent: 'create_operation', sender: 'agent' },
+    { label: 'Abrir expediente', prompt: 'Quiero abrir un expediente. Pídeme el cliente si falta.', intent: 'create_service_case', sender: 'agent' },
+    { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, operaciones y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }
 
-const capabilities = ['Clientes', 'Citas', 'Facturas', 'Cobros', 'Próximas acciones', 'Respuestas comerciales', 'Plan del día']
+const capabilities = ['Clientes', 'Operaciones', 'Expedientes', 'Tareas', 'Citas', 'Próximas acciones', 'Plan del día']
 const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp Business próximo']
 const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }> = [
   { label: 'Estado conexion', prompt: 'Estado de conexion Inbox Assistant', intent: 'manual_status', sender: 'agent' },
@@ -179,11 +179,11 @@ const INBOX_MANUAL_RESPONSE = 'Inbox Assistant está preparado para conectar Wha
 const capabilityExamples = [
   'Resume este cliente',
   'Prepara una cita',
-  'Crea una factura',
-  'Revisa cobros pendientes',
+  'Crea una operación',
+  'Abre un expediente',
   'Dime la próxima acción',
   'Busca un cliente',
-  'Prepara una respuesta comercial',
+  'Mueve una operación de etapa',
 ]
 
 const assistantModes: Array<{

@@ -49,6 +49,29 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 4 — H3: login triage + limpieza UI dormante (2026-06-15, HEAD `bd1f5a4`+)
+
+**Login "Invalid API key" RESUELTO en diagnóstico:** las claves de `.env.local`
+son **válidas** (PUBLISHABLE y ANON → HTTP 200 contra Supabase; publishable
+coincide con dashboard). Causa real = **dev server rancio** (arrancado antes de
+corregir la key; `NEXT_PUBLIC_*` se inlinean al arrancar). **Fix operativo (Oier):
+reiniciar `next dev` + hard refresh.** Código: mapeo de error de login mejorado
+(nunca muestra "Invalid API key" crudo). Password: se mantiene mínimo 8; Oier
+resetea el usuario de prueba a ≥8 en Supabase Auth.
+
+**Limpieza UI dormante (gateada por `NOWLABS_INTERNAL`, reversible, sin borrar
+código):** ocultos tiles dashboard (Cobros/WhatsApp), tabs ficha (Documentos/
+Conversaciones/Facturación), chips asistente (factura/cobros→operaciones/
+expedientes); título `Gestión`→`Operaciones`. **Diferido a H4:** settings deep,
+calendar Google status, modo Inbox del asistente. Validaciones verdes. Detalle:
+[PHASE_2E2_H3_AUTH_AND_DORMANT_UI_CLEANUP_REPORT.md](PHASE_2E2_H3_AUTH_AND_DORMANT_UI_CLEANUP_REPORT.md).
+
+**Veredicto Sesión 4:** smoke navegador **sigue pendiente de ejecución** (counts
+aún = baseline); ahora **desbloqueado** (login arreglable con reinicio + password
+≥8). Tras reiniciar dev y resetear password, Oier puede correr el smoke completo.
+
+---
+
 ## SESIÓN 3 — Re-validación + persistencia + plan staging (2026-06-15, HEAD `2ccfa76`)
 
 **Prechecks automáticos (verde):** git `2ccfa76` limpio/sincronizado · env OK

@@ -352,21 +352,28 @@ export default function DashboardPage() {
           href="/calendar"
           tone="sky"
         />
-        <MetricTile
-          label="Cobros pendientes"
-          value={stats ? formatEuro(stats.pendingAmount) : loading ? '…' : formatEuro(0)}
-          detail={stats ? (stats.pendingInvoices === 0 ? 'Sin facturas pendientes' : `${stats.pendingInvoices} factura(s) abiertas`) : undefined}
-          icon={<Euro className="h-5 w-5" />}
-          tone="amber"
-        />
-        <MetricTile
-          label="WhatsApp"
-          value={stats ? String(stats.externalConversations) : loading ? '…' : '0'}
-          detail={stats ? (stats.externalConversations === 0 ? 'Sin conversaciones de WhatsApp todavía' : `${stats.unreadConversations} sin leer`) : undefined}
-          icon={<Inbox className="h-5 w-5" />}
-          href="/inbox"
-          tone="emerald"
-        />
+        {/* Cobros (facturación) y WhatsApp/Inbox no tienen backend real todavía
+            (no hay invoices/conversations tables). Se ocultan al cliente y solo
+            aparecen con NOWLABS_INTERNAL para no prometer módulos inexistentes. */}
+        {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
+          <>
+            <MetricTile
+              label="Cobros pendientes"
+              value={stats ? formatEuro(stats.pendingAmount) : loading ? '…' : formatEuro(0)}
+              detail={stats ? (stats.pendingInvoices === 0 ? 'Sin facturas pendientes' : `${stats.pendingInvoices} factura(s) abiertas`) : undefined}
+              icon={<Euro className="h-5 w-5" />}
+              tone="amber"
+            />
+            <MetricTile
+              label="WhatsApp"
+              value={stats ? String(stats.externalConversations) : loading ? '…' : '0'}
+              detail={stats ? (stats.externalConversations === 0 ? 'Sin conversaciones de WhatsApp todavía' : `${stats.unreadConversations} sin leer`) : undefined}
+              icon={<Inbox className="h-5 w-5" />}
+              href="/inbox"
+              tone="emerald"
+            />
+          </>
+        )}
       </div>
 
       {/* Snapshot operativo */}
