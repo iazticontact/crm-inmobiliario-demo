@@ -107,6 +107,17 @@ function persistOfflineMessages(messages: Record<string, Message[]>) {
   }
 }
 
+// public.conversations y public.messages estan DIFERIDAS (van con Inbox/WhatsApp,
+// fase futura). Hasta que existan, el asistente interno corre como sesion LOCAL
+// en memoria: NO inserta conversaciones ni mensajes (evita el error PGRST205
+// "Could not find the table 'public.conversations'"). El cerebro del asistente
+// (/api/assistant/v2 + /api/assistant/confirm) NO depende de estas tablas, y las
+// ACCIONES confirmadas SI persisten de verdad (operaciones/tareas/etc + activity)
+// via RLS. Cuando exista una persistencia propia del asistente (futuras
+// assistant_threads/assistant_messages, distintas de las conversations de
+// WhatsApp), poner este flag a true.
+const ASSISTANT_CONVERSATION_PERSISTENCE: boolean = false
+
 function createOfflineConversation(mode: AssistantMode): Conversation {
   const id = createUuid()
   return {
@@ -1357,7 +1368,7 @@ export default function AssistantPage() {
 
   const ensureRealConversation = async () => {
     if (!isRealMode) return selected
-    if (OFFLINE_FORCE_DEV) {
+    if (OFFLINE_FORCE_DEV || !ASSISTANT_CONVERSATION_PERSISTENCE) {
       const created = createOfflineConversation(assistantMode)
       setConversationList((prev) => {
         const next = [created, ...prev.filter((conversation) => conversation.id !== selected?.id)]
@@ -1413,7 +1424,7 @@ export default function AssistantPage() {
     }
     const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
     appendLocalMessage(conversationId, aiMsg)
-    if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId) {
+    if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId && ASSISTANT_CONVERSATION_PERSISTENCE) {
       let saved: Message
       try {
         saved = await createMessage(conversationId, { content, sender: 'ai', metadata: { source: 'assistant_agent', assistant_mode: assistantMode } }, workspaceId)
@@ -1466,7 +1477,7 @@ export default function AssistantPage() {
     setIsTyping(true)
 
     try {
-      if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId) {
+      if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId && ASSISTANT_CONVERSATION_PERSISTENCE) {
         let saved: Message
         try {
           saved = await createMessage(conversationId, { content, sender: userSender, metadata: { source: 'assistant_ui', assistant_mode: assistantMode, detected_intent: operationalIntent.intent } }, workspaceId)
@@ -2612,7 +2623,7 @@ export default function AssistantPage() {
     }
 
     try {
-      if (isRealMode && !OFFLINE_FORCE_DEV) {
+      if (isRealMode && !OFFLINE_FORCE_DEV && ASSISTANT_CONVERSATION_PERSISTENCE) {
         if (!workspaceId) {
           const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
           updateDiagnostics({ lastCreateConversationStatus: 'Bloqueado', lastSupabaseError: message })
@@ -2663,7 +2674,7 @@ export default function AssistantPage() {
         return
       }
 
-      if (isRealMode && OFFLINE_FORCE_DEV) {
+      if (isRealMode && (OFFLINE_FORCE_DEV || !ASSISTANT_CONVERSATION_PERSISTENCE)) {
         const localConversation: Conversation = {
           id: createUuid(),
           clientId: `offline-${Date.now()}`,

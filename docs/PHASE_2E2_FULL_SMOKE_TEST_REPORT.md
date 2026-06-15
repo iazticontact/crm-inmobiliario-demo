@@ -49,6 +49,26 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 9 — H7: asistente desacoplado de public.conversations (2026-06-15, HEAD `2fb9625`+)
+
+**BUG asistente RESUELTO.** En `/assistant`, "Nueva consulta"/enviar mensaje
+fallaba con **PGRST205 (public.conversations no existe)** porque la página
+persistía conversación+mensajes en tablas diferidas (Inbox/WhatsApp). **Fix
+(solo `assistant/page.tsx`, flag `ASSISTANT_CONVERSATION_PERSISTENCE=false`):** el
+copiloto corre como **sesión LOCAL en memoria** (reusa la maquinaria offline);
+gateados `ensureRealConversation`/`createDemoConversation`/`appendAssistantMessage`/
+`sendMessage` para no insertar en conversations/messages. El cerebro
+(`/api/assistant/v2` + `/api/assistant/confirm`) y la **persistencia de acciones
+confirmadas** (operaciones/tareas + activity vía RLS) **intactos**. Sin tocar n8n/
+Inbox/WhatsApp/schema. Modo Inbox ya oculto al cliente (H4). Validaciones verdes
+(46 rutas). Detalle:
+[PHASE_2E2_H7_ASSISTANT_CONVERSATION_RUNTIME_FIX_REPORT.md](PHASE_2E2_H7_ASSISTANT_CONVERSATION_RUNTIME_FIX_REPORT.md).
+
+**Veredicto Sesión 9:** asistente desbloqueado para smoke. Falta verificación en
+navegador (Oier): consulta + acción confirmada.
+
+---
+
 ## SESIÓN 8 — H6D: identidad + AuthGate hardening (2026-06-15, HEAD `128a74b`+)
 
 **Identidad:** el nombre mostrado ("Oier Dunabeitia") sale de
