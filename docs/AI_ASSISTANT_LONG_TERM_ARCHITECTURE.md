@@ -1,6 +1,17 @@
 # Arquitectura a largo plazo del Asistente IA del CRM
 
 **Fecha:** 2026-06-15 · **Política transversal:** [DATA_REALITY_POLICY.md](DATA_REALITY_POLICY.md)
+· **Decisiones de módulo:** [PRODUCT_DECISION_WHATSAPP_META.md](PRODUCT_DECISION_WHATSAPP_META.md),
+[PRODUCT_DECISION_BILLING_INVOICING.md](PRODUCT_DECISION_BILLING_INVOICING.md),
+[PRODUCT_DECISION_CALENDAR.md](PRODUCT_DECISION_CALENDAR.md)
+
+> **Actualización 2026-06-15:** `OPENAI_API_KEY` ya está **live** (clave real en
+> `.env.local`), por lo que el agente puede probarse end-to-end (pendiente smoke
+> navegador). El asistente es el **diferenciador "empleado interno"**: lee todo el
+> negocio del workspace (Supabase/RLS), prepara y ejecuta-con-confirmación, y a
+> futuro leerá documentos (Storage/RAG) y disparará automatizaciones (n8n/Meta).
+> La IA **ajusta tono/personalidad pero nunca** se salta seguridad, confirmación
+> ni la política de datos reales.
 
 ## 1. North star
 Este CRM **no es "un CRM con un chat"**. Es un **CRM operativo con un agente IA

@@ -1,11 +1,45 @@
 # CRM Inmobiliario — Roadmap de próximas fases
 
-**Fecha:** 2026-06-15 · **Base:** RT3 verificado (`be73f56`+)
+**Fecha:** 2026-06-15 · **Base:** smoke automático `ebbf56b`
 **Política transversal:** [DATA_REALITY_POLICY.md](DATA_REALITY_POLICY.md) aplica a todas.
+**Relacionado:** [PRODUCT_ARCHITECTURE_AUDIT.md](PRODUCT_ARCHITECTURE_AUDIT.md),
+[STAGING_HOSTINGER_STRATEGY.md](STAGING_HOSTINGER_STRATEGY.md),
+decisiones de producto `PRODUCT_DECISION_*.md`.
 
-Estado actual: lectura real conectada (dashboard, clientes, ficha profunda,
-operaciones, calendario), demo offline intacta, datos reales verificados
-(8/7/7/5/10/8/14). Lo que sigue, en orden de valor/riesgo:
+---
+
+## Roadmap de producto (realista, por valor/riesgo)
+
+Núcleo CRM + asistente IA **sólido y seguro** (ver audit). El orden prioriza
+**probar lo que hay** antes de añadir módulos nuevos.
+
+| Fase | Objetivo | Valor comercial | Dificultad | Riesgo | Depende de | NO hacer aún |
+|---|---|---|---|---|---|---|
+| **0 — Smoke local** | Smoke navegador (core + asistente con OpenAI real) | desbloquea todo | baja | bajo | OpenAI key (✅ puesta) | features nuevas |
+| **1 — Staging** | Hostinger VPS + Node + PM2 + Nginx + SSL | entorno real, sin OneDrive | media | bajo | Fase 0 OK | producción cliente |
+| **2 — QA staging** | QA visual + rendimiento real | confianza de venta | baja-media | bajo | Fase 1 | optimizar a ciegas |
+| **3 — Facturación MVP (2E-4)** | borradores + PDF + estados + vínculos | upsell fuerte | media-alta | **alto (fiscal)** | Fase 2 | "validez fiscal" sin asesor (ver decisión billing) |
+| **4 — Storage/documentos (2E-3)** | buckets privados + tabla `documents` + signed URLs | base para IA documental | media | medio (privacidad) | Fase 2 | RAG todavía |
+| **5 — IA lee documentos / RAG** | OCR/chunks/embeddings/vector + fuentes citadas | diferenciador IA | alta | medio | Fase 4 | sin permisos por workspace |
+| **6 — WhatsApp oficial Meta + n8n (2E-5)** | inbox espejo real + plantillas + n8n orquestador | canal clave inmobiliaria | alta | **alto (Meta/compliance)** | Fase 2 + n8n | WhatsApp fake / cerebro en n8n |
+| **7 — Google Calendar sync** | addon opcional opt-in | comodidad | media | medio (OAuth) | Fase 2 | requisito del CRM |
+| **8 — Multi-tenant reusable** | clonado por cliente, flags, proyecto Supabase dedicado | escalar a varias inmobiliarias/verticales | media-alta | medio | Fases core | mezclar datos de clientes |
+| **9 — Comercial / demo final** | demo vendible pulida + onboarding | cerrar ventas | baja-media | bajo | todo lo anterior | prometer lo no construido |
+
+**Pendiente inmediato del asistente (no bloquea staging):** RT5.1b-3
+(`update_calendar_event` por chat + `due_date`/`assigned_to` por chat).
+
+**Acciones de límite de módulo antes de cliente final** (ver audit §3.4/§4):
+ocultar `WhatsApp`/Inbox del nav del cliente (H1) hasta Fase 6; microcopy
+`Calendar`→`Calendario`, `Gestión`→`Operaciones` (H2); leaked-password ON.
+
+---
+
+## Histórico de implementación (referencia)
+
+Lectura real conectada (dashboard, clientes, ficha profunda, operaciones,
+calendario), demo offline intacta, datos reales verificados (8/7/7/5/10/8/14).
+Detalle de lo ya hecho:
 
 ## RT4 — Mutaciones controladas ✅ (RT4 + RT4.2 hechas)
 - **RT4 (hecho):** crear/completar/reabrir **tareas** + selector de responsable

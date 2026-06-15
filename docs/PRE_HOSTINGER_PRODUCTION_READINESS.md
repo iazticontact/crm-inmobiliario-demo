@@ -2,6 +2,17 @@
 
 **Fecha:** 2026-06-15 · **Base:** `c93e32a` · **NO se ha desplegado nada.**
 
+> **Actualización 2026-06-15 (post-smoke `ebbf56b`):**
+> - `OPENAI_API_KEY` **real ya añadida** por Oier (resuelve el bloqueante del
+>   smoke automático); `AGENT_TOOL_SECRET` reforzado. → asistente IA probable
+>   end-to-end (pendiente smoke navegador).
+> - **Estrategia de despliegue detallada:** ver
+>   [STAGING_HOSTINGER_STRATEGY.md](STAGING_HOSTINGER_STRATEGY.md)
+>   (recomendación: **Hostinger VPS Ubuntu + Node LTS + PM2 + Nginx + SSL**).
+> - **Antes de cliente final:** ocultar módulos sin backing (`WhatsApp`/Inbox,
+>   `Facturación` ya oculta), activar leaked-password-protection en Supabase Auth.
+>   Ver [PRODUCT_ARCHITECTURE_AUDIT.md](PRODUCT_ARCHITECTURE_AUDIT.md).
+
 ## 1. Estado actual
 CRM Next.js 16.2.4 (Turbopack) + Supabase (proyecto `crm-inmobiliario-demo`,
 RLS) + agente IA OpenAI. Lectura real cableada (dashboard/clientes/ficha/
