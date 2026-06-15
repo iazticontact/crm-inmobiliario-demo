@@ -49,10 +49,20 @@ function getAuthErrorMessage(error: unknown) {
   const message = error.message.toLowerCase()
   if (message.includes('invalid login credentials')) return 'Email o contraseña incorrectos.'
   if (message.includes('email not confirmed')) return 'Confirma tu email antes de entrar.'
+  // "Invalid API key" / "No API key found": misconfiguración de entorno (clave
+  // Supabase ausente/incorrecta o servidor de desarrollo arrancado con un valor
+  // antiguo). Nunca mostrar el mensaje crudo al usuario final.
+  if (message.includes('api key')) {
+    return 'Configuración de acceso incompleta. Avisa al equipo técnico (revisar variables de entorno y reiniciar el servidor).'
+  }
+  if (message.includes('failed to fetch') || message.includes('network')) {
+    return 'No se pudo conectar con el servidor de acceso. Revisa tu conexión e inténtalo de nuevo.'
+  }
   if (message.includes('invalid path specified')) return 'La URL de confirmación no es válida.'
   if (message.includes('password')) return 'Revisa la contraseña e inténtalo de nuevo.'
 
-  return error.message
+  // Fallback genérico: no exponer texto interno de Supabase al usuario.
+  return 'No se ha podido completar el acceso. Inténtalo de nuevo o avisa al equipo técnico.'
 }
 
 export default function LoginPage() {
