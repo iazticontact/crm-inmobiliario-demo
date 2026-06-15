@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowRight, Building2, KeyRound, Loader2, Lock, Mail, Shield, CheckCircle } from 'lucide-react'
+import { ArrowRight, Bot, Building2, Calendar, CheckCircle, KeyRound, Loader2, Lock, Mail, Shield, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/utils'
@@ -106,8 +106,8 @@ export default function LoginPage() {
     }
 
     if (error === 'no_profile') {
-      toast.error('Tu usuario no está vinculado a un workspace', {
-        description: `Contacta con el responsable interno o con el ${BRAND.supportName} para que te asignen acceso.`,
+      toast.error('Tu usuario aún no tiene acceso a un workspace', {
+        description: `Tu cuenta existe, pero no está asignada a ningún workspace. Contacta con el equipo técnico (${BRAND.supportName}) para que te den acceso.`,
       })
       window.history.replaceState(null, '', '/login')
     }
@@ -230,11 +230,41 @@ export default function LoginPage() {
 
           <div className="relative max-w-xl">
             <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-gray-500">
-              CRM interno · uso autorizado
+              CRM inmobiliario privado · uso autorizado
             </p>
-            <h1 className="mt-5 text-[2.7rem] font-semibold leading-[1.05] tracking-tight text-gray-950 xl:text-[3.15rem]">
-              Gestión interna de clientes, expedientes, visitas y documentación.
+            <h1 className="mt-5 text-[2.4rem] font-semibold leading-[1.06] tracking-tight text-gray-950 xl:text-[2.9rem]">
+              Gestiona clientes, operaciones y citas desde un solo lugar.
             </h1>
+            <p className="mt-4 max-w-md text-sm leading-6 text-gray-600">
+              CRM privado para inmobiliarias: seguimiento comercial, expedientes,
+              tareas, calendario y asistente IA operativo.
+            </p>
+
+            <ul className="mt-7 space-y-3">
+              {[
+                { icon: <Users className="h-4 w-4" />, text: 'Clientes y operaciones organizados' },
+                { icon: <Calendar className="h-4 w-4" />, text: 'Tareas, citas y expedientes bajo control' },
+                { icon: <Bot className="h-4 w-4" />, text: 'Asistente IA para consultar y preparar acciones' },
+              ].map((b) => (
+                <li key={b.text} className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-950 text-white">{b.icon}</span>
+                  <span className="text-sm font-medium text-gray-800">{b.text}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-8 grid max-w-md grid-cols-2 gap-2.5">
+              {['Clientes', 'Operaciones', 'Calendario', 'Asistente IA'].map((c) => (
+                <div key={c} className="rounded-xl border border-gray-200/80 bg-white/70 px-3.5 py-2.5 text-xs font-semibold text-gray-700 shadow-sm">
+                  {c}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/70 px-3.5 py-1.5 text-[11px] font-medium text-gray-600">
+              <Shield className="h-3.5 w-3.5 text-gray-500" />
+              Acceso privado · Datos protegidos · Workspace seguro
+            </div>
           </div>
 
           <footer className="flex items-center justify-between text-[11px] text-gray-500">
@@ -368,7 +398,7 @@ export default function LoginPage() {
                   <Building2 className="h-4 w-4" />
                   Ver demo inmobiliaria
                 </button>
-                <p className="mt-2 text-center text-[11px] text-gray-400">Entras sin registrarte, con datos de ejemplo.</p>
+                <p className="mt-2 text-center text-[11px] text-gray-400">Entrarás en un entorno de ejemplo. No se guardan cambios reales.</p>
               </div>
             )}
 

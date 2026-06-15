@@ -49,6 +49,25 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 7 — H6: vínculo workspace + login premium (2026-06-15, HEAD `4e84a43`+)
+
+**BLOQUEANTE DE LOGIN RESUELTO.** Diagnóstico (Supabase MCP, read-only): único
+usuario Auth = `odunabeitia14@gmail.com` (confirmado, Auth OK) pero **sin profile
+ni workspace_member** (`profiles`/`workspace_members` estaban vacías; el seed se
+borró por FK ON DELETE CASCADE al eliminarse un usuario Auth previo). **Fix
+(idempotente, server-side):** creado profile (`client_admin`, workspace=Demo) +
+workspace_member (`owner`) para ese usuario en **Demo Inmobiliaria**. Verificado.
+**Login UI** rediseñado (portada premium honesta, sin WhatsApp/facturación/
+documentación; microcopy sin-workspace claro; demo copy). Sin tocar
+schema/migraciones/contraseñas/.env. Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H6_LOGIN_WORKSPACE_AND_LOGIN_POLISH_REPORT.md](PHASE_2E2_H6_LOGIN_WORKSPACE_AND_LOGIN_POLISH_REPORT.md).
+
+**Veredicto Sesión 7:** login real **desbloqueado** (usuario vinculado). Oier:
+reiniciar dev + hard refresh + login con `odunabeitia14@gmail.com` (pass ≥8) →
+**smoke navegador real**. Counts CRM aún = baseline (smoke sin ejecutar).
+
+---
+
 ## SESIÓN 6 — H5: settings final cleanup (2026-06-15, HEAD `dd31b48`+)
 
 **H5 COMPLETADO** (solo `settings/page.tsx`, gateado por `NOWLABS_INTERNAL`, sin
