@@ -2699,7 +2699,7 @@ export default function AssistantPage() {
           [localConversation.id]: [{ id: `msg-${Date.now()}`, conversationId: localConversation.id, content: payload.lastMessage, sender: isCopilot ? 'ai' : 'client', timestamp: nowTime(), metadata: { assistant_mode: assistantMode } }],
         }))
         setSelectedIds((prev) => ({ ...prev, [assistantMode]: localConversation.id }))
-        toast.success('Conversación offline creada')
+        toast.success('Consulta interna lista')
         return
       }
 
