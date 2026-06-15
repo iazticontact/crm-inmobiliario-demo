@@ -7,6 +7,48 @@
 
 ---
 
+## SESIÓN 2 — Smoke navegador con OpenAI live (2026-06-15, HEAD `07b7b8a`)
+
+> Actualización tras resolver el bloqueante de Sesión 1 y aplicar el polish de
+> navegación (H1/H2).
+
+**Cambios desde Sesión 1:**
+- `OPENAI_API_KEY` **real** y `AGENT_TOOL_SECRET` **fuerte** ya en `.env.local`
+  (verificado sin imprimir valores: present=true, placeholder=false) → **el
+  asistente IA ya NO está bloqueado**.
+- Navegación cliente simplificada (commit `07b7b8a`): WhatsApp oculto del nav
+  cliente; labels `Operaciones`/`Calendario`.
+
+**Prechecks automáticos (verde):**
+- Git: HEAD `07b7b8a`, `main` sincronizado, árbol limpio.
+- Env: ref `ylhdbawrllqygfvllhdo` OK, legacy ausente, `.env.local` no trackeado,
+  OpenAI + agent secret presentes (no placeholder).
+- `tsc --noEmit` ✅ · `lint --max-warnings=0` ✅ · `build` ✅ (46 rutas).
+- **Dev server confirmado arriba:** `http://localhost:3000` responde **HTTP 200**
+  en `/login` (sin error-overlay de Next). *(Un `next dev` ya corría — PID 5356 —
+  no se tocó; un segundo intento se descartó solo, comportamiento esperado.)*
+
+**Baseline Supabase (pre-smoke, para verificar persistencia tras mutaciones):**
+`opportunities=7 · service_cases=5 · tasks=10 · calendar_events=8 · activities=14`.
+Tras FASE D/F (crear operación/expediente/tarea/evento) estos counts **deben
+subir** y `activities` crecer con cada acción.
+
+**Estado de las fases de navegador (las ejecuta Oier):**
+| Fase | Estado |
+|---|---|
+| C — Smoke modo real (nav/ficha/listados) | ⏳ pendiente ejecución navegador |
+| D — Mutaciones core en ficha | ⏳ pendiente ejecución navegador |
+| E — Asistente READ | ⏳ pendiente (ya posible, OpenAI live) |
+| F — Asistente ACCIONES (cancelar/confirmar) | ⏳ pendiente (ya posible) |
+| G — Negative tests | ⏳ pendiente |
+| H — Demo mode | ⏳ pendiente |
+
+**Veredicto Sesión 2:** **SMOKE EN CURSO — prechecks + arranque OK; pendiente de
+la ejecución de navegador por Oier** (checklist abajo §6–§17). Sin bloqueantes
+técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
+
+---
+
 ## 0. Resumen ejecutivo / Veredicto
 
 **VEREDICTO: SMOKE AUTOMÁTICO OK — CRM CORE LISTO PARA SMOKE DE NAVEGADOR /
