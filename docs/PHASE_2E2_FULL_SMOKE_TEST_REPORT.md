@@ -49,6 +49,25 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 5 — H4: coherencia UI profunda (2026-06-15, HEAD `2ac7446`+)
+
+Limpieza profunda (gateada por `NOWLABS_INTERNAL`, sin tocar backend/schema):
+- **Settings:** ocultadas al cliente las tarjetas dormidas "Mi Google Calendar"
+  (+ "Autorizar con Google"), calendario de equipo Google e "Inbox Agent /
+  Respuesta automática". WhatsApp ya estaba suavizada.
+- **Asistente:** modo Inbox/Conversaciones oculto al cliente (default ya era
+  Copiloto), badge "WhatsApp siguiente fase" oculto, descripción sin "/inbox".
+- **Calendar:** sin cambios (su render no muestra estado Google; el "Comprobando
+  Google" era de Settings).
+- Dashboard/ficha/operaciones ya coherentes desde H3.
+Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H4_DEEP_UI_COHERENCE_REPORT.md](PHASE_2E2_H4_DEEP_UI_COHERENCE_REPORT.md).
+
+**Veredicto Sesión 5:** UI coherente y honesta para cliente; smoke navegador
+**sigue pendiente de ejecución** (Oier: reiniciar dev + password ≥8 + probar).
+
+---
+
 ## SESIÓN 4 — H3: login triage + limpieza UI dormante (2026-06-15, HEAD `bd1f5a4`+)
 
 **Login "Invalid API key" RESUELTO en diagnóstico:** las claves de `.env.local`

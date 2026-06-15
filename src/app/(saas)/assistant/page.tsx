@@ -2987,7 +2987,7 @@ export default function AssistantPage() {
     >
       <PageHeader
         title="Asistente IA"
-        description="Asistente operativo del CRM: consultas internas, citas, facturas, tareas y acciones preparadas. Los mensajes reales de clientes viven en /inbox."
+        description="Copiloto interno del CRM: consulta clientes, operaciones, expedientes, tareas y calendario, y prepara acciones con confirmación."
         action={
           <div className="flex items-center gap-2">
             <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
@@ -2998,15 +2998,19 @@ export default function AssistantPage() {
             )}
             <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
             <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
-            <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
-              {assistantMode === 'inbox'
-                ? (waConnected
-                    ? 'WhatsApp conectado'
-                    : waStatus === 'webhook_pending' || waStatus === 'pending' || waStatus === 'prepared'
-                      ? 'WhatsApp preparado · pendiente verificacion'
-                      : 'WhatsApp pendiente')
-                : 'WhatsApp siguiente fase'}
-            </Badge>
+            {/* WhatsApp es módulo dormido (sin Meta real): solo se muestra a
+                operadores internos para no prometer un canal inexistente. */}
+            {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
+              <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
+                {assistantMode === 'inbox'
+                  ? (waConnected
+                      ? 'WhatsApp conectado'
+                      : waStatus === 'webhook_pending' || waStatus === 'pending' || waStatus === 'prepared'
+                        ? 'WhatsApp preparado · pendiente verificacion'
+                        : 'WhatsApp pendiente')
+                  : 'WhatsApp siguiente fase'}
+              </Badge>
+            )}
             <Button size="sm" onClick={createDemoConversation}>
               <Plus className="h-3.5 w-3.5" />
               {assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}
@@ -3016,7 +3020,9 @@ export default function AssistantPage() {
       />
 
       <div className="grid gap-3 lg:grid-cols-2">
-        {assistantModes.map((mode) => {
+        {/* El modo Inbox/Conversaciones (WhatsApp) no tiene backend real todavía;
+            solo visible para operadores internos. El cliente usa el Copiloto. */}
+        {assistantModes.filter((m) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || m.id === 'copilot').map((mode) => {
           const isActive = assistantMode === mode.id
           return (
             <button

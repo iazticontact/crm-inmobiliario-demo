@@ -1134,6 +1134,12 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
+          {/* Integraciones dormidas para el cliente (Google Calendar OAuth,
+              calendario de equipo, Inbox Agent / respuesta automática): no hay
+              backend real listo → solo visibles para operador interno. El código
+              y las rutas se mantienen intactos. */}
+          {SHOW_INTERNAL_TECH && (
+          <>
           <div id="google-calendar" className="scroll-mt-6">
           <SectionCard
             title="Mi Google Calendar"
@@ -1363,6 +1369,8 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+          </>
+          )}
 
           <SectionCard
             title={SHOW_INTERNAL_TECH ? 'WhatsApp Business' : 'WhatsApp'}
