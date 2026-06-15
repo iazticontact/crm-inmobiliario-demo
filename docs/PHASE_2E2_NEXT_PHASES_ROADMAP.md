@@ -35,6 +35,29 @@ ocultar `WhatsApp`/Inbox del nav del cliente (H1) hasta Fase 6; microcopy
 
 ---
 
+## Roadmap técnico IA + n8n + MCP (ejecutable)
+
+Arquitectura: [AI_N8N_MCP_RUNTIME_ARCHITECTURE.md](AI_N8N_MCP_RUNTIME_ARCHITECTURE.md) ·
+[N8N_AUTOMATION_STRATEGY.md](N8N_AUTOMATION_STRATEGY.md). Regla: el cerebro vive en
+el runtime del CRM; n8n es brazo externo; MCP es solo dev.
+
+| Fase | Objetivo | Valor | Riesgo | Depende de | NO hacer aún | Hecho cuando… |
+|---|---|---|---|---|---|---|
+| **A — Smoke navegador** | core + asistente (OpenAI live) local/staging | desbloquea todo | bajo | key real (✅) | features | checklist C-H verde |
+| **B — Staging VPS** | CRM en Hostinger VPS (PM2+Nginx+SSL) | entorno real | bajo | A | n8n aún | app sirve en `staging.crm.` |
+| **C — n8n base** | n8n self-host en VPS (`n8n.`, auth, SSL, backups) | infra automatización | medio | B | workflows reales | panel n8n seguro arriba |
+| **D — CRM→n8n seguro** | configurar `N8N_*` server + `test-flow` | conectividad probada | bajo | C | Meta/email | `test-flow` responde ok |
+| **E — Workflows básicos** | notificación interna · email prueba · PDF mock · recordatorio (cron) | valor operativo | medio | D | facturación/WhatsApp | 3-4 workflows estables |
+| **F — Facturación MVP** | `invoices` + estados + PDF + IA prepara/confirma | upsell | **alto (fiscal)** | E | validez fiscal sin asesor | crear/editar/PDF + activity |
+| **G — Storage/documents** | bucket privado + `documents` + signed URLs + RLS | base RAG | medio | B | RAG | subir/listar/descargar real |
+| **H — RAG documental** | OCR/chunks/embeddings/vector + fuentes citadas | diferenciador IA | medio | G | sin permisos workspace | "resume expediente" con fuente |
+| **I — WhatsApp Meta** | inbox espejo (`conversations`/`messages`) + Meta + n8n | canal clave | **alto (Meta)** | C+E | fake/unofficial | mensajes reales entran/salen |
+| **J — Asistente omnicanal** | asistente responde por WhatsApp con reglas/confirmación | empleado interno | alto | I | sin plantillas Meta | respuesta con plantilla aprobada |
+| **K — Google Calendar** | sync addon opcional opt-in | comodidad | medio | B | requisito del CRM | conectar/revocar OK |
+| **L — Multi-cliente** | clonado por cliente, flags, Supabase dedicado | escalar | medio | core | mezclar datos | nuevo cliente aislado |
+
+---
+
 ## Histórico de implementación (referencia)
 
 Lectura real conectada (dashboard, clientes, ficha profunda, operaciones,

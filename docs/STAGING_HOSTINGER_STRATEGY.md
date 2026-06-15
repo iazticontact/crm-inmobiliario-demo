@@ -31,6 +31,26 @@
   `AGENT_TOOL_SECRET` solo en el server.
 - **OpenAI:** `OPENAI_API_KEY` real en el `.env` del server.
 
+## 3b. n8n en el VPS (orquestador externo)
+Ver estrategia completa en [N8N_AUTOMATION_STRATEGY.md](N8N_AUTOMATION_STRATEGY.md)
+y el rol en [AI_N8N_MCP_RUNTIME_ARCHITECTURE.md](AI_N8N_MCP_RUNTIME_ARCHITECTURE.md).
+- **Subdominios sugeridos:**
+  - `staging.crm.tudominio.com` → CRM Next.js (staging)
+  - `crm.tudominio.com` → CRM (producción)
+  - `n8n.tudominio.com` → n8n self-host (panel + webhooks)
+- **¿Mismo VPS o separado?** Staging: el mismo VPS que el CRM es aceptable.
+  Producción: **n8n en instancia/VPS separada** (aísla carga y fallos; el CRM no
+  debe caer si n8n se satura).
+- **SSL:** Certbot para cada subdominio. n8n **nunca expuesto sin auth** (basic
+  auth / login n8n) detrás de Nginx.
+- **Secretos:** `N8N_BASE_URL`/`N8N_WEBHOOK_SECRET`/`N8N_API_KEY` en el `.env` del
+  CRM; credenciales de integraciones (Meta/email) en **n8n credentials**, no en
+  Git ni en el CRM. Webhooks CRM↔n8n con secreto + SSRF-guard (ya implementado).
+- **Backups n8n:** exportar workflows (JSON) + backup de la BD de n8n + snapshots
+  del VPS. **Staging y prod con instancias y secretos separados.**
+- **Estado:** n8n se mantiene **dormido** hasta su fase (Fases C-E del roadmap);
+  el CRM ya trae el puente seguro sin necesidad de tocar el frontend.
+
 ## 4. Requisitos
 - **Node.js:** misma major LTS que en dev (Next 16 requiere Node ≥ 20; usar 20 o
   22 LTS).

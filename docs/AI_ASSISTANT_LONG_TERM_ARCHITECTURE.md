@@ -60,11 +60,17 @@ cross-workspace, vía signed URLs. Diseño, no implementación.
 ## 8. n8n (futuro — IA-6, orquestador externo)
 Emails, WhatsApp oficial (Meta), recordatorios, envío de PDFs, webhooks y
 automatizaciones programadas. **No es el cerebro.** El razonamiento sigue en el
-CRM/tools.
+CRM/tools. El puente CRM→n8n ya existe y está hardened (fire-and-forget,
+SSRF-guard, slug allowlist, secreto server-side) y dormido hasta configurar
+`N8N_BASE_URL` en el VPS. Estrategia completa:
+[N8N_AUTOMATION_STRATEGY.md](N8N_AUTOMATION_STRATEGY.md).
 
 ## 9. MCP (desarrollo/auditoría — IA-7)
 Supabase/GitHub MCP para desarrollo con Claude/Codex. No mete secretos en el repo,
-no toca proyectos legacy, no sustituye el runtime del producto.
+no toca proyectos legacy, **no sustituye el runtime del producto** (un cliente
+final nunca usa MCP). Las cuatro capas (runtime CRM = cerebro · Supabase = verdad
+· n8n = brazo externo · MCP = herramienta de dev) están definidas en
+[AI_N8N_MCP_RUNTIME_ARCHITECTURE.md](AI_N8N_MCP_RUNTIME_ARCHITECTURE.md).
 
 ## 10. Personalidad por workspace (futuro, configurable)
 Settings futuros (en `workspaces.settings` o tabla dedicada): `assistant_name`,
