@@ -49,6 +49,25 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 8 — H6D: identidad + AuthGate hardening (2026-06-15, HEAD `128a74b`+)
+
+**Identidad:** el nombre mostrado ("Oier Dunabeitia") sale de
+`public.profiles.full_name`, valor que escribió Claude en H6 derivándolo del email
+(`odunabeitia14`). Auth no tiene nombre (`raw_user_meta_data={email_verified}`);
+**no hay hardcode en frontend** (0 coincidencias). Fuente canónica = profiles.full_name
+→ email → "Usuario". Se mantiene (regla: si está en profiles, dejarlo; editable).
+**AuthGate hardening:** antes trataba cualquier `profileError` como "sin workspace"
+(enmascaró el 42501 de H6B y cerraba sesión). Ahora distingue: error de
+permiso/conexión → `?error=access_check` (sin signOut, log dev-only) vs sin
+profile/workspace real → `?error=no_profile` (+signOut). Login añade toast
+access_check. Validaciones verdes. Detalle:
+[PHASE_2E2_H6D_IDENTITY_AND_AUTHGATE_AUDIT_REPORT.md](PHASE_2E2_H6D_IDENTITY_AND_AUTHGATE_AUDIT_REPORT.md).
+
+**Veredicto Sesión 8:** identidad explicada y AuthGate endurecido. Smoke navegador
+sigue pendiente (counts = baseline).
+
+---
+
 ## SESIÓN 7 — H6: vínculo workspace + login premium (2026-06-15, HEAD `4e84a43`+)
 
 **BLOQUEANTE DE LOGIN RESUELTO.** Diagnóstico (Supabase MCP, read-only): único

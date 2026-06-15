@@ -112,6 +112,13 @@ export default function LoginPage() {
       window.history.replaceState(null, '', '/login')
     }
 
+    if (error === 'access_check') {
+      toast.error('No se pudo comprobar tu acceso al workspace', {
+        description: `Hubo un problema de permisos o conexión al validar tu cuenta. Avisa al equipo técnico (${BRAND.supportName}) para revisar permisos/RLS.`,
+      })
+      window.history.replaceState(null, '', '/login')
+    }
+
     if (status === 'password-updated') {
       toast.success('Contraseña actualizada', { description: 'Ya puedes iniciar sesión con la nueva contraseña.' })
       window.history.replaceState(null, '', '/login')

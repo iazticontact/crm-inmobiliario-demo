@@ -65,9 +65,26 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           .maybeSingle()
         if (!mounted) return
 
-        if (profileError || !profile || !profile.workspace_id) {
-          // Cierra la sesión y manda al login con mensaje claro. No dejamos
-          // que la app se renderice en modo "sin workspace".
+        if (profileError) {
+          // Un error de consulta (permission denied/42501, RLS, conexión,
+          // múltiples filas) NO es lo mismo que "este usuario no tiene
+          // workspace". Tratarlo como no_profile enmascaró una vez un GRANT de
+          // tabla ausente (ver H6B). Lo diferenciamos y NO cerramos sesión: la
+          // sesión es válida; el problema es de configuración/servidor.
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('[AuthGate] profile access check failed', {
+              code: profileError.code,
+              message: profileError.message,
+            })
+          }
+          window.localStorage.removeItem(DEMO_MODE_KEY)
+          router.replace('/login?error=access_check')
+          return
+        }
+
+        if (!profile || !profile.workspace_id) {
+          // Sin profile o sin workspace asignado de verdad: cerramos sesión y
+          // mandamos al login con el mensaje "sin workspace".
           await supabase.auth.signOut().catch(() => null)
           window.localStorage.removeItem(DEMO_MODE_KEY)
           router.replace('/login?error=no_profile')
