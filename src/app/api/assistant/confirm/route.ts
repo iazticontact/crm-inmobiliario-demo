@@ -39,7 +39,18 @@ import {
 
 export const runtime = 'nodejs'
 
-type PreparedActionType = 'booking' | 'task' | 'invoice' | 'report'
+type PreparedActionType =
+  | 'booking'
+  | 'task'
+  | 'invoice'
+  | 'report'
+  // RT5.1 — confirmed CRM entity actions (reuse RT4.x semantics, server-side RLS)
+  | 'create_operation'
+  | 'move_operation_stage'
+  | 'create_service_case'
+  | 'update_service_case'
+  | 'update_task'
+  | 'update_calendar_event'
 
 type ConfirmableAction = {
   type?: unknown
@@ -60,13 +71,33 @@ type ConfirmableAction = {
   // common
   dueDate?: unknown
   notes?: unknown
+  // RT5.1 — CRM entity actions (ids resolved by the chat layer, re-validated here)
+  opportunityId?: unknown
+  caseId?: unknown
+  taskId?: unknown
+  eventId?: unknown
+  title?: unknown
+  stage?: unknown
+  status?: unknown
+  priority?: unknown
+  value?: unknown
+  probability?: unknown
+  expectedCloseDate?: unknown
+  assignedTo?: unknown
+  caseType?: unknown
+  location?: unknown
+  eventType?: unknown
   missingFields?: unknown
   // provenance — optional, used only as metadata so the chat thread can later
   // link back to the row. Validated as a UUID; anything else is ignored.
   conversationId?: unknown
 }
 
-const ALLOWED_TYPES: ReadonlySet<PreparedActionType> = new Set(['booking', 'task', 'invoice', 'report'])
+const ALLOWED_TYPES: ReadonlySet<PreparedActionType> = new Set([
+  'booking', 'task', 'invoice', 'report',
+  'create_operation', 'move_operation_stage', 'create_service_case',
+  'update_service_case', 'update_task', 'update_calendar_event',
+])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isUuid(value: unknown): value is string {
@@ -566,6 +597,210 @@ export async function POST(req: NextRequest) {
       entityId: entityId ?? null,
       message: `Informe preparado: ${summary}.`,
     })
+  }
+
+  // -------------------- CREATE OPERATION --------------------
+  if (type === 'create_operation') {
+    if (!clientId) return NextResponse.json({ ok: false, error: 'client_required' }, { status: 422 })
+    const title = asString(action.title) || asString(action.taskTitle)
+    if (!title) return NextResponse.json({ ok: false, error: 'operation_title_required' }, { status: 422 })
+    const stage = asString(action.stage) || 'new'
+    const value = asNumber(action.value)
+    const probability = asNumber(action.probability)
+    let expectedCloseDate: string | null = null
+    if (action.expectedCloseDate !== undefined && action.expectedCloseDate !== null && action.expectedCloseDate !== '') {
+      expectedCloseDate = parseStrictIsoDate(action.expectedCloseDate)
+      if (!expectedCloseDate) return NextResponse.json({ ok: false, error: 'operation_invalid_close_date' }, { status: 422 })
+    }
+    const assignedTo = isUuid(action.assignedTo) ? action.assignedTo : null
+    const { data, error } = await supabase.from('opportunities').insert({
+      workspace_id: workspaceId,
+      client_id: clientId,
+      title,
+      vertical: 'real_estate',
+      pipeline: 'real_estate',
+      stage,
+      value,
+      probability,
+      assigned_to: assignedTo,
+      expected_close_date: expectedCloseDate,
+      notes: asString(action.notes) || null,
+      metadata: baseMetadata,
+    }).select('id, title').single()
+    if (error || !data) {
+      if (process.env.NODE_ENV === 'development') console.error('[assistant/confirm:create_operation]', error?.message)
+      return NextResponse.json({ ok: false, error: 'operation_create_failed' }, { status: 500 })
+    }
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'deal',
+      description: `Operación creada desde el Asistente IA: ${data.title}`,
+      client_id: clientId,
+      client_name: clientName,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Operación creada: "${data.title}"${clientName ? ` para ${clientName}` : ''}.` })
+  }
+
+  // -------------------- MOVE OPERATION STAGE --------------------
+  if (type === 'move_operation_stage') {
+    const opportunityId = asString(action.opportunityId)
+    const stage = asString(action.stage)
+    if (!isUuid(opportunityId)) return NextResponse.json({ ok: false, error: 'operation_id_required' }, { status: 422 })
+    if (!stage) return NextResponse.json({ ok: false, error: 'stage_required' }, { status: 422 })
+    const { data, error } = await supabase.from('opportunities')
+      .update({ stage, updated_at: new Date().toISOString() })
+      .eq('id', opportunityId)
+      .eq('workspace_id', workspaceId)
+      .select('id, title, client_id')
+      .single()
+    if (error || !data) return NextResponse.json({ ok: false, error: 'operation_not_found' }, { status: 404 })
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'deal',
+      description: `Operación movida a ${stage}: ${data.title}`,
+      client_id: data.client_id ?? null,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Operación "${data.title}" movida a ${stage}.` })
+  }
+
+  // -------------------- CREATE SERVICE CASE --------------------
+  if (type === 'create_service_case') {
+    if (!clientId) return NextResponse.json({ ok: false, error: 'client_required' }, { status: 422 })
+    const title = asString(action.title) || asString(action.taskTitle)
+    if (!title) return NextResponse.json({ ok: false, error: 'case_title_required' }, { status: 422 })
+    const caseType = asString(action.caseType) || 'general'
+    const status = asString(action.status) || 'open'
+    const priority = asString(action.priority) || 'normal'
+    let dueDate: string | null = null
+    if (action.dueDate !== undefined && action.dueDate !== null && action.dueDate !== '') {
+      dueDate = parseStrictIsoDate(action.dueDate)
+      if (!dueDate) return NextResponse.json({ ok: false, error: 'case_invalid_due_date' }, { status: 422 })
+    }
+    const assignedTo = isUuid(action.assignedTo) ? action.assignedTo : null
+    const { data, error } = await supabase.from('service_cases').insert({
+      workspace_id: workspaceId,
+      client_id: clientId,
+      title,
+      case_type: caseType,
+      vertical: 'real_estate',
+      status,
+      priority,
+      assigned_to: assignedTo,
+      due_date: dueDate,
+      notes: asString(action.notes) || null,
+      metadata: baseMetadata,
+    }).select('id, title').single()
+    if (error || !data) {
+      if (process.env.NODE_ENV === 'development') console.error('[assistant/confirm:create_service_case]', error?.message)
+      return NextResponse.json({ ok: false, error: 'case_create_failed' }, { status: 500 })
+    }
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'note',
+      description: `Expediente creado desde el Asistente IA: ${data.title}`,
+      client_id: clientId,
+      client_name: clientName,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Expediente creado: "${data.title}"${clientName ? ` para ${clientName}` : ''}.` })
+  }
+
+  // -------------------- UPDATE SERVICE CASE --------------------
+  if (type === 'update_service_case') {
+    const caseId = asString(action.caseId)
+    if (!isUuid(caseId)) return NextResponse.json({ ok: false, error: 'case_id_required' }, { status: 422 })
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (action.status) patch.status = asString(action.status)
+    if (action.priority) patch.priority = asString(action.priority)
+    if (action.assignedTo !== undefined) patch.assigned_to = isUuid(action.assignedTo) ? action.assignedTo : null
+    if (action.dueDate !== undefined && action.dueDate !== null && action.dueDate !== '') {
+      const d = parseStrictIsoDate(action.dueDate)
+      if (!d) return NextResponse.json({ ok: false, error: 'case_invalid_due_date' }, { status: 422 })
+      patch.due_date = d
+    }
+    if (action.notes !== undefined) patch.notes = asString(action.notes) || null
+    if (Object.keys(patch).length <= 1) return NextResponse.json({ ok: false, error: 'no_changes' }, { status: 422 })
+    const { data, error } = await supabase.from('service_cases')
+      .update(patch).eq('id', caseId).eq('workspace_id', workspaceId)
+      .select('id, title, client_id').single()
+    if (error || !data) return NextResponse.json({ ok: false, error: 'case_not_found' }, { status: 404 })
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'note',
+      description: `Expediente actualizado desde el Asistente IA: ${data.title}`,
+      client_id: data.client_id ?? null,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Expediente "${data.title}" actualizado.` })
+  }
+
+  // -------------------- UPDATE TASK --------------------
+  if (type === 'update_task') {
+    const taskId = asString(action.taskId)
+    if (!isUuid(taskId)) return NextResponse.json({ ok: false, error: 'task_id_required' }, { status: 422 })
+    const patch: Record<string, unknown> = {}
+    if (action.status) patch.status = asString(action.status)
+    if (action.priority) patch.priority = asString(action.priority)
+    if (action.assignedTo !== undefined) patch.assigned_to = isUuid(action.assignedTo) ? action.assignedTo : null
+    if (action.dueDate !== undefined && action.dueDate !== null && action.dueDate !== '') {
+      const d = parseStrictIsoDate(action.dueDate)
+      if (!d) return NextResponse.json({ ok: false, error: 'task_invalid_due_date' }, { status: 422 })
+      patch.due_date = d
+    }
+    if (action.description !== undefined) patch.description = asString(action.description) || null
+    if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'no_changes' }, { status: 422 })
+    const { data, error } = await supabase.from('tasks')
+      .update(patch).eq('id', taskId).eq('workspace_id', workspaceId)
+      .select('id, title, client_id, client_name').single()
+    if (error || !data) return NextResponse.json({ ok: false, error: 'task_not_found' }, { status: 404 })
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'note',
+      description: `Tarea actualizada desde el Asistente IA: ${data.title}`,
+      client_id: data.client_id ?? null,
+      client_name: typeof data.client_name === 'string' ? data.client_name : null,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Tarea "${data.title}" actualizada.` })
+  }
+
+  // -------------------- UPDATE CALENDAR EVENT --------------------
+  if (type === 'update_calendar_event') {
+    const eventId = asString(action.eventId)
+    if (!isUuid(eventId)) return NextResponse.json({ ok: false, error: 'event_id_required' }, { status: 422 })
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (action.title) patch.title = asString(action.title)
+    if (action.eventType) patch.type = asString(action.eventType)
+    if (action.location !== undefined) patch.location = asString(action.location) || null
+    if (action.notes !== undefined) {
+      const n = asString(action.notes) || null
+      patch.notes = n
+      patch.description = n
+    }
+    if ((action.date !== undefined && action.date !== null && action.date !== '') || (action.time !== undefined && action.time !== null && action.time !== '')) {
+      const date = parseStrictIsoDate(action.date)
+      const time = parseStrictHhmm(action.time)
+      if (!date || !time) return NextResponse.json({ ok: false, error: 'event_invalid_datetime' }, { status: 422 })
+      const dur = asNumber(action.duration)
+      const duration = dur !== null && dur > 0 && dur <= 8 * 60 ? Math.floor(dur) : 60
+      const times = buildCalendarEventTimes({ date, time, duration })
+      patch.date = times.date
+      patch.start_at = times.startAtIso
+      patch.end_at = times.endAtIso
+      patch.start_hour = times.startHour
+      patch.start_minute = times.startMinute
+      patch.duration = times.duration
+    }
+    if (Object.keys(patch).length <= 1) return NextResponse.json({ ok: false, error: 'no_changes' }, { status: 422 })
+    const { data, error } = await supabase.from('calendar_events')
+      .update(patch).eq('id', eventId).eq('workspace_id', workspaceId)
+      .select('id, title, client_id, client_name').single()
+    if (error || !data) return NextResponse.json({ ok: false, error: 'event_not_found' }, { status: 404 })
+    void supabase.from('activities').insert({
+      workspace_id: workspaceId,
+      type: 'call',
+      description: `Evento actualizado desde el Asistente IA: ${data.title}`,
+      client_id: data.client_id ?? null,
+      client_name: typeof data.client_name === 'string' ? data.client_name : null,
+    }).then(() => undefined, () => undefined)
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Evento "${data.title}" actualizado.` })
   }
 
   // Defensive — exhaustive switch should have caught everything.

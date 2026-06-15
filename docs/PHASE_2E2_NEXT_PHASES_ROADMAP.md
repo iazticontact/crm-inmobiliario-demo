@@ -33,8 +33,13 @@ Notas originales de la fase (referencia):
   server. Añadidas READ tools reales `get_open_operations`/`get_open_service_cases`
   + cableado; neutralizado el último dato de muestra ("Lucía Herrera"). Ver
   [PHASE_2E2_RT5_ASSISTANT_TOOLS_REPORT.md](PHASE_2E2_RT5_ASSISTANT_TOOLS_REPORT.md).
-- **RT5.1 (pendiente):** confirm-execute desde el asistente para operaciones/
-  expedientes/updates/stage-move (reutilizando helpers RT4.x); intents más ricos.
+- **RT5.1 (executor hecho):** `/api/assistant/confirm` ejecuta ya 6 acciones CRM
+  (create_operation, move_operation_stage, create_service_case,
+  update_service_case, update_task, update_calendar_event) con auth+RLS y activity.
+  Ver [PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md](PHASE_2E2_RT5_1_ASSISTANT_CONFIRMED_ACTIONS_REPORT.md).
+- **RT5.1b (pendiente):** cablear el lado conversacional (PREPARE en
+  `/api/assistant/v2` + unión discriminada/card en `assistant/page.tsx`) para
+  disparar esas acciones desde el chat. Executor ya listo; es el grueso de UX.
 - Sin promesas de WhatsApp/Meta hasta su fase.
 
 ## 2E-3 — Storage / documents
