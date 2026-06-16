@@ -49,6 +49,25 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 12 — H10: fix persistencia chat + diseño memoria (2026-06-16)
+
+**Bug real confirmado en producción:** `assistant_threads=1, assistant_messages=0`
+(hilo creado en navegador, 0 mensajes). **Causa:** `ensureRealConversation` creaba
+una conversación offline (UUID inexistente en assistant_threads) en copiloto real →
+`appendThreadMessage` fallaba por FK → insert silencioso. **Fix:** copiloto
+reutiliza/crea **hilo real** (`createAssistantThread`); anti-race en carga (no pisa
+mensajes optimistas con lectura vacía). Verificado en BD (rol authenticated, RLS):
+user_msgs=1 + assistant_msgs=1 OK. **EXTRA:** memoria inteligente AUDITADA (no
+existe) y DISEÑADA (no implementada): `assistant_memories`/`assistant_thread_summaries`,
+regla de oro = el asistente nunca auto-modifica; solo propone con confirmación.
+Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H10_ASSISTANT_CHAT_PERSISTENCE_UX_REPORT.md](PHASE_2E2_H10_ASSISTANT_CHAT_PERSISTENCE_UX_REPORT.md).
+
+**Veredicto Sesión 12:** persistencia del chat ARREGLADA (verificada en BD);
+pendiente confirmación en navegador (mensajes user+assistant tras refresh).
+
+---
+
 ## SESIÓN 11 — H9 smoke certification (2026-06-16, HEAD `0f9e4c6`)
 
 Validaciones verdes (tsc/lint/build, 46 rutas); dev server :3000 HTTP 200; env OK.

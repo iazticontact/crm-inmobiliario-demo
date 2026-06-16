@@ -95,6 +95,28 @@ hardcodear personalidad global si se puede evitar.
 - **IA-6:** n8n automations (email/WhatsApp/recordatorios/PDF).
 - **IA-7:** MCP/devops seguro.
 
+## 12b. Persistencia del copiloto interno (HOY) y memoria inteligente (FUTURO)
+**Hoy (implementado, H8/H10):** el historial del copiloto vive en tablas
+**dedicadas** `assistant_threads` / `assistant_messages` (RLS por workspace, GRANT
+solo a `authenticated`), **distintas** de `conversations`/`messages` (Inbox/WhatsApp).
+Persisten user+assistant, se reabren y sobreviven al refresh.
+
+**Futuro (DISEÑO, NO implementado — memoria inteligente segura):**
+- `assistant_memories`: `workspace_id`, `user_id?`, `memory_type`
+  (preference | business_rule | summary | automation_idea), `content`,
+  `source_thread_id`, `confidence`, `approved bool`, `created_at`.
+- `assistant_thread_summaries`: `thread_id`, `workspace_id`, `summary`,
+  `key_entities`, `next_actions`, `updated_at`.
+- Comportamiento: resumir hilos largos cada X mensajes; guardar preferencias/
+  reglas de negocio útiles (no datos sensibles innecesarios); usar memorias como
+  **contexto ligero**, no verdad absoluta; permitir editar/borrar; **pedir
+  confirmación** para memorias importantes.
+- **Autoevaluación segura:** registrar fallos, consultas sin respuesta y acciones
+  canceladas → generar **"sugerencias para el equipo técnico"**.
+- **REGLA DE ORO:** el asistente **NUNCA** auto-modifica código, schema, prompts
+  ni automatizaciones; solo **propone** (con confirmación). Nada de auto-mejora
+  autónoma. n8n sigue siendo orquestador externo futuro, no el cerebro.
+
 ## 13. Qué NO construir todavía
 Storage real, RAG runtime, n8n real, WhatsApp/Meta, Google OAuth, billing nuevo,
 inbox/conversations. Solo diseño/roadmap.

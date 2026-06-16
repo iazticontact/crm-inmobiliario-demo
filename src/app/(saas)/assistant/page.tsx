@@ -1295,7 +1295,13 @@ export default function AssistantPage() {
       setLoadingMessages(true)
       try {
         const realMessages = await listThreadMessages(selected.id)
-        setLocalMessages((prev) => ({ ...prev, [selected.id]: realMessages }))
+        // No pisar mensajes optimistas locales con una carga vacía de BD (evita
+        // que un hilo recién creado pierda el primer mensaje del usuario).
+        setLocalMessages((prev) => {
+          const existing = prev[selected.id] ?? []
+          if (realMessages.length === 0 && existing.length > 0) return prev
+          return { ...prev, [selected.id]: realMessages }
+        })
         updateDiagnostics({
           lastReadMessagesStatus: `OK: ${realMessages.length} mensaje(s) en ${selected.id}`,
           lastSupabaseError: '',
@@ -1369,7 +1375,7 @@ export default function AssistantPage() {
 
   const ensureRealConversation = async () => {
     if (!isRealMode) return selected
-    if (OFFLINE_FORCE_DEV || !ASSISTANT_CONVERSATION_PERSISTENCE) {
+    if (OFFLINE_FORCE_DEV) {
       const created = createOfflineConversation(assistantMode)
       setConversationList((prev) => {
         const next = [created, ...prev.filter((conversation) => conversation.id !== selected?.id)]
@@ -1390,6 +1396,31 @@ export default function AssistantPage() {
       return created
     }
 
+    // Copiloto interno: hilo REAL en assistant_threads (NUNCA public.conversations).
+    // Si ya hay un hilo real seleccionado, se reutiliza (no se crea otro ni se pisa
+    // con una conversación offline). Ese era el bug H10: ensureRealConversation
+    // devolvía una conversación offline con UUID inexistente en assistant_threads,
+    // así que appendThreadMessage fallaba por FK y los mensajes no se guardaban.
+    if (assistantMode === 'copilot') {
+      if (selected && isUuid(selected.id)) return selected
+      if (!workspaceId || !currentUser.id) {
+        const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
+        updateDiagnostics({ lastSupabaseError: message })
+        toast.error('Workspace no resuelto', { description: message })
+        return null
+      }
+      const thread = await createAssistantThread(workspaceId, currentUser.id)
+      if (!thread) {
+        toast.error('No se pudo iniciar la consulta', { description: 'Revisa la conexión e inténtalo de nuevo.' })
+        return null
+      }
+      setConversationList((prev) => [thread, ...prev.filter((conversation) => conversation.id !== selected?.id)])
+      setSelectedIds((prev) => ({ ...prev, copilot: thread.id }))
+      setLocalMessages((prev) => ({ ...prev, [thread.id]: prev[thread.id] ?? [] }))
+      updateDiagnostics({ lastCreateConversationStatus: `OK thread: ${thread.id}`, lastSupabaseError: '' })
+      return thread
+    }
+
     if (!workspaceId) {
       const message = 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
       updateDiagnostics({ lastSupabaseError: message })
@@ -1399,9 +1430,11 @@ export default function AssistantPage() {
 
     if (selected && isUuid(selected.id)) return selected
 
+    // A partir de aquí assistantMode solo puede ser 'inbox' (el copiloto retornó
+    // antes con su hilo real). Esta rama legacy es para Inbox (diferido).
     const created = await createAssistantConversation(workspaceId, assistantMode, {
-      clientName: assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Nueva conversación',
-      lastMessage: assistantMode === 'copilot' ? 'Consulta Asistente IA' : 'Conversación Inbox Assistant',
+      clientName: 'Nueva conversación',
+      lastMessage: 'Conversación Inbox Assistant',
       metadata: { source: 'assistant_auto_create', assistant_mode: assistantMode },
     })
     setConversationList((prev) => [created, ...prev.filter((conversation) => conversation.id !== selected?.id)])

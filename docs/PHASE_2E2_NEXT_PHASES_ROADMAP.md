@@ -55,6 +55,7 @@ el runtime del CRM; n8n es brazo externo; MCP es solo dev.
 | **J — Asistente omnicanal** | asistente responde por WhatsApp con reglas/confirmación | empleado interno | alto | I | sin plantillas Meta | respuesta con plantilla aprobada |
 | **K — Google Calendar** | sync addon opcional opt-in | comodidad | medio | B | requisito del CRM | conectar/revocar OK |
 | **L — Multi-cliente** | clonado por cliente, flags, Supabase dedicado | escalar | medio | core | mezclar datos | nuevo cliente aislado |
+| **M — Memoria IA segura** | `assistant_memories` + `assistant_thread_summaries`: resúmenes de hilo, preferencias/reglas de negocio (con `approved`), autoevaluación → sugerencias al equipo técnico | copiloto que mejora con el uso | medio | persistencia copiloto (H8/H10) | auto-modificar código/schema/prompts; aplicar sin confirmación | resúmenes + memorias aprobadas usadas como contexto ligero |
 
 ---
 
