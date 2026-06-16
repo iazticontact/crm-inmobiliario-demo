@@ -1067,10 +1067,15 @@ export default function AssistantPage() {
     setDiagnostics((prev) => ({ ...prev, ...patch }))
   }, [])
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (options?: { silent?: boolean }) => {
     if (userLoading) return
-    setLoadingConversations(true)
-    setAssistantReady(false)
+    // Silent refresh (after creating/resolving a conversation) updates the
+    // thread list in place WITHOUT flipping the whole page back to the
+    // full-screen loader — keeps the assistant fluid instead of flashing.
+    if (!options?.silent) {
+      setLoadingConversations(true)
+      setAssistantReady(false)
+    }
     try {
       if (OFFLINE_FORCE_DEV) {
         const offlineConversations = loadOfflineConversations()
@@ -2725,7 +2730,7 @@ export default function AssistantPage() {
           throw error
         }
         await createActivity(workspaceId, { type: 'message', description: `Nueva conversación: ${created.clientName}`, clientName: created.clientName })
-        await loadConversations()
+        await loadConversations({ silent: true })
         setSelectedIds((prev) => ({ ...prev, [assistantMode]: created.id }))
         toast.success('Conversación real creada')
         return
@@ -2964,7 +2969,7 @@ export default function AssistantPage() {
         }
         await updateConversationScoped(selected.id, workspaceId, { status: 'resolved' })
         if (workspaceId) await createActivity(workspaceId, { type: 'message', description: `Conversación resuelta: ${selected.clientName}`, clientName: selected.clientName })
-        await loadConversations()
+        await loadConversations({ silent: true })
       } else {
         setConversationList((prev) => prev.map((conversation) => conversation.id === selected.id ? { ...conversation, unread: false } : conversation))
       }

@@ -141,6 +141,11 @@ frontend · n8n · WhatsApp/Meta · Google OAuth · Storage/RAG · facturación 
 - Desfase de *display* de perfil/workspace acotado a 120 s (TTL) o hasta F5;
   aceptable (perfil/workspace casi no cambian en sesión). Si molesta, llamar
   `clearWorkspaceIdentityCache()` tras guardar en Configuración (mejora menor).
+  > **Cerrado en S4 (2026-06-16):** Configuración persiste `workspace_settings`,
+  > **no** `profiles.full_name` ni `workspaces.name` (los campos que muestran
+  > Sidebar/Topbar), por lo que no existe edición de usuario que produzca display
+  > obsoleto → **N/A**. Ver
+  > [PHASE_S4_FINAL_PERFORMANCE_AND_ASSISTANT_POLISH_REPORT.md](PHASE_S4_FINAL_PERFORMANCE_AND_ASSISTANT_POLISH_REPORT.md) §5.
 - AuthGate mantiene 1 lookup por navegación (no bloqueante) — unificación futura
   opcional.
 
