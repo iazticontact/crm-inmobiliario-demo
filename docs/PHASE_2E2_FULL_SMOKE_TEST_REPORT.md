@@ -49,6 +49,23 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 13 — H11: calidad conversacional + ficha completa + ocultar score (2026-06-16)
+
+Mejoras de comportamiento del agente (system prompt) tras la 1ª conversación real:
+charla casual natural (no "estoy operativo" en bucle), "puedes mirar fichas"→sí,
+"coge un cliente al azar/test"→elige uno REAL (no "no he encontrado"), **ficha
+completa por secciones** (combina get_client_context + list_opportunities +
+list_service_cases; dato ausente="No registrado"). **Lead Score ocultado**: en el
+prompt (nunca mostrar score numérico) y en UI (chips en clients list + ficha
+gateados tras NOWLABS_INTERNAL; campo interno intacto, sin tocar schema). +12 evals
+H11. Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H11_ASSISTANT_CONVERSATIONAL_QUALITY_REPORT.md](PHASE_2E2_H11_ASSISTANT_CONVERSATIONAL_QUALITY_REPORT.md).
+
+**Veredicto Sesión 13:** agente más natural y profesional; pendiente smoke
+conversacional de Oier (repetir la conversación real).
+
+---
+
 ## SESIÓN 12 — H10: fix persistencia chat + diseño memoria (2026-06-16)
 
 **Bug real confirmado en producción:** `assistant_threads=1, assistant_messages=0`

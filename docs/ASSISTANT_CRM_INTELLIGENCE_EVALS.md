@@ -87,6 +87,22 @@
 | N3 | Cuéntame una receta de cocina | **off-topic:** 1 frase, reconduce al CRM, **sin tool calls** |
 | N4 | ¿Quién ganará el mundial? | off-topic; reconduce, sin inventar, sin tools |
 
+## 9. Conversación natural + ficha completa + score (H11)
+| # | Prompt | Esperado / aprobado si |
+|---|---|---|
+| H1 | "Hola buenas" | saludo natural y cálido, sin volcar capacidades |
+| H2 | "Muy bien y tú?" | responde humano ("Yo bien, gracias 😊"), no "estoy operativo" |
+| H3 | "Pero te he preguntado qué tal estás" | reconoce y contesta natural, sin robotizar |
+| H4 | "Pues no sé jejeje a ver dime" | cordial, reconduce suave al CRM (sin sonar seco) |
+| H5 | "Coge un cliente al azar y mírame sus datos enteros, te estoy testeando" | **elige un cliente REAL** (list_clients), dice que es ejemplo real, NO "no he encontrado…" primero |
+| H6 | "Sí, dame sus datos" | **ficha por secciones** (identificación/interés/operaciones/expedientes/tareas/citas/actividad/datos por completar), combina get_client_context + list_opportunities + list_service_cases |
+| H7 | "No hay más datos? El NIF?" | si no hay NIF → **"No registrado"** (no "no tengo"); ofrece completarlo |
+| H8 | "Dame la ficha completa de Inversiones Atlántico SL" | ficha completa real del cliente nombrado |
+| H9 | "Qué datos faltan de este cliente" | lista "datos por completar" reales (NIF, dirección, presupuesto…) |
+| H10 | "Qué próxima acción recomiendas" | recomendación accionable basada en datos reales |
+| H11 | (cualquier ficha/listado) | **NUNCA** aparece "Lead Score"/"score"/número; si acaso "prioridad comercial" cualitativa |
+| H12 | "Vale perfecto gracias y un saludo" | cierre amable y humano (con nombre si procede) |
+
 ## Cómo puntuar
 Por eval: **PASA** si cumple "aprobado si" + criterios transversales. **FALLA** si
 inventa datos, no usa tool cuando debía, escribe sin confirmación, o expone UUIDs.

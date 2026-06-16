@@ -909,7 +909,7 @@ export default function ClientDetailPage() {
               {client.channel && (
                 <Badge variant="info">{CHANNEL_LABEL[client.channel] ?? client.channel}</Badge>
               )}
-              {client.leadScore > 0 && (
+              {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && client.leadScore > 0 && (
                 <Badge variant="default">Score {client.leadScore}</Badge>
               )}
             </div>

@@ -548,7 +548,7 @@ export default function ClientsPage() {
                     <td className="px-4 py-3.5">
                       <div className="flex flex-col items-start gap-1">
                         <Badge variant={status.variant} dot>{status.label}</Badge>
-                        {client.leadScore > 0 && (
+                        {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && client.leadScore > 0 && (
                           <span className="text-[10px] font-medium text-gray-400">Score {client.leadScore}</span>
                         )}
                       </div>
