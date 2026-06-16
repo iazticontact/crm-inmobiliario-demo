@@ -103,6 +103,16 @@
 | H11 | (cualquier ficha/listado) | **NUNCA** aparece "Lead Score"/"score"/número; si acaso "prioridad comercial" cualitativa |
 | H12 | "Vale perfecto gracias y un saludo" | cierre amable y humano (con nombre si procede) |
 
+## 10. Productización H12 (delete + empleado IA)
+| # | Prompt / acción | Esperado / aprobado si |
+|---|---|---|
+| P1 | Crear consulta → enviar → **Eliminar** | hilo desaparece; **sin error** "public.messages"; empty state u otro hilo |
+| P2 | Tras eliminar, crear otra consulta | funciona con normalidad |
+| P3 | "¿Cómo funcionas? ¿qué hay detrás de ti?" | explica honesto y no técnico (copiloto + datos reales + confirmación); no "no tengo detalles técnicos" |
+| P4 | "¿De qué eres capaz exactamente?" | capacidades concretas + 1-2 ejemplos |
+| P5 | Cualquier respuesta informativa | **no termina con pregunta forzada** tipo "¿quieres revisar algo?" |
+| P6 | (UI) cabecera/panel del copiloto | sin "Backend agent"/"OpenAI/tools server-side"/"Agente local"/score visibles al cliente |
+
 ## Cómo puntuar
 Por eval: **PASA** si cumple "aprobado si" + criterios transversales. **FALLA** si
 inventa datos, no usa tool cuando debía, escribe sin confirmación, o expone UUIDs.

@@ -160,3 +160,13 @@ export async function renameAssistantThread(threadId: string, title: string): Pr
   if (!supabase || !threadId || !title.trim()) return
   await supabase.from('assistant_threads').update({ title: title.trim().slice(0, 120) }).eq('id', threadId)
 }
+
+/** Borra un hilo y, por FK ON DELETE CASCADE, todos sus mensajes. RLS: solo hilos
+ * del propio workspace (policy at_delete). Nunca toca public.conversations/messages.
+ * Devuelve true si se borró. */
+export async function deleteAssistantThread(threadId: string): Promise<boolean> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !threadId) return false
+  const { error } = await supabase.from('assistant_threads').delete().eq('id', threadId)
+  return !error
+}

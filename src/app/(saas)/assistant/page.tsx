@@ -33,7 +33,7 @@ import {
   updateConversationTitle,
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
-import { listAssistantThreads, createAssistantThread, listThreadMessages, appendThreadMessage, renameAssistantThread } from '@/lib/assistant-threads'
+import { listAssistantThreads, createAssistantThread, listThreadMessages, appendThreadMessage, renameAssistantThread, deleteAssistantThread } from '@/lib/assistant-threads'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
@@ -1356,8 +1356,8 @@ export default function AssistantPage() {
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
   const isOfflineMode = OFFLINE_FORCE_DEV
   const assistantN8nActive = assistantMode === 'copilot' && !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
-  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : isRealMode ? 'Backend agent' : 'Demo'
-  const assistantSourceDetail = assistantMode === 'inbox' ? 'Meta API pendiente' : isOfflineMode ? 'backend bloqueado por red' : isRealMode ? 'OpenAI/tools server-side' : 'modo muestra'
+  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : isRealMode ? 'Copiloto activo' : 'Demo'
+  const assistantSourceDetail = assistantMode === 'inbox' ? 'Meta API pendiente' : isOfflineMode ? 'backend bloqueado por red' : isRealMode ? 'Datos reales del workspace' : 'modo muestra'
 
   const assistantStats = [
     { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas al Asistente IA', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'pruebas', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
@@ -2984,7 +2984,15 @@ export default function AssistantPage() {
         if (!workspaceId || !isUuid(selected.id)) {
           throw new Error(!workspaceId ? 'Workspace real no resuelto.' : 'No se puede eliminar una conversación temporal en modo real.')
         }
-        await deleteConversationPermanently(selected.id, workspaceId)
+        // Copiloto interno: borra el hilo de assistant_threads (cascade elimina
+        // assistant_messages). NUNCA public.conversations/messages (ese era el bug:
+        // "Could not find the table 'public.messages'"). Inbox (operador) usa legacy.
+        if (assistantMode === 'copilot') {
+          const ok = await deleteAssistantThread(selected.id)
+          if (!ok) throw new Error('No se pudo eliminar la consulta.')
+        } else {
+          await deleteConversationPermanently(selected.id, workspaceId)
+        }
         const deletedId = selected.id
         setConversationList((prev) => {
           const next = prev.filter((conversation) => conversation.id !== deletedId)
@@ -3059,7 +3067,7 @@ export default function AssistantPage() {
         action={
           <div className="flex items-center gap-2">
             <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
-            {lastAgentMode && assistantMode !== 'inbox' && (
+            {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && lastAgentMode && assistantMode !== 'inbox' && (
               <Badge variant={lastAgentMode === 'n8n' ? 'success' : lastAgentMode === 'hybrid_fallback' ? 'warning' : 'default'} dot>
                 {lastAgentMode === 'n8n' ? 'Agente n8n' : lastAgentMode === 'hybrid_fallback' ? 'Modo respaldo' : 'Agente local'}
               </Badge>

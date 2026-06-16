@@ -49,6 +49,24 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 14 — H12: productización (fix eliminar + UI + empleado IA) (2026-06-16)
+
+**Bug de eliminar RESUELTO:** "Could not find the table 'public.messages'" al borrar
+una consulta venía de `deleteConversationPermanently` (legacy conversations/messages)
+usado también en el copiloto. **Fix:** `deleteAssistantThread` (DELETE en
+assistant_threads → cascade borra assistant_messages; RLS; sin service_role).
+Verificado en BD (rollback): threads_left=0, msgs_left=0. UI: badge técnico
+`lastAgentMode` oculto al cliente; "Backend agent"→"Copiloto activo",
+"OpenAI/tools server-side"→"Datos reales del workspace". Personalidad: no preguntar
+en bucle; explicar "cómo funcionas"/"qué puedes hacer" con honestidad. +6 evals
+H12. Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H12_ASSISTANT_PRODUCTIZATION_REPORT.md](PHASE_2E2_H12_ASSISTANT_PRODUCTIZATION_REPORT.md).
+
+**Veredicto Sesión 14:** asistente productizado (delete OK, UI limpia, tono empleado
+IA); pendiente confirmación en navegador (eliminar sin error).
+
+---
+
 ## SESIÓN 13 — H11: calidad conversacional + ficha completa + ocultar score (2026-06-16)
 
 Mejoras de comportamiento del agente (system prompt) tras la 1ª conversación real:
