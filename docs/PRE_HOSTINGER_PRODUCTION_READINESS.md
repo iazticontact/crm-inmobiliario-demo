@@ -9,6 +9,10 @@
 > - **Estrategia de despliegue detallada:** ver
 >   [STAGING_HOSTINGER_STRATEGY.md](STAGING_HOSTINGER_STRATEGY.md)
 >   (recomendación: **Hostinger VPS Ubuntu + Node LTS + PM2 + Nginx + SSL**).
+> - **Runbook EasyPanel paso a paso (2026-06-16):**
+>   [EASYPANEL_STAGING_DEPLOYMENT_RUNBOOK.md](EASYPANEL_STAGING_DEPLOYMENT_RUNBOOK.md)
+>   — Nixpacks + Node 20 + `next start`, envs, Auth redirects, smoke, rollback.
+>   GRANTs + tablas del asistente ya aplicados en `ylhdbawrllqygfvllhdo`.
 > - **Antes de cliente final:** ocultar módulos sin backing (`WhatsApp`/Inbox,
 >   `Facturación` ya oculta), activar leaked-password-protection en Supabase Auth.
 >   Ver [PRODUCT_ARCHITECTURE_AUDIT.md](PRODUCT_ARCHITECTURE_AUDIT.md).

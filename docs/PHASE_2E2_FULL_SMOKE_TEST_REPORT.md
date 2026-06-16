@@ -49,6 +49,21 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 16 — S1: runbook de staging EasyPanel (2026-06-16, HEAD `abe4af3`)
+
+Validaciones verdes (tsc/lint/build, 46 rutas); main limpio; env/mcp no trackeados;
+sin Dockerfile/.nvmrc (Nixpacks). Creado **runbook** definitivo
+[EASYPANEL_STAGING_DEPLOYMENT_RUNBOOK.md](EASYPANEL_STAGING_DEPLOYMENT_RUNBOOK.md):
+estrategia (Nixpacks + Node 20 + `npm ci && npm run build` + `next start` :3000),
+envs (nombres, sin valores; dormidas n8n/Google/Meta/Storage/billing), Auth redirect
+URLs (Site URL + staging + /reset-password + /auth/callback), pasos EasyPanel,
+smoke post-deploy, rollback, seguridad. Supabase de staging = cloud actual
+(GRANTs + assistant_threads/messages YA aplicados → sin trabajo de DB). Solo docs.
+
+**Veredicto Sesión 16:** STAGING RUNBOOK READY — pendiente deploy manual de Oier.
+
+---
+
 ## SESIÓN 15 — H13: product knowledge + UI premium + sin falsas promesas (2026-06-16)
 
 System prompt: scrub de falsas promesas (QUÉ PUEDES HACER ya no menciona facturas/
