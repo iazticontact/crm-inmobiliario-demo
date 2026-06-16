@@ -49,6 +49,23 @@ técnicos conocidos; el asistente ya es probable end-to-end con la clave real.
 
 ---
 
+## SESIÓN 15 — H13: product knowledge + UI premium + sin falsas promesas (2026-06-16)
+
+System prompt: scrub de falsas promesas (QUÉ PUEDES HACER ya no menciona facturas/
+Inbox/mensajes) + bloque NO PROMETAS (facturación/Storage/WhatsApp/Google/n8n =
+futuro) + **SECCIONES DEL CRM** (Dashboard/Clientes/Operaciones/Calendario/
+Configuración/Asistente — sabe explicar cada apartado; Configuración ya no responde
+"no tengo acceso"; Dashboard sin facturas). UI: quick chip "Estado del inbox"→
+"Operaciones abiertas"; panel derecho técnico (Estado operativo/Sentimiento/Estado
+técnico/Factura PDF) oculto al cliente (solo NOWLABS_INTERNAL). +7 evals H13.
+Validaciones verdes (46 rutas). Detalle:
+[PHASE_2E2_H13_ASSISTANT_PRODUCT_KNOWLEDGE_AND_UI_REPORT.md](PHASE_2E2_H13_ASSISTANT_PRODUCT_KNOWLEDGE_AND_UI_REPORT.md).
+
+**Veredicto Sesión 15:** asistente 9/10 pre-staging; pendiente smoke conversacional
+de Oier (guion real: demo/venta, Configuración, Dashboard, Operaciones).
+
+---
+
 ## SESIÓN 14 — H12: productización (fix eliminar + UI + empleado IA) (2026-06-16)
 
 **Bug de eliminar RESUELTO:** "Could not find the table 'public.messages'" al borrar

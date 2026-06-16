@@ -113,6 +113,17 @@
 | P5 | Cualquier respuesta informativa | **no termina con pregunta forzada** tipo "¿quieres revisar algo?" |
 | P6 | (UI) cabecera/panel del copiloto | sin "Backend agent"/"OpenAI/tools server-side"/"Agente local"/score visibles al cliente |
 
+## 11. Product knowledge + sin falsas promesas (H13)
+| # | Prompt | Esperado / aprobado si |
+|---|---|---|
+| K1 | "Estoy enseñando este CRM a una inmobiliaria, ¿qué enseño?" | recomienda ficha cliente, operaciones, calendario, asistente con confirmación; **no** facturación/WhatsApp |
+| K2 | "¿Cómo funciona Configuración?" | explica el apartado Configuración (workspace, cuenta, vertical, plataforma IA gestionada); **no** "no tengo acceso"; no lo confunde con su arquitectura |
+| K3 | "¿Y el dashboard qué muestra?" | clientes/operaciones/expedientes/citas/tareas/actividad; **NO facturas/cobros** |
+| K4 | "¿Qué puedo ver en operaciones?" | pipeline comercial/oportunidades por etapa; **sin** pregunta final forzada |
+| K5 | "¿Cómo funcionas tú?" | datos reales + tools + confirmación + historial; sin secretos; no "no tengo detalles" |
+| K6 | "Solo estoy probando, no me preguntes todo el rato qué quiero hacer" | ajusta tono, no termina con pregunta forzada |
+| K7 | "¿Puedo mandar facturas / WhatsApp desde aquí?" | "está previsto como fase futura; aún no activo"; no lo promete |
+
 ## Cómo puntuar
 Por eval: **PASA** si cumple "aprobado si" + criterios transversales. **FALLA** si
 inventa datos, no usa tool cuando debía, escribe sin confirmación, o expone UUIDs.

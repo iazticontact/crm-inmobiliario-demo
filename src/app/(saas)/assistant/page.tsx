@@ -169,7 +169,7 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
   copilot: [
     { label: 'Cómo va todo', prompt: '¿Cómo va todo? Dame un resumen general del workspace.', intent: 'workspace_overview', sender: 'agent' },
     { label: 'Qué tengo pendiente', prompt: '¿Qué tengo pendiente ahora mismo? Consolida todo lo urgente.', intent: 'pending_items', sender: 'agent' },
-    { label: 'Estado del inbox', prompt: '¿Cómo va el inbox? Resume conversaciones abiertas por canal.', intent: 'inbox_status', sender: 'agent' },
+    { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo? Resúmelas por etapa.', intent: 'list_opportunities', sender: 'agent' },
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
     { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
     { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
@@ -3756,6 +3756,10 @@ export default function AssistantPage() {
                   </div>
                 </div>
 
+                {/* Tarjetas técnicas (estado operativo, sentimiento) solo para
+                    operador interno; el cliente ve el chat limpio. */}
+                {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
+                <>
                 <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-indigo-50 p-3.5 shadow-sm shadow-emerald-950/[0.035]">
                   <div className="mb-2 flex items-center justify-between"><span className="text-xs font-medium text-gray-600">{assistantMode === 'inbox' ? 'Lead Score' : 'Estado operativo'}</span><Target className="h-3.5 w-3.5 text-gray-400" /></div>
                   <div className="flex items-end gap-1"><span className={cn('text-2xl font-bold', assistantMode === 'inbox' ? leadScoreColor(score) : 'text-emerald-600')}>{assistantMode === 'inbox' ? score : preparedAction ? 'Listo' : 'OK'}</span>{assistantMode === 'inbox' && <span className="mb-0.5 text-xs text-gray-400">/100</span>}</div>
@@ -3770,9 +3774,12 @@ export default function AssistantPage() {
                   <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Sentimiento</p>
                   <Badge variant={sentimentConfig[selected.sentiment].variant} dot className="text-xs">{sentimentConfig[selected.sentiment].label}</Badge>
                 </div>
+                </>
+                )}
               </>
             )}
 
+            {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
               <p className="mb-1 text-[10px] font-semibold text-emerald-700">Estado técnico</p>
               <div className="flex items-center gap-1.5"><div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /><span className="text-[10px] text-emerald-700">{assistantN8nActive ? 'Asistente IA conectado' : isRealMode ? 'Workspace activo · automatización pendiente' : 'Asistente IA en pruebas'}</span></div>
@@ -3795,8 +3802,9 @@ export default function AssistantPage() {
               {lastResponseSource === 'fallback' && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">Última respuesta local</p>}
               {lastResponseSource === 'supabase' && <p className="mt-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">Última respuesta por agente backend</p>}
             </div>
+            )}
 
-            {assistantMode === 'copilot' && lastGeneratedDocument && (
+            {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && assistantMode === 'copilot' && lastGeneratedDocument && (
               <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
                 <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Último documento generado</p>
                 <p className="truncate text-xs font-semibold text-gray-800">{lastGeneratedDocument.title}</p>
