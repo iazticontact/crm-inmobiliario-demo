@@ -6,7 +6,7 @@ import { Bell, BellOff, Search, HelpCircle, X } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useCurrentUser } from '@/lib/current-user'
+import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { searchClients } from '@/lib/supabase-queries'
 import type { Client } from '@/lib/types'
 import { BRAND } from '@/lib/brand'
@@ -26,7 +26,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
 export function Topbar() {
   const pathname = usePathname()
   const page = pageLabels[pathname] ?? { title: BRAND.appName, description: '' }
-  const { currentUser, isLoading } = useCurrentUser()
+  const { currentUser, isLoading } = useWorkspaceIdentity()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const [query, setQuery] = useState('')

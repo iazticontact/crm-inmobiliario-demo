@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { featureFlags } from '@/lib/feature-flags'
-import { getResolvedWorkspaceContext, type ProfileRecord, type WorkspaceRecord } from '@/lib/supabase-queries'
+import { getResolvedWorkspaceContext, clearWorkspaceIdentityCache, type ResolvedWorkspaceContext } from '@/lib/supabase-queries'
 import { BRAND } from '@/lib/brand'
 
 export type ProfileRole = 'nowlabs_admin' | 'client_admin' | 'member'
@@ -102,6 +102,96 @@ function getMetadataString(metadata: Record<string, unknown>, key: string) {
   return typeof value === 'string' ? value : ''
 }
 
+// Map a resolved workspace context (real session) into the display-ready
+// CurrentUser shape. Pure — no I/O — so the provider and useCurrentUser share
+// exactly one mapping. Caller must pass a context with a non-null user.
+export function buildCurrentUser(context: ResolvedWorkspaceContext): CurrentUser {
+  const user = context.user
+  if (!user) return getFallbackCurrentUser()
+  const profile = context.profile
+  const workspace = context.workspace
+  const metadata = (user.user_metadata ?? {}) as Record<string, unknown>
+  const email = user.email ?? ''
+  const name = cleanDisplayName(
+    profile?.full_name ||
+    getMetadataString(metadata, 'full_name') ||
+    getMetadataString(metadata, 'name') ||
+    getMetadataString(metadata, 'display_name') ||
+    email
+  ) || 'Usuario'
+  const workspaceName = String(
+    workspace?.name ||
+    getMetadataString(metadata, 'workspace_name') ||
+    getMetadataString(metadata, 'company_name') ||
+    'Workspace'
+  )
+  const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
+  const role: ProfileRole =
+    profile?.role === 'nowlabs_admin' || profile?.role === 'client_admin' || profile?.role === 'member'
+      ? profile.role
+      : 'member'
+
+  return {
+    id: user.id,
+    name,
+    email,
+    workspaceId: workspace?.id || profile?.workspace_id || undefined,
+    workspaceName,
+    initials: getInitials(name || workspaceName || email),
+    isDemo: false,
+    isAuthenticated: true,
+    isFallback: false,
+    trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
+    role,
+    hasProfile: Boolean(profile),
+  }
+}
+
+// The placeholder returned when there is no authenticated session and demo data
+// is not enabled for this build. Keeps isDemo:true for back-compat but exposes
+// isAuthenticated:false / isFallback:true so security-sensitive paths can tell a
+// real session from a placeholder.
+export function getFallbackCurrentUser(): CurrentUser {
+  return featureFlags.demoData
+    ? demoUser
+    : { ...demoUser, name: 'Usuario', trialLabel: 'Sin sesion', isFallback: true }
+}
+
+// Single source of identity resolution for the UI. Resolves the display user
+// AND the raw workspace context in ONE shared (cached) round-trip. Used by both
+// useCurrentUser and WorkspaceIdentityProvider so identity is resolved once per
+// session instead of re-fetched from every component on every navigation.
+export async function loadIdentity(): Promise<{ currentUser: CurrentUser | null; context: ResolvedWorkspaceContext | null }> {
+  if (OFFLINE_FORCE_DEV) {
+    return { currentUser: offlineCurrentUser, context: null }
+  }
+  // Explicit demo mode (botón "Ver demo" en /login) takes priority over Supabase.
+  if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+    return { currentUser: demoUser, context: null }
+  }
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) {
+    return { currentUser: null, context: null }
+  }
+
+  let context: ResolvedWorkspaceContext | null = null
+  try {
+    context = await getResolvedWorkspaceContext()
+  } catch {
+    context = null
+  }
+
+  if (!context || !context.user) {
+    // Only fall back to the demo profile when demo mode is enabled for this
+    // build. In a real client deployment keep currentUser null so pages never
+    // render mock data as if the user were authenticated.
+    return { currentUser: featureFlags.demoData ? demoUser : null, context }
+  }
+
+  if (typeof window !== 'undefined') window.localStorage.removeItem(DEMO_MODE_KEY)
+  return { currentUser: buildCurrentUser(context), context }
+}
+
 export function useCurrentUser() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -109,116 +199,32 @@ export function useCurrentUser() {
   useEffect(() => {
     let mounted = true
 
-    const initializeUser = async () => {
-      if (OFFLINE_FORCE_DEV) {
-        if (mounted) {
-          setCurrentUser(offlineCurrentUser)
-          setIsLoading(false)
-        }
-        return
-      }
-
-      // Explicit demo mode (activado por el botón "Ver demo" en /login). Tiene
-      // prioridad sobre Supabase: la demo offline funciona sin backend alguno.
-      if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
-        if (mounted) {
-          setCurrentUser(demoUser)
-          setIsLoading(false)
-        }
-        return
-      }
-
-      // Show skeleton on every re-run (including auth-state-change re-runs) so we never
-      // flash the demo workspace name while the real profile resolves in the background.
+    const run = async () => {
+      // Show skeleton on every re-run (including auth-state-change re-runs) so we
+      // never flash the demo workspace name while the real profile resolves.
       if (mounted) setIsLoading(true)
-
-      const supabase = getSupabaseBrowserClient()
-      if (!supabase) {
-        if (mounted) setIsLoading(false)
-        return
-      }
-
       try {
-        const { data, error } = await supabase.auth.getUser()
-        if (!mounted) return
-
-        if (error || !data.user) {
-          // Only fall back to the demo profile when demo mode is explicitly
-          // enabled for this build. In a real client deployment we keep
-          // currentUser null so pages don't render mock data as if the user
-          // were authenticated.
-          if (featureFlags.demoData) {
-            setCurrentUser(demoUser)
-          } else {
-            setCurrentUser(null)
-          }
-          setIsLoading(false)
-          return
-        }
-
-        window.localStorage.removeItem(DEMO_MODE_KEY)
-
-        let profile: ProfileRecord | null = null
-        let workspace: WorkspaceRecord | null = null
-        try {
-          const context = await getResolvedWorkspaceContext()
-          profile = context?.profile ?? null
-          workspace = context?.workspace ?? null
-        } catch {
-          profile = null
-          workspace = null
-        }
-
-        const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>
-        const email = data.user.email ?? ''
-        const name = cleanDisplayName(
-          profile?.full_name ||
-          getMetadataString(metadata, 'full_name') ||
-          getMetadataString(metadata, 'name') ||
-          getMetadataString(metadata, 'display_name') ||
-          email
-        ) || 'Usuario'
-        const workspaceName = String(
-          workspace?.name ||
-          getMetadataString(metadata, 'workspace_name') ||
-          getMetadataString(metadata, 'company_name') ||
-          'Workspace'
-        )
-        const trialStatus = workspace?.trial_status || profile?.trial_status || getMetadataString(metadata, 'trial_status')
-        const role: ProfileRole =
-          profile?.role === 'nowlabs_admin' || profile?.role === 'client_admin' || profile?.role === 'member'
-            ? profile.role
-            : 'member'
-
-        if (mounted) {
-          setCurrentUser({
-            id: data.user.id,
-            name,
-            email,
-            workspaceId: workspace?.id || profile?.workspace_id || undefined,
-            workspaceName,
-            initials: getInitials(name || workspaceName || email),
-            isDemo: false,
-            isAuthenticated: true,
-            isFallback: false,
-            trialLabel: String(trialStatus) === 'active' ? 'Trial activo' : 'Cuenta real',
-            role,
-            hasProfile: Boolean(profile),
-          })
-          setIsLoading(false)
-        }
-      } catch {
+        const { currentUser: resolved } = await loadIdentity()
+        if (mounted) setCurrentUser(resolved)
+      } finally {
         if (mounted) setIsLoading(false)
       }
     }
 
-    void initializeUser()
+    void run()
 
     const supabase = getSupabaseBrowserClient()
-    if (!supabase) return
+    if (!supabase) {
+      return () => {
+        mounted = false
+      }
+    }
 
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      void initializeUser()
+      // Bust the shared identity cache on any auth transition before re-reading,
+      // so a session change can never surface another user's cached context.
+      clearWorkspaceIdentityCache()
+      void run()
     })
 
     return () => {
@@ -227,16 +233,5 @@ export function useCurrentUser() {
     }
   }, [])
 
-  // In real-client builds (demoData flag off) we must NOT fall back to demoUser
-  // when there is no authenticated session — AuthGate handles the redirect and
-  // consumers should treat currentUser as effectively unauthenticated.
-  //
-  // The fallback object keeps isDemo:true for back-compat with consumers that
-  // already branch on isDemo, BUT also exposes isAuthenticated:false and
-  // isFallback:true so security-sensitive code paths can distinguish a real
-  // session from a placeholder.
-  const fallback: CurrentUser = featureFlags.demoData
-    ? demoUser
-    : { ...demoUser, name: 'Usuario', trialLabel: 'Sin sesion', isFallback: true }
-  return { currentUser: currentUser || fallback, isLoading }
+  return { currentUser: currentUser || getFallbackCurrentUser(), isLoading }
 }

@@ -557,16 +557,74 @@ export async function getCurrentWorkspace(profile?: ProfileRecord | null) {
   return null
 }
 
-export async function getWorkspaceContext() {
-  const user = await getCurrentUser()
-  if (!user) return null
+// ---------------------------------------------------------------------------
+// Workspace identity cache (client-only) — S3 navigation performance.
+//
+// Every navigation used to re-resolve identity (auth.getUser -> profiles ->
+// workspaces) independently from AuthGate, Sidebar/Topbar (useCurrentUser) and
+// each page (getWorkspaceContext). On a VPS with latency to Supabase that is a
+// chain of sequential round-trips per page, repeated 3-4x. This memoizes ONE
+// resolution per browser session, shared by every consumer, with strict
+// multi-tenant invalidation:
+//   - cache is keyed by the resolved user.id and only stored for a real user;
+//   - concurrent callers share a single in-flight promise (no thundering herd);
+//   - a short TTL bounds staleness of profile/workspace *display* data only;
+//   - onAuthStateChange clears the cache on SIGNED_OUT and whenever the live
+//     session user differs from the cached one (login as another user);
+//   - on the server (no window) the cache is bypassed entirely, so it can never
+//     become a process-wide cache shared between users/requests.
+// ---------------------------------------------------------------------------
 
-  const profile = await getCurrentProfile(user.id, user.email ?? undefined)
-  const workspace = await getCurrentWorkspace(profile)
-  return { user, profile, workspace }
+export type ResolvedWorkspaceContext = {
+  user: Awaited<ReturnType<typeof getCurrentUser>>
+  profile: ProfileRecord | null
+  workspace: WorkspaceRecord | null
+  workspaceId: string | null
+  resolvedWorkspaceId: string | null
+  error: string | null
+  profileLookupMethod: 'id' | 'email' | 'none'
+  profileByIdError: string | null
+  profileByEmailError: string | null
 }
 
-export async function getResolvedWorkspaceContext() {
+// Staleness bound for profile/workspace *display* data. Multi-tenant isolation
+// does NOT depend on this value — it depends on the auth-event invalidation
+// below. A full page reload always resolves from scratch.
+const WORKSPACE_IDENTITY_TTL_MS = 120_000
+
+let identityCache: { userId: string; value: ResolvedWorkspaceContext; at: number } | null = null
+let identityPending: Promise<ResolvedWorkspaceContext> | null = null
+let identityAuthSubscribed = false
+
+/** Drop any cached identity. Call on logout (belt-and-suspenders alongside the
+ *  auth-event listener) or after a profile/workspace edit that must reflect in
+ *  the app chrome immediately. */
+export function clearWorkspaceIdentityCache() {
+  identityCache = null
+  identityPending = null
+}
+
+function ensureIdentityInvalidation() {
+  if (identityAuthSubscribed) return
+  if (typeof window === 'undefined') return
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return
+  identityAuthSubscribed = true
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') {
+      clearWorkspaceIdentityCache()
+      return
+    }
+    // Never serve a cached identity whose user no longer matches the live
+    // session (e.g. logout + login as a different user in the same tab).
+    const sessionUserId = session?.user?.id ?? null
+    if (identityCache && identityCache.userId !== sessionUserId) {
+      clearWorkspaceIdentityCache()
+    }
+  })
+}
+
+async function resolveWorkspaceIdentityUncached(): Promise<ResolvedWorkspaceContext> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) {
     return {
@@ -650,6 +708,50 @@ export async function getResolvedWorkspaceContext() {
     profileByIdError: profileResult.profileByIdError ?? null,
     profileByEmailError: profileResult.profileByEmailError ?? null,
   }
+}
+
+/** Resolve `{ user, profile, workspace, workspaceId, ... }`. Cached per browser
+ *  session (see notes above). Pass `{ force: true }` to bypass the cache. */
+export async function getResolvedWorkspaceContext(options?: { force?: boolean }): Promise<ResolvedWorkspaceContext> {
+  // Server-side: never use the module cache (it would be shared across users).
+  if (typeof window === 'undefined') {
+    return resolveWorkspaceIdentityUncached()
+  }
+
+  ensureIdentityInvalidation()
+
+  const force = options?.force === true
+  if (!force) {
+    if (identityCache && Date.now() - identityCache.at < WORKSPACE_IDENTITY_TTL_MS) {
+      return identityCache.value
+    }
+    if (identityPending) return identityPending
+  }
+
+  const pending = (async () => {
+    const value = await resolveWorkspaceIdentityUncached()
+    if (value.user) {
+      identityCache = { userId: value.user.id, value, at: Date.now() }
+    } else {
+      // No real user (logged out / error): do not cache, so the next call
+      // re-checks instead of pinning an unauthenticated result.
+      identityCache = null
+    }
+    return value
+  })()
+
+  identityPending = pending
+  try {
+    return await pending
+  } finally {
+    if (identityPending === pending) identityPending = null
+  }
+}
+
+export async function getWorkspaceContext(options?: { force?: boolean }) {
+  const context = await getResolvedWorkspaceContext(options)
+  if (!context.user) return null
+  return { user: context.user, profile: context.profile, workspace: context.workspace }
 }
 
 export function mapSupabaseClient(row: DataRecord): Client {

@@ -11,7 +11,9 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
-import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
+import { clearWorkspaceIdentityCache } from '@/lib/supabase-queries'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { featureFlags, type FlagKey } from '@/lib/feature-flags'
 import { BRAND } from '@/lib/brand'
 
@@ -44,7 +46,7 @@ const visibleNavItems = navItems.filter((item) => {
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { currentUser, isLoading } = useCurrentUser()
+  const { currentUser, isLoading } = useWorkspaceIdentity()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutComplete, setLogoutComplete] = useState(false)
@@ -69,6 +71,10 @@ export function Sidebar() {
     setLogoutComplete(false)
     toast.info('Cerrando sesión', { description: 'Guardando estado local y limpiando sesión.' })
     window.localStorage.removeItem(DEMO_MODE_KEY)
+    // Drop the cached workspace identity immediately so no stale tenant context
+    // can survive into the next login in this tab (the auth-event listener also
+    // clears it on SIGNED_OUT; this is the belt-and-suspenders path).
+    clearWorkspaceIdentityCache()
     const supabase = getSupabaseBrowserClient()
     if (supabase && !currentUser.isDemo) {
       const { error } = await supabase.auth.signOut()

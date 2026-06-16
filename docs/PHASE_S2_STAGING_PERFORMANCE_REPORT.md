@@ -84,6 +84,12 @@ coste de query, cero riesgo** (no tocan datos, RLS ni lógica). Combinado con el
 prefetch por defecto de `<Link>` en el Sidebar, la navegación se siente inmediata.
 
 ## 5. Optimización de fondo recomendada (DISEÑO, no aplicada)
+> **✅ IMPLEMENTADA EN S3 (2026-06-16):** ver
+> [PHASE_S3_IDENTITY_CONTEXT_DEDUP_REPORT.md](PHASE_S3_IDENTITY_CONTEXT_DEDUP_REPORT.md)
+> — cache de identidad cacheado por `user.id` con dedup de promise en vuelo,
+> invalidación por `onAuthStateChange` + limpieza en consumidores y logout,
+> bypass server-side, y `WorkspaceIdentityProvider` consumido por Sidebar/Topbar.
+
 > La mayor ganancia real de latencia es **dejar de re-resolver la identidad en
 > cada navegación.** No se aplica en este pase por ser **sensible multi-tenant**
 > (la regla S2 prohíbe explícitamente cualquier cache que pueda mostrar datos de
