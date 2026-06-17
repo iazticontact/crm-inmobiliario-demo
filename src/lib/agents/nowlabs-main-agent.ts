@@ -45,6 +45,34 @@ const RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const TIMEOUT_MS = 28_000
 const CLIENT_COLS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
 
+// Serialize a tool's structured result so the MODEL can read exact field values
+// (email, phone, stage, due_date…) and not just the human-readable summary. The
+// agent loop previously sent only `text`, so the model never saw a client's email
+// or phone and could not answer "¿cuál es el email de X?". Strips noisy columns
+// and caps length to protect the token budget. Internal context only — the system
+// prompt forbids echoing ids/UUIDs or "score" to the user.
+function compactToolData(data: unknown): string | null {
+  if (data === undefined || data === null) return null
+  const strip = (row: unknown): unknown => {
+    if (row && typeof row === 'object' && !Array.isArray(row)) {
+      const r = { ...(row as Record<string, unknown>) }
+      delete r.workspace_id
+      delete r.created_by
+      return r
+    }
+    return row
+  }
+  try {
+    const normalized = Array.isArray(data) ? (data as unknown[]).slice(0, 25).map(strip) : strip(data)
+    let json = JSON.stringify(normalized)
+    if (!json || json === '{}' || json === '[]' || json === 'null') return null
+    if (json.length > 7000) json = `${json.slice(0, 7000)}…(truncado)`
+    return json
+  } catch {
+    return null
+  }
+}
+
 // --- Types ---
 
 type Args = Record<string, unknown>
@@ -341,7 +369,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'get_client_context',
-    description: 'Ficha completa de un cliente: contacto, facturas y citas. Usa client_id si lo tienes; si no, client_name. También para "sus datos", "ese cliente" si hay contexto.',
+    description: 'Perfil COMPLETO de un cliente: contacto (email, teléfono), estado, notas, y sus operaciones, expedientes, tareas, citas y actividad reciente. Úsala para "datos/ficha/perfil de X", "email/teléfono de X", "qué operaciones/expedientes/tareas/citas tiene X". Usa client_id si lo tienes; si no, client_name. También para "sus datos", "ese cliente" si hay contexto.',
     parameters: {
       type: 'object',
       properties: {
@@ -838,7 +866,9 @@ MAPA RÁPIDO DE TOOLS:
 - "qué expedientes pendientes" → list_service_cases
 - "qué propiedades activas" → list_properties
 - "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads
-- "datos de X" / "quién es X" / "resume a X" / "ficha de X" → get_client_context(client_name=X)
+- "datos de X" / "quién es X" / "resume a X" / "ficha de X" / "perfil de X" → get_client_context(client_name=X) (devuelve datos básicos + operaciones + expedientes + tareas + citas + actividad del cliente)
+- "email de X" / "correo de X" / "teléfono de X" / "móvil de X" / "contacto de X" → get_client_context(client_name=X) y responde el campo EXACTO del JSON (Email/Teléfono). Si el campo está vacío/null → "No consta [email/teléfono] registrado de X". NUNCA inventes un email ni un teléfono.
+- "qué operaciones/expedientes/tareas/citas tiene X" → get_client_context(client_name=X) (ya trae esas listas del cliente)
 - "busca a X" / "encuentra X" / "localiza X" → search_clients
 - "el primero" / "el quinto" / "el último" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
 - "sus datos" / "ese cliente" / "el anterior" → get_client_context con el ID del CLIENTE ACTIVO
@@ -855,6 +885,12 @@ MAPA RÁPIDO DE TOOLS:
 - "mueve la cita a las 12" → search_calendar_events → prepare_reschedule_booking
 
 REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
+
+INTEGRIDAD DE DATOS (obligatorio):
+- Para CUALQUIER dato real del CRM (clientes, emails, teléfonos, operaciones, expedientes, tareas, citas, actividad, propiedades) DEBES llamar una tool antes de responder. Nunca respondas de memoria ni supongas.
+- Usa los valores EXACTOS del JSON que devuelve la tool. Si un campo no aparece o es null/"No consta", dilo: "No consta ... registrado". NUNCA inventes emails, teléfonos, NIF, importes ni fechas.
+- NUNCA muestres al usuario IDs/UUIDs internos ni el "lead score"/"score" (es interno). Habla en lenguaje natural.
+- Si la búsqueda devuelve varios candidatos, lista nombres (sin datos sensibles de más) y pide cuál; si pide "uno al azar", elige uno REAL de los resultados.
 Para prepare_booking/task/invoice: extraigo TODOS los datos posibles del mensaje. "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, lo indico en la respuesta — no me bloqueo.
 Para select_client_by_ordinal: índice 0-based (primero=0, quinto=4, último=N-1).
 
@@ -1119,8 +1155,9 @@ async function runTool(
         const c = results[0]
         const co = c.company && String(c.company) !== 'No consta' ? ` (${c.company})` : ''
         const st = c.status ? ` · ${c.status}` : ''
-        const sc = c.lead_score !== undefined ? ` · score ${c.lead_score}` : ''
-        return { text: `Encontré a ${String(c.name)}${co}${st}${sc}.`, data: c, clientId: String(c.id), clientName: String(c.name), referencedList: results }
+        const email = c.email && String(c.email) !== 'No consta' ? ` · email ${c.email}` : ''
+        const phone = c.phone && String(c.phone) !== 'No consta' ? ` · tel ${c.phone}` : ''
+        return { text: `Encontré a ${String(c.name)}${co}${st}${email}${phone}.`, data: c, clientId: String(c.id), clientName: String(c.name), referencedList: results }
       }
 
       const list = results.slice(0, 5).map((c, i) => {
@@ -1979,39 +2016,40 @@ Genera esta respuesta:
 - Sin más texto adicional.`
 
     case 'get_client_context':
-      return `${base}Datos del CRM (JSON con cliente, facturas y citas):
+      return `${base}Datos del CRM (JSON con cliente, operaciones, expedientes, tareas, citas y actividad):
 ${dataJson}
 
-Genera esta ficha completa:
+Genera esta ficha completa (sin markdown, sin asteriscos, SIN mostrar "score" ni IDs/UUID):
 "📌 [nombre] — [empresa] (si consta)"
 ""
-"Estado: [valor]"
-"Score: [valor]"
-"Canal: [valor]"
-"Email: [valor o No consta]"
-"Teléfono: [valor o No consta]"
+"Estado: [valor o No consta] · Canal: [valor o No consta]"
+"Email: [valor o No consta] · Teléfono: [valor o No consta]"
 "Notas: [valor o No constan]"
 ""
-"💸 Facturación:"
-Si hay facturas: lista cada una como "- [importe]€ — [estado] — vence/venció el [fecha en español]"
-Si no hay: "No constan facturas registradas."
+"🏠 Operaciones:"
+Si hay (array opportunities): "- [título] — [stage][, value €][, cierre expected_close_date]". Si no: "Ninguna registrada."
+""
+"📁 Expedientes:"
+Si hay (array service_cases): "- [título o case_type] — [status][, priority][, vence due_date]". Si no: "Ninguno registrado."
+""
+"✅ Tareas:"
+Si hay (array tasks): "- [título] — [status][, vence due_date]". Si no: "Ninguna registrada."
 ""
 "📅 Citas:"
-Si hay eventos: lista cada uno como "- [título] el [fecha]"
-Si no hay: "No constan citas próximas."
+Si hay (array calendar_events): "- [título] el [date]". Si no: "Ninguna próxima."
 ""
-"✅ Siguiente acción recomendada:"
-"[1 frase concreta basada en el estado y score del cliente]"
-- Sin negritas, sin asteriscos, sin markdown extra.`
+"Siguiente acción recomendada: [1 frase concreta basada en el estado real del cliente]"
+- Usa SOLO valores del JSON. Campo null/ausente = "No consta". NUNCA inventes emails, teléfonos ni fechas.`
 
     case 'search_clients':
       return `${base}Datos:
 ${dataJson}
 
-Si hay un solo cliente: muestra ficha básica (nombre, empresa, estado, score, canal).
-Si hay varios: lista numerada breve y pregunta "¿A cuál te refieres?".
+Si hay un solo cliente: ficha básica con nombre, empresa (si consta), estado, email y teléfono (campo null = "No consta"). NUNCA muestres "score" ni IDs/UUID.
+Si el usuario pedía un campo concreto (email/teléfono), respóndelo directamente con el valor exacto del JSON, o "No consta ... registrado" si falta.
+Si hay varios: lista numerada breve (nombre · estado) y pregunta "¿A cuál te refieres?".
 Si no hay: "No encontré ningún cliente con ese nombre. Prueba con el nombre completo o el email."
-Sin negritas, sin asteriscos.`
+Sin negritas, sin asteriscos. NUNCA inventes datos.`
 
     case 'crm_overview':
       return `${base}Datos del CRM:
@@ -2287,7 +2325,13 @@ export async function runNowLabsAgent(
         const result = await runTool(call.name, args, supabase, workspaceId, localLastResults)
         applyResult(result, call.name)
 
-        input.push({ type: 'function_call_output', call_id: call.call_id, output: result.text })
+        // Send the structured data too (not just the summary) so the model can
+        // answer with exact field values (email, phone, dates, stages).
+        const structured = compactToolData(result.data)
+        const toolOutput = structured
+          ? `${result.text}\n\n[DATOS_JSON internos — usa estos valores EXACTOS para responder (emails, teléfonos, fechas, etapas). NO muestres id/UUID ni "score" al usuario; un campo ausente/null = "No consta"; NUNCA inventes datos]:\n${structured}`
+          : result.text
+        input.push({ type: 'function_call_output', call_id: call.call_id, output: toolOutput })
       }
     }
 

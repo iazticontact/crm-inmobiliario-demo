@@ -128,3 +128,53 @@
 Por eval: **PASA** si cumple "aprobado si" + criterios transversales. **FALLA** si
 inventa datos, no usa tool cuando debía, escribe sin confirmación, o expone UUIDs.
 Registrar: nº, PASA/FALLA, tool(s) realmente usadas (panel debug si está), nota.
+
+---
+
+## S8 — Cobertura de datos CRM exactos (2026-06-17)
+Transversal a TODOS: usa el valor EXACTO de la tool (nunca inventa email/teléfono/
+fecha), campo null = "No consta", NUNCA muestra UUID ni "score".
+
+| # | Pregunta | Tool esperada | Respuesta esperada |
+|---|---|---|---|
+| S8-1 | "¿Cuál es el email de [cliente real]?" | get_client_context | email exacto del JSON, o "No consta email registrado" |
+| S8-2 | "¿Cuál es el teléfono de [cliente]?" | get_client_context | teléfono exacto, o "No consta teléfono registrado" |
+| S8-3 | "Dame todos los datos de [cliente]." | get_client_context | ficha: contacto + operaciones + expedientes + tareas + citas |
+| S8-4 | "Busca clientes de [zona real]." | search_clients | candidatos reales por nombre/notas; sin score/UUID |
+| S8-5 | "Elige un cliente al azar y resúmelo." | list_clients/search_clients + get_client_context | uno REAL de los resultados, no inventado |
+| S8-6 | "¿Quién no tiene email registrado?" | list_clients | lista clientes con email vacío; "No consta" |
+| S8-7 | "¿Qué clientes están activos?" | list_clients(status=active) | lista real activos |
+| S8-8 | "¿Qué operaciones abiertas hay?" | list_opportunities | operaciones reales con etapa/valor |
+| S8-9 | "¿Qué operaciones tiene [cliente]?" | get_client_context | array operations del cliente |
+| S8-10 | "¿Cuál es la operación de mayor valor?" | list_opportunities | la de value máximo real |
+| S8-11 | "¿Qué operaciones están en negociación?" | list_opportunities | filtra por stage negociación |
+| S8-12 | "¿Qué expedientes abiertos tiene [cliente]?" | get_client_context | array service_cases del cliente |
+| S8-13 | "¿Qué expedientes urgentes hay?" | list_service_cases | priority alta reales |
+| S8-14 | "¿Qué tareas tengo pendientes?" | pending_tasks/list_pending_items | tareas reales pendientes |
+| S8-15 | "¿Qué tareas vencen pronto?" | pending_tasks | por due_date próxima |
+| S8-16 | "¿Qué tareas hay para [cliente]?" | get_client_context | array tasks del cliente |
+| S8-17 | "¿Qué tengo hoy?" | upcoming_events/list_pending_items | citas/tareas de hoy reales |
+| S8-18 | "¿Qué citas tiene [cliente]?" | get_client_context | array calendar_events del cliente |
+| S8-19 | "¿Qué visitas hay esta semana?" | upcoming_events | eventos del rango real |
+| S8-20 | "¿Qué ha pasado recientemente?" | recent_activity | actividad real reciente |
+| S8-21 | "Última actividad de [cliente]." | get_client_context | activities del cliente |
+| S8-22 | "Busca a Ana." | search_clients | 1 → ficha; varios → candidatos + "¿a cuál?" |
+| S8-23 | "Dame el email de Juan." (varios) | search_clients | lista Juanes + pide cuál (no inventa) |
+| S8-24 | "Ese cliente, ¿qué operaciones tiene?" (contexto) | get_client_context(ID activo) | operaciones del cliente activo |
+| S8-25 | "Dame el cliente de Bilbao." (varios) | search_clients | candidatos + pide cuál |
+| S8-26 | cliente inexistente | search_clients | "No encontré ningún cliente con..." |
+| S8-27 | email null | get_client_context | "No consta email registrado" |
+| S8-28 | teléfono null | get_client_context | "No consta teléfono registrado" |
+| S8-29 | campo que no existe (p. ej. NIF) | — | "No consta" / no inventa |
+| S8-30 | "¿Puedo facturar desde aquí?" | — | "fase futura, no activo" |
+| S8-31 | WhatsApp/inbox | — | "fase futura, no activo" |
+| S8-32 | documentos/PDF | — | "fase futura, no activo" |
+| S8-33 | "Crea una tarea para [cliente]." | prepare_task → confirm | tarjeta de confirmación; no escribe sin confirmar |
+| S8-34 | "Mueve operación X a negociación." | deterministic-db-actions → confirm | tarjeta; ejecuta tras confirmar |
+| S8-35 | "Marca tarea X completada." | update_task → confirm | tarjeta; ejecuta tras confirmar |
+
+> Causa raíz corregida en S8: el agente enviaba al modelo solo `result.text`
+> (resumen sin email/teléfono); ahora envía también `DATOS_JSON` con los campos
+> exactos, y `get_client_context` devuelve el perfil completo real (operaciones/
+> expedientes/tareas/citas/actividad). Ver
+> `PHASE_S8_ASSISTANT_CRM_FULL_DATA_COVERAGE_REPORT.md`.

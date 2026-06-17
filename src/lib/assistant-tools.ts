@@ -31,14 +31,22 @@ export type PreparedActionData = {
 
 type Row = Record<string, unknown>
 
+function hasValue(x: unknown): boolean {
+  const s = x === null || x === undefined ? '' : String(x).trim()
+  return s.length > 0 && s !== 'No consta'
+}
+
+// Client one-liner for the model. Includes email + phone (so questions like
+// "¿cuál es el email de X?" can be answered) and intentionally OMITS the internal
+// lead score (never shown to the user, per product rules).
 function fmtClient(c: Row, i?: number): string {
   const prefix = i !== undefined ? `${i + 1}. ` : ''
   const name = String(c.name || 'Sin nombre')
-  const co = c.company && String(c.company) !== 'No consta' ? ` (${c.company})` : ''
+  const co = hasValue(c.company) ? ` (${c.company})` : ''
   const st = c.status ? ` · ${c.status}` : ''
-  const sc = c.lead_score ? ` · score ${c.lead_score}` : ''
-  const ch = c.channel ? ` · ${c.channel}` : ''
-  return `${prefix}${name}${co}${st}${sc}${ch}`
+  const email = hasValue(c.email) ? ` · email ${c.email}` : ''
+  const phone = hasValue(c.phone) ? ` · tel ${c.phone}` : ''
+  return `${prefix}${name}${co}${st}${email}${phone}`
 }
 
 // 1. CRM overview — workspace-level counts
@@ -136,7 +144,10 @@ export async function toolSearchClients(supabase: SupabaseClient, workspaceId: s
   }
 }
 
-// 4. Full client context (invoices + events)
+// 4. Full client profile — real CRM entities by client_id:
+//    basic data + opportunities + service_cases + tasks + calendar_events + activity.
+//    Reads the live workspace tables (NOT the legacy invoices module). Every query
+//    is workspace-scoped + client-scoped under RLS. Null fields surface as "No consta".
 export async function toolGetClientContext(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -155,24 +166,64 @@ export async function toolGetClientContext(
 
   if (!clientRow) return { text: 'No encontré ese cliente en el CRM. Prueba con el nombre completo o parte del email.', data: null }
 
+  const id = String(clientRow.id)
   const name = String(clientRow.name)
-  const [invoices, events] = await Promise.all([
-    supabase.from('invoices').select('amount, status, due_date, plan').eq('workspace_id', workspaceId).eq('client_name', name).order('created_at', { ascending: false }).limit(5),
-    supabase.from('calendar_events').select('title, date, start_hour').eq('workspace_id', workspaceId).eq('client_name', name).neq('status', 'cancelled').order('date', { ascending: false }).limit(3),
+  const show = (x: unknown) => (hasValue(x) ? String(x) : 'No consta')
+
+  const [opps, cases, tasks, events, acts] = await Promise.all([
+    supabase.from('opportunities').select('id, title, stage, value, probability, expected_close_date, notes').eq('workspace_id', workspaceId).eq('client_id', id).is('deleted_at', null).order('updated_at', { ascending: false }).limit(10),
+    supabase.from('service_cases').select('id, title, case_type, status, priority, due_date').eq('workspace_id', workspaceId).eq('client_id', id).is('deleted_at', null).order('updated_at', { ascending: false }).limit(10),
+    supabase.from('tasks').select('id, title, status, priority, due_date').eq('workspace_id', workspaceId).eq('client_id', id).order('due_date', { ascending: true }).limit(10),
+    supabase.from('calendar_events').select('id, title, type, date, start_at, location, status').eq('workspace_id', workspaceId).eq('client_id', id).neq('status', 'cancelled').order('date', { ascending: false }).limit(6),
+    supabase.from('activities').select('type, title, description, created_at').eq('workspace_id', workspaceId).eq('client_id', id).order('created_at', { ascending: false }).limit(6),
   ])
 
-  const lines = [fmtClient(clientRow)]
-  if (invoices.data?.length) {
-    lines.push(`Facturas: ${invoices.data.map((i) => `${i.amount}€ (${i.status})`).join(', ')}`)
+  const oppRows = (opps.data ?? []) as Row[]
+  const caseRows = (cases.data ?? []) as Row[]
+  const taskRows = (tasks.data ?? []) as Row[]
+  const eventRows = (events.data ?? []) as Row[]
+  const actRows = (acts.data ?? []) as Row[]
+
+  const lines = [
+    `Cliente: ${name}${hasValue(clientRow.company) ? ` (${clientRow.company})` : ''}`,
+    `Estado: ${show(clientRow.status)} · Canal: ${show(clientRow.channel)}`,
+    `Email: ${show(clientRow.email)} · Teléfono: ${show(clientRow.phone)}`,
+  ]
+  if (hasValue(clientRow.notes)) lines.push(`Notas: ${String(clientRow.notes)}`)
+
+  lines.push(
+    oppRows.length
+      ? `Operaciones (${oppRows.length}): ${oppRows.map((o) => `${hasValue(o.title) ? o.title : 'Operación'} [${show(o.stage)}${hasValue(o.value) ? `, ${o.value}€` : ''}${hasValue(o.expected_close_date) ? `, cierre ${o.expected_close_date}` : ''}]`).join('; ')}`
+      : 'Operaciones: ninguna registrada.',
+  )
+  lines.push(
+    caseRows.length
+      ? `Expedientes (${caseRows.length}): ${caseRows.map((c) => `${hasValue(c.title) ? c.title : show(c.case_type)} [${show(c.status)}${hasValue(c.priority) ? `, ${c.priority}` : ''}${hasValue(c.due_date) ? `, vence ${c.due_date}` : ''}]`).join('; ')}`
+      : 'Expedientes: ninguno registrado.',
+  )
+  lines.push(
+    taskRows.length
+      ? `Tareas (${taskRows.length}): ${taskRows.map((t) => `${hasValue(t.title) ? t.title : 'Tarea'} [${show(t.status)}${hasValue(t.due_date) ? `, vence ${t.due_date}` : ''}]`).join('; ')}`
+      : 'Tareas: ninguna registrada.',
+  )
+  if (eventRows.length) {
+    lines.push(`Citas (${eventRows.length}): ${eventRows.map((e) => `${hasValue(e.title) ? e.title : 'Cita'} el ${hasValue(e.date) ? e.date : (hasValue(e.start_at) ? String(e.start_at).slice(0, 10) : 'fecha no consta')}`).join('; ')}`)
   }
-  if (events.data?.length) {
-    lines.push(`Citas: ${events.data.map((e) => `${e.title} el ${e.date}`).join(', ')}`)
+  if (actRows.length) {
+    lines.push(`Actividad reciente: ${actRows.map((a) => (hasValue(a.description) ? a.description : hasValue(a.title) ? a.title : a.type)).filter(Boolean).slice(0, 4).join(' · ')}`)
   }
 
   return {
     text: lines.join('\n'),
-    data: { client: clientRow, invoices: invoices.data, events: events.data },
-    referencedClientId: String(clientRow.id),
+    data: {
+      client: clientRow,
+      opportunities: oppRows,
+      service_cases: caseRows,
+      tasks: taskRows,
+      calendar_events: eventRows,
+      activities: actRows,
+    },
+    referencedClientId: id,
     referencedClientName: name,
   }
 }
