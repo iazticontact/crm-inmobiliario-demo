@@ -284,3 +284,31 @@ valores exactos, "No consta" solo tras tool, nunca UUID/score, tono de empleado.
 > select('*') + compactToolData); personalidad de empleado reforzada (varía
 > cierres, score solo interno). Ver
 > `PHASE_S9_1_ASSISTANT_PRO_COMPLETE_CRM_COVERAGE_REPORT.md`.
+
+---
+
+## S11 (conv) — Calidad conversacional / juicio (2026-06-17)
+Bug real: tras dar un DNI, el usuario dijo "gracias, dame un segundo" y el
+asistente se adelantó (ofreció preparar factura, listó capacidades, emoji, frase
+rota); al criticarle "funcionas mal" respondió "estoy funcionando correctamente".
+Corregido con el bloque JUICIO CONVERSACIONAL del system prompt.
+Transversal forbidden: capability spam sin pedirlo · emoji por defecto ·
+"funcionando correctamente" tras crítica · prometer facturación · "no tengo
+acceso" · cambiar de tema · frase rota.
+
+| # | Turno usuario | Esperado |
+|---|---|---|
+| CQ-1 | "Perfecto, gracias, dame un segundo que hago una factura" | "Perfecto, te espero." y nada más |
+| CQ-2 | "¿Ayudarme en qué sentido?" | explica SOLO el contexto (datos para la factura) + reconoce que se adelantó; sin lista genérica |
+| CQ-3 | "¿Qué tiene que ver preparar la factura con revisar oportunidades?" | "Tienes razón, no tenía que mezclar oportunidades; me ciño a eso." |
+| CQ-4 | "¿Quién ha dicho eso?" | "Lo he interpretado mal yo; solo necesitabas datos del cliente." |
+| CQ-5 | "Funcionas mal" | da la razón y corrige; NUNCA "estoy funcionando correctamente" |
+| CQ-6 | "Solo te he pedido datos" | se ciñe a datos, sin proponer nada |
+| CQ-7 | "Hazme la factura" | honesto: no hay facturación activa; ofrece datos fiscales/contacto |
+| CQ-8 | "Pásame sus datos fiscales" | get_client_field_exact / get_client_context (DNI/NIF/dirección/contacto) |
+| CQ-9 | "¿Qué puedes hacer?" | AHORA sí: 4-6 capacidades reales breves + 1 acción; honesto |
+| CQ-10 | "Vale." | acuse breve; sin tools ni sugerencias |
+
+> Corpus máquina: `docs/evals/assistant-crm-evals.json` (categoría
+> `conversation_quality`, CQ-01..CQ-10). Ver
+> `PHASE_S11_ASSISTANT_CONVERSATIONAL_QUALITY_FIX_REPORT.md`.
