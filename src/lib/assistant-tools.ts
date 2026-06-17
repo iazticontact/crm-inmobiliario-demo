@@ -380,6 +380,42 @@ export async function toolGetClientFieldExact(
   }
 }
 
+// 4d. Documents attached to a client — METADATA ONLY. The CRM stores files
+//     (Storage bucket + documents table) but does NOT index their content (no
+//     extraction/RAG). So this lists what's attached (title, type) and the
+//     assistant must be honest: it can see the list, not read the contents.
+export async function toolListClientDocuments(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  clientId?: string,
+  clientName?: string,
+): Promise<ToolResult> {
+  let id = clientId
+  let name = clientName
+  if (!id && clientName) {
+    const { data } = await supabase.from('clients').select('id, name').eq('workspace_id', workspaceId).ilike('name', `%${clientName}%`).limit(1).maybeSingle()
+    if (data) { id = String((data as Row).id); name = String((data as Row).name) }
+  }
+  if (!id) return { text: 'Dime de qué cliente quieres ver los documentos.', data: null }
+
+  const { data } = await supabase
+    .from('documents')
+    .select('id, title, type, mime_type, size, created_at')
+    .eq('workspace_id', workspaceId).eq('client_id', id)
+    .order('created_at', { ascending: false }).limit(50)
+  const rows = (data ?? []) as Row[]
+  if (!rows.length) {
+    return { text: `No hay documentos adjuntos${name ? ` de ${name}` : ''}.`, data: [], referencedClientId: id, referencedClientName: name }
+  }
+  const list = rows.map((d, i) => `${i + 1}. ${hasValue(d.title) ? d.title : 'Documento'}${hasValue(d.type) ? ` · ${d.type}` : ''}`).join('\n')
+  return {
+    text: `${rows.length} documento(s) adjunto(s)${name ? ` de ${name}` : ''}:\n${list}\nVeo el listado, pero el contenido de los archivos no está indexado todavía, así que no puedo leerlos por dentro.`,
+    data: rows,
+    referencedClientId: id,
+    referencedClientName: name,
+  }
+}
+
 // 5. Hot leads (lead_score >= 70)
 export async function toolHotLeads(supabase: SupabaseClient, workspaceId: string): Promise<ToolResult> {
   const { data } = await supabase

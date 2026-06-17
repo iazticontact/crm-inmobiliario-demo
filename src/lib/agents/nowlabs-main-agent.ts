@@ -7,6 +7,7 @@ import {
   toolGetClientContext,
   toolGetLatestClient,
   toolGetClientFieldExact,
+  toolListClientDocuments,
   toolCrmOverview,
   toolPendingInvoices,
   toolOverdueInvoices,
@@ -403,6 +404,19 @@ const TOOLS = [
         field: { type: 'string', description: 'Campo pedido: dni, nif, cif, email, telefono, empresa, direccion, zona, presupuesto, nacionalidad, idioma' },
       },
       required: ['field'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_client_documents',
+    description: 'Lista los documentos/archivos adjuntos de un cliente (título, tipo, fecha) — SOLO metadata. El CRM guarda los archivos pero NO indexa su contenido, así que esta tool NO lee lo que pone dentro de un PDF/imagen. Úsala para "¿qué documentos tiene X?", "¿tiene algún archivo adjunto?". Para "léeme el PDF/el contrato": explica con honestidad que el contenido no está indexado.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'UUID del cliente activo si lo tienes (preferido)' },
+        client_name: { type: 'string', description: 'Nombre del cliente si no hay client_id' },
+      },
+      required: [],
     },
   },
   {
@@ -813,7 +827,8 @@ PERSONALIDAD Y TONO:
 - Sin "¿en qué puedo ayudarte?" suelto: si puedes dar contexto útil o proponer una acción, hazlo en la primera frase.
 - Sin frases tipo "estoy aquí para ti", "no dudes en preguntar", "espero haberte ayudado".
 - No sonar a IA de soporte. Puedes usar algún emoji ligero y elegante cuando aporte (ver la guía de emojis), sin abusar. Puedes celebrar lo que ya funciona, pero con foco operativo.
-- Cuando interpretas datos, dices qué priorizarías: un lead con score 90 es para actuar hoy, una factura vencida es urgente, un expediente fuera de plazo se señala. Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
+- Cuando interpretas datos, dices qué priorizarías: un lead muy caliente es para actuar hoy, un cobro vencido es urgente, un expediente fuera de plazo se señala. (Internamente puedes usar el lead score para priorizar, pero NUNCA lo menciones ni lo muestres al usuario.) Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
+- Eres un EMPLEADO del CRM, no una plantilla: varía cómo respondes y cómo cierras. Adapta la longitud a la pregunta — directo y al grano si piden un dato concreto (p. ej. solo el email), completo y por secciones si piden una ficha o un resumen. No termines siempre igual ni con "¿algo más?"/"¿hay algo en lo que pueda ayudarte?" en cada turno: sugiere un siguiente paso SOLO cuando aporte de verdad.
 
 ALCANCE (CRM del negocio):
 - Tu ámbito es el CRM: clientes, operaciones, expedientes, propiedades, tareas, calendario, actividad y próximas acciones. Para eso, tira de tools y responde con datos reales.
@@ -896,6 +911,7 @@ MAPA RÁPIDO DE TOOLS:
 - "el nuevo cliente" / "el último cliente" / "el cliente que acabo de crear/registrar" / "el más reciente" → get_latest_client (devuelve el más nuevo y lo deja como CLIENTE ACTIVO del hilo)
 - "email de X" / "correo de X" / "teléfono de X" / "móvil de X" / "DNI de X" / "NIF de X" / "CIF de X" / "su DNI" / "su email" / "su teléfono" → get_client_field_exact(field=..., client_id=ID del CLIENTE ACTIVO si lo hay, si no client_name=X). Responde el valor EXACTO; si no consta, dilo; NUNCA lo inventes. (El DNI/NIF puede estar en campos personalizados — la tool ya los mira.)
 - "qué operaciones/expedientes/tareas/citas tiene X" → get_client_context(client_name=X) (ya trae esas listas del cliente)
+- "qué documentos/archivos tiene X" → list_client_documents (solo metadata: títulos/tipos). Para "léeme el PDF / qué pone en el contrato": di con honestidad que el contenido de los archivos no está indexado todavía, no lo inventes.
 - "busca a X" / "encuentra X" / "localiza X" → search_clients
 - "el primero" / "el quinto" / "el último de la lista" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
 - "sus datos" / "ese cliente" / "este cliente" / "él" / "ella" / "el anterior" / "el mismo" → usa el CLIENTE ACTIVO del hilo (get_client_context o get_client_field_exact con su client_id). NO preguntes "¿a qué cliente?" si hay cliente activo.
@@ -1225,6 +1241,11 @@ async function runTool(
         field: String(args.field ?? ''),
       })
       return { text: res.text, data: res.data, clientId: res.referencedClientId, clientName: res.referencedClientName, referencedList: res.referencedList as Row[] | undefined }
+    }
+
+    case 'list_client_documents': {
+      const res = await toolListClientDocuments(supabase, workspaceId, args.client_id as string | undefined, args.client_name as string | undefined)
+      return { text: res.text, data: res.data, clientId: res.referencedClientId, clientName: res.referencedClientName }
     }
 
     case 'crm_overview': {

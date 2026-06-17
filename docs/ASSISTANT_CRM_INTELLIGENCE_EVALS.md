@@ -236,3 +236,51 @@ activo del hilo; nunca inventa; nunca UUID/score.
 > contexto perdido. Corregido: metadata en selects + get_client_field_exact +
 > get_latest_client (fija activo) + prompt anti-"no tengo acceso". Ver
 > `PHASE_S9_ASSISTANT_PRO_360_FIELD_MEMORY_TOOL_SUITE_REPORT.md`.
+
+---
+
+## S9.1 — Cobertura total (DNI era solo un ejemplo) (2026-06-17)
+DNI fue un ejemplo: el asistente debe leer TODO campo real. Transversal:
+valores exactos, "No consta" solo tras tool, nunca UUID/score, tono de empleado.
+
+### Campos de cliente (columnas + metadata)
+| # | Pregunta | Tool | Esperado |
+|---|---|---|---|
+| S91-1 | "¿qué dirección tiene?" | get_client_field_exact(direccion) | metadata.address o "No consta" |
+| S91-2 | "¿de qué nacionalidad es?" | get_client_field_exact(nacionalidad) | metadata.nationality o "No consta" |
+| S91-3 | "¿en qué idioma prefiere que le hablen?" | get_client_field_exact(idioma) | metadata.preferred_language o "No consta" |
+| S91-4 | "¿qué zona le interesa?" | get_client_field_exact(zona) | metadata.city_area o "No consta" |
+| S91-5 | "¿qué presupuesto tiene?" | get_client_field_exact(presupuesto) | metadata.budget o "No consta" |
+| S91-6 | "razón social / empresa" | get_client_field_exact(empresa) | columna company |
+| S91-7 | "dame TODO lo que sabes de X" | get_client_context | ficha completa: identidad+contacto+metadata+operaciones+expedientes+tareas+citas+actividad |
+
+### Otras entidades (datos completos por las list_*)
+| # | Pregunta | Tool | Esperado |
+|---|---|---|---|
+| S91-8 | "¿qué operaciones hay y con qué valor/cierre?" | list_opportunities | stage+value+probability+expected_close_date reales |
+| S91-9 | "¿qué expedientes urgentes/vencidos hay?" | list_service_cases | priority/status/due_date reales |
+| S91-10 | "¿qué propiedades hay en cartera?" | list_properties | datos reales de properties |
+| S91-11 | "operaciones/expedientes/tareas/citas de X" | get_client_context | listas del cliente |
+
+### Documentos (honesto)
+| # | Pregunta | Tool | Esperado |
+|---|---|---|---|
+| S91-12 | "¿qué documentos tiene X?" | list_client_documents | lista títulos/tipos; aclara que no lee el contenido |
+| S91-13 | "léeme el contrato.pdf de X" | list_client_documents | "veo el archivo, pero su contenido no está indexado; no puedo leerlo por dentro" |
+| S91-14 | "¿tiene el DNI escaneado subido?" | list_client_documents | lista si existe el archivo; no inventa contenido |
+
+### Personalidad / empleado IA
+| # | Caso | Esperado |
+|---|---|---|
+| S91-15 | pedir solo el email | respuesta DIRECTA (1 línea), sin ficha entera |
+| S91-16 | pedir ficha completa | respuesta COMPLETA por secciones |
+| S91-17 | 5 turnos seguidos | cierres VARIADOS, no "¿algo más?" cada vez |
+| S91-18 | "¿estás operativo?" | natural, sin "estoy operativo", sin prometer facturación |
+| S91-19 | dato real del CRM | nunca "no tengo acceso directo"; usa tool |
+| S91-20 | cualquier salida | nunca muestra UUID, workspace_id ni score |
+
+> S9.1: añadida list_client_documents (metadata-only, honesta); confirmado que
+> operaciones/expedientes/propiedades ya llegan COMPLETAS al modelo (readers
+> select('*') + compactToolData); personalidad de empleado reforzada (varía
+> cierres, score solo interno). Ver
+> `PHASE_S9_1_ASSISTANT_PRO_COMPLETE_CRM_COVERAGE_REPORT.md`.

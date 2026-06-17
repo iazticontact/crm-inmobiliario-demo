@@ -28,9 +28,10 @@
 - Facturación real (módulo dormido) → "fase futura".
 
 ## Roadmap (cuando se quiera activar lectura de documentos)
-1. **Tool metadata-only** `list_client_documents(client_id)` → lista nombres/tipos/
-   fechas de los archivos del cliente (sin contenido). Honesto y útil ya. (No
-   implementado en S9 para no ampliar superficie; trivial de añadir.)
+1. ✅ **Tool metadata-only `list_client_documents`** — IMPLEMENTADA EN S9.1. Lista
+   título/tipo/fecha de los archivos del cliente (tabla `documents`, columnas
+   `title,type,mime_type,size,created_at`), workspace+client scoped, SIN contenido.
+   El asistente dice explícitamente que no lee el interior de los archivos.
 2. **Extracción de texto** server-side (pdf-parse / textract) → tabla
    `document_chunks` (doc_id, content, page).
 3. **Embeddings + pgvector** → búsqueda semántica (`crm_search` sobre documentos).
