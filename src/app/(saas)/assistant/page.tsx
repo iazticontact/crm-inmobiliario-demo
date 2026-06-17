@@ -10,7 +10,8 @@ import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
 import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
-import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 import {
@@ -1012,7 +1013,11 @@ function safeErrorMessage(error: unknown) {
 }
 
 export default function AssistantPage() {
-  const { currentUser, isLoading: userLoading } = useCurrentUser()
+  // Identity from the shared S3 provider (already resolved at the authenticated
+  // layout, survives page navigation) instead of a per-mount useCurrentUser
+  // chain. Entering /assistant gets workspaceId synchronously — no extra
+  // getUser tick — and avoids a second onAuthStateChange subscription here.
+  const { currentUser, isLoading: userLoading } = useWorkspaceIdentity()
   const userWorkspaceId = currentUser.workspaceId
   const [assistantReady, setAssistantReady] = useState(false)
   const [conversationList, setConversationList] = useState<Conversation[]>([])
@@ -1061,6 +1066,9 @@ export default function AssistantPage() {
   const [editDraft, setEditDraft] = useState<Record<string, string>>({})
   const [diagnostics, setDiagnostics] = useState<PersistenceDiagnostics>(initialDiagnostics)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  // Tracks which workspace the thread list was loaded for, so auth events
+  // (token refresh / tab focus) that re-toggle identity don't re-fetch threads.
+  const loadedWorkspaceKeyRef = useRef<string | null>(null)
   const activeQuickPrompts = assistantMode === 'inbox' ? inboxManualPrompts : quickPromptsByMode[assistantMode]
 
   const updateDiagnostics = useCallback((patch: Partial<PersistenceDiagnostics>) => {
@@ -1069,12 +1077,14 @@ export default function AssistantPage() {
 
   const loadConversations = useCallback(async (options?: { silent?: boolean }) => {
     if (userLoading) return
-    // Silent refresh (after creating/resolving a conversation) updates the
-    // thread list in place WITHOUT flipping the whole page back to the
-    // full-screen loader — keeps the assistant fluid instead of flashing.
+    // The full-screen loader (gated on `assistantReady`) is a ONE-TIME latch:
+    // it only shows before the first successful load. We never set
+    // `assistantReady` back to false, so a background refresh (token refresh,
+    // create/resolve, workspace change) updates the thread list in place
+    // instead of flashing the whole page back to "Preparando el Asistente IA".
+    // `silent` additionally skips the local thread-list spinner.
     if (!options?.silent) {
       setLoadingConversations(true)
-      setAssistantReady(false)
     }
     try {
       if (OFFLINE_FORCE_DEV) {
@@ -1260,11 +1270,15 @@ export default function AssistantPage() {
   }, [updateDiagnostics, userLoading, userWorkspaceId])
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadConversations()
-    }, 0)
-    return () => window.clearTimeout(timeout)
-  }, [loadConversations])
+    if (userLoading) return
+    // Load the thread list once per workspace. Auth events toggle userLoading
+    // and change loadConversations' identity, but they must NOT re-fetch every
+    // thread or re-show the loader — only an actual workspace change reloads.
+    const key = userWorkspaceId ?? 'no-workspace'
+    if (loadedWorkspaceKeyRef.current === key) return
+    loadedWorkspaceKeyRef.current = key
+    void loadConversations()
+  }, [userLoading, userWorkspaceId, loadConversations])
 
   const modeConversations = useMemo(
     () => conversationList.filter((conversation) => (conversation.assistantMode ?? 'inbox') === assistantMode),
@@ -1345,6 +1359,10 @@ export default function AssistantPage() {
 
   useEffect(() => {
     if (!workspaceId) return
+    // Inbox/WhatsApp settings only matter in inbox mode (operator-only). Don't
+    // fetch them on every copilot entry — that's the client-facing default and
+    // these two reads were pure overhead there.
+    if (assistantMode !== 'inbox') return
     void Promise.all([
       getInboxAgentSettings(workspaceId).catch(() => null),
       getWhatsappConnection(workspaceId).catch(() => null),
@@ -1354,7 +1372,7 @@ export default function AssistantPage() {
       setWaStatus(resolvedWaStatus)
       setWaConnected(resolvedWaStatus === 'connected')
     })
-  }, [workspaceId])
+  }, [workspaceId, assistantMode])
 
   const filteredConvs = modeConversations.filter((conversation) => !convSearch || conversation.clientName.toLowerCase().includes(convSearch.toLowerCase()))
   const averageLeadScore = Math.round((modeConversations.reduce((sum, conversation) => sum + (leadScores[conversation.id] ?? 70), 0) / Math.max(modeConversations.length, 1)))
