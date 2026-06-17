@@ -178,3 +178,61 @@ fecha), campo null = "No consta", NUNCA muestra UUID ni "score".
 > exactos, y `get_client_context` devuelve el perfil completo real (operaciones/
 > expedientes/tareas/citas/actividad). Ver
 > `PHASE_S8_ASSISTANT_CRM_FULL_DATA_COVERAGE_REPORT.md`.
+
+---
+
+## S9 — Campos personalizados (DNI/metadata), memoria contextual y cliente nuevo (2026-06-17)
+Transversal: SÍ tiene acceso vía tools (PROHIBIDO "no tengo acceso directo");
+lee campos personalizados (metadata: DNI/dirección/zona…); recuerda el cliente
+activo del hilo; nunca inventa; nunca UUID/score.
+
+### Bug real reproducido (obligatorio PASA)
+| # | Turno | Esperado |
+|---|---|---|
+| S9-1 | "Hay un nuevo cliente que he registrado. ¿Cuál es?" | get_latest_client → "El último cliente registrado es Oier Duñabeitia Berezo…" y queda como cliente activo |
+| S9-2 | "Necesito su DNI para emitir una factura." | get_client_field_exact(field=dni, client_id=activo) → "El DNI/NIF de Oier Duñabeitia Berezo es [DNI real del cliente]" (lee metadata.document_id) |
+| S9-3 | "Si lo tienes porque lo he metido antes a mano. ¿No tienes acceso a ese campo?" | NO dice "no tengo acceso"; confirma que lo leyó de la ficha |
+| S9-4 | "Pásame la ficha completa de este cliente." | get_client_context(client_id=activo) — NO pregunta "¿a qué cliente?" |
+| S9-5 | "De Oier Duñabeitia si te acabo de decir que es el último." | usa cliente activo; no se reinicia |
+
+### Campos exactos (metadata + columnas)
+| # | Pregunta | Tool | Esperado |
+|---|---|---|---|
+| S9-6 | "¿Cuál es su DNI?" (con activo) | get_client_field_exact(dni) | valor metadata.document_id o "No consta DNI/NIF/CIF registrado" |
+| S9-7 | "Dame el NIF de [cliente]" | get_client_field_exact(nif) | igual que DNI (mismos aliases) |
+| S9-8 | "¿Qué dirección tiene registrada?" | get_client_field_exact(direccion) | metadata.address o "No consta" |
+| S9-9 | "¿De qué zona es?" | get_client_field_exact(zona) | metadata.city_area o "No consta" |
+| S9-10 | "¿Qué nacionalidad consta?" | get_client_field_exact(nacionalidad) | metadata.nationality o "No consta" |
+| S9-11 | "¿Cuál es su email?" | get_client_field_exact(email) | columna email exacta |
+| S9-12 | "¿Y su teléfono?" | get_client_field_exact(telefono) | columna phone exacta |
+| S9-13 | "Pásame su ficha completa" | get_client_context | contacto + DNI/dirección/zona + operaciones/expedientes/tareas/citas |
+| S9-14 | DNI de cliente que NO lo tiene | get_client_field_exact(dni) | "No consta DNI/NIF/CIF registrado de X" (tras comprobar) |
+| S9-15 | "su DNI" sin cliente activo ni nombre | — | pide a qué cliente (no inventa) |
+
+### Memoria contextual del hilo
+| # | Secuencia | Esperado |
+|---|---|---|
+| S9-16 | "Busca a Oier" → "su email" | 2º turno usa el cliente activo |
+| S9-17 | "ficha de [A]" → "y sus tareas" | tareas de A |
+| S9-18 | "[A]…" → "ahora [B]" → "su DNI" | DNI de B (cliente activo actualizado) |
+| S9-19 | "este cliente" sin contexto previo | pide aclaración |
+
+### Cliente nuevo / recientes
+| # | Pregunta | Tool | Esperado |
+|---|---|---|---|
+| S9-20 | "el último cliente" | get_latest_client | el más reciente real |
+| S9-21 | "los últimos 5 clientes" | get_latest_client(limit=5) | 5 más recientes |
+| S9-22 | "el cliente que acabo de crear" | get_latest_client | el más reciente, queda activo |
+
+### Documentos (honesto)
+| # | Pregunta | Esperado |
+|---|---|---|
+| S9-23 | "léeme el PDF / el contrato de X" | "guarda documentos pero no indexa su texto todavía" — NO finge leerlo |
+| S9-24 | "¿puedo facturar desde aquí?" | "fase futura, no activo" |
+
+> Causa raíz S9: (1) las tools de cliente no seleccionaban `metadata`, donde vive
+> el DNI (`metadata.document_id`) → el modelo nunca lo recibía; (2) el "nuevo
+> cliente" se respondía con una tool de lista que no fijaba cliente activo →
+> contexto perdido. Corregido: metadata en selects + get_client_field_exact +
+> get_latest_client (fija activo) + prompt anti-"no tengo acceso". Ver
+> `PHASE_S9_ASSISTANT_PRO_360_FIELD_MEMORY_TOOL_SUITE_REPORT.md`.

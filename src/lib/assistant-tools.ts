@@ -3,7 +3,83 @@
 // Never uses getSupabaseBrowserClient — that's browser-only.
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
+const CLIENT_COLUMNS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, metadata, created_at, updated_at'
+
+// Business/fiscal/custom fields the user can enter in the client form live in
+// clients.metadata (jsonb) — e.g. document_id (DNI/NIF), address, city_area.
+// These maps let the assistant read them and answer exact-field questions
+// ("¿cuál es su DNI?") without dumping raw JSON or technical keys.
+//
+// Each canonical field lists the metadata keys (and dedicated columns) to probe,
+// in priority order, plus a human label. Accent-insensitive aliases route a user
+// request ("dni", "nif", "correo"…) to the canonical field.
+type FieldSpec = { label: string; columns?: string[]; metaKeys: string[] }
+const CLIENT_FIELD_SPECS: Record<string, FieldSpec> = {
+  document: { label: 'DNI/NIF/CIF', metaKeys: ['document_id', 'dni', 'nif', 'cif', 'nie', 'tax_id', 'fiscal_id', 'vat_id', 'document_number', 'id_number', 'national_id', 'documento'] },
+  email: { label: 'Email', columns: ['email'], metaKeys: ['email', 'correo', 'mail'] },
+  phone: { label: 'Teléfono', columns: ['phone'], metaKeys: ['phone', 'telefono', 'movil', 'mobile', 'whatsapp'] },
+  company: { label: 'Empresa', columns: ['company'], metaKeys: ['company', 'empresa'] },
+  address: { label: 'Dirección', metaKeys: ['address', 'direccion'] },
+  area: { label: 'Zona', metaKeys: ['city_area', 'zona', 'area', 'preferred_area', 'city', 'ciudad'] },
+  budget: { label: 'Presupuesto', metaKeys: ['budget', 'presupuesto'] },
+  nationality: { label: 'Nacionalidad', metaKeys: ['nationality', 'nacionalidad'] },
+  language: { label: 'Idioma', metaKeys: ['preferred_language', 'idioma', 'language'] },
+  client_type: { label: 'Tipo de cliente', metaKeys: ['client_type', 'tipo'] },
+}
+// Free-text request → canonical field key.
+const FIELD_ALIASES: Record<string, string> = {
+  dni: 'document', nif: 'document', cif: 'document', nie: 'document', documento: 'document', 'tax id': 'document', 'numero fiscal': 'document', fiscal: 'document', identificacion: 'document',
+  email: 'email', correo: 'email', mail: 'email', 'e-mail': 'email',
+  telefono: 'phone', tel: 'phone', movil: 'phone', whatsapp: 'phone', numero: 'phone', contacto: 'phone',
+  empresa: 'company', company: 'company',
+  direccion: 'address', domicilio: 'address',
+  zona: 'area', area: 'area', ciudad: 'area', poblacion: 'area',
+  presupuesto: 'budget', budget: 'budget',
+  nacionalidad: 'nationality',
+  idioma: 'language', lengua: 'language',
+  tipo: 'client_type',
+}
+
+function normalizeKey(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+}
+
+function asMetadata(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+// Resolve a canonical field value from a client row (dedicated column first, then
+// metadata keys). Returns { label, value } or null if not present anywhere.
+function resolveClientField(clientRow: Row, canonical: string): { label: string; value: string } | null {
+  const spec = CLIENT_FIELD_SPECS[canonical]
+  if (!spec) return null
+  for (const col of spec.columns ?? []) {
+    if (hasValue(clientRow[col])) return { label: spec.label, value: String(clientRow[col]) }
+  }
+  const meta = asMetadata(clientRow.metadata)
+  const metaByNorm: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(meta)) metaByNorm[normalizeKey(k)] = v
+  for (const key of spec.metaKeys) {
+    const v = metaByNorm[normalizeKey(key)]
+    if (hasValue(v)) return { label: spec.label, value: String(v) }
+  }
+  return null
+}
+
+// Human-readable lines for the business-relevant metadata of a client (skips
+// technical/internal keys). Used in the full profile so DNI/dirección/zona show up.
+function describeClientMetadata(clientRow: Row): string[] {
+  const lines: string[] = []
+  const seen = new Set<string>()
+  for (const canonical of ['document', 'address', 'area', 'budget', 'nationality', 'language', 'client_type']) {
+    const found = resolveClientField(clientRow, canonical)
+    if (found && !seen.has(found.label)) {
+      lines.push(`${found.label}: ${found.value}`)
+      seen.add(found.label)
+    }
+  }
+  return lines
+}
 
 export type ToolResult = {
   text: string
@@ -189,6 +265,8 @@ export async function toolGetClientContext(
     `Estado: ${show(clientRow.status)} · Canal: ${show(clientRow.channel)}`,
     `Email: ${show(clientRow.email)} · Teléfono: ${show(clientRow.phone)}`,
   ]
+  // Business/fiscal/custom fields from metadata (DNI/NIF, dirección, zona…).
+  for (const metaLine of describeClientMetadata(clientRow)) lines.push(metaLine)
   if (hasValue(clientRow.notes)) lines.push(`Notas: ${String(clientRow.notes)}`)
 
   lines.push(
@@ -224,6 +302,80 @@ export async function toolGetClientContext(
       activities: actRows,
     },
     referencedClientId: id,
+    referencedClientName: name,
+  }
+}
+
+// 4b. Latest registered client(s) — "nuevo cliente", "último cliente registrado".
+//     Returns the single newest as the ACTIVE entity (referencedClientId) so the
+//     thread remembers it for follow-ups ("su DNI", "este cliente").
+export async function toolGetLatestClient(supabase: SupabaseClient, workspaceId: string, limit = 1): Promise<ToolResult> {
+  const n = Math.max(1, Math.min(limit, 10))
+  const { data } = await supabase
+    .from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false }).limit(n)
+  const rows = (data ?? []) as Row[]
+  if (!rows.length) return { text: 'Aún no hay clientes registrados en el workspace.', data: [], referencedList: [] }
+  const top = rows[0]
+  if (n === 1) {
+    return {
+      text: `El último cliente registrado es ${fmtClient(top)}.`,
+      data: top,
+      referencedClientId: String(top.id),
+      referencedClientName: String(top.name),
+      referencedList: rows,
+    }
+  }
+  return {
+    text: `Últimos ${rows.length} clientes registrados:\n${rows.map((c, i) => fmtClient(c, i)).join('\n')}`,
+    data: rows,
+    referencedClientId: String(top.id),
+    referencedClientName: String(top.name),
+    referencedList: rows,
+  }
+}
+
+// 4c. Exact field retrieval ("¿cuál es su DNI?", "dame el email de X"). Resolves
+//     the client (id or name) then the requested field via aliases across
+//     dedicated columns + metadata. Returns the exact value or a clear "No consta".
+export async function toolGetClientFieldExact(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  opts: { clientId?: string; clientName?: string; field: string }
+): Promise<ToolResult> {
+  const req = normalizeKey(opts.field || '')
+  const canonical = FIELD_ALIASES[req] ?? (CLIENT_FIELD_SPECS[req] ? req : '')
+
+  let clientRow: Row | null = null
+  let candidates: Row[] = []
+  if (opts.clientId) {
+    const { data } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId).eq('id', opts.clientId).maybeSingle()
+    clientRow = data as Row | null
+  } else if (opts.clientName) {
+    const { data } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('workspace_id', workspaceId)
+      .or(`name.ilike.%${opts.clientName}%,company.ilike.%${opts.clientName}%`).limit(5)
+    candidates = (data ?? []) as Row[]
+    if (candidates.length === 1) clientRow = candidates[0]
+  }
+
+  if (!clientRow) {
+    if (candidates.length > 1) {
+      return { text: `Hay ${candidates.length} clientes que coinciden:\n${candidates.map((c, i) => fmtClient(c, i)).join('\n')}\n¿De cuál necesitas el dato?`, data: candidates, referencedList: candidates }
+    }
+    return { text: 'No encontré ese cliente. Dime el nombre completo o el email.', data: null }
+  }
+
+  const name = String(clientRow.name)
+  if (!canonical) {
+    return { text: `Cliente ${name}. Dime qué campo necesitas (DNI/NIF, email, teléfono, dirección, zona…).`, data: clientRow, referencedClientId: String(clientRow.id), referencedClientName: name }
+  }
+
+  const found = resolveClientField(clientRow, canonical)
+  const label = CLIENT_FIELD_SPECS[canonical]?.label ?? canonical
+  return {
+    text: found ? `${label} de ${name}: ${found.value}` : `No consta ${label} registrado de ${name}.`,
+    data: { client_name: name, field: label, value: found?.value ?? null, found: Boolean(found) },
+    referencedClientId: String(clientRow.id),
     referencedClientName: name,
   }
 }

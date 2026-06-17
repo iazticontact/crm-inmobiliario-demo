@@ -5,6 +5,8 @@ import {
   toolListClients,
   toolHotLeads,
   toolGetClientContext,
+  toolGetLatestClient,
+  toolGetClientFieldExact,
   toolCrmOverview,
   toolPendingInvoices,
   toolOverdueInvoices,
@@ -43,7 +45,7 @@ const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini'
 const MAX_ROUNDS = 4
 const RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const TIMEOUT_MS = 28_000
-const CLIENT_COLS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, created_at'
+const CLIENT_COLS = 'id, workspace_id, name, company, email, phone, channel, status, lead_score, notes, metadata, created_at, updated_at'
 
 // Serialize a tool's structured result so the MODEL can read exact field values
 // (email, phone, stage, due_date…) and not just the human-readable summary. The
@@ -377,6 +379,30 @@ const TOOLS = [
         client_name: { type: 'string', description: 'Nombre del cliente' },
       },
       required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_latest_client',
+    description: 'El/los cliente(s) registrados más recientemente (orden por fecha de alta, descendente). Úsala para "el nuevo cliente", "el último cliente", "el cliente que acabo de crear/registrar", "el más reciente". Devuelve el más nuevo y lo fija como cliente activo del hilo.',
+    parameters: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'Cuántos devolver (por defecto 1).' } },
+      required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_client_field_exact',
+    description: 'Devuelve un campo concreto de un cliente con su valor EXACTO: DNI/NIF/CIF, email, teléfono, empresa, dirección, zona, presupuesto, nacionalidad, idioma. Busca en columnas y en los campos personalizados (metadata, p. ej. el DNI guardado al crear el cliente). Úsala para "¿cuál es su DNI?", "necesito el NIF de X", "dame el email/teléfono de X". Si hay cliente activo en el hilo, pásalo como client_id. Si el campo no existe responde que no consta; NUNCA lo inventes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'UUID del cliente activo si lo tienes (preferido)' },
+        client_name: { type: 'string', description: 'Nombre del cliente si no hay client_id' },
+        field: { type: 'string', description: 'Campo pedido: dni, nif, cif, email, telefono, empresa, direccion, zona, presupuesto, nacionalidad, idioma' },
+      },
+      required: ['field'],
     },
   },
   {
@@ -867,11 +893,12 @@ MAPA RÁPIDO DE TOOLS:
 - "qué propiedades activas" → list_properties
 - "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads
 - "datos de X" / "quién es X" / "resume a X" / "ficha de X" / "perfil de X" → get_client_context(client_name=X) (devuelve datos básicos + operaciones + expedientes + tareas + citas + actividad del cliente)
-- "email de X" / "correo de X" / "teléfono de X" / "móvil de X" / "contacto de X" → get_client_context(client_name=X) y responde el campo EXACTO del JSON (Email/Teléfono). Si el campo está vacío/null → "No consta [email/teléfono] registrado de X". NUNCA inventes un email ni un teléfono.
+- "el nuevo cliente" / "el último cliente" / "el cliente que acabo de crear/registrar" / "el más reciente" → get_latest_client (devuelve el más nuevo y lo deja como CLIENTE ACTIVO del hilo)
+- "email de X" / "correo de X" / "teléfono de X" / "móvil de X" / "DNI de X" / "NIF de X" / "CIF de X" / "su DNI" / "su email" / "su teléfono" → get_client_field_exact(field=..., client_id=ID del CLIENTE ACTIVO si lo hay, si no client_name=X). Responde el valor EXACTO; si no consta, dilo; NUNCA lo inventes. (El DNI/NIF puede estar en campos personalizados — la tool ya los mira.)
 - "qué operaciones/expedientes/tareas/citas tiene X" → get_client_context(client_name=X) (ya trae esas listas del cliente)
 - "busca a X" / "encuentra X" / "localiza X" → search_clients
-- "el primero" / "el quinto" / "el último" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
-- "sus datos" / "ese cliente" / "el anterior" → get_client_context con el ID del CLIENTE ACTIVO
+- "el primero" / "el quinto" / "el último de la lista" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
+- "sus datos" / "ese cliente" / "este cliente" / "él" / "ella" / "el anterior" / "el mismo" → usa el CLIENTE ACTIVO del hilo (get_client_context o get_client_field_exact con su client_id). NO preguntes "¿a qué cliente?" si hay cliente activo.
 - "facturas pendientes" → pending_invoices
 - "facturas vencidas" / "impagos" → overdue_invoices
 - "tareas pendientes" → pending_tasks
@@ -887,9 +914,12 @@ MAPA RÁPIDO DE TOOLS:
 REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
 
 INTEGRIDAD DE DATOS (obligatorio):
-- Para CUALQUIER dato real del CRM (clientes, emails, teléfonos, operaciones, expedientes, tareas, citas, actividad, propiedades) DEBES llamar una tool antes de responder. Nunca respondas de memoria ni supongas.
-- Usa los valores EXACTOS del JSON que devuelve la tool. Si un campo no aparece o es null/"No consta", dilo: "No consta ... registrado". NUNCA inventes emails, teléfonos, NIF, importes ni fechas.
-- NUNCA muestres al usuario IDs/UUIDs internos ni el "lead score"/"score" (es interno). Habla en lenguaje natural.
+- Para CUALQUIER dato real del CRM (clientes, emails, teléfonos, DNI/NIF/CIF, operaciones, expedientes, tareas, citas, actividad, propiedades) DEBES llamar una tool antes de responder. Nunca respondas de memoria ni supongas.
+- SÍ TIENES ACCESO al CRM mediante tools. PROHIBIDO decir "no tengo acceso directo a los datos", "no puedo acceder al CRM" o pedir el nombre cuando ya hay un cliente activo. Si necesitas comprobar algo, llama la tool y luego responde (p. ej. "Lo reviso en su ficha…").
+- El DNI/NIF/CIF y otros campos (dirección, zona, nacionalidad…) pueden estar en los campos personalizados del cliente; get_client_field_exact y get_client_context ya los leen. Antes de decir que un dato "no consta", úsalas. Solo di "No consta [campo] registrado" DESPUÉS de comprobarlo con la tool.
+- Usa los valores EXACTOS del JSON que devuelve la tool. NUNCA inventes emails, teléfonos, DNI/NIF, importes ni fechas.
+- NUNCA muestres al usuario IDs/UUIDs internos, workspace_id ni el "lead score"/"score" (es interno). Habla en lenguaje natural.
+- Mantén el CLIENTE ACTIVO del hilo: si acabas de hablar de un cliente (p. ej. el último registrado), "su DNI", "este cliente", "él/ella" se refieren a ÉL. No vuelvas a preguntar a quién se refiere si está claro por el contexto.
 - Si la búsqueda devuelve varios candidatos, lista nombres (sin datos sensibles de más) y pide cuál; si pide "uno al azar", elige uno REAL de los resultados.
 Para prepare_booking/task/invoice: extraigo TODOS los datos posibles del mensaje. "mañana" = fecha de mañana. "a las 12" = 12:00. Si falta dato, lo indico en la respuesta — no me bloqueo.
 Para select_client_by_ordinal: índice 0-based (primero=0, quinto=4, último=N-1).
@@ -1181,6 +1211,20 @@ async function runTool(
     case 'get_client_context': {
       const res = await toolGetClientContext(supabase, workspaceId, args.client_id as string | undefined, args.client_name as string | undefined)
       return { text: res.text, data: res.data, clientId: res.referencedClientId, clientName: res.referencedClientName }
+    }
+
+    case 'get_latest_client': {
+      const res = await toolGetLatestClient(supabase, workspaceId, typeof args.limit === 'number' ? args.limit : 1)
+      return { text: res.text, data: res.data, clientId: res.referencedClientId, clientName: res.referencedClientName, referencedList: res.referencedList as Row[] | undefined }
+    }
+
+    case 'get_client_field_exact': {
+      const res = await toolGetClientFieldExact(supabase, workspaceId, {
+        clientId: args.client_id as string | undefined,
+        clientName: args.client_name as string | undefined,
+        field: String(args.field ?? ''),
+      })
+      return { text: res.text, data: res.data, clientId: res.referencedClientId, clientName: res.referencedClientName, referencedList: res.referencedList as Row[] | undefined }
     }
 
     case 'crm_overview': {
