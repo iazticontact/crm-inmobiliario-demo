@@ -3064,13 +3064,31 @@ export default function AssistantPage() {
             <div key={item} className="h-20 animate-pulse rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white" />
           ))}
         </div>
-        <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-gray-200/70 bg-white shadow-lg shadow-gray-950/[0.045]">
-          <div className="max-w-sm text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
-              <Loader2 className="h-5 w-5 animate-spin" />
+        {/* Chat-shaped shell skeleton: shows the assistant's real structure
+            (thread list + conversation + composer) instantly while threads load,
+            instead of a blank centred spinner. Purely presentational. */}
+        <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+          <div className="space-y-3 rounded-2xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.02]">
+            <div className="h-9 w-full animate-pulse rounded-xl bg-slate-100" />
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="space-y-2 rounded-xl border border-gray-100 p-3">
+                <div className="h-3 w-3/4 animate-pulse rounded-full bg-slate-200/80" />
+                <div className="h-2.5 w-1/2 animate-pulse rounded-full bg-slate-100" />
+              </div>
+            ))}
+          </div>
+          <div className="flex min-h-[560px] flex-col justify-between rounded-2xl border border-gray-200/70 bg-white p-5 shadow-lg shadow-gray-950/[0.045]">
+            <div className="space-y-4">
+              <div className="h-3 w-1/3 animate-pulse rounded-full bg-slate-200/80" />
+              <div className="ml-auto h-16 w-2/3 animate-pulse rounded-2xl bg-slate-100" />
+              <div className="h-20 w-3/4 animate-pulse rounded-2xl bg-slate-100" />
+              <div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-slate-100" />
+              <div className="h-16 w-2/3 animate-pulse rounded-2xl bg-slate-100" />
             </div>
-            <p className="text-sm font-semibold text-gray-950">Preparando el Asistente IA...</p>
-            <p className="mt-1 text-xs leading-5 text-gray-500">Cargando workspace, conversaciones y herramientas del CRM.</p>
+            <div className="mt-4 flex items-center gap-2">
+              <div className="h-12 flex-1 animate-pulse rounded-xl bg-slate-100" />
+              <div className="h-12 w-12 animate-pulse rounded-xl bg-indigo-100" />
+            </div>
           </div>
         </div>
       </motion.div>

@@ -63,6 +63,10 @@ entrada. Carga perezosa al cambiar a inbox.
 ## 4. Cambios en loading states (FASE C)
 - `assistantReady` → **solo primer mount** (latch). Nunca pantalla completa en
   acciones internas.
+- **Shell skeleton** en lugar del spinner centrado: el loader inicial ahora pinta
+  la **estructura real** del Asistente (columna de hilos + conversación +
+  composer) con `animate-pulse`, así entrar/re-entrar se siente instantáneo y
+  premium en vez de "pantalla de carga". Puramente presentacional (sin datos).
 - Lista de hilos: `loadingConversations` (spinner local) en cargas no
   silenciosas; `silent` lo omite (S4) para crear/resolver.
 - Mensajes: `loadingMessages` (local, en el área de chat) solo del hilo activo.
