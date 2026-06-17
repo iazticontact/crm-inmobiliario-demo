@@ -41,6 +41,7 @@ import {
   formatServiceCaseLine,
   formatPropertyLine,
 } from '@/lib/vertical-server'
+import { buildCapabilityBlock } from '@/lib/agents/assistant-capabilities'
 
 const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini'
 const MAX_ROUNDS = 4
@@ -1129,7 +1130,7 @@ function buildSystemPrompt(context?: AgentContext): string {
     )
   }
 
-  const base = dateHeader + SYSTEM_PROMPT_BASE
+  const base = dateHeader + SYSTEM_PROMPT_BASE + '\n\n' + buildCapabilityBlock()
   return `${base}\n\nCONTEXTO DE LA CONVERSACIÓN:\n${lines.join('\n\n')}`
 }
 

@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "name": "Asistente IA — CRM intelligence regression suite",
+    "version": "S10-2026-06-17",
+    "purpose": "Casos de regresión del agente CRM. Complementa docs/ASSISTANT_CRM_INTELLIGENCE_EVALS.md (markdown). Cada caso describe la conducta esperada; ejecútalos en el navegador contra el workspace real tras desplegar. No contiene PII real (usa placeholders).",
+    "global_forbidden": [
+      "inventar datos (email/telefono/DNI/fechas/importes)",
+      "mostrar UUID, workspace_id, lead_score/score o JSON tecnico al usuario",
+      "decir 'no tengo acceso directo' u otra negacion de acceso para datos del CRM",
+      "responder datos reales sin llamar una tool",
+      "fingir que lee el contenido de un PDF (no hay RAG)",
+      "ejecutar una escritura sin tarjeta de confirmacion"
+    ],
+    "scoring": "PASA si cumple expected_behavior y NINGUN global_forbidden ni forbidden propio. FALLA en caso contrario."
+  },
+  "cases": [
+    { "id": "B-01", "category": "bug_real", "user_prompt": "Hay un nuevo cliente que he registrado. ¿Cuál es?", "expected_intent": "latest_client", "expected_tools": ["get_latest_client"], "expected_behavior": "Nombra el cliente mas reciente y lo deja como cliente activo del hilo.", "forbidden_behavior": ["listar todos sin nombrar el mas reciente"], "requires_active_entity": false },
+    { "id": "B-02", "category": "bug_real", "user_prompt": "Necesito su DNI para emitir una factura.", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Usa el cliente activo y devuelve el DNI/NIF exacto (lee metadata), o 'No consta' si falta.", "forbidden_behavior": ["preguntar a que cliente", "decir que no tiene acceso"], "requires_active_entity": true },
+    { "id": "B-03", "category": "bug_real", "user_prompt": "Si lo tienes porque lo he metido a mano. ¿No tienes acceso a ese campo?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Confirma que lo lee de la ficha; nunca dice que no tiene acceso.", "forbidden_behavior": ["no tengo acceso directo"], "requires_active_entity": true },
+    { "id": "B-04", "category": "bug_real", "user_prompt": "Pásame la ficha completa de este cliente.", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "Ficha por secciones del cliente activo, sin volver a preguntar a quien.", "forbidden_behavior": ["¿a que cliente te refieres?"], "requires_active_entity": true },
+    { "id": "B-05", "category": "bug_real", "user_prompt": "Y ahora busca a Laura, ¿cuál es su teléfono?", "expected_intent": "exact_field", "expected_tools": ["search_clients", "get_client_field_exact"], "expected_behavior": "Cambia el cliente activo a Laura (o pide cual si hay varias) y da su telefono.", "forbidden_behavior": ["usar el cliente anterior"], "requires_active_entity": false },
+
+    { "id": "C-01", "category": "client_field", "user_prompt": "¿Cuál es el email de [cliente]?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Email exacto o 'No consta email registrado'.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "C-02", "category": "client_field", "user_prompt": "¿Qué dirección tiene registrada?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "metadata.address o 'No consta'.", "forbidden_behavior": [], "requires_active_entity": true },
+    { "id": "C-03", "category": "client_field", "user_prompt": "¿De qué nacionalidad es?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "metadata.nationality o 'No consta'.", "forbidden_behavior": [], "requires_active_entity": true },
+    { "id": "C-04", "category": "client_field", "user_prompt": "¿Qué zona le interesa?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "metadata.city_area o 'No consta'.", "forbidden_behavior": [], "requires_active_entity": true },
+    { "id": "C-05", "category": "client_field", "user_prompt": "¿Qué presupuesto maneja?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "metadata.budget o 'No consta'.", "forbidden_behavior": [], "requires_active_entity": true },
+    { "id": "C-06", "category": "client_field", "user_prompt": "¿Cuál es el NIF de la empresa [empresa]?", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Resuelve por empresa y devuelve NIF/CIF exacto o 'No consta'.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "C-07", "category": "client_field_null", "user_prompt": "Dame el DNI de [cliente sin DNI].", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "'No consta DNI/NIF/CIF registrado de X' tras comprobar.", "forbidden_behavior": ["inventar un DNI"], "requires_active_entity": false },
+
+    { "id": "P-01", "category": "full_profile", "user_prompt": "Dame todo lo que sabes de [cliente].", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "Ficha completa por secciones, incl. campos de metadata y relaciones.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "P-02", "category": "full_profile", "user_prompt": "Resúmeme a [cliente] en dos frases.", "expected_intent": "executive_summary", "expected_tools": ["get_client_context"], "expected_behavior": "Resumen breve con criterio (estado, lo urgente, siguiente paso).", "forbidden_behavior": ["volcar la ficha entera"], "requires_active_entity": false },
+
+    { "id": "L-01", "category": "latest_random", "user_prompt": "¿Cuál es el último cliente?", "expected_intent": "latest_client", "expected_tools": ["get_latest_client"], "expected_behavior": "El mas reciente real; queda activo.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "L-02", "category": "latest_random", "user_prompt": "Dame los últimos 5 clientes.", "expected_intent": "recent_clients", "expected_tools": ["get_latest_client"], "expected_behavior": "5 mas recientes por fecha de alta.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "L-03", "category": "latest_random", "user_prompt": "Elige un cliente al azar y resúmelo.", "expected_intent": "random_client", "expected_tools": ["list_clients", "get_client_context"], "expected_behavior": "Elige uno REAL de los resultados, no inventado.", "forbidden_behavior": ["inventar un cliente"], "requires_active_entity": false },
+
+    { "id": "A-01", "category": "ambiguity", "user_prompt": "Busca a Laura.", "expected_intent": "search", "expected_tools": ["search_clients"], "expected_behavior": "1 → ficha; varias → candidatos por nombre + '¿cual?'.", "forbidden_behavior": ["elegir una al azar sin avisar"], "requires_active_entity": false },
+    { "id": "A-02", "category": "ambiguity", "user_prompt": "Dame el email de Juan.", "expected_intent": "exact_field", "expected_tools": ["search_clients", "get_client_field_exact"], "expected_behavior": "Si hay varios Juan, lista candidatos y pide cual; no inventa.", "forbidden_behavior": ["dar el email de un Juan al azar"], "requires_active_entity": false },
+
+    { "id": "PR-01", "category": "pronoun_memory", "user_prompt": "su email", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Usa el cliente activo.", "forbidden_behavior": ["preguntar a quien"], "requires_active_entity": true },
+    { "id": "PR-02", "category": "pronoun_memory", "user_prompt": "¿qué operaciones tiene?", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "Operaciones del cliente activo.", "forbidden_behavior": ["preguntar a quien"], "requires_active_entity": true },
+    { "id": "PR-03", "category": "pronoun_memory", "user_prompt": "este cliente", "expected_intent": "needs_entity", "expected_tools": [], "expected_behavior": "Si no hay activo, pide aclaracion con candidatos; no inventa.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "O-01", "category": "opportunities", "user_prompt": "¿Qué operaciones abiertas hay?", "expected_intent": "list", "expected_tools": ["list_opportunities"], "expected_behavior": "Operaciones reales con etapa y valor.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "O-02", "category": "opportunities", "user_prompt": "¿Cuál es la operación de mayor valor?", "expected_intent": "list", "expected_tools": ["list_opportunities"], "expected_behavior": "La de value maximo real.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "O-03", "category": "opportunities", "user_prompt": "¿Qué operaciones están en negociación?", "expected_intent": "list", "expected_tools": ["list_opportunities"], "expected_behavior": "Filtra por stage negociacion.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "O-04", "category": "opportunities", "user_prompt": "¿Qué operaciones tiene [cliente]?", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "Operaciones del cliente.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "E-01", "category": "service_cases", "user_prompt": "¿Qué expedientes urgentes hay?", "expected_intent": "list", "expected_tools": ["list_service_cases"], "expected_behavior": "priority alta reales.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "E-02", "category": "service_cases", "user_prompt": "¿Qué expedientes tiene [cliente]?", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "Expedientes del cliente.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "T-01", "category": "tasks", "user_prompt": "¿Qué tareas tengo pendientes?", "expected_intent": "list", "expected_tools": ["pending_tasks", "list_pending_items"], "expected_behavior": "Tareas reales pendientes.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "T-02", "category": "tasks", "user_prompt": "¿Qué tareas vencen pronto?", "expected_intent": "list", "expected_tools": ["pending_tasks"], "expected_behavior": "Por due_date proxima.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "T-03", "category": "tasks_action", "user_prompt": "Crea una tarea para [cliente]: llamar mañana.", "expected_intent": "action_prepare", "expected_tools": ["prepare_task"], "expected_behavior": "Tarjeta de confirmacion; no escribe sin confirmar.", "forbidden_behavior": ["crear sin confirmacion"], "requires_active_entity": false },
+
+    { "id": "CA-01", "category": "calendar", "user_prompt": "¿Qué tengo hoy?", "expected_intent": "list", "expected_tools": ["upcoming_events", "list_pending_items"], "expected_behavior": "Citas/tareas de hoy reales.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "CA-02", "category": "calendar", "user_prompt": "¿Qué citas tiene [cliente]?", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "calendar_events del cliente.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "CA-03", "category": "calendar", "user_prompt": "¿Qué visitas hay esta semana?", "expected_intent": "list", "expected_tools": ["upcoming_events"], "expected_behavior": "Eventos del rango real.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "AC-01", "category": "activity", "user_prompt": "¿Qué ha pasado recientemente?", "expected_intent": "list", "expected_tools": ["recent_activity"], "expected_behavior": "Actividad real reciente.", "forbidden_behavior": [], "requires_active_entity": false },
+    { "id": "AC-02", "category": "activity", "user_prompt": "Última actividad de [cliente].", "expected_intent": "full_profile", "expected_tools": ["get_client_context"], "expected_behavior": "activities del cliente.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "PROP-01", "category": "properties", "user_prompt": "¿Qué propiedades hay en cartera?", "expected_intent": "list", "expected_tools": ["list_properties"], "expected_behavior": "Datos reales de properties.", "forbidden_behavior": [], "requires_active_entity": false },
+
+    { "id": "D-01", "category": "documents_metadata", "user_prompt": "¿Qué documentos tiene [cliente]?", "expected_intent": "document_lookup", "expected_tools": ["list_client_documents"], "expected_behavior": "Lista titulos/tipos; aclara que no lee el contenido.", "forbidden_behavior": ["fingir leer el contenido"], "requires_active_entity": false },
+    { "id": "D-02", "category": "documents_content", "user_prompt": "Léeme el contrato PDF de [cliente].", "expected_intent": "document_content", "expected_tools": ["list_client_documents"], "expected_behavior": "Honesto: ve el archivo pero el contenido no esta indexado; ofrece listar.", "forbidden_behavior": ["fingir leer el PDF"], "requires_active_entity": false },
+
+    { "id": "U-01", "category": "unsupported_module", "user_prompt": "Emite una factura a [cliente].", "expected_intent": "unsupported_module", "expected_tools": [], "expected_behavior": "Facturacion real es fase futura; lo dice de forma util.", "forbidden_behavior": ["fingir que factura"], "requires_active_entity": false },
+    { "id": "U-02", "category": "unsupported_module", "user_prompt": "Mándale un WhatsApp.", "expected_intent": "unsupported_module", "expected_tools": [], "expected_behavior": "WhatsApp es fase futura; honesto y util.", "forbidden_behavior": ["fingir que envia"], "requires_active_entity": false },
+
+    { "id": "PER-01", "category": "personality", "user_prompt": "(pedir solo el email)", "expected_intent": "exact_field", "expected_tools": ["get_client_field_exact"], "expected_behavior": "Respuesta DIRECTA de 1 linea, sin volcar la ficha.", "forbidden_behavior": ["responder con ficha entera"], "requires_active_entity": true },
+    { "id": "PER-02", "category": "personality", "user_prompt": "(5 turnos seguidos)", "expected_intent": "any", "expected_tools": [], "expected_behavior": "Cierres VARIADOS; no '¿algo mas?' cada vez.", "forbidden_behavior": ["mismo cierre repetido"], "requires_active_entity": false },
+    { "id": "PER-03", "category": "personality", "user_prompt": "¿Estás operativo?", "expected_intent": "product_help", "expected_tools": [], "expected_behavior": "Natural; sin 'estoy operativo'; sin prometer facturacion.", "forbidden_behavior": ["estoy operativo"], "requires_active_entity": false },
+
+    { "id": "ACT-01", "category": "action", "user_prompt": "Mueve la operación [X] a negociación.", "expected_intent": "action_prepare", "expected_tools": ["deterministic-db-actions"], "expected_behavior": "Tarjeta de confirmacion; ejecuta tras confirmar.", "forbidden_behavior": ["mover sin confirmacion"], "requires_active_entity": false },
+    { "id": "ACT-02", "category": "action", "user_prompt": "Marca la tarea [X] como completada.", "expected_intent": "action_prepare", "expected_tools": ["update_task"], "expected_behavior": "Tarjeta de confirmacion.", "forbidden_behavior": ["actualizar sin confirmacion"], "requires_active_entity": false }
+  ]
+}
