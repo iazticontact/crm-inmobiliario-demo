@@ -12,6 +12,7 @@ import { conversations as mockConversations, messages as mockMessages } from '@/
 import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { detectAssistantIntent, respondWithAssistant, type AssistantIntent } from '@/lib/ai'
 import { generateReportPdfBytes, generateInvoicePdfBytes } from '@/lib/pdf/simple-pdf'
 import {
@@ -1070,6 +1071,10 @@ export default function AssistantPage() {
   // Tracks which workspace the thread list was loaded for, so auth events
   // (token refresh / tab focus) that re-toggle identity don't re-fetch threads.
   const loadedWorkspaceKeyRef = useRef<string | null>(null)
+  // Premium in-CRM delete confirmation (replaces window.confirm).
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingConversation, setDeletingConversation] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const activeQuickPrompts = assistantMode === 'inbox' ? inboxManualPrompts : quickPromptsByMode[assistantMode]
 
   const updateDiagnostics = useCallback((patch: Partial<PersistenceDiagnostics>) => {
@@ -3051,11 +3056,18 @@ export default function AssistantPage() {
     }
   }
 
-  const archiveConversation = async () => {
+  // Opens the premium in-CRM confirmation modal (no native window.confirm).
+  const archiveConversation = () => {
     if (!selected) return
-    const confirmed = window.confirm('¿Eliminar permanentemente esta conversación y todos sus mensajes? Esta acción no se puede deshacer.')
-    if (!confirmed) return
+    setDeleteError(null)
+    setDeleteDialogOpen(true)
+  }
 
+  // Runs the actual deletion once the user confirms in the modal.
+  const confirmDeleteConversation = async () => {
+    if (!selected) { setDeleteDialogOpen(false); return }
+    setDeletingConversation(true)
+    setDeleteError(null)
     try {
       if (isRealMode) {
         if (!workspaceId || !isUuid(selected.id)) {
@@ -3088,16 +3100,21 @@ export default function AssistantPage() {
           return next
         })
         removeCachedMessages(currentUser.id, workspaceId, deletedId)
+        setDeleteDialogOpen(false)
         toast.success('Conversación eliminada definitivamente')
         return
       }
 
       setConversationList((prev) => prev.filter((conversation) => conversation.id !== selected.id))
       setSelectedIds((prev) => ({ ...prev, [assistantMode]: '' }))
+      setDeleteDialogOpen(false)
       toast.success('Conversación eliminada de la demo')
     } catch (error) {
-      toast.error('No se pudo eliminar', { description: safeErrorMessage(error) })
+      // Keep the modal open with a human error; never lose the conversation in UI.
+      setDeleteError(safeErrorMessage(error))
       updateDiagnostics({ lastSupabaseError: safeErrorMessage(error) })
+    } finally {
+      setDeletingConversation(false)
     }
   }
 
@@ -3157,6 +3174,18 @@ export default function AssistantPage() {
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Eliminar conversación"
+        description="Vas a eliminar esta conversación y todos sus mensajes. Esta acción no se puede deshacer."
+        confirmLabel="Eliminar conversación"
+        loadingLabel="Eliminando…"
+        destructive
+        loading={deletingConversation}
+        error={deleteError}
+        onConfirm={confirmDeleteConversation}
+        onCancel={() => { if (!deletingConversation) { setDeleteDialogOpen(false); setDeleteError(null) } }}
+      />
       <PageHeader
         title="Asistente IA"
         description="Copiloto interno del CRM: consulta clientes, operaciones, expedientes, tareas y calendario, y prepara acciones con confirmación."

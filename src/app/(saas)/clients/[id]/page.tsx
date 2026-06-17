@@ -31,6 +31,7 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { PageSkeleton } from '@/components/PageSkeleton'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import {
   createActivity,
@@ -276,6 +277,9 @@ export default function ClientDetailPage() {
 
   const [documents, setDocuments] = useState<ClientDocument[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [docToDelete, setDocToDelete] = useState<ClientDocument | null>(null)
+  const [deletingDoc, setDeletingDoc] = useState(false)
+  const [docDeleteError, setDocDeleteError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -748,16 +752,26 @@ export default function ClientDetailPage() {
     }
   }
 
-  const handleDeleteDocument = async (doc: ClientDocument) => {
-    if (!confirm(`¿Eliminar el documento "${doc.title}"?`)) return
+  const handleDeleteDocument = (doc: ClientDocument) => {
+    setDocDeleteError(null)
+    setDocToDelete(doc)
+  }
+
+  const confirmDeleteDocument = async () => {
+    if (!docToDelete) return
+    setDeletingDoc(true)
+    setDocDeleteError(null)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents/${doc.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/clients/${clientId}/documents/${docToDelete.id}`, { method: 'DELETE' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || `Error ${res.status}`)
+      setDocToDelete(null)
       toast.success('Documento eliminado')
       await loadDocuments()
     } catch (error) {
-      toast.error('No se pudo eliminar el documento', { description: error instanceof Error ? error.message : '' })
+      setDocDeleteError(error instanceof Error ? error.message : 'No se pudo eliminar el documento.')
+    } finally {
+      setDeletingDoc(false)
     }
   }
 
@@ -884,6 +898,18 @@ export default function ClientDetailPage() {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
+      <ConfirmDialog
+        open={Boolean(docToDelete)}
+        title="Eliminar documento"
+        description={docToDelete ? `Vas a eliminar el documento "${docToDelete.title}". Esta acción no se puede deshacer.` : ''}
+        confirmLabel="Eliminar documento"
+        loadingLabel="Eliminando…"
+        destructive
+        loading={deletingDoc}
+        error={docDeleteError}
+        onConfirm={confirmDeleteDocument}
+        onCancel={() => { if (!deletingDoc) { setDocToDelete(null); setDocDeleteError(null) } }}
+      />
       <button onClick={() => router.push('/clients')} className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700">
         <ArrowLeft className="h-3.5 w-3.5" /> Volver a clientes
       </button>

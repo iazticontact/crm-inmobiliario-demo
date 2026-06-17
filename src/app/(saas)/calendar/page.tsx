@@ -6,6 +6,7 @@ import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRig
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Badge } from '@/components/Badge'
 import { calendarEvents as initialEvents } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
@@ -467,6 +468,7 @@ export default function CalendarPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<EventForm>(emptyEventForm)
   const [saving, setSaving] = useState(false)
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -1448,14 +1450,18 @@ export default function CalendarPage() {
     }
   }
 
-  const handleDelete = async () => {
+  // Opens the in-CRM confirmation modal (read-only events can't be cancelled here).
+  const requestDelete = () => {
     if (!form.id) return
     if (form.isReadOnly) {
       toast.info('Este evento es solo lectura', { description: 'Cancélalo desde Google Calendar — el CRM no puede modificarlo.' })
       return
     }
-    const confirmed = window.confirm(`Cancelar "${form.title || 'este evento'}"?`)
-    if (!confirmed) return
+    setCancelDialogOpen(true)
+  }
+
+  const handleDelete = async () => {
+    if (!form.id) return
     setDeleting(true)
     const idToCancel = form.id
     const title = form.title || 'Evento'
@@ -1516,6 +1522,7 @@ export default function CalendarPage() {
       toast.error('No se pudo cancelar el evento', { description: error instanceof Error ? error.message : 'Inténtalo de nuevo en unos segundos.' })
     } finally {
       setDeleting(false)
+      setCancelDialogOpen(false)
     }
   }
 
@@ -1583,6 +1590,18 @@ export default function CalendarPage() {
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
+      <ConfirmDialog
+        open={cancelDialogOpen}
+        title="Cancelar evento"
+        description={`Vas a cancelar "${form.title || 'este evento'}". Esta acción no se puede deshacer.`}
+        confirmLabel="Cancelar evento"
+        loadingLabel="Cancelando…"
+        cancelLabel="Volver"
+        destructive
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setCancelDialogOpen(false) }}
+      />
       <PageHeader
         title="Calendario"
         description={`${weekRangeLabel(weekStart)} · Visitas, citas y disponibilidad`}
@@ -2354,7 +2373,7 @@ export default function CalendarPage() {
 
               <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
                 {form.id && !form.isReadOnly ? (
-                  <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
+                  <Button variant="danger" size="sm" loading={deleting} onClick={requestDelete}>
                     <Trash2 className="h-3.5 w-3.5" />
                     Cancelar evento
                   </Button>
