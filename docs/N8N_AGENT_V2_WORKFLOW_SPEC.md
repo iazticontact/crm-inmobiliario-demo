@@ -47,26 +47,36 @@ requestId: string
 | get_recent_activity | `get_recent_activity` | `{}` | recent_activity |
 | get_documents_metadata | `get_documents_metadata` | `{client_id}` | list_client_documents (solo metadata) |
 
-### Tools del endpoint disponibles pero NO incluidas aún (añadir = duplicar nodo, cambiar `tool`)
-- `get_open_service_cases` → list_service_cases.
-- `get_client_summary` / `get_workspace_summary` → variantes de resumen.
-- `get_conversations_summary`, `get_invoices_summary` (módulos dormidos; no usar en V2).
+### N1.1 — gaps cerrados (nuevos readers + tools)
+| Tool n8n (añadida) | tool del endpoint | input |
+|---|---|---|
+| get_latest_client | `get_latest_client` | `{}` (cliente más reciente + metadata/DNI; fija activo) |
+| get_client_opportunities | `get_client_opportunities` | `{clientId}` |
+| get_client_service_cases | `get_client_service_cases` | `{clientId}` |
+| get_open_service_cases | `get_open_service_cases` | `{}` (expedientes abiertos workspace) |
+| pipeline_summary | `pipeline_summary` | `{}` (operaciones por etapa: conteo+valor) |
+| search_properties | `search_properties` | `{query?, status?, city?}` |
 
-### Gaps reales (NO existen en `/api/agent/tool` todavía → fase futura)
-- `get_latest_client` (cliente nuevo/último): hoy se aproxima con `search_clients`.
-  Recomendado: añadir el reader al endpoint del CRM cuando se quiera soportar
-  "el último cliente registrado".
-- Operaciones/expedientes/tareas/documentos **por cliente** (`get_client_*`): el
-  endpoint los da a nivel workspace o vía `get_client_360` (incluye tareas/
-  calendario/actividad/documentos del cliente, pero NO opportunities/service_cases
-  por cliente). Para per-cliente de operaciones/expedientes: extender el endpoint.
-- Propiedades (`search_properties`, `list_available_properties`): no hay tool en el
-  endpoint. Fase futura (añadir reader + tool).
+**Además:** `get_client_360` ahora incluye `metadata` (DNI/NIF y campos
+personalizados) → el agente n8n ya puede leer el DNI por cliente (antes el reader
+NO seleccionaba metadata; mismo fallo de S9 pero en el endpoint, corregido aquí).
 
-> Decisión: V2 read-only reutiliza el endpoint existente (seguro, probado,
-> workspace-scoped) en lugar de duplicar 18 queries Supabase en n8n. Los gaps se
-> cierran añadiendo readers al endpoint del CRM (cambio pequeño y testeable), no
-> metiendo `service_role` en n8n.
+### Cubierto por get_client_360 (no requiere tool propia)
+- Tareas, citas, actividad y documentos **por cliente** ya vienen en `get_client_360`.
+- Campo exacto (DNI/NIF/dirección/zona…) → el agente lo extrae del `metadata` que
+  devuelve `get_client_360` (no hace falta un endpoint `get_client_field_exact`).
+
+### Aún fase futura (documentado, no implementado)
+- `crm_search` (búsqueda global agrupada multi-entidad).
+- `list_available_properties` como tool separada (cubierto por
+  `search_properties` con `status=available`).
+- Active entity para operación/expediente/tarea (hoy solo activeClient).
+- Escritura (V2 es read-only).
+
+> Decisión: V2 read-only reutiliza y AMPLÍA el endpoint existente (seguro,
+> probado, workspace-scoped) en vez de duplicar queries Supabase en n8n. Los gaps
+> se cierran añadiendo readers read-only al endpoint del CRM (cambio pequeño y
+> testeable), nunca metiendo `service_role` en n8n.
 
 ## 5. Memoria
 - Prototipo: `memoryBufferWindow` (en memoria del proceso n8n), sessionKey

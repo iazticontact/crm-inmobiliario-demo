@@ -47,6 +47,11 @@ import {
   getRecentActivity,
   getConversationsSummary,
   getDocumentsMetadata,
+  getLatestClient,
+  getClientOpportunities,
+  getClientServiceCases,
+  getPipelineSummary,
+  searchProperties,
   isReaderError,
 } from '@/lib/agent-tool-readers'
 
@@ -68,6 +73,11 @@ type AllowedTool =
   | 'get_recent_activity'
   | 'get_conversations_summary'
   | 'get_documents_metadata'
+  | 'get_latest_client'
+  | 'get_client_opportunities'
+  | 'get_client_service_cases'
+  | 'pipeline_summary'
+  | 'search_properties'
 
 const ALLOWED_TOOLS: ReadonlySet<AllowedTool> = new Set<AllowedTool>([
   'get_workspace_summary',
@@ -84,6 +94,11 @@ const ALLOWED_TOOLS: ReadonlySet<AllowedTool> = new Set<AllowedTool>([
   'get_recent_activity',
   'get_conversations_summary',
   'get_documents_metadata',
+  'get_latest_client',
+  'get_client_opportunities',
+  'get_client_service_cases',
+  'pipeline_summary',
+  'search_properties',
 ])
 
 // Brain reader dispatch. Each handler is read-only, workspace-scoped, and
@@ -100,6 +115,11 @@ type BrainTool =
   | 'get_recent_activity'
   | 'get_conversations_summary'
   | 'get_documents_metadata'
+  | 'get_latest_client'
+  | 'get_client_opportunities'
+  | 'get_client_service_cases'
+  | 'pipeline_summary'
+  | 'search_properties'
 
 const BRAIN_TOOLS: Record<BrainTool, (s: SupabaseClient, w: string, i: Record<string, unknown>) => Promise<unknown>> = {
   get_crm_overview: (s, w) => getCrmOverview(s, w),
@@ -111,6 +131,11 @@ const BRAIN_TOOLS: Record<BrainTool, (s: SupabaseClient, w: string, i: Record<st
   get_recent_activity: (s, w, i) => getRecentActivity(s, w, i),
   get_conversations_summary: (s, w, i) => getConversationsSummary(s, w, i),
   get_documents_metadata: (s, w, i) => getDocumentsMetadata(s, w, i),
+  get_latest_client: (s, w) => getLatestClient(s, w),
+  get_client_opportunities: (s, w, i) => getClientOpportunities(s, w, i),
+  get_client_service_cases: (s, w, i) => getClientServiceCases(s, w, i),
+  pipeline_summary: (s, w) => getPipelineSummary(s, w),
+  search_properties: (s, w, i) => searchProperties(s, w, i),
 }
 
 function isBrainTool(t: string): t is BrainTool {
@@ -140,6 +165,11 @@ function brainResultCount(tool: BrainTool, result: unknown): number | null {
     case 'get_recent_activity': return Array.isArray(r.activity) ? r.activity.length : null
     case 'get_conversations_summary': return Array.isArray(r.conversations) ? r.conversations.length : null
     case 'get_documents_metadata': return Array.isArray(r.documents) ? r.documents.length : null
+    case 'get_latest_client': return r.client ? 1 : 0
+    case 'get_client_opportunities': return Array.isArray(r.opportunities) ? r.opportunities.length : null
+    case 'get_client_service_cases': return Array.isArray(r.service_cases) ? r.service_cases.length : null
+    case 'pipeline_summary': return typeof r.total_open === 'number' ? r.total_open : null
+    case 'search_properties': return Array.isArray(r.properties) ? r.properties.length : null
   }
 }
 

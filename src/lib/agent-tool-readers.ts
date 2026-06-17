@@ -367,6 +367,7 @@ export type Client360 = {
     status: string | null
     lead_score: number | null
     notes: string | null
+    metadata: Record<string, unknown> | null
     created_at: string | null
   }
   tasks: Array<{
@@ -437,7 +438,7 @@ export async function getClient360(
 
   const { data: clientRow, error: clientErr } = await supabase
     .from('clients')
-    .select('id, name, company, email, phone, channel, status, lead_score, notes, created_at')
+    .select('id, name, company, email, phone, channel, status, lead_score, notes, metadata, created_at')
     .eq('workspace_id', workspaceId)
     .eq('id', clientId)
     .maybeSingle()
@@ -505,6 +506,7 @@ export async function getClient360(
       status: clampString(c.status, 40),
       lead_score: typeof c.lead_score === 'number' ? c.lead_score : null,
       notes: clampString(c.notes, 1000),
+      metadata: asObject(c.metadata),
       created_at: typeof c.created_at === 'string' ? c.created_at : null,
     },
     tasks: ((tasksRes.data ?? []) as Row[]).map((t) => ({
@@ -924,5 +926,235 @@ export async function getDocumentsMetadata(
       created_at: typeof d.created_at === 'string' ? d.created_at : null,
     })),
     capability: 'metadata_only',
+  }
+}
+
+// ─────────────────────────────────────────────────────────── get_latest_client
+
+export type LatestClientResult = {
+  client: {
+    id: string
+    name: string
+    company: string | null
+    email: string | null
+    phone: string | null
+    status: string | null
+    notes: string | null
+    metadata: Record<string, unknown>
+    created_at: string | null
+  } | null
+}
+
+// Newest registered client (created_at desc). Includes metadata (DNI/custom
+// fields) so the agent can resolve "el nuevo/último cliente" and read exact data.
+export async function getLatestClient(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<ReaderResult<LatestClientResult>> {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, name, company, email, phone, status, notes, metadata, created_at')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) return { error: 'query_failed', message: 'No pude leer los clientes.' }
+  if (!data) return { client: null }
+  const c = data as Row
+  return {
+    client: {
+      id: String(c.id),
+      name: clampString(c.name, 120) ?? '',
+      company: clampString(c.company, 120),
+      email: clampString(c.email, 120),
+      phone: clampString(c.phone, 40),
+      status: clampString(c.status, 40),
+      notes: clampString(c.notes, 1000),
+      metadata: asObject(c.metadata),
+      created_at: typeof c.created_at === 'string' ? c.created_at : null,
+    },
+  }
+}
+
+// ─────────────────────────────────────────────── get_client_opportunities
+
+export type ClientOpportunitiesResult = {
+  opportunities: Array<{
+    id: string
+    title: string | null
+    stage: string | null
+    value: number
+    probability: number | null
+    expected_close_date: string | null
+    notes: string | null
+  }>
+}
+
+export async function getClientOpportunities(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: Json,
+): Promise<ReaderResult<ClientOpportunitiesResult>> {
+  const clientId = asString(asObject(input).clientId)
+  if (!isUuid(clientId)) return { error: 'invalid_input', message: 'Necesito un clientId UUID válido.' }
+  const { data, error } = await supabase
+    .from('opportunities')
+    .select('id, title, stage, value, probability, expected_close_date, notes')
+    .eq('workspace_id', workspaceId)
+    .eq('client_id', clientId)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(25)
+  if (error) return { error: 'query_failed', message: 'No pude leer las operaciones del cliente.' }
+  return {
+    opportunities: ((data ?? []) as Row[]).map((o) => ({
+      id: String(o.id),
+      title: clampString(o.title, 200),
+      stage: clampString(o.stage, 40),
+      value: toNumber(o.value),
+      probability: typeof o.probability === 'number' ? o.probability : null,
+      expected_close_date: typeof o.expected_close_date === 'string' ? o.expected_close_date : null,
+      notes: clampString(o.notes, 300),
+    })),
+  }
+}
+
+// ─────────────────────────────────────────────── get_client_service_cases
+
+export type ClientServiceCasesResult = {
+  service_cases: Array<{
+    id: string
+    title: string | null
+    case_type: string | null
+    status: string | null
+    priority: string | null
+    due_date: string | null
+    notes: string | null
+  }>
+}
+
+export async function getClientServiceCases(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: Json,
+): Promise<ReaderResult<ClientServiceCasesResult>> {
+  const clientId = asString(asObject(input).clientId)
+  if (!isUuid(clientId)) return { error: 'invalid_input', message: 'Necesito un clientId UUID válido.' }
+  const { data, error } = await supabase
+    .from('service_cases')
+    .select('id, title, case_type, status, priority, due_date, notes')
+    .eq('workspace_id', workspaceId)
+    .eq('client_id', clientId)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(25)
+  if (error) return { error: 'query_failed', message: 'No pude leer los expedientes del cliente.' }
+  return {
+    service_cases: ((data ?? []) as Row[]).map((s) => ({
+      id: String(s.id),
+      title: clampString(s.title, 200),
+      case_type: clampString(s.case_type, 60),
+      status: clampString(s.status, 40),
+      priority: clampString(s.priority, 20),
+      due_date: typeof s.due_date === 'string' ? s.due_date : null,
+      notes: clampString(s.notes, 300),
+    })),
+  }
+}
+
+// ─────────────────────────────────────────────────────────── pipeline_summary
+
+export type PipelineSummaryResult = {
+  total_open: number
+  total_value: number
+  by_stage: Array<{ stage: string; count: number; value: number }>
+}
+
+// Aggregates open opportunities by stage (count + value). Workspace-scoped.
+export async function getPipelineSummary(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<ReaderResult<PipelineSummaryResult>> {
+  const { data, error } = await supabase
+    .from('opportunities')
+    .select('stage, value')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .not('stage', 'in', '("won","lost","closed")')
+    .limit(500)
+  if (error) return { error: 'query_failed', message: 'No pude leer el pipeline.' }
+  const rows = (data ?? []) as Row[]
+  const map = new Map<string, { count: number; value: number }>()
+  let totalValue = 0
+  for (const r of rows) {
+    const stage = clampString(r.stage, 40) ?? 'sin etapa'
+    const v = toNumber(r.value)
+    totalValue += v
+    const cur = map.get(stage) ?? { count: 0, value: 0 }
+    cur.count += 1
+    cur.value += v
+    map.set(stage, cur)
+  }
+  return {
+    total_open: rows.length,
+    total_value: round2(totalValue),
+    by_stage: [...map.entries()].map(([stage, s]) => ({ stage, count: s.count, value: round2(s.value) })),
+  }
+}
+
+// ─────────────────────────────────────────────────────────── search_properties
+
+export type SearchPropertiesResult = {
+  properties: Array<{
+    id: string
+    title: string | null
+    property_type: string | null
+    operation_type: string | null
+    status: string | null
+    city: string | null
+    area: string | null
+    address: string | null
+    price: number | null
+    currency: string | null
+  }>
+}
+
+// Search the property portfolio. Optional filters: query (title/city/area/
+// address), status (e.g. only available), city. Workspace-scoped, limited.
+export async function searchProperties(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: Json,
+): Promise<ReaderResult<SearchPropertiesResult>> {
+  const o = asObject(input)
+  const query = asString(o.query)
+  const status = asString(o.status)
+  const city = asString(o.city)
+  let q = supabase
+    .from('properties')
+    .select('id, title, property_type, operation_type, status, city, area, address, price, currency')
+    .eq('workspace_id', workspaceId)
+  if (status) q = q.eq('status', status)
+  if (city) q = q.ilike('city', `%${city}%`)
+  if (query) {
+    const safe = query.replace(/[,()]/g, '')
+    q = q.or(`title.ilike.%${safe}%,city.ilike.%${safe}%,area.ilike.%${safe}%,address.ilike.%${safe}%`)
+  }
+  const { data, error } = await q.order('updated_at', { ascending: false }).limit(25)
+  if (error) return { error: 'query_failed', message: 'No pude leer las propiedades.' }
+  return {
+    properties: ((data ?? []) as Row[]).map((p) => ({
+      id: String(p.id),
+      title: clampString(p.title, 200),
+      property_type: clampString(p.property_type, 60),
+      operation_type: clampString(p.operation_type, 60),
+      status: clampString(p.status, 40),
+      city: clampString(p.city, 80),
+      area: clampString(p.area, 80),
+      address: clampString(p.address, 200),
+      price: typeof p.price === 'number' ? p.price : null,
+      currency: clampString(p.currency, 8),
+    })),
   }
 }
