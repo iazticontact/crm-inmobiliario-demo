@@ -18,7 +18,6 @@ import {
   Target,
   Building2,
   FileText,
-  Loader2,
   RefreshCcw,
   Sparkles,
   Plus,
@@ -376,8 +375,10 @@ export default function OpportunitiesPage() {
           action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} operaciones</Badge>}
         >
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            <div className="space-y-2.5 py-2">
+              {[0, 1, 2, 3].map((skeleton) => (
+                <div key={skeleton} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />
+              ))}
             </div>
           ) : visibleOpportunities.length === 0 ? (
             <EmptyState
@@ -467,8 +468,10 @@ export default function OpportunitiesPage() {
           action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} expedientes</Badge>}
         >
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            <div className="space-y-2.5 py-2">
+              {[0, 1, 2, 3].map((skeleton) => (
+                <div key={skeleton} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />
+              ))}
             </div>
           ) : visibleCases.length === 0 ? (
             <EmptyState
@@ -548,8 +551,10 @@ export default function OpportunitiesPage() {
           action={<Badge variant={visibleProperties.length ? 'indigo' : 'default'} dot>{visibleProperties.length} propiedades</Badge>}
         >
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-xs text-gray-400">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            <div className="space-y-2.5 py-2">
+              {[0, 1, 2, 3].map((skeleton) => (
+                <div key={skeleton} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />
+              ))}
             </div>
           ) : vertical === 'immigration' ? (
             <EmptyState

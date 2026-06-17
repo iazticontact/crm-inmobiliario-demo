@@ -12,7 +12,6 @@ import {
   User,
   Pencil,
   Trash2,
-  Loader2,
   AlertCircle,
   FolderOpen,
   ArrowRight,
@@ -491,16 +490,13 @@ export default function ClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-10">
-                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-                      Cargando clientes…
-                    </div>
+              {loading && [0, 1, 2, 3, 4].map((i) => (
+                <tr key={`client-skeleton-${i}`} className="border-t border-gray-50">
+                  <td colSpan={6} className="px-4 py-3.5">
+                    <div className="h-5 w-full animate-pulse rounded-md bg-slate-100" />
                   </td>
                 </tr>
-              )}
+              ))}
 
               {!loading && filtered.map((client, i) => {
                 const area = describeArea(client)

@@ -30,6 +30,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
+import { PageSkeleton } from '@/components/PageSkeleton'
 import { cn } from '@/lib/utils'
 import {
   createActivity,
@@ -858,12 +859,9 @@ export default function ClientDetailPage() {
   }, [members])
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-sm text-gray-500">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Cargando ficha del cliente…
-      </div>
-    )
+    // Premium detail skeleton (matches the route loading.tsx) instead of a bare
+    // centred spinner, so opening a client's profile never shows "Cargando…".
+    return <PageSkeleton variant="detail" />
   }
 
   if (loadError || !client) {
