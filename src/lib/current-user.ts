@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { featureFlags } from '@/lib/feature-flags'
 import { getResolvedWorkspaceContext, clearWorkspaceIdentityCache, type ResolvedWorkspaceContext } from '@/lib/supabase-queries'
@@ -195,6 +195,7 @@ export async function loadIdentity(): Promise<{ currentUser: CurrentUser | null;
 export function useCurrentUser() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const resolvedUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -204,8 +205,11 @@ export function useCurrentUser() {
       // never flash the demo workspace name while the real profile resolves.
       if (mounted) setIsLoading(true)
       try {
-        const { currentUser: resolved } = await loadIdentity()
-        if (mounted) setCurrentUser(resolved)
+        const { currentUser: resolved, context } = await loadIdentity()
+        if (mounted) {
+          resolvedUserIdRef.current = context?.user?.id ?? null
+          setCurrentUser(resolved)
+        }
       } finally {
         if (mounted) setIsLoading(false)
       }
@@ -220,11 +224,15 @@ export function useCurrentUser() {
       }
     }
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      // Bust the shared identity cache on any auth transition before re-reading,
-      // so a session change can never surface another user's cached context.
-      clearWorkspaceIdentityCache()
-      void run()
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUserId = session?.user?.id ?? null
+      // Only re-resolve on a real identity change (sign-out or different user).
+      // TOKEN_REFRESHED / repeated SIGNED_IN for the SAME user (fired on tab
+      // refocus) are ignored — re-resolving there caused the return-to-tab lag.
+      if (event === 'SIGNED_OUT' || nextUserId !== resolvedUserIdRef.current) {
+        clearWorkspaceIdentityCache()
+        void run()
+      }
     })
 
     return () => {

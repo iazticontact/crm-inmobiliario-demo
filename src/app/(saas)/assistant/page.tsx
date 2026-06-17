@@ -35,6 +35,7 @@ import {
 } from '@/lib/supabase-queries'
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 import { listAssistantThreads, createAssistantThread, listThreadMessages, appendThreadMessage, renameAssistantThread, deleteAssistantThread } from '@/lib/assistant-threads'
+import { getCachedThreads, setCachedThreads, getCachedMessages, setCachedMessages, removeCachedMessages } from '@/lib/assistant-cache'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
@@ -1214,11 +1215,22 @@ export default function AssistantPage() {
         })
       }
       setConversationList(realConversations)
-      setSelectedIds({
+      const nextSelectedIds = {
         inbox: realConversations.find((conversation) => conversation.assistantMode === 'inbox')?.id ?? '',
         copilot: realConversations.find((conversation) => conversation.assistantMode === 'copilot')?.id ?? '',
-      })
-      setLocalMessages({})
+      }
+      if (options?.silent) {
+        // Background revalidate (re-entry / create / resolve): keep the user's
+        // current selection and loaded messages — only fill a slot whose thread
+        // no longer exists. Never yank the visible conversation out from under them.
+        setSelectedIds((prev) => ({
+          inbox: prev.inbox && realConversations.some((c) => c.id === prev.inbox) ? prev.inbox : nextSelectedIds.inbox,
+          copilot: prev.copilot && realConversations.some((c) => c.id === prev.copilot) ? prev.copilot : nextSelectedIds.copilot,
+        }))
+      } else {
+        setSelectedIds(nextSelectedIds)
+        setLocalMessages({})
+      }
       setWorkspaceId(resolvedWorkspaceId ?? null)
       setIsRealMode(Boolean(resolvedWorkspaceId))
       setAssistantWebhookUrl(resolvedWorkspaceId ? assistantFlow.webhookUrl : '')
@@ -1277,8 +1289,25 @@ export default function AssistantPage() {
     const key = userWorkspaceId ?? 'no-workspace'
     if (loadedWorkspaceKeyRef.current === key) return
     loadedWorkspaceKeyRef.current = key
-    void loadConversations()
-  }, [userLoading, userWorkspaceId, loadConversations])
+
+    // Stale-while-revalidate: if we already have this user+workspace's threads
+    // cached in memory (e.g. re-entering /assistant from another route), paint
+    // them instantly with no full loader and revalidate silently in background.
+    const cached = getCachedThreads(currentUser.id, userWorkspaceId)
+    const timeout = window.setTimeout(() => {
+      if (cached && cached.conversations.length > 0) {
+        setConversationList(cached.conversations)
+        setSelectedIds(cached.selectedIds)
+        setWorkspaceId(userWorkspaceId ?? null)
+        setIsRealMode(Boolean(userWorkspaceId))
+        setAssistantReady(true)
+        void loadConversations({ silent: true })
+      } else {
+        void loadConversations()
+      }
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [userLoading, userWorkspaceId, loadConversations, currentUser.id])
 
   const modeConversations = useMemo(
     () => conversationList.filter((conversation) => (conversation.assistantMode ?? 'inbox') === assistantMode),
@@ -1311,28 +1340,38 @@ export default function AssistantPage() {
     }
 
     const loadMessages = async () => {
-      setLoadingMessages(true)
+      const threadId = selected.id
+      // Stale-while-revalidate: paint cached messages instantly (re-entry /
+      // thread switch) and only show the loader when there's nothing to show yet.
+      const cached = getCachedMessages(currentUser.id, workspaceId, threadId)
+      if (cached && cached.messages.length > 0) {
+        setLocalMessages((prev) => (prev[threadId]?.length ? prev : { ...prev, [threadId]: cached.messages }))
+      }
+      const showLoader = !(cached && cached.messages.length > 0)
+      if (showLoader) setLoadingMessages(true)
       try {
-        const realMessages = await listThreadMessages(selected.id)
+        const realMessages = await listThreadMessages(threadId)
         // No pisar mensajes optimistas locales con una carga vacía de BD (evita
         // que un hilo recién creado pierda el primer mensaje del usuario).
         setLocalMessages((prev) => {
-          const existing = prev[selected.id] ?? []
+          const existing = prev[threadId] ?? []
           if (realMessages.length === 0 && existing.length > 0) return prev
-          return { ...prev, [selected.id]: realMessages }
+          return { ...prev, [threadId]: realMessages }
         })
+        if (realMessages.length > 0) setCachedMessages(currentUser.id, workspaceId, threadId, realMessages)
         updateDiagnostics({
-          lastReadMessagesStatus: `OK: ${realMessages.length} mensaje(s) en ${selected.id}`,
+          lastReadMessagesStatus: `OK: ${realMessages.length} mensaje(s) en ${threadId}`,
           lastSupabaseError: '',
         })
       } catch (error) {
-        setLocalMessages((prev) => ({ ...prev, [selected.id]: [] }))
+        // Revalidate failed: keep whatever is already shown instead of blanking it.
+        setLocalMessages((prev) => (prev[threadId]?.length ? prev : { ...prev, [threadId]: [] }))
         updateDiagnostics({
-          lastReadMessagesStatus: `ERROR leyendo messages en ${selected.id}`,
+          lastReadMessagesStatus: `ERROR leyendo messages en ${threadId}`,
           lastSupabaseError: safeErrorMessage(error),
         })
       } finally {
-        setLoadingMessages(false)
+        if (showLoader) setLoadingMessages(false)
       }
     }
 
@@ -1340,13 +1379,28 @@ export default function AssistantPage() {
       void loadMessages()
     }, 0)
     return () => window.clearTimeout(timeout)
-  }, [isRealMode, selected, updateDiagnostics, workspaceId])
+  }, [isRealMode, selected, updateDiagnostics, workspaceId, currentUser.id])
 
   const msgs = useMemo(() => selected ? localMessages[selected.id] ?? [] : [], [localMessages, selected])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, isTyping])
+
+  // Keep the in-memory thread cache in sync with the visible list + selection
+  // (covers load, create, delete, resolve) so re-entry is instant and correct.
+  useEffect(() => {
+    if (!isRealMode || !workspaceId || !currentUser.id) return
+    setCachedThreads(currentUser.id, workspaceId, conversationList, selectedIds)
+  }, [conversationList, selectedIds, workspaceId, currentUser.id, isRealMode])
+
+  // Keep the active thread's message cache in sync (optimistic sends + replies)
+  // so returning to it later shows the latest instantly.
+  useEffect(() => {
+    if (!isRealMode || !workspaceId || !currentUser.id || !selected || !isUuid(selected.id)) return
+    const threadMessages = localMessages[selected.id]
+    if (threadMessages && threadMessages.length) setCachedMessages(currentUser.id, workspaceId, selected.id, threadMessages)
+  }, [localMessages, selected, workspaceId, currentUser.id, isRealMode])
 
   // Clear prepared action when switching conversations so stale actions don't bleed across
   useEffect(() => {
@@ -3033,6 +3087,7 @@ export default function AssistantPage() {
           delete next[deletedId]
           return next
         })
+        removeCachedMessages(currentUser.id, workspaceId, deletedId)
         toast.success('Conversación eliminada definitivamente')
         return
       }

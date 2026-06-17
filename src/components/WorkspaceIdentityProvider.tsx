@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import {
   loadIdentity,
@@ -49,6 +49,8 @@ type State = {
 export function WorkspaceIdentityProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>({ currentUser: null, context: null, isLoading: true })
   const [reloadKey, setReloadKey] = useState(0)
+  // The user.id we last resolved, so we can ignore benign auth events.
+  const resolvedUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -57,6 +59,7 @@ export function WorkspaceIdentityProvider({ children }: { children: React.ReactN
       if (mounted) setState((s) => ({ ...s, isLoading: true }))
       const { currentUser, context } = await loadIdentity()
       if (!mounted) return
+      resolvedUserIdRef.current = context?.user?.id ?? null
       setState({ currentUser, context, isLoading: false })
     }
 
@@ -69,12 +72,17 @@ export function WorkspaceIdentityProvider({ children }: { children: React.ReactN
       }
     }
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      // Any auth transition (login/logout/user switch/token refresh) busts the
-      // cache BEFORE we re-resolve, so we can never re-read another user's
-      // cached context regardless of listener registration order.
-      clearWorkspaceIdentityCache()
-      void run()
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUserId = session?.user?.id ?? null
+      // Only a real identity change re-resolves: sign-out, or a different user.
+      // TOKEN_REFRESHED / repeated SIGNED_IN / INITIAL_SESSION for the SAME user
+      // (which Supabase fires when the browser tab regains focus) are no-ops —
+      // re-resolving there was what froze the whole app into "loading" for 1-2s
+      // every time you came back to the tab.
+      if (event === 'SIGNED_OUT' || nextUserId !== resolvedUserIdRef.current) {
+        clearWorkspaceIdentityCache()
+        void run()
+      }
     })
 
     return () => {
