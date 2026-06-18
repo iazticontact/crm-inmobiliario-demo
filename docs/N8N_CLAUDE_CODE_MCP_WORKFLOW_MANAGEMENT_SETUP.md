@@ -58,14 +58,28 @@ montado; solo falta una API key válida + reinicio.
 > el repo ni en el chat. Si prefieres no usar `setx`, puedes ponerla en una variable
 > de sesión, pero entonces no persiste entre reinicios de Claude Code.
 
-## 5. Pruebas realizadas (N0.2)
+## 5. Pruebas realizadas (N0.2) — ✅ TODAS PASAN (vía REST API)
+Tras crear la API key nueva, la conexión funciona. Matiz importante: el proceso de
+Claude Code arrastraba la key ANTIGUA en su entorno de sesión (`session==user:
+False`), pero la key NUEVA persistida (User-scope) **sí funciona**, así que opero
+leyéndola del registro de usuario en cada llamada. (El servidor MCP `n8n-mcp` no
+quedó cargado en esta sesión y además heredaría esa misma key vieja; por eso uso la
+**REST API directamente**, que da las mismas capacidades.)
 - **PRUEBA 0 (seguridad):** `.mcp.json`/`.env.local` gitignored y no trackeados. ✅
-- **PRUEBA conexión REST (en vivo):** EasyPanel y nowlabs.es responden a
-  `/api/v1/workflows` → **401** con la key actual (expirada). Host y API OK; falta
-  key válida.
-- **PRUEBA 1 (list) / 2 (create) / 3 (update) / 4 (read):** **PENDIENTES** — requieren
-  key válida + reinicio para que carguen las tools de `n8n-mcp`. No se ejecutó nada
-  sobre tus workflows existentes (ARIZAN, HOLA MUNDO, My workflow): **intactos**.
+- **PRUEBA 1 (list):** ✅ 7 workflows (HOLA MUNDO, ARIZAN x4, My workflow, 2 ARCHIVADO).
+- **PRUEBA 2 (create):** ✅ `[MCP TEST] Claude Code n8n connection test`
+  (id `ZcHDxvyqaAXL0NIa`), **inactivo**, Manual Trigger + Set, sin credenciales.
+- **PRUEBA 3 (update):** ✅ cambiado el texto del Set node.
+- **PRUEBA 4 (read):** ✅ confirmado: inactivo, nodos `When clicking Test workflow,
+  Set`, valor = "MCP conectado y ACTUALIZADO por Claude Code".
+- Workflows existentes (ARIZAN/HOLA MUNDO/My workflow/ARCHIVADO): **intactos**.
+- El workflow de prueba **NO se borró** (pendiente tu OK).
+
+### Nota sobre `n8n-mcp` (MCP server) vs REST directo
+La gestión funciona YA vía REST API. Si quieres que carguen las TOOLS del MCP
+`n8n-mcp` (en vez de REST), hace falta que Claude Code arranque con la key NUEVA en
+el entorno (cerrar TODO Claude Code/VS Code y reabrir tras el `setx`, no solo una
+ventana) y que el server `n8n-mcp` se inicialice. Funcionalmente es equivalente.
 
 ## 6. Capacidades que tendrá Claude Code (tras key + reinicio)
 Con `n8n-mcp` + key válida: listar workflows, leer detalle, **crear** workflow
@@ -87,7 +101,8 @@ Una vez conectado: **crear el CRM Agent V2 directamente en n8n** vía `n8n-mcp`
 importable de N1/N1.1 queda como backup.
 
 ## Veredicto N0.2
-**N0.2 PARCIAL — FALTA API KEY VÁLIDA + REINICIO.** El método correcto (`n8n-mcp`)
-ya está configurado de forma segura, la REST API de tu instancia está viva, y
-`N8N_API_URL` ya apunta a EasyPanel. Solo falta que crees una API key nueva, la
-guardes con `setx`, y reinicies Claude Code.
+**N0.2 COMPLETADO — CLAUDE CODE GESTIONA N8N WORKFLOWS.** Probado en vivo contra la
+instancia EasyPanel: listar, crear (inactivo), actualizar y leer workflows
+funcionan (vía REST API con la key nueva). Workflows existentes intactos; el
+workflow de prueba sigue creado a la espera de tu OK para borrarlo. Siguiente paso:
+crear el CRM Agent V2 directamente en n8n por API (sin import manual).
