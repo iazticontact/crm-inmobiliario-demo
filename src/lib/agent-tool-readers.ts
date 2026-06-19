@@ -1158,3 +1158,91 @@ export async function searchProperties(
     })),
   }
 }
+
+// ─────────────────────────────────────────────────────────── crm_read_query
+// Universal CONTROLLED read: the agent picks an allowlisted ENTITY + safe
+// filters/searchText/clientRef/dateRange. NO free SQL. workspace_id is pinned by
+// the route (never the LLM). Column allowlist per entity, limit clamped (<=20),
+// metadata only for clients, documents = metadata only. Read-only.
+
+type CrmEntityCfg = {
+  table: string
+  cols: string
+  search: string[]
+  filters: string[]
+  dateCol?: string
+  orderCol: string
+  soft?: boolean
+  includeMeta?: boolean
+}
+
+const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
+  clients: { table: 'clients', cols: 'id, name, company, email, phone, channel, status, notes, metadata, created_at', search: ['name', 'company', 'email', 'phone'], filters: ['status', 'channel'], dateCol: 'created_at', orderCol: 'updated_at', soft: true, includeMeta: true },
+  opportunities: { table: 'opportunities', cols: 'id, title, stage, value, probability, expected_close_date, notes, client_id', search: ['title', 'notes'], filters: ['stage'], dateCol: 'expected_close_date', orderCol: 'updated_at', soft: true },
+  service_cases: { table: 'service_cases', cols: 'id, title, case_type, status, priority, due_date, notes, client_id', search: ['title', 'notes'], filters: ['status', 'priority', 'case_type'], dateCol: 'due_date', orderCol: 'updated_at', soft: true },
+  tasks: { table: 'tasks', cols: 'id, title, status, priority, due_date, client_id', search: ['title'], filters: ['status', 'priority'], dateCol: 'due_date', orderCol: 'due_date' },
+  calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, location, status, client_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
+  properties: { table: 'properties', cols: 'id, title, property_type, operation_type, status, city, area, address, price, currency', search: ['title', 'city', 'area', 'address'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
+  documents: { table: 'documents', cols: 'id, title, type, mime_type, size, created_at, client_id', search: ['title'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
+  activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
+}
+
+export type CrmQueryResult = { entity: string; count: number; rows: Row[] }
+
+function sanitizeQueryRow(cfg: CrmEntityCfg, r: Row): Row {
+  const out: Row = {}
+  for (const [k, v] of Object.entries(r)) {
+    if (k === 'metadata') { if (cfg.includeMeta) out.metadata = asObject(v); continue }
+    if (k === 'workspace_id') continue
+    out[k] = typeof v === 'string' && v.length > 500 ? v.slice(0, 500) : v
+  }
+  return out
+}
+
+export async function crmReadQuery(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: Json,
+): Promise<ReaderResult<CrmQueryResult>> {
+  const o = asObject(input)
+  const entity = asString(o.entity).toLowerCase()
+  const cfg = CRM_QUERY_ENTITIES[entity]
+  if (!cfg) {
+    return { error: 'invalid_input', message: `Entidad no permitida. Usa una de: ${Object.keys(CRM_QUERY_ENTITIES).join(', ')}.` }
+  }
+  const limit = asPositiveInt(o.limit, 10, 20)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q: any = supabase.from(cfg.table).select(cfg.cols).eq('workspace_id', workspaceId)
+  if (cfg.soft) q = q.is('deleted_at', null)
+
+  const clientRef = asString(o.clientRef)
+  if (clientRef) {
+    if (!isUuid(clientRef)) return { error: 'invalid_input', message: 'clientRef debe ser un UUID válido.' }
+    q = q.eq('client_id', clientRef)
+  }
+
+  const filters = asObject(o.filters)
+  for (const [k, v] of Object.entries(filters)) {
+    if (cfg.filters.includes(k) && (typeof v === 'string' || typeof v === 'number')) q = q.eq(k, v)
+  }
+
+  const searchText = asString(o.searchText)
+  if (searchText && cfg.search.length) {
+    const safe = searchText.replace(/[,()%]/g, '').slice(0, 80)
+    if (safe) q = q.or(cfg.search.map((c) => `${c}.ilike.%${safe}%`).join(','))
+  }
+
+  const dr = asObject(o.dateRange)
+  if (cfg.dateCol) {
+    const from = parseIsoDate(dr.from)
+    const to = parseIsoDate(dr.to)
+    if (from) q = q.gte(cfg.dateCol, from)
+    if (to) q = q.lte(cfg.dateCol, to)
+  }
+
+  const { data, error } = await q.order(cfg.orderCol, { ascending: false, nullsFirst: false }).limit(limit)
+  if (error) return { error: 'query_failed', message: `No pude consultar ${entity}.` }
+  const rows = ((data ?? []) as Row[]).map((r) => sanitizeQueryRow(cfg, r))
+  return { entity, count: rows.length, rows }
+}

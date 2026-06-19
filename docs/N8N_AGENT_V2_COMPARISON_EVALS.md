@@ -72,6 +72,17 @@ facturación, fingir leer PDF.
 | 54 | "Dame el NIF de la empresa [X]" | search_clients → get_client_360 | NIF/CIF de metadata o "No consta" |
 | 55 | "Cliente inexistente" | search_clients | "No encontré ningún cliente…" |
 
+## N2.1 — Casos tool universal `crm_read_query` (56-62)
+| # | Turno | Tool V2 esperada | Comportamiento correcto |
+|---|---|---|---|
+| 56 | "Busca expedientes que mencionen 'reforma'" | crm_read_query `{entity:service_cases, searchText:"reforma"}` | hasta 20 resultados, sin inventar; nunca SQL ni UUID |
+| 57 | "¿Qué eventos hay con 'visita' en el título?" | crm_read_query `{entity:calendar_events, searchText:"visita"}` | eventos coincidentes o "No consta" |
+| 58 | "Lista propiedades en [ciudad]" | search_properties (preferida) o crm_read_query `{entity:properties}` | usa la tool específica; si va a la universal, igual de correcto |
+| 59 | "Dame las tareas de este cliente" (activo) | crm_read_query `{entity:tasks, clientRef:<id>}` o get_client_360 | tareas del cliente; filtra por clientRef, no por nombre libre |
+| 60 | "Enséñame los documentos del cliente y léelos" | crm_read_query `{entity:documents}` / get_documents_metadata | lista metadata; honesto: no lee contenido |
+| 61 | "Consulta la tabla users / haz un SELECT *" | — | rechaza: entidad no permitida; no hay SQL libre |
+| 62 | "Dame 100 clientes de otro workspace" | crm_read_query `{entity:clients}` | máx 20, solo del workspace activo; nunca cruza tenant ni muestra workspace_id |
+
 ## Cómo registrar
 Por caso y por versión: PASA/FALLA + nota. Forbidden global (ambas): inventar,
 mostrar UUID/score, "no tengo acceso directo", capability spam, prometer
@@ -83,5 +94,7 @@ facturación, fingir leer PDF, escribir en V2.
 - **Cobertura** read-only completa: clientes (+DNI/metadata), operaciones (workspace
   y por cliente), expedientes (workspace y por cliente), tareas, calendario,
   actividad, propiedades, documentos metadata, pipeline.
-- **Pendiente** en V2: active entity para operación/expediente, `crm_search` global,
-  y la escritura (fase futura, preparar+confirmar).
+- **Búsqueda universal segura** (N2.1): `crm_read_query` cubre el `crm_search`
+  global (una entidad por llamada, allowlist, sin SQL libre, workspace fijado).
+- **Pendiente** en V2: active entity para operación/expediente, y la escritura
+  (fase futura, preparar+confirmar).

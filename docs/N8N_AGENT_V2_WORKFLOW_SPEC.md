@@ -57,6 +57,20 @@ requestId: string
 | pipeline_summary | `pipeline_summary` | `{}` (operaciones por etapa: conteo+valor) |
 | search_properties | `search_properties` | `{query?, status?, city?}` |
 
+### N2.1 — tool universal segura (arquitectura híbrida)
+| Tool n8n (añadida) | tool del endpoint | input |
+|---|---|---|
+| crm_read_query | `crm_read_query` | `{entity, searchText?, clientRef?, filters?, dateRange?, limit?}` |
+
+`entity` ∈ allowlist `{clients, opportunities, service_cases, tasks,
+calendar_events, properties, documents, activities}`. **Sin SQL libre**: el servidor
+construye la query, fija `workspace_id`, acota `limit ≤ 20`, sanea `searchText`
+(`ilike` sobre columnas declaradas), elimina `workspace_id` de la salida y solo
+expone `metadata` en `clients`; documentos solo metadata. Uso: consultas amplias o
+entidades sin tool propia; para lo típico, preferir la tool específica. (Cierra el
+gap antes listado como `crm_search`.) Ver `PHASE_N2_1_N8N_AGENT_V2_PERFECTION_REPORT.md`.
+> Requiere **redeploy del CRM** (cambio de runtime en `/api/agent/tool`).
+
 **Además:** `get_client_360` ahora incluye `metadata` (DNI/NIF y campos
 personalizados) → el agente n8n ya puede leer el DNI por cliente (antes el reader
 NO seleccionaba metadata; mismo fallo de S9 pero en el endpoint, corregido aquí).
@@ -67,7 +81,8 @@ NO seleccionaba metadata; mismo fallo de S9 pero en el endpoint, corregido aquí
   devuelve `get_client_360` (no hace falta un endpoint `get_client_field_exact`).
 
 ### Aún fase futura (documentado, no implementado)
-- `crm_search` (búsqueda global agrupada multi-entidad).
+- `crm_search` global agrupado multi-entidad → **cubierto en N2.1** por
+  `crm_read_query` (universal segura, una entidad por llamada).
 - `list_available_properties` como tool separada (cubierto por
   `search_properties` con `status=available`).
 - Active entity para operación/expediente/tarea (hoy solo activeClient).
