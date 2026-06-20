@@ -183,7 +183,11 @@ function brainResultCount(tool: BrainTool, result: unknown): number | null {
 // workflows that these endpoints are gone on purpose so the workflow author
 // migrates the action to /api/assistant/confirm or to a per-domain route.
 const RETIRED_TOOLS: ReadonlySet<string> = new Set<string>([
-  'search_clients',
+  // NOTE: `search_clients` is NOT retired — it is a live read-only brain reader
+  // (see ALLOWED_TOOLS + BRAIN_TOOLS). It was left here by mistake after N1.1
+  // re-introduced it, and because the retired check runs first it shadowed the
+  // real tool with a 410, breaking every "busca/dame datos de <cliente>" query
+  // from the n8n Agent V2. Removed in N3.1.
   'get_client_detail',
   'create_client',
   'update_client',

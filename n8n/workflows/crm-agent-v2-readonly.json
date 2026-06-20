@@ -1,10 +1,10 @@
 {
-  "updatedAt": "2026-06-20T18:22:24.853Z",
+  "updatedAt": "2026-06-20T22:28:27.233Z",
   "createdAt": "2026-06-18T19:14:09.173Z",
   "id": "6mps8YoWu3syldUc",
   "name": "[CRM Inmobiliario] Agent V2 — Read Only",
   "description": null,
-  "active": false,
+  "active": true,
   "isArchived": false,
   "nodes": [
     {
@@ -121,7 +121,7 @@
         "promptType": "define",
         "text": "={{ $json.message }}",
         "options": {
-          "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\": tienes tools.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres. No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
+          "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres. No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
         }
       },
       "id": "ai-agent",
@@ -137,11 +137,12 @@
       "parameters": {
         "model": {
           "__rl": true,
-          "value": "gpt-4o-mini",
-          "mode": "list"
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
         },
         "options": {
-          "temperature": 0.3
+          "temperature": 0.2
         }
       },
       "id": "chat-model",
@@ -178,11 +179,10 @@
       "parameters": {
         "name": "search_clients",
         "description": "Busca clientes por nombre, empresa, email o telefono. Devuelve candidatos con su id interno (para encadenar) y datos basicos. Usa esto primero cuando el usuario nombra a un cliente. Pasa query en el input (ej: {\"query\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_clients\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto a buscar: nombre, empresa, email o telefono\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_clients\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto a buscar: nombre, empresa, email o telefono\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-search-clients",
       "name": "search_clients",
@@ -197,11 +197,10 @@
       "parameters": {
         "name": "get_client_360",
         "description": "Ficha 360 COMPLETA de un cliente por su id interno (client_id, obtenido de search_clients): contacto, campos personalizados (DNI/NIF, direccion, zona, nacionalidad...), tareas, calendario, actividad y documentos (metadata). Usa esto para 'ficha completa', 'todos los datos' o para extraer un campo exacto como el DNI. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_360\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente (de search_clients o get_latest_client)\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_360\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente (de search_clients o get_latest_client)\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-client-360",
       "name": "get_client_360",
@@ -216,11 +215,10 @@
       "parameters": {
         "name": "get_crm_overview",
         "description": "Resumen / KPIs del CRM del workspace: totales de clientes, leads, citas, tareas. Para 'resumen del CRM', 'como va el negocio'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_crm_overview\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_crm_overview\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-crm-overview",
       "name": "get_crm_overview",
@@ -235,11 +233,10 @@
       "parameters": {
         "name": "get_pending_tasks",
         "description": "Tareas pendientes del workspace (y proximas/vencidas). Para 'que tengo pendiente', 'tareas'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_pending_tasks\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_pending_tasks\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-pending-tasks",
       "name": "get_pending_tasks",
@@ -254,11 +251,10 @@
       "parameters": {
         "name": "get_calendar_summary",
         "description": "Resumen del calendario: proximas citas y eventos. Para 'que tengo hoy', 'citas de esta semana'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_calendar_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_calendar_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-calendar",
       "name": "get_calendar_summary",
@@ -273,11 +269,10 @@
       "parameters": {
         "name": "get_open_operations",
         "description": "Operaciones / pipeline abiertas del workspace (etapa, valor). Para 'que operaciones hay', 'pipeline'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_operations\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_operations\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-operations",
       "name": "get_open_operations",
@@ -292,11 +287,10 @@
       "parameters": {
         "name": "get_recent_activity",
         "description": "Actividad reciente del workspace. Para 'que ha pasado', 'ultima actividad'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_recent_activity\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_recent_activity\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-recent-activity",
       "name": "get_recent_activity",
@@ -311,11 +305,10 @@
       "parameters": {
         "name": "get_documents_metadata",
         "description": "Lista los documentos adjuntos de un cliente (titulo, tipo, fecha) — SOLO metadata, NO el contenido. Requiere client_id. Si piden leer el PDF, explica que el contenido no esta indexado. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_documents_metadata\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_documents_metadata\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-documents",
       "name": "get_documents_metadata",
@@ -330,11 +323,10 @@
       "parameters": {
         "name": "get_latest_client",
         "description": "El cliente registrado mas recientemente, con sus campos personalizados (DNI/NIF, direccion, zona...). Para 'el nuevo cliente', 'el ultimo cliente'. Devuelve un unico cliente; usalo como cliente activo del hilo.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_latest_client\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_latest_client\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-latest-client",
       "name": "get_latest_client",
@@ -349,11 +341,10 @@
       "parameters": {
         "name": "get_client_opportunities",
         "description": "Operaciones (pipeline) de un cliente concreto por client_id (etapa, valor, probabilidad, cierre). Para 'que operaciones tiene este cliente'. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_opportunities\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_opportunities\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-client-ops",
       "name": "get_client_opportunities",
@@ -368,11 +359,10 @@
       "parameters": {
         "name": "get_client_service_cases",
         "description": "Expedientes de un cliente concreto por client_id (tipo, estado, prioridad, vencimiento). Para 'que expedientes tiene este cliente'. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-client-cases",
       "name": "get_client_service_cases",
@@ -387,11 +377,10 @@
       "parameters": {
         "name": "get_open_service_cases",
         "description": "Expedientes ABIERTOS del workspace (no por cliente). Para 'que expedientes hay abiertos', 'expedientes urgentes'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-open-cases",
       "name": "get_open_service_cases",
@@ -406,11 +395,10 @@
       "parameters": {
         "name": "pipeline_summary",
         "description": "Resumen del pipeline: operaciones abiertas agrupadas por etapa, con conteo y valor total. Para 'como va el pipeline', 'valor del pipeline'.",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"pipeline_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"pipeline_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
       },
       "id": "tool-pipeline",
       "name": "pipeline_summary",
@@ -425,11 +413,10 @@
       "parameters": {
         "name": "search_properties",
         "description": "Busca propiedades en cartera por texto (titulo/ciudad/zona/direccion), estado (p. ej. solo disponibles) o ciudad. Para 'propiedades disponibles en X', 'pisos en Bilbao'. Pasa query en el input (ej: {\"query\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_properties\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto libre: ciudad, zona, tipo o estado\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_properties\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto libre: ciudad, zona, tipo o estado\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-properties",
       "name": "search_properties",
@@ -444,11 +431,10 @@
       "parameters": {
         "name": "crm_read_query",
         "description": "Búsqueda UNIVERSAL controlada del CRM, cuando ninguna tool específica encaja claramente. Elige una entidad permitida y filtra. entity debe ser una de: clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities. Acepta searchText (texto libre), clientRef (UUID de cliente para filtrar por cliente) y limit (máx 20). Es read-only, workspace-scoped y SIN SQL libre. Úsala para consultas amplias o combinadas; para casos típicos prefiere las tools específicas. Pasa entity en el input (ej: {\"entity\":\"...\"}).",
+        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"entity\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"entity\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"crm_read_query\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
         "specifyInputSchema": true,
         "schemaType": "manual",
-        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"entity\": {\n   \"type\": \"string\",\n   \"description\": \"entidad CRM: clients, opportunities, service_cases, tasks, calendar_events, properties, documents o activities\"\n  }\n },\n \"additionalProperties\": true\n}",
-        "language": "javaScript",
-        "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"entity\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"entity\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"crm_read_query\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);"
+        "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"entity\": {\n   \"type\": \"string\",\n   \"description\": \"entidad CRM: clients, opportunities, service_cases, tasks, calendar_events, properties, documents o activities\"\n  }\n },\n \"additionalProperties\": true\n}"
       },
       "id": "tool-crm-read-query",
       "name": "crm_read_query",
@@ -478,8 +464,7 @@
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"error\": \"unauthorized\" } }}",
-        "options": {},
-        "responseCode": 401
+        "options": {}
       },
       "id": "respond-401",
       "name": "Respond Unauthorized",
@@ -741,9 +726,9 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "2dcebd1e-8ae2-4126-8336-4d0ef946df46",
-  "activeVersionId": null,
-  "versionCounter": 55,
+  "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+  "activeVersionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+  "versionCounter": 79,
   "triggerCount": 1,
   "shared": [
     {
@@ -765,5 +750,758 @@
     }
   ],
   "tags": [],
-  "activeVersion": null
+  "activeVersion": {
+    "updatedAt": "2026-06-20T22:28:27.234Z",
+    "createdAt": "2026-06-20T22:28:27.234Z",
+    "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+    "workflowId": "6mps8YoWu3syldUc",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "crm-agent-v2",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-in",
+        "name": "Webhook In",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -48,
+          304
+        ],
+        "webhookId": "crm-agent-v2"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "secret-check",
+                "leftValue": "={{ $json.headers['x-nowcrm-agent-secret'] }}",
+                "rightValue": "={{ $env.N8N_ASSISTANT_V2_SECRET }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "check-secret",
+        "name": "Check secret",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          192,
+          304
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "a1",
+                "name": "message",
+                "value": "={{ $json.body.message }}",
+                "type": "string"
+              },
+              {
+                "id": "a2",
+                "name": "workspaceId",
+                "value": "={{ $json.body.workspaceId }}",
+                "type": "string"
+              },
+              {
+                "id": "a3",
+                "name": "userId",
+                "value": "={{ $json.body.userId }}",
+                "type": "string"
+              },
+              {
+                "id": "a4",
+                "name": "threadId",
+                "value": "={{ $json.body.threadId }}",
+                "type": "string"
+              },
+              {
+                "id": "a5",
+                "name": "sessionId",
+                "value": "={{ $json.body.workspaceId }}:{{ $json.body.userId }}:{{ $json.body.threadId }}",
+                "type": "string"
+              },
+              {
+                "id": "a6",
+                "name": "activeEntity",
+                "value": "={{ JSON.stringify($json.body.activeEntity || {}) }}",
+                "type": "string"
+              },
+              {
+                "id": "a7",
+                "name": "requestId",
+                "value": "={{ $json.body.requestId }}",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "normalize-input",
+        "name": "Normalize input",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          400,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ $json.message }}",
+          "options": {
+            "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres. No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
+          }
+        },
+        "id": "ai-agent",
+        "name": "CRM Agent",
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 1.7,
+        "position": [
+          688,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "model": {
+            "__rl": true,
+            "value": "gpt-4.1-mini",
+            "mode": "list",
+            "cachedResultName": "gpt-4.1-mini"
+          },
+          "options": {
+            "temperature": 0.2
+          }
+        },
+        "id": "chat-model",
+        "name": "OpenAI Chat Model",
+        "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+        "typeVersion": 1.2,
+        "position": [
+          560,
+          464
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "Zwz0eUP1SSHyUalb",
+            "name": "OpenAi account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "sessionIdType": "customKey",
+          "sessionKey": "={{ $('Normalize input').item.json.sessionId }}",
+          "contextWindowLength": 12
+        },
+        "id": "memory",
+        "name": "Window Memory",
+        "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+        "typeVersion": 1.3,
+        "position": [
+          720,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "search_clients",
+          "description": "Busca clientes por nombre, empresa, email o telefono. Devuelve candidatos con su id interno (para encadenar) y datos basicos. Usa esto primero cuando el usuario nombra a un cliente. Pasa query en el input (ej: {\"query\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_clients\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto a buscar: nombre, empresa, email o telefono\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-search-clients",
+        "name": "search_clients",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          912,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_client_360",
+          "description": "Ficha 360 COMPLETA de un cliente por su id interno (client_id, obtenido de search_clients): contacto, campos personalizados (DNI/NIF, direccion, zona, nacionalidad...), tareas, calendario, actividad y documentos (metadata). Usa esto para 'ficha completa', 'todos los datos' o para extraer un campo exacto como el DNI. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_360\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente (de search_clients o get_latest_client)\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-client-360",
+        "name": "get_client_360",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1072,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_crm_overview",
+          "description": "Resumen / KPIs del CRM del workspace: totales de clientes, leads, citas, tareas. Para 'resumen del CRM', 'como va el negocio'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_crm_overview\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-crm-overview",
+        "name": "get_crm_overview",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1232,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_pending_tasks",
+          "description": "Tareas pendientes del workspace (y proximas/vencidas). Para 'que tengo pendiente', 'tareas'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_pending_tasks\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-pending-tasks",
+        "name": "get_pending_tasks",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1392,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_calendar_summary",
+          "description": "Resumen del calendario: proximas citas y eventos. Para 'que tengo hoy', 'citas de esta semana'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_calendar_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-calendar",
+        "name": "get_calendar_summary",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1552,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_open_operations",
+          "description": "Operaciones / pipeline abiertas del workspace (etapa, valor). Para 'que operaciones hay', 'pipeline'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_operations\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-operations",
+        "name": "get_open_operations",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1712,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_recent_activity",
+          "description": "Actividad reciente del workspace. Para 'que ha pasado', 'ultima actividad'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_recent_activity\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-recent-activity",
+        "name": "get_recent_activity",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1872,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_documents_metadata",
+          "description": "Lista los documentos adjuntos de un cliente (titulo, tipo, fecha) — SOLO metadata, NO el contenido. Requiere client_id. Si piden leer el PDF, explica que el contenido no esta indexado. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_documents_metadata\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-documents",
+        "name": "get_documents_metadata",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          2032,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_latest_client",
+          "description": "El cliente registrado mas recientemente, con sus campos personalizados (DNI/NIF, direccion, zona...). Para 'el nuevo cliente', 'el ultimo cliente'. Devuelve un unico cliente; usalo como cliente activo del hilo.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_latest_client\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-latest-client",
+        "name": "get_latest_client",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          912,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_client_opportunities",
+          "description": "Operaciones (pipeline) de un cliente concreto por client_id (etapa, valor, probabilidad, cierre). Para 'que operaciones tiene este cliente'. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_opportunities\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-client-ops",
+        "name": "get_client_opportunities",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1072,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_client_service_cases",
+          "description": "Expedientes de un cliente concreto por client_id (tipo, estado, prioridad, vencimiento). Para 'que expedientes tiene este cliente'. Pasa clientId en el input (ej: {\"clientId\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"clientId\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"clientId\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_client_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"clientId\": {\n   \"type\": \"string\",\n   \"description\": \"UUID del cliente\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-client-cases",
+        "name": "get_client_service_cases",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1232,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "get_open_service_cases",
+          "description": "Expedientes ABIERTOS del workspace (no por cliente). Para 'que expedientes hay abiertos', 'expedientes urgentes'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"get_open_service_cases\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-open-cases",
+        "name": "get_open_service_cases",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1392,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "pipeline_summary",
+          "description": "Resumen del pipeline: operaciones abiertas agrupadas por etapa, con conteo y valor total. Para 'como va el pipeline', 'valor del pipeline'.",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"pipeline_summary\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {},\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-pipeline",
+        "name": "pipeline_summary",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1552,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "search_properties",
+          "description": "Busca propiedades en cartera por texto (titulo/ciudad/zona/direccion), estado (p. ej. solo disponibles) o ciudad. Para 'propiedades disponibles en X', 'pisos en Bilbao'. Pasa query en el input (ej: {\"query\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"query\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"query\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"search_properties\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"query\": {\n   \"type\": \"string\",\n   \"description\": \"texto libre: ciudad, zona, tipo o estado\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-properties",
+        "name": "search_properties",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1712,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "name": "crm_read_query",
+          "description": "Búsqueda UNIVERSAL controlada del CRM, cuando ninguna tool específica encaja claramente. Elige una entidad permitida y filtra. entity debe ser una de: clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities. Acepta searchText (texto libre), clientRef (UUID de cliente para filtrar por cliente) y limit (máx 20). Es read-only, workspace-scoped y SIN SQL libre. Úsala para consultas amplias o combinadas; para casos típicos prefiere las tools específicas. Pasa entity en el input (ej: {\"entity\":\"...\"}).",
+          "jsCode": "const ws = $('Normalize input').first().json.workspaceId;\nconst a = (query && typeof query === 'object') ? query : {};\nconst input = {};\nconst v = a[\"entity\"];\nif (v !== undefined && v !== null && String(v).trim() !== '') input[\"entity\"] = String(v);\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: $env.CRM_BASE_URL + '/api/agent/tool',\n    headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' },\n    body: { tool: \"crm_read_query\", workspace_id: ws, input },\n    json: true,\n  });\n} catch (e) {\n  return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) });\n}\nreturn typeof res === 'string' ? res : JSON.stringify(res);",
+          "specifyInputSchema": true,
+          "schemaType": "manual",
+          "inputSchema": "{\n \"type\": \"object\",\n \"properties\": {\n  \"entity\": {\n   \"type\": \"string\",\n   \"description\": \"entidad CRM: clients, opportunities, service_cases, tasks, calendar_events, properties, documents o activities\"\n  }\n },\n \"additionalProperties\": true\n}"
+        },
+        "id": "tool-crm-read-query",
+        "name": "crm_read_query",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1872,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { \"reply\": $json.output, \"usedTools\": [], \"activeEntityUpdate\": null, \"limitations\": [], \"error\": null, \"requestId\": $('Normalize input').item.json.requestId } }}",
+          "options": {}
+        },
+        "id": "respond-ok",
+        "name": "Respond to Webhook",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          960,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { \"error\": \"unauthorized\" } }}",
+          "options": {}
+        },
+        "id": "respond-401",
+        "name": "Respond Unauthorized",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          400,
+          432
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook In": {
+        "main": [
+          [
+            {
+              "node": "Check secret",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check secret": {
+        "main": [
+          [
+            {
+              "node": "Normalize input",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Unauthorized",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize input": {
+        "main": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CRM Agent": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OpenAI Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Window Memory": {
+        "ai_memory": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_memory",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "search_clients": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_client_360": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_crm_overview": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_pending_tasks": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_calendar_summary": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_open_operations": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_recent_activity": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_documents_metadata": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_latest_client": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_client_opportunities": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_client_service_cases": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_open_service_cases": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "pipeline_summary": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "search_properties": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "crm_read_query": {
+        "ai_tool": [
+          [
+            {
+              "node": "CRM Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "IAzti IAzti",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-06-20T22:28:27.291Z",
+        "id": 94,
+        "workflowId": "6mps8YoWu3syldUc",
+        "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+        "event": "activated",
+        "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
+      },
+      {
+        "createdAt": "2026-06-20T22:28:27.650Z",
+        "id": 96,
+        "workflowId": "6mps8YoWu3syldUc",
+        "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+        "event": "activated",
+        "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
+      },
+      {
+        "createdAt": "2026-06-20T22:28:27.276Z",
+        "id": 93,
+        "workflowId": "6mps8YoWu3syldUc",
+        "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+        "event": "deactivated",
+        "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
+      },
+      {
+        "createdAt": "2026-06-20T22:28:27.634Z",
+        "id": 95,
+        "workflowId": "6mps8YoWu3syldUc",
+        "versionId": "47691da9-6d76-4272-997c-2017c4c50a1d",
+        "event": "deactivated",
+        "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
+      }
+    ]
+  }
 }
