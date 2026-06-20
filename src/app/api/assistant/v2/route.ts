@@ -5,6 +5,7 @@ import { runNowLabsAgent, type AgentContext, type AgentV2Result } from '@/lib/ag
 import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
+import { loadThreadMemory, saveActiveEntity } from '@/lib/agents/assistant-agent-memory'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -263,11 +264,27 @@ export async function POST(req: NextRequest) {
   const useLegacyV1 = provider === 'openai' || provider === 'v1' || provider === 'local'
 
   if (!useLegacyV1) {
-    // activeEntity = the client the UI is focused on (so the agent resolves
-    // "este cliente" / "su email"). The LLM never decides the workspace.
-    const activeEntity = context.lastReferencedClientId
-      ? { type: 'client', id: context.lastReferencedClientId, label: context.lastReferencedClientName }
-      : null
+    // Working memory (N4): persist & recall the active client of this thread in
+    // assistant_agent_memory (server-side, RLS, never the LLM). The UI's focused
+    // client wins; otherwise we recall what we stored last turn so context
+    // survives reloads / cold n8n memory. We also expose the previous entity for
+    // "el anterior / vuelve al de antes". Only a reference is stored — no PII.
+    let activeEntity:
+      | { type: string; id: string; label?: string; previous?: { type: string; id: string; label?: string } }
+      | null = null
+    if (threadId) {
+      const uiClient = context.lastReferencedClientId
+        ? { type: 'client' as const, id: context.lastReferencedClientId, label: context.lastReferencedClientName }
+        : null
+      if (uiClient) {
+        await saveActiveEntity(supabase, { workspaceId, userId: user.id, threadId, entity: uiClient })
+      }
+      const mem = await loadThreadMemory(supabase, threadId, user.id)
+      const active = uiClient ?? mem.active
+      if (active) activeEntity = { type: active.type, id: active.id, label: active.label, previous: mem.previous ?? undefined }
+    } else if (context.lastReferencedClientId) {
+      activeEntity = { type: 'client', id: context.lastReferencedClientId, label: context.lastReferencedClientName }
+    }
 
     // Last few turns of THIS thread (RLS via the user's session). n8n keeps its
     // own per-thread Window Memory; this is a cold-start bridge, capped small to

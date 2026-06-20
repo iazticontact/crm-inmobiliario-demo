@@ -143,3 +143,16 @@ El V1 (`runNowLabsAgent` + deterministas) queda **legacy** tras el flag (candida
 cleanup). El executor de escrituras `/api/assistant/confirm` se mantiene intacto para la
 futura fase de escritura (preparar+confirmar; n8n no escribe). Ver
 `PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.
+
+---
+
+## N4 — Memoria pro + cobertura CRM total · 2026-06-21
+Memoria de trabajo persistente: tabla `assistant_agent_memory` (entidad activa/previa por
+hilo, RLS workspace+usuario, SOLO referencias —sin DNI/email/tel—, escrita por el SERVIDOR
+`/api/assistant/v2`, nunca el LLM). Helper `src/lib/agents/assistant-agent-memory.ts`. El
+route fija `activeEntity` (+`previous` para "el anterior"). Cobertura: `crm_read_query`
+(n8n) ahora envía `searchText`/`clientRef`/`filters` → búsqueda por texto en las 8 entidades
+(el server ya lo soportaba). `lead_score` blindado: `stripInternalFields` en `/api/agent/tool`
+(el LLM nunca lo ve) + prompt. Suite `docs/evals/agent-v2-crm-evals.json` (105) + runner
+`run-agent-evals.mjs` (dry-run, redacta PII). Modelo gpt-4.1-mini@0.2. Ver
+`PHASE_N4_AGENT_V2_PRO_MEMORY_AND_FULL_CRM_INTELLIGENCE_REPORT.md`.

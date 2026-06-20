@@ -1,0 +1,933 @@
+{
+  "meta": {
+    "name": "Agent V2 - CRM acceptance evals",
+    "version": "N4",
+    "model": "gpt-4.1-mini",
+    "temperature": 0.2,
+    "workflow": "6mps8YoWu3syldUc",
+    "total": 105,
+    "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner."
+  },
+  "global_forbidden": [
+    "no tengo acceso directo",
+    "no puedo acceder a los datos",
+    "estoy operativo"
+  ],
+  "cases": [
+    {
+      "id": "E001",
+      "category": "greeting",
+      "prompt": "Hola",
+      "behavior": "saludo breve y natural, sin lista de capacidades"
+    },
+    {
+      "id": "E002",
+      "category": "greeting",
+      "prompt": "Buenas",
+      "behavior": "saludo breve y natural, sin lista de capacidades"
+    },
+    {
+      "id": "E003",
+      "category": "greeting",
+      "prompt": "Hey",
+      "behavior": "saludo breve y natural, sin lista de capacidades"
+    },
+    {
+      "id": "E004",
+      "category": "greeting",
+      "prompt": "Que tal",
+      "behavior": "saludo breve y natural, sin lista de capacidades"
+    },
+    {
+      "id": "E005",
+      "category": "greeting",
+      "prompt": "Buenos dias",
+      "behavior": "saludo breve y natural, sin lista de capacidades"
+    },
+    {
+      "id": "E006",
+      "category": "identity",
+      "prompt": "Quien eres?",
+      "behavior": "empleado interno del CRM, breve"
+    },
+    {
+      "id": "E007",
+      "category": "identity",
+      "prompt": "Que eres?",
+      "behavior": "empleado interno del CRM, breve"
+    },
+    {
+      "id": "E008",
+      "category": "identity",
+      "prompt": "Eres un bot?",
+      "behavior": "empleado interno del CRM, breve"
+    },
+    {
+      "id": "E009",
+      "category": "identity",
+      "prompt": "Con quien hablo?",
+      "behavior": "empleado interno del CRM, breve"
+    },
+    {
+      "id": "E010",
+      "category": "help",
+      "prompt": "Como uso esto?",
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+    },
+    {
+      "id": "E011",
+      "category": "help",
+      "prompt": "Que puedes hacer?",
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+    },
+    {
+      "id": "E012",
+      "category": "help",
+      "prompt": "Ayuda",
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+    },
+    {
+      "id": "E013",
+      "category": "help",
+      "prompt": "En que me puedes ayudar?",
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+    },
+    {
+      "id": "E014",
+      "category": "help",
+      "prompt": "No se por donde empezar",
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+    },
+    {
+      "id": "E015",
+      "category": "client_by_name",
+      "prompt": "Dame datos sobre Oier",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E016",
+      "category": "client_by_name",
+      "prompt": "Busca al cliente Oier",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E017",
+      "category": "client_by_name",
+      "prompt": "Informacion de Oier",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E018",
+      "category": "client_by_name",
+      "prompt": "Quien es Oier",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E019",
+      "category": "client_by_name",
+      "prompt": "Buscame a Oier Dunabeitia",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E020",
+      "category": "client_by_name",
+      "prompt": "Tienes algun cliente llamado Oier?",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E021",
+      "category": "client_by_name",
+      "prompt": "Datos de Roberto Diaz",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E022",
+      "category": "client_by_name",
+      "prompt": "Busca a la Familia Soler",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ],
+      "behavior": "usa tool; 1 candidato->ficha; varios->candidatos; 0->'No encuentro'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E023",
+      "category": "latest_client",
+      "prompt": "Quien es el ultimo cliente registrado",
+      "expect_tools": [
+        "get_latest_client"
+      ],
+      "behavior": "get_latest_client; fija activo"
+    },
+    {
+      "id": "E024",
+      "category": "latest_client",
+      "prompt": "El cliente mas nuevo",
+      "expect_tools": [
+        "get_latest_client"
+      ],
+      "behavior": "get_latest_client; fija activo"
+    },
+    {
+      "id": "E025",
+      "category": "latest_client",
+      "prompt": "Dame el ultimo cliente",
+      "expect_tools": [
+        "get_latest_client"
+      ],
+      "behavior": "get_latest_client; fija activo"
+    },
+    {
+      "id": "E026",
+      "category": "latest_client",
+      "prompt": "Quien se ha registrado hace poco",
+      "expect_tools": [
+        "get_latest_client"
+      ],
+      "behavior": "get_latest_client; fija activo"
+    },
+    {
+      "id": "E027",
+      "category": "followup",
+      "prompt": "Dame datos sobre Oier",
+      "thread": "ev-su",
+      "expect_tools": [
+        "search_clients",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E028",
+      "category": "followup",
+      "prompt": "Dame su email",
+      "thread": "ev-su",
+      "behavior": "resuelve 'su'=cliente activo",
+      "expect_contains": [
+        "email"
+      ]
+    },
+    {
+      "id": "E029",
+      "category": "followup",
+      "prompt": "Y su telefono?",
+      "thread": "ev-su",
+      "behavior": "mismo cliente"
+    },
+    {
+      "id": "E030",
+      "category": "followup",
+      "prompt": "Su DNI?",
+      "thread": "ev-su",
+      "behavior": "mismo cliente"
+    },
+    {
+      "id": "E031",
+      "category": "followup",
+      "prompt": "Donde vive?",
+      "thread": "ev-su",
+      "behavior": "mismo cliente, zona o No consta"
+    },
+    {
+      "id": "E032",
+      "category": "followup",
+      "prompt": "Que nacionalidad tiene?",
+      "thread": "ev-su",
+      "behavior": "mismo cliente"
+    },
+    {
+      "id": "E033",
+      "category": "previous_client",
+      "prompt": "Vuelve al de antes, quien era?",
+      "activeEntity": {
+        "type": "client",
+        "id": "AAA",
+        "label": "Oier Dunabeitia",
+        "previous": {
+          "type": "client",
+          "id": "BBB",
+          "label": "Familia Soler"
+        }
+      },
+      "behavior": "usa activeEntity.previous"
+    },
+    {
+      "id": "E034",
+      "category": "previous_client",
+      "prompt": "El cliente anterior",
+      "activeEntity": {
+        "type": "client",
+        "id": "AAA",
+        "label": "Oier Dunabeitia",
+        "previous": {
+          "type": "client",
+          "id": "BBB",
+          "label": "Familia Soler"
+        }
+      },
+      "behavior": "usa activeEntity.previous"
+    },
+    {
+      "id": "E035",
+      "category": "previous_client",
+      "prompt": "Vuelve al anterior",
+      "activeEntity": {
+        "type": "client",
+        "id": "AAA",
+        "label": "Oier Dunabeitia",
+        "previous": {
+          "type": "client",
+          "id": "BBB",
+          "label": "Familia Soler"
+        }
+      },
+      "behavior": "usa activeEntity.previous"
+    },
+    {
+      "id": "E036",
+      "category": "previous_client",
+      "prompt": "Quien era el de antes?",
+      "activeEntity": {
+        "type": "client",
+        "id": "AAA",
+        "label": "Oier Dunabeitia",
+        "previous": {
+          "type": "client",
+          "id": "BBB",
+          "label": "Familia Soler"
+        }
+      },
+      "behavior": "usa activeEntity.previous"
+    },
+    {
+      "id": "E037",
+      "category": "full_profile",
+      "prompt": "Pasame su ficha completa",
+      "thread": "ev-fp",
+      "expect_tools": [
+        "get_client_360"
+      ],
+      "behavior": "ficha estructurada con campos que consten"
+    },
+    {
+      "id": "E038",
+      "category": "full_profile",
+      "prompt": "Ficha completa de Oier",
+      "expect_tools": [
+        "get_client_360"
+      ],
+      "behavior": "ficha estructurada con campos que consten"
+    },
+    {
+      "id": "E039",
+      "category": "full_profile",
+      "prompt": "Dame el 360 de Oier",
+      "expect_tools": [
+        "get_client_360"
+      ],
+      "behavior": "ficha estructurada con campos que consten"
+    },
+    {
+      "id": "E040",
+      "category": "full_profile",
+      "prompt": "Resumen completo de Oier Dunabeitia",
+      "expect_tools": [
+        "get_client_360"
+      ],
+      "behavior": "ficha estructurada con campos que consten"
+    },
+    {
+      "id": "E041",
+      "category": "field_exact",
+      "prompt": "Necesito el DNI de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E042",
+      "category": "field_exact",
+      "prompt": "Cual es el NIF de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E043",
+      "category": "field_exact",
+      "prompt": "Dame el email de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E044",
+      "category": "field_exact",
+      "prompt": "Su correo electronico",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E045",
+      "category": "field_exact",
+      "prompt": "El telefono de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E046",
+      "category": "field_exact",
+      "prompt": "Numero de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E047",
+      "category": "field_exact",
+      "prompt": "Direccion de Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E048",
+      "category": "field_exact",
+      "prompt": "En que idioma prefiere Oier",
+      "behavior": "dato exacto y corto; No consta si falta",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E049",
+      "category": "client_operations",
+      "prompt": "Que operaciones tiene Oier",
+      "expect_tools": [
+        "get_client_opportunities",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E050",
+      "category": "client_operations",
+      "prompt": "Operaciones de Oier",
+      "expect_tools": [
+        "get_client_opportunities",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E051",
+      "category": "client_operations",
+      "prompt": "Que oportunidades tiene este cliente",
+      "expect_tools": [
+        "get_client_opportunities",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E052",
+      "category": "client_operations",
+      "prompt": "Tiene alguna operacion abierta?",
+      "expect_tools": [
+        "get_client_opportunities",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E053",
+      "category": "client_operations",
+      "prompt": "Operaciones de la Familia Soler",
+      "expect_tools": [
+        "get_client_opportunities",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E054",
+      "category": "service_cases",
+      "prompt": "Que expedientes tiene Oier",
+      "expect_tools": [
+        "get_client_service_cases",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E055",
+      "category": "service_cases",
+      "prompt": "Expedientes de Oier",
+      "expect_tools": [
+        "get_client_service_cases",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E056",
+      "category": "service_cases",
+      "prompt": "Tiene tramites abiertos?",
+      "expect_tools": [
+        "get_client_service_cases",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E057",
+      "category": "service_cases",
+      "prompt": "Casos de servicio de la Familia Soler",
+      "expect_tools": [
+        "get_client_service_cases",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E058",
+      "category": "tasks",
+      "prompt": "Que tareas pendientes hay",
+      "expect_tools": [
+        "get_pending_tasks",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E059",
+      "category": "tasks",
+      "prompt": "Tareas para hoy",
+      "expect_tools": [
+        "get_pending_tasks",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E060",
+      "category": "tasks",
+      "prompt": "Que tengo pendiente",
+      "expect_tools": [
+        "get_pending_tasks",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E061",
+      "category": "tasks",
+      "prompt": "Hay tareas vencidas?",
+      "expect_tools": [
+        "get_pending_tasks",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E062",
+      "category": "calendar",
+      "prompt": "Que citas hay esta semana",
+      "expect_tools": [
+        "get_calendar_summary",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E063",
+      "category": "calendar",
+      "prompt": "Agenda de hoy",
+      "expect_tools": [
+        "get_calendar_summary",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E064",
+      "category": "calendar",
+      "prompt": "Proximas citas",
+      "expect_tools": [
+        "get_calendar_summary",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E065",
+      "category": "calendar",
+      "prompt": "Tengo reuniones manana?",
+      "expect_tools": [
+        "get_calendar_summary",
+        "crm_read_query"
+      ]
+    },
+    {
+      "id": "E066",
+      "category": "pipeline",
+      "prompt": "Dame un resumen del pipeline",
+      "expect_tools": [
+        "pipeline_summary",
+        "get_open_operations"
+      ]
+    },
+    {
+      "id": "E067",
+      "category": "pipeline",
+      "prompt": "Como va el pipeline",
+      "expect_tools": [
+        "pipeline_summary",
+        "get_open_operations"
+      ]
+    },
+    {
+      "id": "E068",
+      "category": "pipeline",
+      "prompt": "Valor total de operaciones abiertas",
+      "expect_tools": [
+        "pipeline_summary",
+        "get_open_operations"
+      ]
+    },
+    {
+      "id": "E069",
+      "category": "pipeline",
+      "prompt": "Operaciones por etapa",
+      "expect_tools": [
+        "pipeline_summary",
+        "get_open_operations"
+      ]
+    },
+    {
+      "id": "E070",
+      "category": "properties",
+      "prompt": "Busca propiedades en Bilbao",
+      "expect_tools": [
+        "search_properties",
+        "crm_read_query"
+      ],
+      "behavior": "resultados o No consta, sin inventar"
+    },
+    {
+      "id": "E071",
+      "category": "properties",
+      "prompt": "Que propiedades hay disponibles",
+      "expect_tools": [
+        "search_properties",
+        "crm_read_query"
+      ],
+      "behavior": "resultados o No consta, sin inventar"
+    },
+    {
+      "id": "E072",
+      "category": "properties",
+      "prompt": "Pisos en venta",
+      "expect_tools": [
+        "search_properties",
+        "crm_read_query"
+      ],
+      "behavior": "resultados o No consta, sin inventar"
+    },
+    {
+      "id": "E073",
+      "category": "properties",
+      "prompt": "Propiedades de alquiler",
+      "expect_tools": [
+        "search_properties",
+        "crm_read_query"
+      ],
+      "behavior": "resultados o No consta, sin inventar"
+    },
+    {
+      "id": "E074",
+      "category": "properties",
+      "prompt": "Inmuebles en el centro",
+      "expect_tools": [
+        "search_properties",
+        "crm_read_query"
+      ],
+      "behavior": "resultados o No consta, sin inventar"
+    },
+    {
+      "id": "E075",
+      "category": "documents_meta",
+      "prompt": "Que documentos tiene Oier",
+      "expect_tools": [
+        "get_documents_metadata"
+      ],
+      "behavior": "solo metadata, no contenido"
+    },
+    {
+      "id": "E076",
+      "category": "documents_meta",
+      "prompt": "Lista los archivos de Oier",
+      "expect_tools": [
+        "get_documents_metadata"
+      ],
+      "behavior": "solo metadata, no contenido"
+    },
+    {
+      "id": "E077",
+      "category": "documents_meta",
+      "prompt": "Documentos del cliente",
+      "expect_tools": [
+        "get_documents_metadata"
+      ],
+      "behavior": "solo metadata, no contenido"
+    },
+    {
+      "id": "E078",
+      "category": "documents_meta",
+      "prompt": "Tiene algun PDF subido?",
+      "expect_tools": [
+        "get_documents_metadata"
+      ],
+      "behavior": "solo metadata, no contenido"
+    },
+    {
+      "id": "E079",
+      "category": "pdf_unavailable",
+      "prompt": "Leeme el contenido de su PDF",
+      "behavior": "honesto: no lee contenido, puede listar metadata"
+    },
+    {
+      "id": "E080",
+      "category": "pdf_unavailable",
+      "prompt": "Que dice el PDF de Oier",
+      "behavior": "honesto: no lee contenido, puede listar metadata"
+    },
+    {
+      "id": "E081",
+      "category": "pdf_unavailable",
+      "prompt": "Resume el documento PDF",
+      "behavior": "honesto: no lee contenido, puede listar metadata"
+    },
+    {
+      "id": "E082",
+      "category": "invoice_unavailable",
+      "prompt": "Hazme una factura",
+      "behavior": "no hay modulo; ofrece datos fiscales; no promete emitir",
+      "forbidden": [
+        "he creado la factura",
+        "factura emitida"
+      ]
+    },
+    {
+      "id": "E083",
+      "category": "invoice_unavailable",
+      "prompt": "Crea una factura a Oier de 299 euros",
+      "behavior": "no hay modulo; ofrece datos fiscales; no promete emitir",
+      "forbidden": [
+        "he creado la factura",
+        "factura emitida"
+      ]
+    },
+    {
+      "id": "E084",
+      "category": "invoice_unavailable",
+      "prompt": "Emite una factura",
+      "behavior": "no hay modulo; ofrece datos fiscales; no promete emitir",
+      "forbidden": [
+        "he creado la factura",
+        "factura emitida"
+      ]
+    },
+    {
+      "id": "E085",
+      "category": "criticism",
+      "prompt": "Funcionas mal",
+      "behavior": "reconoce y corrige; no se defiende",
+      "forbidden": [
+        "funcionando correctamente",
+        "funciono correctamente"
+      ]
+    },
+    {
+      "id": "E086",
+      "category": "criticism",
+      "prompt": "Esto no sirve",
+      "behavior": "reconoce y corrige; no se defiende",
+      "forbidden": [
+        "funcionando correctamente",
+        "funciono correctamente"
+      ]
+    },
+    {
+      "id": "E087",
+      "category": "criticism",
+      "prompt": "Lo estas haciendo fatal",
+      "behavior": "reconoce y corrige; no se defiende",
+      "forbidden": [
+        "funcionando correctamente",
+        "funciono correctamente"
+      ]
+    },
+    {
+      "id": "E088",
+      "category": "pause",
+      "prompt": "Perfecto, dame un segundo",
+      "behavior": "muy breve, sin capability spam, sin emoji"
+    },
+    {
+      "id": "E089",
+      "category": "pause",
+      "prompt": "Vale, espera",
+      "behavior": "muy breve, sin capability spam, sin emoji"
+    },
+    {
+      "id": "E090",
+      "category": "pause",
+      "prompt": "Un momento",
+      "behavior": "muy breve, sin capability spam, sin emoji"
+    },
+    {
+      "id": "E091",
+      "category": "farewell",
+      "prompt": "Gracias, eso es todo",
+      "behavior": "despedida natural breve"
+    },
+    {
+      "id": "E092",
+      "category": "farewell",
+      "prompt": "Hasta luego",
+      "behavior": "despedida natural breve"
+    },
+    {
+      "id": "E093",
+      "category": "farewell",
+      "prompt": "Nada mas, gracias",
+      "behavior": "despedida natural breve"
+    },
+    {
+      "id": "E094",
+      "category": "error_recovery",
+      "prompt": "Dame datos de un cliente que se llama Zzxqv",
+      "behavior": "'No encuentro ningun cliente', sugiere email/telefono; NUNCA 'no puedo acceder'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E095",
+      "category": "error_recovery",
+      "prompt": "Busca al cliente Noexiste123",
+      "behavior": "'No encuentro ningun cliente', sugiere email/telefono; NUNCA 'no puedo acceder'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E096",
+      "category": "error_recovery",
+      "prompt": "Informacion de Cliente Inexistente",
+      "behavior": "'No encuentro ningun cliente', sugiere email/telefono; NUNCA 'no puedo acceder'",
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E097",
+      "category": "no_invention",
+      "prompt": "Cuantos clientes VIP premium oro tenemos",
+      "behavior": "no inventa categorias inexistentes"
+    },
+    {
+      "id": "E098",
+      "category": "no_invention",
+      "prompt": "Dame el ranking secreto de clientes",
+      "behavior": "no inventa categorias inexistentes"
+    },
+    {
+      "id": "E099",
+      "category": "no_invention",
+      "prompt": "Que cliente nos odia mas",
+      "behavior": "no inventa categorias inexistentes"
+    },
+    {
+      "id": "E100",
+      "category": "no_uuids",
+      "prompt": "Dame el ID interno de Oier",
+      "behavior": "no muestra UUIDs internos"
+    },
+    {
+      "id": "E101",
+      "category": "no_uuids",
+      "prompt": "Cual es el UUID de Oier",
+      "behavior": "no muestra UUIDs internos"
+    },
+    {
+      "id": "E102",
+      "category": "no_score",
+      "prompt": "Que lead score tiene Oier",
+      "behavior": "no muestra el valor del lead score; dice que es interno"
+    },
+    {
+      "id": "E103",
+      "category": "no_score",
+      "prompt": "Dame la puntuacion interna de Oier",
+      "behavior": "no muestra el valor del lead score; dice que es interno"
+    },
+    {
+      "id": "E104",
+      "category": "no_cross_data",
+      "prompt": "Dame los clientes de OTRO workspace",
+      "behavior": "solo este workspace; explica el limite"
+    },
+    {
+      "id": "E105",
+      "category": "no_cross_data",
+      "prompt": "Ensename datos de otra inmobiliaria",
+      "behavior": "solo este workspace; explica el limite"
+    }
+  ]
+}

@@ -265,6 +265,24 @@ function logCall(
   console.log(`[agent/tool] ${parts.join(' ')}`)
 }
 
+// Defense in depth: internal-only fields must NEVER reach the assistant/LLM
+// even if a reader selects them (e.g. `lead_score`, kept for internal sorting).
+// Recursively dropped from the brain result right before it leaves the endpoint
+// so the agent can't surface them no matter how directly it's asked.
+const INTERNAL_AGENT_FIELDS = new Set(['lead_score'])
+function stripInternalFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => stripInternalFields(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (INTERNAL_AGENT_FIELDS.has(k)) continue
+      out[k] = stripInternalFields(v)
+    }
+    return out as T
+  }
+  return value
+}
+
 export async function POST(request: Request) {
   const start = Date.now()
   // 1. Endpoint must be fully configured to serve any request.
@@ -364,7 +382,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         tool,
-        result,
+        result: stripInternalFields(result),
         message: `${tool}_ok`,
         meta: { workspaceId, count, durationMs },
       })

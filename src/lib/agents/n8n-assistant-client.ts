@@ -17,7 +17,9 @@
 //     never from the browser body. This client just forwards them.
 //   - Fail-soft: returns a discriminated result; never throws.
 
-export type N8nAssistantActiveEntity = { type: string; id: string; label?: string } | null
+export type N8nAssistantActiveEntity =
+  | { type: string; id: string; label?: string; previous?: { type: string; id: string; label?: string } }
+  | null
 
 export type N8nAssistantParams = {
   message: string

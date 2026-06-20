@@ -131,3 +131,12 @@ El asistente del CRM usa el **n8n Agent V2** como cerebro (read-only), no el V1.
 `ASSISTANT_PROVIDER=n8n`. El workflow n8n debe estar **activo**. Sin estas vars,
 `/api/assistant/v2` responde "El agente todavía no está configurado" (sin caer al V1).
 Cambió runtime → **requiere redeploy**. Ver `PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.
+
+---
+
+## N4 — memoria + cobertura del agente · 2026-06-21
+Añade migración `20260621_n4_assistant_agent_memory` (memoria de trabajo, RLS) y toca
+runtime (`/api/assistant/v2`, `/api/agent/tool`) → **requiere redeploy del CRM**. La tabla
+guarda SOLO referencias (sin PII). `lead_score` queda fuera del alcance del LLM. Confirmar
+tras desplegar: memoria de hilo, búsqueda por texto en `crm_read_query`, y que el agente
+rehúsa mostrar lead score. Ver `PHASE_N4_AGENT_V2_PRO_MEMORY_AND_FULL_CRM_INTELLIGENCE_REPORT.md`.

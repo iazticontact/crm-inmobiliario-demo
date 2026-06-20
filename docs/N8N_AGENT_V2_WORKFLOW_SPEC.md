@@ -154,3 +154,11 @@ activeEntity, recentMessages, requestId }`. Respuesta (Respond to Webhook):
 + `/api/assistant/v2` (provider `n8n` por defecto). `sessionId` de la Window Memory =
 `workspaceId:userId:threadId` → memoria por conversación. Ver
 `PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.
+
+## 11. N4 — memoria + cobertura · 2026-06-21
+`crm_read_query` (toolCode) ahora acepta `searchText`/`clientRef`/`filters` además de
+`entity` (el reader server ya lo validaba; ilike seguro, workspace-scoped) → cubre búsqueda
+por texto en las 8 entidades. El CRM pasa `activeEntity` con `.previous` (memoria de hilo
+en `assistant_agent_memory`, escrita por el servidor). Prompt (~4815 chars): "el anterior"
+→ `activeEntity.previous`; lead score NUNCA se muestra; sin cierres de relleno. El endpoint
+`/api/agent/tool` elimina `lead_score` del resultado (`stripInternalFields`). gpt-4.1-mini@0.2.
