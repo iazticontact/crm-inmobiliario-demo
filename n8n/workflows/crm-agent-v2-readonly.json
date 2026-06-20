@@ -1,6 +1,11 @@
 {
+  "updatedAt": "2026-06-20T11:35:52.865Z",
+  "createdAt": "2026-06-18T19:14:09.173Z",
+  "id": "6mps8YoWu3syldUc",
   "name": "[CRM Inmobiliario] Agent V2 — Read Only",
+  "description": null,
   "active": false,
+  "isArchived": false,
   "nodes": [
     {
       "parameters": {
@@ -13,22 +18,33 @@
       "name": "Webhook In",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-40, 300],
+      "position": [
+        -48,
+        304
+      ],
       "webhookId": "crm-agent-v2"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "version": 2 },
-          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
           "conditions": [
             {
               "id": "secret-check",
               "leftValue": "={{ $json.headers['x-nowcrm-agent-secret'] }}",
               "rightValue": "={{ $env.N8N_ASSISTANT_V2_SECRET }}",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
@@ -36,19 +52,57 @@
       "name": "Check secret",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [180, 300]
+      "position": [
+        192,
+        304
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "a1", "name": "message", "value": "={{ $json.body.message }}", "type": "string" },
-            { "id": "a2", "name": "workspaceId", "value": "={{ $json.body.workspaceId }}", "type": "string" },
-            { "id": "a3", "name": "userId", "value": "={{ $json.body.userId }}", "type": "string" },
-            { "id": "a4", "name": "threadId", "value": "={{ $json.body.threadId }}", "type": "string" },
-            { "id": "a5", "name": "sessionId", "value": "={{ $json.body.workspaceId }}:{{ $json.body.userId }}:{{ $json.body.threadId }}", "type": "string" },
-            { "id": "a6", "name": "activeEntity", "value": "={{ JSON.stringify($json.body.activeEntity || {}) }}", "type": "string" },
-            { "id": "a7", "name": "requestId", "value": "={{ $json.body.requestId }}", "type": "string" }
+            {
+              "id": "a1",
+              "name": "message",
+              "value": "={{ $json.body.message }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "workspaceId",
+              "value": "={{ $json.body.workspaceId }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "userId",
+              "value": "={{ $json.body.userId }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "threadId",
+              "value": "={{ $json.body.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "sessionId",
+              "value": "={{ $json.body.workspaceId }}:{{ $json.body.userId }}:{{ $json.body.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "activeEntity",
+              "value": "={{ JSON.stringify($json.body.activeEntity || {}) }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "requestId",
+              "value": "={{ $json.body.requestId }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -57,34 +111,52 @@
       "name": "Normalize input",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [400, 220]
+      "position": [
+        400,
+        224
+      ]
     },
     {
       "parameters": {
         "promptType": "define",
         "text": "={{ $json.message }}",
         "options": {
-          "systemMessage": "Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\": tienes tools.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres. No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
+          "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\": tienes tools.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres. No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
         }
       },
       "id": "ai-agent",
       "name": "CRM Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [680, 220]
+      "position": [
+        688,
+        224
+      ]
     },
     {
       "parameters": {
-        "model": "gpt-4o-mini",
-        "options": { "temperature": 0.3 }
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {
+          "temperature": 0.3
+        }
       },
       "id": "chat-model",
       "name": "OpenAI Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
-      "position": [560, 460],
+      "position": [
+        560,
+        464
+      ],
       "credentials": {
-        "openAiApi": { "id": "REPLACE_WITH_OPENAI_CREDENTIAL", "name": "OpenAI account (configurar en n8n)" }
+        "openAiApi": {
+          "id": "Zwz0eUP1SSHyUalb",
+          "name": "OpenAi account"
+        }
       }
     },
     {
@@ -97,7 +169,10 @@
       "name": "Window Memory",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
-      "position": [720, 460]
+      "position": [
+        720,
+        464
+      ]
     },
     {
       "parameters": {
@@ -105,18 +180,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"search_clients\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"query\": \"{{ $fromAI('query', 'nombre, empresa, email o telefono a buscar', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-search-clients",
       "name": "search_clients",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [900, 460]
+      "position": [
+        912,
+        464
+      ]
     },
     {
       "parameters": {
@@ -124,18 +209,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_client_360\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"clientId\": \"{{ $fromAI('clientId', 'UUID del cliente (de search_clients o get_latest_client)', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-client-360",
       "name": "get_client_360",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1060, 460]
+      "position": [
+        1072,
+        464
+      ]
     },
     {
       "parameters": {
@@ -143,18 +238,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_crm_overview\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-crm-overview",
       "name": "get_crm_overview",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1220, 460]
+      "position": [
+        1232,
+        464
+      ]
     },
     {
       "parameters": {
@@ -162,18 +267,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_pending_tasks\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-pending-tasks",
       "name": "get_pending_tasks",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1380, 460]
+      "position": [
+        1392,
+        464
+      ]
     },
     {
       "parameters": {
@@ -181,18 +296,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_calendar_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-calendar",
       "name": "get_calendar_summary",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1540, 460]
+      "position": [
+        1552,
+        464
+      ]
     },
     {
       "parameters": {
@@ -200,18 +325,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_open_operations\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-operations",
       "name": "get_open_operations",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1700, 460]
+      "position": [
+        1712,
+        464
+      ]
     },
     {
       "parameters": {
@@ -219,18 +354,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_recent_activity\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-recent-activity",
       "name": "get_recent_activity",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1860, 460]
+      "position": [
+        1872,
+        464
+      ]
     },
     {
       "parameters": {
@@ -238,18 +383,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_documents_metadata\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"clientId\": \"{{ $fromAI('clientId', 'UUID del cliente', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-documents",
       "name": "get_documents_metadata",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [2020, 460]
+      "position": [
+        2032,
+        464
+      ]
     },
     {
       "parameters": {
@@ -257,18 +412,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_latest_client\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-latest-client",
       "name": "get_latest_client",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [900, 620]
+      "position": [
+        912,
+        624
+      ]
     },
     {
       "parameters": {
@@ -276,18 +441,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_client_opportunities\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"clientId\": \"{{ $fromAI('clientId', 'UUID del cliente', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-client-ops",
       "name": "get_client_opportunities",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1060, 620]
+      "position": [
+        1072,
+        624
+      ]
     },
     {
       "parameters": {
@@ -295,18 +470,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_client_service_cases\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"clientId\": \"{{ $fromAI('clientId', 'UUID del cliente', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-client-cases",
       "name": "get_client_service_cases",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1220, 620]
+      "position": [
+        1232,
+        624
+      ]
     },
     {
       "parameters": {
@@ -314,18 +499,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"get_open_service_cases\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-open-cases",
       "name": "get_open_service_cases",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1380, 620]
+      "position": [
+        1392,
+        624
+      ]
     },
     {
       "parameters": {
@@ -333,18 +528,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"pipeline_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-pipeline",
       "name": "pipeline_summary",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1540, 620]
+      "position": [
+        1552,
+        624
+      ]
     },
     {
       "parameters": {
@@ -352,18 +557,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"search_properties\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"query\": \"{{ $fromAI('query', 'texto libre: ciudad, zona, tipo o estado (p. ej. disponible); vacio para listar todas', 'string', '') }}\" } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-properties",
       "name": "search_properties",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1700, 620]
+      "position": [
+        1712,
+        624
+      ]
     },
     {
       "parameters": {
@@ -371,18 +586,28 @@
         "method": "POST",
         "url": "={{ $env.CRM_BASE_URL }}/api/agent/tool",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={ \"tool\": \"crm_read_query\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"entity\": \"{{ $fromAI('entity', 'Entidad CRM a consultar: clients, opportunities, service_cases, tasks, calendar_events, properties, documents o activities') }}\", \"limit\": 10 } }",
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-nowcrm-secret",
+              "value": "={{ $env.AGENT_TOOL_SECRET }}"
+            }
+          ]
+        },
         "options": {}
       },
       "id": "tool-crm-read-query",
       "name": "crm_read_query",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1860, 620]
+      "position": [
+        1872,
+        624
+      ]
     },
     {
       "parameters": {
@@ -394,53 +619,301 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [960, 220]
+      "position": [
+        960,
+        224
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseCode": 401,
         "responseBody": "={{ { \"error\": \"unauthorized\" } }}",
-        "options": {}
+        "options": {},
+        "responseCode": 401
       },
       "id": "respond-401",
       "name": "Respond Unauthorized",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [400, 420]
+      "position": [
+        400,
+        432
+      ]
     }
   ],
   "connections": {
-    "Webhook In": { "main": [[{ "node": "Check secret", "type": "main", "index": 0 }]] },
-    "Check secret": {
+    "Webhook In": {
       "main": [
-        [{ "node": "Normalize input", "type": "main", "index": 0 }],
-        [{ "node": "Respond Unauthorized", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Check secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Normalize input": { "main": [[{ "node": "CRM Agent", "type": "main", "index": 0 }]] },
-    "CRM Agent": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
-    "OpenAI Chat Model": { "ai_languageModel": [[{ "node": "CRM Agent", "type": "ai_languageModel", "index": 0 }]] },
-    "Window Memory": { "ai_memory": [[{ "node": "CRM Agent", "type": "ai_memory", "index": 0 }]] },
-    "search_clients": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_client_360": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_crm_overview": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_pending_tasks": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_calendar_summary": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_open_operations": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_recent_activity": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_documents_metadata": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_latest_client": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_client_opportunities": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_client_service_cases": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "get_open_service_cases": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "pipeline_summary": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "search_properties": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] },
-    "crm_read_query": { "ai_tool": [[{ "node": "CRM Agent", "type": "ai_tool", "index": 0 }]] }
+    "Check secret": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_clients": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_client_360": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_crm_overview": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_pending_tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_calendar_summary": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_open_operations": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_recent_activity": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_documents_metadata": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_latest_client": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_client_opportunities": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_client_service_cases": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_open_service_cases": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pipeline_summary": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_properties": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crm_read_query": {
+      "ai_tool": [
+        [
+          {
+            "node": "CRM Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
-  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
   "meta": {
-    "note": "CRM Agent V2 READ-ONLY. Importar INACTIVO. Requiere credencial OpenAI y variables de entorno en n8n: CRM_BASE_URL, AGENT_TOOL_SECRET, N8N_ASSISTANT_V2_SECRET. Las tools llaman al endpoint read-only del CRM POST /api/agent/tool (workspace-scoped, service_role server-side). Verificar tras importar las expresiones jsonBody/$fromAI de cada tool. Ver docs/N8N_AGENT_V2_IMPORT_AND_SETUP.md."
-  }
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "9e415ab8-b564-4462-8461-7f436bae6219",
+  "activeVersionId": null,
+  "versionCounter": 11,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-18T19:14:09.177Z",
+      "createdAt": "2026-06-18T19:14:09.177Z",
+      "role": "workflow:owner",
+      "workflowId": "6mps8YoWu3syldUc",
+      "projectId": "0Jfv3oZZrFFiZ4Oi",
+      "project": {
+        "updatedAt": "2026-02-26T11:39:02.119Z",
+        "createdAt": "2026-02-26T11:17:21.499Z",
+        "id": "0Jfv3oZZrFFiZ4Oi",
+        "name": "IAzti IAzti <iazti.contact@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
 }
