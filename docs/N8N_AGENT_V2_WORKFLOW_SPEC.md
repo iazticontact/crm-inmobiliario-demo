@@ -120,3 +120,16 @@ El JSON de nodos langchain de n8n es sensible a versión. Tras importar, revisa:
 typeVersions (agent 1.7 / lmChatOpenAi 1.2 / memoryBufferWindow 1.3 /
 toolHttpRequest 1.1 / if 2 / set 3.4 / webhook 2 / respondToWebhook 1.1) y las
 expresiones `jsonBody`/`$fromAI`. Si tu n8n es más nuevo/antiguo, ajusta en la UI.
+
+## 9. Regla de schemas de tools (N2.2 → N2.5)
+En esta versión de n8n (langchain core 1.1.8, ToolsAgent V1) **cada tool debe tener
+EXACTAMENTE UN campo `$fromAI`**, claro y que el modelo rellene siempre:
+- **>1 `$fromAI`** → el modelo omite campos secundarios → `Required → at <campo>`
+  (corregido N2.2/N2.3: `crm_read_query`=`entity`, `search_properties`=`query`).
+- **0 `$fromAI`** (tools sin argumentos con `input:{}`) → el modelo invoca con
+  argumentos AUSENTES y `z.object({})` rechaza `undefined` → `Required → at ` (path
+  vacío, raíz). **Corregido N2.5:** las 8 tools sin args llevan un `$fromAI('reason',…)`
+  de relleno (el servidor lo ignora) para forzar un objeto de argumentos no vacío.
+Resultado: las 15 tools con 1 campo. `workspace_id` SIEMPRE fijado desde `Normalize
+input` (nunca `$fromAI`). El `systemMessage` del agente debe empezar por `=` para que
+se interpolen `workspaceId`/`activeEntity` (N2.4).

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-20T11:35:52.865Z",
+  "updatedAt": "2026-06-20T12:07:22.179Z",
   "createdAt": "2026-06-18T19:14:09.173Z",
   "id": "6mps8YoWu3syldUc",
   "name": "[CRM Inmobiliario] Agent V2 — Read Only",
@@ -240,7 +240,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_crm_overview\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_crm_overview\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -269,7 +269,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_pending_tasks\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_pending_tasks\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -298,7 +298,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_calendar_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_calendar_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -327,7 +327,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_open_operations\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_open_operations\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -356,7 +356,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_recent_activity\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_recent_activity\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -414,7 +414,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_latest_client\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_latest_client\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -501,7 +501,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"get_open_service_cases\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"get_open_service_cases\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -530,7 +530,7 @@
         "sendHeaders": true,
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"pipeline_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": {} }",
+        "jsonBody": "={ \"tool\": \"pipeline_summary\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"reason\": \"{{ $fromAI('reason', 'motivo breve de tu consulta en pocas palabras', 'string', '') }}\" } }",
         "specifyHeaders": "keypair",
         "headerParameters": {
           "parameters": [
@@ -891,9 +891,9 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "9e415ab8-b564-4462-8461-7f436bae6219",
+  "versionId": "05df64ff-cb4e-4367-a68c-770910d2474a",
   "activeVersionId": null,
-  "versionCounter": 11,
+  "versionCounter": 12,
   "triggerCount": 0,
   "shared": [
     {
