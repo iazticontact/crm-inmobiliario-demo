@@ -62,7 +62,7 @@ requestId: string
 ### N2.1 — tool universal segura (arquitectura híbrida)
 | Tool n8n (añadida) | tool del endpoint | input |
 |---|---|---|
-| crm_read_query | `crm_read_query` | `{entity, searchText}` (N2.2: la tool envía solo `entity`+`searchText`; el reader sigue aceptando `clientRef`/`filters`/`dateRange`/`limit`) |
+| crm_read_query | `crm_read_query` | `{entity}` + `limit:10` fijo (N2.3: la tool envía solo `entity` como `$fromAI`; `searchText` se eliminó porque era un `$fromAI` required que el modelo omitía → crash. El reader sigue aceptando searchText/clientRef/filters/dateRange) |
 
 `entity` ∈ allowlist `{clients, opportunities, service_cases, tasks,
 calendar_events, properties, documents, activities}`. **Sin SQL libre**: el servidor

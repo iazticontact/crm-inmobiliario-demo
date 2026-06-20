@@ -375,7 +375,7 @@
         "headerParameters": { "parameters": [ { "name": "x-nowcrm-secret", "value": "={{ $env.AGENT_TOOL_SECRET }}" } ] },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"tool\": \"crm_read_query\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"entity\": \"{{ $fromAI('entity', 'una de: clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities', 'string', '') }}\", \"searchText\": \"{{ $fromAI('searchText', 'texto a buscar; vacio para listar', 'string', '') }}\" } }",
+        "jsonBody": "={ \"tool\": \"crm_read_query\", \"workspace_id\": \"{{ $('Normalize input').item.json.workspaceId }}\", \"input\": { \"entity\": \"{{ $fromAI('entity', 'Entidad CRM a consultar: clients, opportunities, service_cases, tasks, calendar_events, properties, documents o activities') }}\", \"limit\": 10 } }",
         "options": {}
       },
       "id": "tool-crm-read-query",
