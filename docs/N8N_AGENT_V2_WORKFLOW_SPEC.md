@@ -10,7 +10,9 @@
 El AI Agent tiene conectados:
 - `OpenAI Chat Model` (ai_languageModel) — gpt-4o-mini, credencial placeholder.
 - `Window Memory` (ai_memory) — sessionKey `workspaceId:userId:threadId`, ventana 12.
-- 8 `toolHttpRequest` (ai_tool) → todos a `POST {CRM_BASE_URL}/api/agent/tool`.
+- 15 `toolHttpRequest` (ai_tool) → todos a `POST {CRM_BASE_URL}/api/agent/tool`,
+  con cabecera `x-nowcrm-secret: {{$env.AGENT_TOOL_SECRET}}`
+  (`specifyHeaders: keypair` + `headerParameters`).
 
 ## 2. Contrato de entrada (webhook body)
 ```
@@ -39,13 +41,13 @@ requestId: string
 | Tool n8n (incluida) | tool del endpoint | input | Cubre del brief |
 |---|---|---|---|
 | search_clients | `search_clients` | `{query}` | search_clients |
-| get_client_360 | `get_client_360` | `{client_id}` | get_client_profile_full + get_client_field_exact (DNI/NIF/zona… vienen en la 360) |
+| get_client_360 | `get_client_360` | `{clientId}` | get_client_profile_full + get_client_field_exact (DNI/NIF/zona… vienen en la 360) |
 | get_crm_overview | `get_crm_overview` | `{}` | pipeline_summary parcial / resumen |
 | get_pending_tasks | `get_pending_tasks` | `{}` | list_pending_tasks |
 | get_calendar_summary | `get_calendar_summary` | `{}` | list_today_events / list_week_events |
 | get_open_operations | `get_open_operations` | `{}` | list_open_opportunities |
 | get_recent_activity | `get_recent_activity` | `{}` | recent_activity |
-| get_documents_metadata | `get_documents_metadata` | `{client_id}` | list_client_documents (solo metadata) |
+| get_documents_metadata | `get_documents_metadata` | `{clientId}` | list_client_documents (solo metadata) |
 
 ### N1.1 — gaps cerrados (nuevos readers + tools)
 | Tool n8n (añadida) | tool del endpoint | input |
@@ -55,12 +57,12 @@ requestId: string
 | get_client_service_cases | `get_client_service_cases` | `{clientId}` |
 | get_open_service_cases | `get_open_service_cases` | `{}` (expedientes abiertos workspace) |
 | pipeline_summary | `pipeline_summary` | `{}` (operaciones por etapa: conteo+valor) |
-| search_properties | `search_properties` | `{query?, status?, city?}` |
+| search_properties | `search_properties` | `{query}` (N2.2: la tool envía solo `query`; el reader sigue aceptando `status`/`city`) |
 
 ### N2.1 — tool universal segura (arquitectura híbrida)
 | Tool n8n (añadida) | tool del endpoint | input |
 |---|---|---|
-| crm_read_query | `crm_read_query` | `{entity, searchText?, clientRef?, filters?, dateRange?, limit?}` |
+| crm_read_query | `crm_read_query` | `{entity, searchText}` (N2.2: la tool envía solo `entity`+`searchText`; el reader sigue aceptando `clientRef`/`filters`/`dateRange`/`limit`) |
 
 `entity` ∈ allowlist `{clients, opportunities, service_cases, tasks,
 calendar_events, properties, documents, activities}`. **Sin SQL libre**: el servidor
