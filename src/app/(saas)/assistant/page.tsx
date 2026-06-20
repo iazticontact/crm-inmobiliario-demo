@@ -175,9 +175,9 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo? Resúmelas por etapa.', intent: 'list_opportunities', sender: 'agent' },
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
     { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
-    { label: 'Crear cita', prompt: 'Quiero crear una cita. Pídeme cliente, servicio, día, hora y duración si falta algo.', intent: 'booking', sender: 'agent' },
-    { label: 'Crear operación', prompt: 'Quiero crear una operación. Pídeme el cliente si falta.', intent: 'create_operation', sender: 'agent' },
-    { label: 'Abrir expediente', prompt: 'Quiero abrir un expediente. Pídeme el cliente si falta.', intent: 'create_service_case', sender: 'agent' },
+    { label: 'Citas de la semana', prompt: '¿Qué citas tengo esta semana?', intent: 'calendar_week', sender: 'agent' },
+    { label: 'Buscar propiedad', prompt: 'Busca propiedades por zona, tipo o estado.', intent: 'property_search', sender: 'agent' },
+    { label: 'Expedientes abiertos', prompt: '¿Qué expedientes abiertos hay? Resúmelos.', intent: 'list_service_cases', sender: 'agent' },
     { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, operaciones y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }
@@ -1730,6 +1730,9 @@ export default function AssistantPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               message: content,
+              // Stable per-conversation id so the n8n Agent V2 keeps Window
+              // Memory continuity across turns of the same thread.
+              threadId: conversationId,
               lastReferencedClientId,
               lastReferencedClientName,
               lastResults: lastResultsMap[conversationId] ?? [],

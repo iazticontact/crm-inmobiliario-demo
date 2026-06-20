@@ -121,3 +121,13 @@ producción y `.env` server) para validar el flujo real end-to-end del CRM.
 Para producción "cliente final": completar smoke test en navegador y decidir si
 RT5.1b conversacional es bloqueante para la propuesta de valor del asistente
 (el resto del CRM ya es operativo).
+
+---
+
+## N3 — Asistente conectado a n8n Agent V2 · 2026-06-20
+El asistente del CRM usa el **n8n Agent V2** como cerebro (read-only), no el V1.
+**Antes de desplegar a producción**, definir en el CRM (server-side, NO `NEXT_PUBLIC_`):
+`N8N_ASSISTANT_V2_WEBHOOK_URL`, `N8N_ASSISTANT_V2_SECRET` (= el de n8n) y opcional
+`ASSISTANT_PROVIDER=n8n`. El workflow n8n debe estar **activo**. Sin estas vars,
+`/api/assistant/v2` responde "El agente todavía no está configurado" (sin caer al V1).
+Cambió runtime → **requiere redeploy**. Ver `PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.

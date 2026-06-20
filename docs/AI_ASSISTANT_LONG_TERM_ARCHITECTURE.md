@@ -130,3 +130,16 @@ inbox/conversations. Solo diseño/roadmap.
 - [ ] ¿Sin service_role en frontend; workspace-scoped; RLS?
 - [ ] ¿Activity best-effort que no rompe la acción principal?
 - [ ] ¿tsc/lint/build verdes?
+
+---
+
+## N3 — Cerebro = n8n Agent V2 (V1 retirado del runtime) · 2026-06-20
+El cerebro del asistente del CRM pasa a ser el **n8n Agent V2** (read-only).
+`/api/assistant/v2` enruta por un adapter server-only `src/lib/agents/n8n-assistant-client.ts`
+al webhook `/webhook/crm-agent-v2` (cabecera `x-nowcrm-agent-secret`), con `threadId` para
+memoria por conversación. Selector `ASSISTANT_PROVIDER` (default `n8n`; `openai/v1/local`
+= rollback). **Sin fallback silencioso**: si n8n falla, error humano, nunca el V1.
+El V1 (`runNowLabsAgent` + deterministas) queda **legacy** tras el flag (candidato a
+cleanup). El executor de escrituras `/api/assistant/confirm` se mantiene intacto para la
+futura fase de escritura (preparar+confirmar; n8n no escribe). Ver
+`PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.

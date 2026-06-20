@@ -143,3 +143,14 @@ del `jsonBody` de las `toolHttpRequest`. **NO funcionó.** En N2.6 se demostró 
 desde `Normalize input`; `systemMessage` con prefijo `=` (N2.4); contrato del CRM intacto
 (`{tool, workspace_id, input}`) → sin redeploy de runtime. Ver
 `PHASE_N2_6_N8N_AGENT_HARD_SCHEMA_FIX_REPORT.md`.
+
+## 10. Conexión con el CRM (N3) · 2026-06-20
+El CRM llama a este workflow como cerebro del asistente. Webhook de producción
+`/webhook/crm-agent-v2` (**workflow ACTIVO**), cabecera `x-nowcrm-agent-secret` =
+`N8N_ASSISTANT_V2_SECRET`. Payload: `{ message, workspaceId, userId, threadId,
+activeEntity, recentMessages, requestId }`. Respuesta (Respond to Webhook):
+`{ reply, usedTools, activeEntityUpdate, limitations, error, requestId }` — `reply` es
+`$json.output` del AI Agent. Lado CRM: adapter `src/lib/agents/n8n-assistant-client.ts`
++ `/api/assistant/v2` (provider `n8n` por defecto). `sessionId` de la Window Memory =
+`workspaceId:userId:threadId` → memoria por conversación. Ver
+`PHASE_N3_CONNECT_CRM_TO_N8N_AGENT_V2_REPORT.md`.

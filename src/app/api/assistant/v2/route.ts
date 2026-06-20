@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { runNowLabsAgent, type AgentContext, type AgentV2Result } from '@/lib/agents/nowlabs-main-agent'
 import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
+import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -14,6 +15,9 @@ export type AssistantErrorCode =
   | 'workspace_unresolved'
   | 'supabase_unavailable'
   | 'agent_error'
+  // n8n provider (default brain):
+  | 'agent_unreachable'
+  | 'missing_provider_config'
   | 'unknown'
 
 async function buildSupabase() {
@@ -67,6 +71,10 @@ function answerForErrorCode(code: AssistantErrorCode): string {
       return 'No puedo conectar con la base de datos ahora mismo. Inténtalo en unos segundos.'
     case 'agent_error':
       return 'El agente ha tenido un problema técnico. Vuelve a probar; si persiste, avisa al administrador.'
+    case 'agent_unreachable':
+      return 'No he podido contactar con el agente ahora mismo. Inténtalo de nuevo en unos segundos.'
+    case 'missing_provider_config':
+      return 'El agente todavía no está configurado en el servidor. Avisa al administrador del CRM.'
     default:
       return 'No he podido procesar la consulta. Inténtalo de nuevo en unos segundos.'
   }
@@ -193,9 +201,11 @@ export async function POST(req: NextRequest) {
   // ------------------------------------------------------------------ Body
   let message: string
   let context: AgentContext
+  let threadId = ''
   try {
     const body = await req.json() as {
       message?: unknown
+      threadId?: unknown
       lastReferencedClientId?: unknown
       lastReferencedClientName?: unknown
       lastResults?: unknown
@@ -206,6 +216,7 @@ export async function POST(req: NextRequest) {
       lastConfirmedDate?: unknown
     }
     message = typeof body.message === 'string' ? body.message.trim() : ''
+    threadId = typeof body.threadId === 'string' ? body.threadId.trim() : ''
     const rawFullName = (profile as { full_name?: unknown } | null)?.full_name
     const rawRole = (profile as { role?: unknown } | null)?.role
     const displayName = typeof rawFullName === 'string' && rawFullName.trim() ? rawFullName.trim() : undefined
@@ -243,7 +254,124 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // ------------------------------------------------------------------ Agent
+  // ------------------------------------------------------------------ Provider
+  // n8n Agent V2 is the DEFAULT brain of the CRM assistant. The legacy V1
+  // (runNowLabsAgent + deterministic fallbacks) is reachable ONLY when an
+  // operator explicitly sets ASSISTANT_PROVIDER=openai|v1|local — an explicit
+  // rollback switch, NEVER a silent fallback when n8n fails.
+  const provider = (process.env.ASSISTANT_PROVIDER || 'n8n').trim().toLowerCase()
+  const useLegacyV1 = provider === 'openai' || provider === 'v1' || provider === 'local'
+
+  if (!useLegacyV1) {
+    // activeEntity = the client the UI is focused on (so the agent resolves
+    // "este cliente" / "su email"). The LLM never decides the workspace.
+    const activeEntity = context.lastReferencedClientId
+      ? { type: 'client', id: context.lastReferencedClientId, label: context.lastReferencedClientName }
+      : null
+
+    // Last few turns of THIS thread (RLS via the user's session). n8n keeps its
+    // own per-thread Window Memory; this is a cold-start bridge, capped small to
+    // avoid token bloat. Fail-soft to []. The just-saved current turn is dropped.
+    let recentMessages: Array<{ role: string; content: string }> = []
+    if (threadId) {
+      const { data: rows } = await supabase
+        .from('assistant_messages')
+        .select('role, content')
+        .eq('thread_id', threadId)
+        .order('created_at', { ascending: false })
+        .limit(12)
+      if (Array.isArray(rows)) {
+        recentMessages = rows
+          .map((r) => ({
+            role: String((r as { role?: unknown }).role ?? 'user'),
+            content: String((r as { content?: unknown }).content ?? ''),
+          }))
+          .filter((m) => m.content && m.content !== message)
+          .reverse()
+          .slice(-8)
+          .map((m) => ({ role: m.role, content: m.content.slice(0, 600) }))
+      }
+    }
+
+    const requestId = globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}`
+    const n8n = await runN8nAssistant({
+      message,
+      workspaceId,
+      userId: user.id,
+      // Stable session key for n8n Window Memory. Falls back to the workspace
+      // when the UI hasn't provided a thread id yet.
+      threadId: threadId || workspaceId,
+      activeEntity,
+      recentMessages,
+      requestId,
+    })
+
+    if (n8n.ok) {
+      const ref = n8n.activeEntityUpdate
+      logInvoke({
+        event: 'assistant.v2.invoke',
+        workspaceResolved: true,
+        openAiConfigured,
+        model: 'n8n:agent-v2',
+        errorCode: null,
+        agentErrorCode: null,
+        hasPreparedAction: false,
+        preparedActionType: null,
+        source: 'n8n',
+        toolCalls: n8n.usedTools.length ? n8n.usedTools : null,
+        durationMs: Date.now() - start,
+      })
+      return NextResponse.json({
+        ok: true,
+        answer: n8n.reply,
+        debugSource: 'n8n',
+        mode: 'n8n',
+        errorCode: null,
+        toolCalls: n8n.usedTools,
+        referencedClientId: ref?.type === 'client' ? ref.id : null,
+        referencedClientName: ref?.type === 'client' ? (ref.label ?? null) : null,
+        referencedList: null,
+        referencedCalendarList: null,
+        dataPreview: null,
+        // n8n Agent V2 is read-only: it never prepares write actions.
+        preparedAction: null,
+        limitations: n8n.limitations,
+      })
+    }
+
+    // n8n failed — surface a clear, human error. NO silent fallback to V1.
+    const errorCode: AssistantErrorCode =
+      n8n.errorCode === 'n8n_not_configured' ? 'missing_provider_config' : 'agent_unreachable'
+    logInvoke({
+      event: 'assistant.v2.invoke',
+      workspaceResolved: true,
+      openAiConfigured,
+      model: 'n8n:agent-v2',
+      errorCode,
+      agentErrorCode: null,
+      hasPreparedAction: false,
+      preparedActionType: null,
+      source: `n8n_error:${n8n.errorCode}`,
+      toolCalls: null,
+      durationMs: Date.now() - start,
+    })
+    return NextResponse.json({
+      ok: false,
+      answer: answerForErrorCode(errorCode),
+      debugSource: 'n8n',
+      mode: 'n8n',
+      errorCode,
+      toolCalls: null,
+      referencedClientId: null,
+      referencedClientName: null,
+      referencedList: null,
+      referencedCalendarList: null,
+      dataPreview: null,
+      preparedAction: null,
+    }, { status: errorCode === 'missing_provider_config' ? 503 : 502 })
+  }
+
+  // ------------------------------------------------------------------ Agent (legacy V1, opt-in)
   const agentResult = await runNowLabsAgent(supabase, workspaceId, message, context)
 
   // ------------------------------------------------------------------ Deterministic fallback
