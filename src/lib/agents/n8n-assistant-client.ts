@@ -18,7 +18,13 @@
 //   - Fail-soft: returns a discriminated result; never throws.
 
 export type N8nAssistantActiveEntity =
-  | { type: string; id: string; label?: string; previous?: { type: string; id: string; label?: string } }
+  | {
+      type: string
+      id: string
+      label?: string
+      previous?: { type: string; id: string; label?: string }
+      recent?: { type: string; id: string; label?: string }
+    }
   | null
 
 export type N8nAssistantParams = {

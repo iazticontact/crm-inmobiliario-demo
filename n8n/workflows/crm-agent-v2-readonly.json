@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-20T22:51:58.691Z",
+  "updatedAt": "2026-06-20T23:17:53.313Z",
   "createdAt": "2026-06-18T19:14:09.173Z",
   "id": "6mps8YoWu3syldUc",
   "name": "[CRM Inmobiliario] Agent V2 — Read Only",
@@ -121,7 +121,8 @@
         "promptType": "define",
         "text": "={{ $json.message }}",
         "options": {
-          "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres, y NO termines ofreciendo ayuda ni con preguntas de relleno (\"¿en que puedo ayudarte?\", \"¿algo mas?\"). No digas \"estoy operativo\". No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score / puntuacion interna, NI SIQUIERA si te lo piden directamente: responde que es una metrica interna que no se expone y ofrece otra cosa util.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales. Si el usuario dice \"el anterior\" o \"vuelve al de antes\", usa activeEntity.previous (la entidad previa del hilo) si existe.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
+          "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres, y NO termines ofreciendo ayuda ni con preguntas de relleno (\"¿en que puedo ayudarte?\", \"¿algo mas?\"). No digas \"estoy operativo\". No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score / puntuacion interna, NI SIQUIERA si te lo piden directamente: responde que es una metrica interna que no se expone y ofrece otra cosa util.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales. Si el usuario dice \"el anterior\" o \"vuelve al de antes\", usa activeEntity.previous (la entidad previa del hilo) si existe. Para \"ese/esa/este\" referido a una propiedad, documento u operacion concreta, usa activeEntity.recent si su type coincide.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas.",
+          "returnIntermediateSteps": true
         }
       },
       "id": "ai-agent",
@@ -448,7 +449,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { \"reply\": $json.output, \"usedTools\": [], \"activeEntityUpdate\": null, \"limitations\": [], \"error\": null, \"requestId\": $('Normalize input').item.json.requestId } }}",
+        "responseBody": "={{ { \"reply\": $json.reply, \"usedTools\": $json.usedTools || [], \"activeEntityUpdate\": $json.activeEntityUpdate || null, \"limitations\": $json.limitations || [], \"error\": $json.error || null, \"requestId\": $('Normalize input').item.json.requestId } }}",
         "options": {}
       },
       "id": "respond-ok",
@@ -473,6 +474,20 @@
       "position": [
         400,
         432
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Derive activeEntityUpdate DETERMINISTICALLY from real tool data (not LLM text).\nconst out = $json.output || '';\nconst steps = Array.isArray($json.intermediateSteps) ? $json.intermediateSteps : [];\nconst usedTools = [];\nlet active = null;\nconst parse = (o) => { try { return typeof o === 'string' ? JSON.parse(o) : o; } catch (e) { return null; } };\nconst one = (a) => (Array.isArray(a) && a.length === 1) ? a[0] : null;\nconst ENT = { clients:'client', opportunities:'opportunity', service_cases:'service_case', tasks:'task', calendar_events:'calendar_event', properties:'property', documents:'document', activities:'activity' };\nfor (const st of steps) {\n  const tool = st && st.action && st.action.tool;\n  const ti = (st && st.action && st.action.toolInput) || {};\n  if (tool && usedTools.indexOf(tool) < 0) usedTools.push(tool);\n  const obs = parse(st && st.observation);\n  if (!obs || obs.ok === false) continue;\n  const res = obs.result || {};\n  let cand = null;\n  if (tool === 'get_client_360' || tool === 'get_latest_client') { const c = res.client; if (c && c.id && c.name) cand = { type:'client', id:c.id, label:c.name }; }\n  else if (tool === 'search_clients') { const c = one(res.results || res.clients || res.rows); if (c && c.id && c.name) cand = { type:'client', id:c.id, label:c.name }; }\n  else if (tool === 'search_properties') { const p = one(res.results || res.rows); if (p && p.id) cand = { type:'property', id:p.id, label: p.title || p.address || 'Propiedad' }; }\n  else if (tool === 'get_documents_metadata') { const d = one(res.results || res.documents || res.rows); if (d && d.id) cand = { type:'document', id:d.id, label: d.title || 'Documento' }; }\n  else if (tool === 'crm_read_query') { const row = one(res.rows || res.results); const ent = ENT[res.entity]; if (row && row.id && ent) cand = { type:ent, id:row.id, label: row.name || row.title || row.address || ent }; }\n  else if (tool === 'get_client_opportunities' || tool === 'get_client_service_cases') { if (ti.clientId) cand = { type:'client', id: ti.clientId }; }\n  if (cand) active = cand;\n}\nconst activeEntityUpdate = active ? { type:active.type, id:active.id, label: active.label || null, source:'tool', confidence: active.label ? 'high' : 'medium' } : null;\nreturn { reply: out, activeEntityUpdate, usedTools, limitations: [], error: null };"
+      },
+      "id": "build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        908,
+        404
       ]
     }
   ],
@@ -521,7 +536,7 @@
       "main": [
         [
           {
-            "node": "Respond to Webhook",
+            "node": "Build Response",
             "type": "main",
             "index": 0
           }
@@ -714,6 +729,17 @@
           }
         ]
       ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -726,9 +752,9 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
-  "activeVersionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
-  "versionCounter": 89,
+  "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
+  "activeVersionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
+  "versionCounter": 110,
   "triggerCount": 1,
   "shared": [
     {
@@ -751,9 +777,9 @@
   ],
   "tags": [],
   "activeVersion": {
-    "updatedAt": "2026-06-20T22:51:58.696Z",
-    "createdAt": "2026-06-20T22:51:58.696Z",
-    "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
+    "updatedAt": "2026-06-20T23:17:53.315Z",
+    "createdAt": "2026-06-20T23:17:53.315Z",
+    "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
     "workflowId": "6mps8YoWu3syldUc",
     "nodes": [
       {
@@ -870,7 +896,8 @@
           "promptType": "define",
           "text": "={{ $json.message }}",
           "options": {
-            "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres, y NO termines ofreciendo ayuda ni con preguntas de relleno (\"¿en que puedo ayudarte?\", \"¿algo mas?\"). No digas \"estoy operativo\". No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score / puntuacion interna, NI SIQUIERA si te lo piden directamente: responde que es una metrica interna que no se expone y ofrece otra cosa util.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales. Si el usuario dice \"el anterior\" o \"vuelve al de antes\", usa activeEntity.previous (la entidad previa del hilo) si existe.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas."
+            "systemMessage": "=Eres un empleado IA interno de un CRM inmobiliario. Ayudas al equipo a consultar y entender datos REALES del CRM. Hablas como una persona profesional y natural, NO como un bot de onboarding.\n\nCONTEXTO DE LA PETICION (no lo muestres):\n- workspaceId activo: {{ $('Normalize input').item.json.workspaceId }}\n- entidad activa del hilo (si la hay): {{ $('Normalize input').item.json.activeEntity }}\n\nREGLAS:\n- Para CUALQUIER dato real (clientes, DNI/NIF, email, telefono, direccion, zona, operaciones, expedientes, tareas, citas, actividad, documentos) usa SIEMPRE una tool antes de responder. No inventes.\n- Si un dato no aparece, di \"No consta\". Nunca te lo inventes.\n- NUNCA digas \"no tengo acceso directo\" ni \"no puedo acceder a los datos\": tienes tools. Reserva los avisos de error SOLO para fallos reales de sistema y tras agotar alternativas.\n- No vendas tus capacidades salvo que te pregunten explicitamente que puedes hacer.\n- No uses emojis por defecto. No repitas frases ni cierres, y NO termines ofreciendo ayuda ni con preguntas de relleno (\"¿en que puedo ayudarte?\", \"¿algo mas?\"). No digas \"estoy operativo\". No menciones OpenAI/n8n/Supabase/tools al usuario.\n- Nunca muestres IDs/UUID internos ni el lead score / puntuacion interna, NI SIQUIERA si te lo piden directamente: responde que es una metrica interna que no se expone y ofrece otra cosa util.\n- Identidad/pronombres: \"este cliente\", \"su DNI\", \"el\" se refieren a la ENTIDAD ACTIVA del hilo. Si no hay entidad activa clara, pide a quien se refiere con candidatos reales. Si el usuario dice \"el anterior\" o \"vuelve al de antes\", usa activeEntity.previous (la entidad previa del hilo) si existe. Para \"ese/esa/este\" referido a una propiedad, documento u operacion concreta, usa activeEntity.recent si su type coincide.\n- Para resolver un cliente por nombre usa search_clients; con el id, get_client_360 para la ficha completa o un campo exacto (DNI/NIF estan en metadata, dentro de los campos personalizados que devuelve get_client_360). El nuevo o ultimo cliente registrado -> get_latest_client (queda como cliente activo del hilo). Operaciones o expedientes de UN cliente concreto -> get_client_opportunities / get_client_service_cases con su client_id. Propiedades -> search_properties. Pipeline -> pipeline_summary.\n- RECUPERACION ANTE FALLO/VACIO de una tool: NO te rindas ni digas que no puedes acceder. Prueba una alternativa logica antes de avisar de error: buscar cliente por nombre -> search_clients; si search_clients falla o no devuelve, usa crm_read_query con entity=clients (DEVUELVE el id de cada cliente) y filtra por ese nombre; con ese id puedes pedir get_client_360 (ficha completa) o get_client_opportunities / get_client_service_cases (sus operaciones / expedientes); \"el ultimo/nuevo cliente\" -> get_latest_client; con un id -> get_client_360. Solo si TODAS las vias fallan, di breve y util que hubo un problema tecnico.\n- \"Dame datos de X / informacion de X / quien es X\": empieza por search_clients(query=X). Un unico candidato claro -> get_client_360 y responde ficha breve (nombre, empresa, email, telefono, y DNI/NIF, direccion o zona si constan). Varios -> muestra los candidatos reales y pregunta cual. Ninguno -> \"No encuentro ningun cliente con X\" y sugiere buscar por email o telefono. Una busqueda sin resultados NO es \"no puedo acceder\".\n- LIBERTAD CONTROLADA: tienes tools especificas (arriba) Y una busqueda universal segura crm_read_query. Para lo tipico usa la tool especifica; para consultas amplias, combinadas o entidades sin tool propia usa crm_read_query eligiendo la entidad (clients, opportunities, service_cases, tasks, calendar_events, properties, documents, activities) y filtrando por searchText. Decide tu la mejor herramienta; no necesitas permiso para consultar. Todo es read-only y limitado a este workspace.\n- ESTA ES UNA VERSION READ-ONLY: NO ejecutas escrituras. Si el usuario pide una accion (crear/mover/editar/cancelar), explica que esta version experimental solo consulta datos; no la ejecutes.\n- Documentos: con get_documents_metadata puedes LISTAR los archivos (titulo/tipo), pero NO leer su contenido (no hay indexacion). Dilo con honestidad si piden \"leer el PDF\".\n- Facturacion: no hay modulo activo para emitir facturas; ofrece los datos fiscales/contacto del cliente, nunca digas que la preparas o emites.\n\nJUICIO CONVERSACIONAL (responde SOLO a la intencion real del turno):\n- Dato exacto -> tool + solo el dato.\n- Pausa / agradecimiento / \"dame un segundo\" / \"vale\" -> muy breve: \"Perfecto, te espero.\" y nada mas (sin proponer, sin listar capacidades, sin emoji).\n- Aclaracion sobre algo que dijiste -> explica solo ese contexto; si te adelantaste, reconocelo.\n- Critica (\"funcionas mal\") -> DALE LA RAZON y corrige; NUNCA \"estoy funcionando correctamente\".\n- Pregunta de capacidades (\"que puedes hacer\") -> ahora si: 4-6 capacidades reales y breves.\nLos ejemplos son de estilo, no plantillas rigidas.",
+            "returnIntermediateSteps": true
           }
         },
         "id": "ai-agent",
@@ -1197,7 +1224,7 @@
       {
         "parameters": {
           "respondWith": "json",
-          "responseBody": "={{ { \"reply\": $json.output, \"usedTools\": [], \"activeEntityUpdate\": null, \"limitations\": [], \"error\": null, \"requestId\": $('Normalize input').item.json.requestId } }}",
+          "responseBody": "={{ { \"reply\": $json.reply, \"usedTools\": $json.usedTools || [], \"activeEntityUpdate\": $json.activeEntityUpdate || null, \"limitations\": $json.limitations || [], \"error\": $json.error || null, \"requestId\": $('Normalize input').item.json.requestId } }}",
           "options": {}
         },
         "id": "respond-ok",
@@ -1222,6 +1249,20 @@
         "position": [
           400,
           432
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "// Derive activeEntityUpdate DETERMINISTICALLY from real tool data (not LLM text).\nconst out = $json.output || '';\nconst steps = Array.isArray($json.intermediateSteps) ? $json.intermediateSteps : [];\nconst usedTools = [];\nlet active = null;\nconst parse = (o) => { try { return typeof o === 'string' ? JSON.parse(o) : o; } catch (e) { return null; } };\nconst one = (a) => (Array.isArray(a) && a.length === 1) ? a[0] : null;\nconst ENT = { clients:'client', opportunities:'opportunity', service_cases:'service_case', tasks:'task', calendar_events:'calendar_event', properties:'property', documents:'document', activities:'activity' };\nfor (const st of steps) {\n  const tool = st && st.action && st.action.tool;\n  const ti = (st && st.action && st.action.toolInput) || {};\n  if (tool && usedTools.indexOf(tool) < 0) usedTools.push(tool);\n  const obs = parse(st && st.observation);\n  if (!obs || obs.ok === false) continue;\n  const res = obs.result || {};\n  let cand = null;\n  if (tool === 'get_client_360' || tool === 'get_latest_client') { const c = res.client; if (c && c.id && c.name) cand = { type:'client', id:c.id, label:c.name }; }\n  else if (tool === 'search_clients') { const c = one(res.results || res.clients || res.rows); if (c && c.id && c.name) cand = { type:'client', id:c.id, label:c.name }; }\n  else if (tool === 'search_properties') { const p = one(res.results || res.rows); if (p && p.id) cand = { type:'property', id:p.id, label: p.title || p.address || 'Propiedad' }; }\n  else if (tool === 'get_documents_metadata') { const d = one(res.results || res.documents || res.rows); if (d && d.id) cand = { type:'document', id:d.id, label: d.title || 'Documento' }; }\n  else if (tool === 'crm_read_query') { const row = one(res.rows || res.results); const ent = ENT[res.entity]; if (row && row.id && ent) cand = { type:ent, id:row.id, label: row.name || row.title || row.address || ent }; }\n  else if (tool === 'get_client_opportunities' || tool === 'get_client_service_cases') { if (ti.clientId) cand = { type:'client', id: ti.clientId }; }\n  if (cand) active = cand;\n}\nconst activeEntityUpdate = active ? { type:active.type, id:active.id, label: active.label || null, source:'tool', confidence: active.label ? 'high' : 'medium' } : null;\nreturn { reply: out, activeEntityUpdate, usedTools, limitations: [], error: null };"
+        },
+        "id": "build-response",
+        "name": "Build Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          908,
+          404
         ]
       }
     ],
@@ -1270,7 +1311,7 @@
         "main": [
           [
             {
-              "node": "Respond to Webhook",
+              "node": "Build Response",
               "type": "main",
               "index": 0
             }
@@ -1463,6 +1504,17 @@
             }
           ]
         ]
+      },
+      "Build Response": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "authors": "IAzti IAzti",
@@ -1471,34 +1523,34 @@
     "autosaved": false,
     "workflowPublishHistory": [
       {
-        "createdAt": "2026-06-20T22:51:58.816Z",
-        "id": 102,
+        "createdAt": "2026-06-20T23:17:53.391Z",
+        "id": 118,
         "workflowId": "6mps8YoWu3syldUc",
-        "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
+        "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
         "event": "activated",
         "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
       },
       {
-        "createdAt": "2026-06-20T22:51:59.256Z",
-        "id": 104,
+        "createdAt": "2026-06-20T23:17:53.797Z",
+        "id": 120,
         "workflowId": "6mps8YoWu3syldUc",
-        "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
+        "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
         "event": "activated",
         "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
       },
       {
-        "createdAt": "2026-06-20T22:51:58.788Z",
-        "id": 101,
+        "createdAt": "2026-06-20T23:17:53.373Z",
+        "id": 117,
         "workflowId": "6mps8YoWu3syldUc",
-        "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
+        "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
         "event": "deactivated",
         "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
       },
       {
-        "createdAt": "2026-06-20T22:51:59.228Z",
-        "id": 103,
+        "createdAt": "2026-06-20T23:17:53.782Z",
+        "id": 119,
         "workflowId": "6mps8YoWu3syldUc",
-        "versionId": "acafcc78-4a5e-4b30-a303-606744dad8e4",
+        "versionId": "6f544c73-db9b-4b88-82cb-45862c61ed9d",
         "event": "deactivated",
         "userId": "fe373b32-8fd9-4402-bd6e-f452b20a2b25"
       }

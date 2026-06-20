@@ -96,31 +96,72 @@ async function callAgent(prompt, threadId, activeEntity) {
     clearTimeout(t)
     if (!res.ok) return { error: `http_${res.status}` }
     const data = await res.json().catch(() => ({}))
-    return { reply: typeof data.reply === 'string' ? data.reply : (typeof data.output === 'string' ? data.output : '') }
+    return {
+      reply: typeof data.reply === 'string' ? data.reply : (typeof data.output === 'string' ? data.output : ''),
+      activeEntityUpdate: data.activeEntityUpdate || null,
+    }
   } catch (e) {
     clearTimeout(t)
     return { error: e?.name === 'AbortError' ? 'timeout' : 'fetch_failed' }
   }
 }
 
+// Faithful simulation of /api/assistant/v2 working memory (per thread), so a
+// multi-turn chain (Oier -> su DNI -> busca Laura -> vuelve al anterior) can be
+// certified against the live agent WITHOUT the CRM being redeployed. The route
+// persists activeEntityUpdate per type and recalls it next turn; we do the same.
+const threadMem = {}
+function buildActiveEntity(threadId, explicit) {
+  if (explicit) return explicit
+  const m = threadMem[threadId]
+  if (!m) return null
+  if (m.client) return { ...m.client, previous: m.previousClient || undefined, recent: m.recent || undefined }
+  return m.recent || null
+}
+function updateMem(threadId, aeu) {
+  if (!aeu || !aeu.id || !aeu.type) return
+  const m = threadMem[threadId] || (threadMem[threadId] = { client: null, previousClient: null, recent: null })
+  const ent = { type: aeu.type, id: aeu.id, label: aeu.label }
+  if (aeu.type === 'client') {
+    if (m.client && m.client.id !== ent.id) m.previousClient = m.client
+    m.client = ent
+  } else {
+    m.recent = ent
+  }
+}
+
+// Unique-per-run thread suffix so n8n Window Memory is FRESH each run (no
+// cross-run pollution) while staying shared within a run for a given c.thread.
+const RUN = Date.now().toString(36)
 const results = []
 let pass = 0, fail = 0
 for (const c of cases) {
-  const threadId = c.thread || `eval-${c.id}`
-  const r = await callAgent(c.prompt, threadId, c.activeEntity)
+  const threadId = `${c.thread || `eval-${c.id}`}-${RUN}`
+  const ae = buildActiveEntity(threadId, c.activeEntity)
+  const r = await callAgent(c.prompt, threadId, ae)
   if (r.error) {
     fail++; results.push({ id: c.id, category: c.category, status: 'ERROR', detail: r.error })
     if (!asJson) console.log(`✗ ${c.id} [${c.category}] ERROR ${r.error}`)
     continue
   }
+  updateMem(threadId, r.activeEntityUpdate) // simulate route persistence for the next turn
   const reply = r.reply || ''
   const forbiddenHit = checkForbidden(reply, c.forbidden || [])
   const missingContains = (c.expect_contains || []).filter((k) => !reply.toLowerCase().includes(String(k).toLowerCase()))
-  const ok = !forbiddenHit && missingContains.length === 0 && reply.trim().length > 0
+  // optional: assert the entity the agent resolved (the thing the route persists)
+  let activeMiss = null
+  if (c.expect_active) {
+    const a = r.activeEntityUpdate
+    if (!a) activeMiss = 'no_active'
+    else if (c.expect_active.type && a.type !== c.expect_active.type) activeMiss = `type=${a.type}`
+    else if (c.expect_active.labelIncludes && !String(a.label || '').toLowerCase().includes(c.expect_active.labelIncludes.toLowerCase())) activeMiss = `label=${a.label}`
+  }
+  if (c.expect_active_null && r.activeEntityUpdate) activeMiss = `unexpected_active=${r.activeEntityUpdate.type}`
+  const ok = !forbiddenHit && missingContains.length === 0 && !activeMiss && reply.trim().length > 0
   if (ok) { pass++; if (!asJson) console.log(`✓ ${c.id} [${c.category}]`) }
   else {
     fail++
-    const why = forbiddenHit ? `forbidden:${forbiddenHit}` : (missingContains.length ? `missing:${missingContains.join(',')}` : 'empty')
+    const why = forbiddenHit ? `forbidden:${forbiddenHit}` : (missingContains.length ? `missing:${missingContains.join(',')}` : (activeMiss ? `active:${activeMiss}` : 'empty'))
     if (!asJson) console.log(`✗ ${c.id} [${c.category}] ${why} :: ${redact(reply).slice(0, 120)}`)
   }
   results.push({ id: c.id, category: c.category, status: ok ? 'PASS' : 'FAIL', reply: redact(reply).slice(0, 160) })

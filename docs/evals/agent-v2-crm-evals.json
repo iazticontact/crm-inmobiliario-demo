@@ -5,8 +5,8 @@
     "model": "gpt-4.1-mini",
     "temperature": 0.2,
     "workflow": "6mps8YoWu3syldUc",
-    "total": 105,
-    "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner."
+    "total": 116,
+    "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner. memory_chain certifica persist/recall (el runner simula la memoria del route: arrastra activeEntityUpdate al siguiente turno)."
   },
   "global_forbidden": [
     "no tengo acceso directo",
@@ -928,6 +928,117 @@
       "category": "no_cross_data",
       "prompt": "Ensename datos de otra inmobiliaria",
       "behavior": "solo este workspace; explica el limite"
+    },
+    {
+      "id": "E106",
+      "category": "memory_chain",
+      "prompt": "Dame datos sobre Oier",
+      "thread": "mem-chain",
+      "expect_active": {
+        "type": "client",
+        "labelIncludes": "Oier"
+      },
+      "behavior": "resuelve y fija Oier como cliente activo"
+    },
+    {
+      "id": "E107",
+      "category": "memory_chain",
+      "prompt": "Dame su DNI",
+      "thread": "mem-chain",
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "usa el cliente activo (Oier)",
+      "expect_contains": [
+        "Oier"
+      ]
+    },
+    {
+      "id": "E108",
+      "category": "memory_chain",
+      "prompt": "Ahora busca a la Familia Soler",
+      "thread": "mem-chain",
+      "behavior": "nuevo activo Soler; Oier pasa a previo",
+      "expect_contains": [
+        "Soler"
+      ]
+    },
+    {
+      "id": "E109",
+      "category": "memory_chain",
+      "prompt": "Vuelve al anterior, quien es?",
+      "thread": "mem-chain",
+      "behavior": "recuerda al cliente anterior (Oier) por previousClient/Window Memory",
+      "expect_contains": [
+        "Oier"
+      ]
+    },
+    {
+      "id": "E110",
+      "category": "memory_chain",
+      "prompt": "Que operaciones tiene",
+      "thread": "mem-chain",
+      "behavior": "usa el cliente activo (Oier)",
+      "expect_contains": [
+        "Oier"
+      ]
+    },
+    {
+      "id": "E111",
+      "category": "memory_chain",
+      "prompt": "Busca propiedades disponibles",
+      "thread": "mem-chain",
+      "behavior": "no cambia el cliente activo (va a slot propiedad)"
+    },
+    {
+      "id": "E112",
+      "category": "memory_chain",
+      "prompt": "Dame su email",
+      "thread": "mem-chain",
+      "behavior": "el cliente activo SIGUE siendo Oier; la propiedad no lo machaco",
+      "expect_contains": [
+        "email"
+      ],
+      "forbidden": [
+        "no puedo acceder"
+      ]
+    },
+    {
+      "id": "E113",
+      "category": "active_capture",
+      "prompt": "Dame datos sobre Oier",
+      "thread": "ac-113",
+      "expect_active": {
+        "type": "client",
+        "labelIncludes": "Oier"
+      },
+      "behavior": "resolucion limpia -> activeEntityUpdate cliente"
+    },
+    {
+      "id": "E114",
+      "category": "active_capture",
+      "prompt": "Quien es el ultimo cliente registrado",
+      "thread": "ac-114",
+      "expect_active": {
+        "type": "client"
+      },
+      "behavior": "get_latest_client -> activeEntityUpdate cliente"
+    },
+    {
+      "id": "E115",
+      "category": "active_capture",
+      "prompt": "Hola, que tal",
+      "thread": "ac-115",
+      "expect_active_null": true,
+      "behavior": "sin tool -> sin activeEntityUpdate (no machaca memoria)"
+    },
+    {
+      "id": "E116",
+      "category": "active_capture",
+      "prompt": "Dame un resumen del pipeline",
+      "thread": "ac-116",
+      "expect_active_null": true,
+      "behavior": "agregado, no entidad unica -> sin activeEntityUpdate"
     }
   ]
 }

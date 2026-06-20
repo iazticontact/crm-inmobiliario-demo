@@ -5,7 +5,7 @@ import { runNowLabsAgent, type AgentContext, type AgentV2Result } from '@/lib/ag
 import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
-import { loadThreadMemory, saveActiveEntity } from '@/lib/agents/assistant-agent-memory'
+import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -269,21 +269,33 @@ export async function POST(req: NextRequest) {
     // client wins; otherwise we recall what we stored last turn so context
     // survives reloads / cold n8n memory. We also expose the previous entity for
     // "el anterior / vuelve al de antes". Only a reference is stored — no PII.
+    // The active CLIENT we SEND to n8n (UI focus wins, else what we recalled),
+    // plus the previous client (for "el anterior") and the most recent non-client
+    // entity (for "ese inmueble / documento"). The entity the agent RESOLVES this
+    // turn is persisted AFTER the call (see below), so a property/document never
+    // clobbers the active client.
+    const uiClient = context.lastReferencedClientId
+      ? { type: 'client' as const, id: context.lastReferencedClientId, label: context.lastReferencedClientName }
+      : null
+    const mem = threadId
+      ? await loadThreadMemory(supabase, threadId, user.id)
+      : { client: null, previousClient: null, recent: null }
+    const primaryClient = uiClient ?? mem.client
     let activeEntity:
-      | { type: string; id: string; label?: string; previous?: { type: string; id: string; label?: string } }
+      | {
+          type: string; id: string; label?: string
+          previous?: { type: string; id: string; label?: string }
+          recent?: { type: string; id: string; label?: string }
+        }
       | null = null
-    if (threadId) {
-      const uiClient = context.lastReferencedClientId
-        ? { type: 'client' as const, id: context.lastReferencedClientId, label: context.lastReferencedClientName }
-        : null
-      if (uiClient) {
-        await saveActiveEntity(supabase, { workspaceId, userId: user.id, threadId, entity: uiClient })
+    if (primaryClient) {
+      activeEntity = {
+        type: primaryClient.type, id: primaryClient.id, label: primaryClient.label,
+        previous: mem.previousClient ?? undefined,
+        recent: mem.recent ?? undefined,
       }
-      const mem = await loadThreadMemory(supabase, threadId, user.id)
-      const active = uiClient ?? mem.active
-      if (active) activeEntity = { type: active.type, id: active.id, label: active.label, previous: mem.previous ?? undefined }
-    } else if (context.lastReferencedClientId) {
-      activeEntity = { type: 'client', id: context.lastReferencedClientId, label: context.lastReferencedClientName }
+    } else if (mem.recent) {
+      activeEntity = { type: mem.recent.type, id: mem.recent.id, label: mem.recent.label }
     }
 
     // Last few turns of THIS thread (RLS via the user's session). n8n keeps its
@@ -324,7 +336,15 @@ export async function POST(req: NextRequest) {
     })
 
     if (n8n.ok) {
-      const ref = n8n.activeEntityUpdate
+      // Persist the entity the agent ACTUALLY resolved this turn (per type, so a
+      // property/document never clobbers the active client). Falls back to the
+      // UI-focused client. Server-side write, fail-soft.
+      const resolved = validateActiveEntityUpdate(n8n.activeEntityUpdate)
+        ?? (uiClient ? { type: uiClient.type, id: uiClient.id, label: uiClient.label } : null)
+      if (threadId && resolved) {
+        await saveActiveEntity(supabase, { workspaceId, userId: user.id, threadId, entity: resolved })
+      }
+      const ref = resolved
       logInvoke({
         event: 'assistant.v2.invoke',
         workspaceResolved: true,

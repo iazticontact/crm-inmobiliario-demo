@@ -156,3 +156,14 @@ route fija `activeEntity` (+`previous` para "el anterior"). Cobertura: `crm_read
 (el LLM nunca lo ve) + prompt. Suite `docs/evals/agent-v2-crm-evals.json` (105) + runner
 `run-agent-evals.mjs` (dry-run, redacta PII). Modelo gpt-4.1-mini@0.2. Ver
 `PHASE_N4_AGENT_V2_PRO_MEMORY_AND_FULL_CRM_INTELLIGENCE_REPORT.md`.
+
+---
+
+## N4.1 — Entidades resueltas persistidas · 2026-06-21
+El Agent V2 devuelve `activeEntityUpdate` derivado por un nodo Code (Build Response) de
+los datos reales de las tools (`returnIntermediateSteps`), no del texto del LLM. El CRM lo
+persiste por tipo en `assistant_agent_memory` (migración `20260621_n4_1`: slots
+active/previous por `entity_type`, así una propiedad/documento no machaca al cliente
+activo). `loadThreadMemory` → cliente activo + previo + reciente no-cliente; el route
+recuerda y reenvía a n8n. Certificado: active_capture 4/4, memory_chain 7/7 (el runner
+simula la persistencia del route). Ver `PHASE_N4_1_AGENT_V2_ACTIVE_ENTITY_UPDATE_REPORT.md`.

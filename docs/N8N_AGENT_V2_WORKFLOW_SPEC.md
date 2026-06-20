@@ -162,3 +162,14 @@ por texto en las 8 entidades. El CRM pasa `activeEntity` con `.previous` (memori
 en `assistant_agent_memory`, escrita por el servidor). Prompt (~4815 chars): "el anterior"
 → `activeEntity.previous`; lead score NUNCA se muestra; sin cierres de relleno. El endpoint
 `/api/agent/tool` elimina `lead_score` del resultado (`stripInternalFields`). gpt-4.1-mini@0.2.
+
+## 12. N4.1 — activeEntityUpdate (entidad resuelta) · 2026-06-21
+El AI Agent tiene `returnIntermediateSteps=true`. Un nodo **Build Response**
+(`n8n-nodes-base.code`) entre `CRM Agent` y `Respond to Webhook` deriva
+`activeEntityUpdate` (+`usedTools`) de `intermediateSteps` (datos REALES de las tools,
+no del texto): resultado único claro → {type,id,label,source,confidence}; varios/ninguno
+→ null. Respond devuelve `{reply, usedTools, activeEntityUpdate, ...}`. El usuario solo ve
+`reply`. El CRM (`/api/assistant/v2`) persiste `activeEntityUpdate` por tipo en
+`assistant_agent_memory` y recuerda cliente activo/previo (+ entidad no-cliente reciente
+en `activeEntity.recent`). Prompt +1 línea (recent). Ver
+`PHASE_N4_1_AGENT_V2_ACTIVE_ENTITY_UPDATE_REPORT.md`.
