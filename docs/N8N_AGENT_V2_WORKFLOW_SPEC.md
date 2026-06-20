@@ -121,15 +121,25 @@ typeVersions (agent 1.7 / lmChatOpenAi 1.2 / memoryBufferWindow 1.3 /
 toolHttpRequest 1.1 / if 2 / set 3.4 / webhook 2 / respondToWebhook 1.1) y las
 expresiones `jsonBody`/`$fromAI`. Si tu n8n es más nuevo/antiguo, ajusta en la UI.
 
-## 9. Regla de schemas de tools (N2.2 → N2.5)
-En esta versión de n8n (langchain core 1.1.8, ToolsAgent V1) **cada tool debe tener
-EXACTAMENTE UN campo `$fromAI`**, claro y que el modelo rellene siempre:
-- **>1 `$fromAI`** → el modelo omite campos secundarios → `Required → at <campo>`
-  (corregido N2.2/N2.3: `crm_read_query`=`entity`, `search_properties`=`query`).
-- **0 `$fromAI`** (tools sin argumentos con `input:{}`) → el modelo invoca con
-  argumentos AUSENTES y `z.object({})` rechaza `undefined` → `Required → at ` (path
-  vacío, raíz). **Corregido N2.5:** las 8 tools sin args llevan un `$fromAI('reason',…)`
-  de relleno (el servidor lo ignora) para forzar un objeto de argumentos no vacío.
-Resultado: las 15 tools con 1 campo. `workspace_id` SIEMPRE fijado desde `Normalize
-input` (nunca `$fromAI`). El `systemMessage` del agente debe empezar por `=` para que
-se interpolen `workspaceId`/`activeEntity` (N2.4).
+## 9. Schemas de tools — historia y SOLUCIÓN FINAL (N2.2 → N2.6)
+**N2.2–N2.5 (obsoleto):** se intentó arreglar el error
+`Received tool input did not match expected schema / Required` ajustando los `$fromAI`
+del `jsonBody` de las `toolHttpRequest`. **NO funcionó.** En N2.6 se demostró (por
+`promptTokens` invariante entre ejecuciones reales) que **en esta versión de n8n el nodo
+`toolHttpRequest` NO registra el schema del modelo a partir del `$fromAI`** → bug conocido
+(n8n issues #17241/#14399/#13440). Cualquier tweak del `jsonBody` es invisible para OpenAI.
+
+**N2.6 (SOLUCIÓN FINAL, probada en vivo):** las **15 tools son `@n8n/n8n-nodes-langchain.toolCode`**
+(Code Tool), NO `toolHttpRequest`. Cada una:
+- `specifyInputSchema: true` + `inputSchema` **permisivo**
+  `{type:object, properties:{…opcional…}, additionalProperties:true}` → **acepta
+  llamadas vacías** (clave para no romper por `Required`).
+- `jsCode` hace `this.helpers.httpRequest` a `{{$env.CRM_BASE_URL}}/api/agent/tool`,
+  cabecera `x-nowcrm-secret = {{$env.AGENT_TOOL_SECRET}}`, body `{tool, workspace_id, input}`
+  con `workspace_id` fijado desde `$('Normalize input')` (NUNCA del LLM) y try/catch que
+  devuelve `{ok:false,error:'crm_unreachable'}` si el CRM falla (no crashea el agente).
+
+**Reglas vigentes:** usar `toolCode` (no `toolHttpRequest`); schema permisivo; `workspace_id`
+desde `Normalize input`; `systemMessage` con prefijo `=` (N2.4); contrato del CRM intacto
+(`{tool, workspace_id, input}`) → sin redeploy de runtime. Ver
+`PHASE_N2_6_N8N_AGENT_HARD_SCHEMA_FIX_REPORT.md`.
