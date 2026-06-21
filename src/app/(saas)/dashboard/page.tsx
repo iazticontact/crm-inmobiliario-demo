@@ -312,7 +312,7 @@ export default function DashboardPage() {
             </Badge>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Resumen del día: clientes, citas, expedientes y cobros del workspace.
+            Resumen del día: clientes, citas y expedientes del workspace.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -518,7 +518,7 @@ export default function DashboardPage() {
         {activity.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
             {isEmpty
-              ? 'El workspace está vacío. A medida que añadas clientes, citas, expedientes o cobros, irá apareciendo aquí.'
+              ? 'El workspace está vacío. A medida que añadas clientes, citas o expedientes, irá apareciendo aquí.'
               : 'Sin actividad reciente todavía.'}
           </div>
         ) : (
