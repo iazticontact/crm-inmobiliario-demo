@@ -5,12 +5,10 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   Users,
-  Users as UsersIcon,
   Euro,
   Inbox,
   Calendar as CalendarIcon,
   FileText,
-  Building2,
   Plus,
   ArrowRight,
   MessageSquare,
@@ -20,12 +18,18 @@ import {
   AlertTriangle,
   Bot,
   Sparkles,
+  Clock,
+  ListChecks,
+  BarChart3,
+  Target,
+  CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
+import { MiniBarChart } from '@/components/charts/MiniBarChart'
 import { featureFlags } from '@/lib/feature-flags'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -65,6 +69,55 @@ type RealStats = {
   casesDocsPending: number
   propertiesActive: number
   tasksOpen: number
+  tasksOverdue: number
+}
+
+// Estructuras normalizadas para los bloques "Hoy", "Prioridades" y el mini
+// gráfico de pipeline. Las calculamos igual en modo demo y modo real, así que el
+// JSX no depende de la forma cruda de cada fuente.
+type PipelineStage = { stage: string; label: string; count: number }
+type UrgentTask = { id: string; title: string; dueDate?: string; clientName?: string; priority: string }
+type ReviewOp = { id: string; title: string; stage: string; value: number | null }
+type PriorityRow = { key: string; label: string; count: number; href?: string; hint?: string; icon: React.ReactNode }
+
+// Orden y etiquetas del pipeline (mismas claves que usa el agente en
+// deterministic-db-actions.ts). Solo etapas ABIERTAS (won/lost quedan fuera).
+const PIPELINE_ORDER: { key: string; label: string }[] = [
+  { key: 'new', label: 'Nuevo' },
+  { key: 'contacted', label: 'Contactado' },
+  { key: 'qualified', label: 'Cualificado' },
+  { key: 'visit_scheduled', label: 'Visita' },
+  { key: 'offer', label: 'Oferta' },
+  { key: 'negotiation', label: 'Negociación' },
+]
+const STAGE_LABELS: Record<string, string> = Object.fromEntries(
+  [...PIPELINE_ORDER.map((s) => [s.key, s.label]), ['won', 'Ganada'], ['lost', 'Perdida'], ['closed', 'Cerrada']],
+)
+
+function buildPipeline(openOpps: { stage: string }[]): PipelineStage[] {
+  return PIPELINE_ORDER.map((s) => ({ stage: s.key, label: s.label, count: openOpps.filter((o) => o.stage === s.key).length }))
+}
+
+function pickUrgentTask(
+  openTasks: { id: string; title: string; due_date?: string | null; client_name?: string | null; priority: string }[],
+): UrgentTask | null {
+  if (openTasks.length === 0) return null
+  const sorted = [...openTasks].sort((a, b) => {
+    const da = a.due_date ? Date.parse(a.due_date) : Number.POSITIVE_INFINITY
+    const db = b.due_date ? Date.parse(b.due_date) : Number.POSITIVE_INFINITY
+    return da - db
+  })
+  const t = sorted[0]
+  return { id: t.id, title: t.title, dueDate: t.due_date ?? undefined, clientName: t.client_name ?? undefined, priority: t.priority }
+}
+
+function pickReviewOp(openOpps: { id: string; title: string; stage: string; value: number | null }[]): ReviewOp | null {
+  if (openOpps.length === 0) return null
+  // La operación "a revisar" = la de mayor valor en el pipeline abierto (la que
+  // más mueve el negocio). Sin inventar nada: solo ordena lo que ya existe.
+  const sorted = [...openOpps].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+  const o = sorted[0]
+  return { id: o.id, title: o.title, stage: o.stage, value: o.value }
 }
 
 const activityIcons: Record<ActivityType, React.ReactNode> = {
@@ -144,6 +197,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<RealStats | null>(null)
   const [upcoming, setUpcoming] = useState<{ id: string; title: string; startAt?: string; clientName?: string; type?: string }[]>([])
   const [hotLeads, setHotLeads] = useState<{ id: string; name: string; status: string; leadScore: number; company?: string }[]>([])
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([])
+  const [urgentTask, setUrgentTask] = useState<UrgentTask | null>(null)
+  const [reviewOp, setReviewOp] = useState<ReviewOp | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -162,6 +218,8 @@ export default function DashboardPage() {
         const activeProps = demoProperties.filter((p) => p.status !== 'archived' && p.status !== 'sold')
         const waConvs = demoConversations.filter((c) => String(c.channel ?? '').toLowerCase() === 'whatsapp')
         const nowIso = new Date().toISOString()
+        const nowMs = Date.now()
+        const openTasks = demoTasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed')
         const up = demoCalendarEvents
           .filter((e) => `${e.date}T00:00:00.000Z` >= nowIso)
           .slice(0, 5)
@@ -181,7 +239,8 @@ export default function DashboardPage() {
           casesActive: activeCases.length,
           casesDocsPending: demoServiceCases.filter((c) => c.status === 'documentation_pending').length,
           propertiesActive: activeProps.length,
-          tasksOpen: demoTasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed').length,
+          tasksOpen: openTasks.length,
+          tasksOverdue: openTasks.filter((t) => t.due_date && Date.parse(t.due_date) < nowMs).length,
         })
         setActivity(demoActivity)
         setUpcoming(up)
@@ -192,6 +251,9 @@ export default function DashboardPage() {
             .slice(0, 5)
             .map((c) => ({ id: c.id, name: c.name, status: c.status, leadScore: c.leadScore, company: c.company })),
         )
+        setPipeline(buildPipeline(openOpps))
+        setUrgentTask(pickUrgentTask(openTasks))
+        setReviewOp(pickReviewOp(openOpps))
         setLoading(false)
         return
       }
@@ -205,6 +267,9 @@ export default function DashboardPage() {
           setActivity([])
           setUpcoming([])
           setHotLeads([])
+          setPipeline([])
+          setUrgentTask(null)
+          setReviewOp(null)
           setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
           return
         }
@@ -238,6 +303,8 @@ export default function DashboardPage() {
         const openOpps = opps.filter((o) => o.stage !== 'won' && o.stage !== 'lost' && o.stage !== 'closed')
         const activeCases = cases.filter((c) => c.status !== 'resolved' && c.status !== 'closed')
         const activeProperties = properties.filter((p) => p.status !== 'archived' && p.status !== 'sold')
+        const openTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed')
+        const nowMs = Date.now()
 
         const top = [...clients]
           .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
@@ -259,7 +326,8 @@ export default function DashboardPage() {
           casesActive: activeCases.length,
           casesDocsPending: cases.filter((c) => c.status === 'documentation_pending').length,
           propertiesActive: activeProperties.length,
-          tasksOpen: tasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed').length,
+          tasksOpen: openTasks.length,
+          tasksOverdue: openTasks.filter((t) => t.due_date && Date.parse(t.due_date) < nowMs).length,
         })
         // El feed del dashboard es la "home" del producto: dejamos fuera el ruido
         // de borrados (p. ej. "Cliente eliminado: …"), que queda en el detalle/log
@@ -267,12 +335,18 @@ export default function DashboardPage() {
         setActivity(activities.filter((a) => !/\b(elimin|borrad)/i.test(String(a.description ?? ''))))
         setUpcoming(upcomingEvents)
         setHotLeads(top)
+        setPipeline(buildPipeline(openOpps))
+        setUrgentTask(pickUrgentTask(openTasks))
+        setReviewOp(pickReviewOp(openOpps))
       } catch {
         if (cancelled) return
         setStats(null)
         setActivity([])
         setUpcoming([])
         setHotLeads([])
+        setPipeline([])
+        setUrgentTask(null)
+        setReviewOp(null)
         setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
       } finally {
         if (!cancelled) setLoading(false)
@@ -298,6 +372,20 @@ export default function DashboardPage() {
     toast.info('Crea el nuevo cliente desde la sección de Clientes.')
   }
 
+  // Derivados de presentación (sin queries): qué enseñar en "Hoy", el total del
+  // pipeline para decidir empty state del gráfico y las prioridades con datos.
+  const nextEvent = upcoming[0]
+  const hasTodayItems = Boolean(nextEvent || urgentTask || reviewOp)
+  const pipelineTotal = pipeline.reduce((sum, p) => sum + p.count, 0)
+  const priorities: PriorityRow[] = stats
+    ? [
+        { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
+        { key: 'tasks', label: 'Tareas pendientes', count: stats.tasksOpen, hint: stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : undefined, icon: <ListChecks className="h-4 w-4" /> },
+        { key: 'docs', label: 'Expedientes esperando docs', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
+        { key: 'events', label: 'Citas próximas', count: stats.upcomingEvents, href: '/calendar', icon: <CalendarIcon className="h-4 w-4" /> },
+      ].filter((p) => p.count > 0)
+    : []
+
   return (
     <motion.div
       initial={false}
@@ -305,36 +393,40 @@ export default function DashboardPage() {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-semibold tracking-tight text-gray-950">
-              {greeting}, {userLoading ? '…' : currentUser.name || currentUser.workspaceName}
-            </h2>
-            <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'} dot>
-              {userLoading ? 'Cargando' : currentUser.isDemo ? 'Modo demo' : 'Workspace activo'}
-            </Badge>
+      {/* Hero — cabecera tipo "centro operativo" del CRM */}
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-gradient-to-br from-indigo-50/80 via-white to-white p-5 shadow-sm sm:p-6">
+        <div
+          className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-indigo-100/50 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-semibold tracking-tight text-gray-950 sm:text-[1.7rem]">
+                {greeting}, {userLoading ? '…' : currentUser.name || currentUser.workspaceName}
+              </h2>
+              <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'} dot>
+                {userLoading ? 'Cargando' : currentUser.isDemo ? 'Modo demo' : 'Workspace activo'}
+              </Badge>
+            </div>
+            <p className="mt-1.5 text-sm text-gray-600">Aquí tienes el estado de tu CRM hoy.</p>
           </div>
-          <p className="mt-1 text-sm text-gray-500">
-            Resumen del día: clientes, citas y expedientes del workspace.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {featureFlags.assistant && (
-            <Button variant="secondary" size="sm" onClick={() => router.push('/assistant')}>
-              <Bot className="h-3.5 w-3.5" />
-              Copiloto
+          <div className="flex flex-wrap items-center gap-2">
+            {featureFlags.assistant && (
+              <Button variant="secondary" size="sm" onClick={() => router.push('/assistant')}>
+                <Bot className="h-3.5 w-3.5" />
+                Copiloto
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => router.push('/calendar')}>
+              <CalendarIcon className="h-3.5 w-3.5" />
+              Calendario
             </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => router.push('/calendar')}>
-            <CalendarIcon className="h-3.5 w-3.5" />
-            Calendario
-          </Button>
-          <Button size="sm" onClick={handleNewClient}>
-            <Plus className="h-3.5 w-3.5" />
-            Nuevo cliente
-          </Button>
+            <Button size="sm" onClick={handleNewClient}>
+              <Plus className="h-3.5 w-3.5" />
+              Nuevo cliente
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -345,112 +437,183 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Top KPIs — datos reales, sin tendencias fabricadas */}
+      {/* KPIs principales — datos reales, sin tendencias fabricadas */}
       <div className="grid gap-4 grid-cols-2 xl:grid-cols-4">
         <MetricTile
-          label="Clientes"
-          value={stats ? String(stats.totalClients) : loading ? '…' : '0'}
-          detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.leads} leads · ${stats.activeClients} activos`) : undefined}
+          label="Clientes activos"
+          value={stats ? String(stats.activeClients) : loading ? '…' : '0'}
+          detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.totalClients} en total · ${stats.leads} leads`) : undefined}
           icon={<Users className="h-5 w-5" />}
           href="/clients"
           tone="indigo"
         />
         <MetricTile
-          label="Eventos próximos"
+          label="Operaciones abiertas"
+          value={stats ? String(stats.opportunitiesOpen) : loading ? '…' : '0'}
+          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} en pipeline` : 'En curso') : undefined}
+          icon={<FileText className="h-5 w-5" />}
+          href="/opportunities"
+          tone="violet"
+        />
+        <MetricTile
+          label="Tareas pendientes"
+          value={stats ? String(stats.tasksOpen) : loading ? '…' : '0'}
+          detail={stats ? (stats.tasksOpen === 0 ? 'Todo al día' : stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : 'Pendientes de completar') : undefined}
+          icon={<ListChecks className="h-5 w-5" />}
+          tone="amber"
+        />
+        <MetricTile
+          label="Próximas citas"
           value={stats ? String(stats.upcomingEvents) : loading ? '…' : '0'}
-          detail={stats ? (stats.upcomingEvents === 0 ? 'Agenda libre' : 'Visitas y reuniones confirmadas') : undefined}
+          detail={stats ? (stats.upcomingEvents === 0 ? 'Agenda libre' : nextEvent ? `Próxima: ${[formatDateShort(nextEvent.startAt), nextEvent.type].filter(Boolean).join(' · ') || nextEvent.title}` : 'Programadas') : undefined}
           icon={<CalendarIcon className="h-5 w-5" />}
           href="/calendar"
           tone="sky"
         />
-        {/* Cobros (facturación) y WhatsApp/Inbox no tienen backend real todavía
-            (no hay invoices/conversations tables). Se ocultan al cliente y solo
-            aparecen con NOWLABS_INTERNAL para no prometer módulos inexistentes. */}
-        {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
-          <>
-            <MetricTile
-              label="Cobros pendientes"
-              value={stats ? formatEuro(stats.pendingAmount) : loading ? '…' : formatEuro(0)}
-              detail={stats ? (stats.pendingInvoices === 0 ? 'Sin facturas pendientes' : `${stats.pendingInvoices} factura(s) abiertas`) : undefined}
-              icon={<Euro className="h-5 w-5" />}
-              tone="amber"
-            />
-            <MetricTile
-              label="WhatsApp"
-              value={stats ? String(stats.externalConversations) : loading ? '…' : '0'}
-              detail={stats ? (stats.externalConversations === 0 ? 'Sin conversaciones de WhatsApp todavía' : `${stats.unreadConversations} sin leer`) : undefined}
-              icon={<Inbox className="h-5 w-5" />}
-              href="/inbox"
-              tone="emerald"
-            />
-          </>
-        )}
       </div>
 
-      {/* Snapshot operativo */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Link
-          href="/opportunities"
-          className="group rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-violet-600 shadow-sm ring-1 ring-violet-100">
-              <FileText className="h-4 w-4" />
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-violet-400 transition-transform group-hover:translate-x-0.5" />
-          </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Expedientes abiertos</p>
-          <p className="text-[11px] text-gray-500">
-            {stats
-              ? stats.casesActive === 0
-                ? 'Sin expedientes abiertos'
-                : `${stats.casesActive} abiertos${stats.casesDocsPending ? ` · ${stats.casesDocsPending} esperando docs` : ''}`
-              : 'Cargando…'}
-          </p>
-        </Link>
+      {/* KPIs internos (facturación/WhatsApp): sin backend real → solo build de
+          operador, nunca al cliente, para no prometer módulos inexistentes. */}
+      {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
+        <div className="grid gap-4 grid-cols-2">
+          <MetricTile
+            label="Cobros pendientes"
+            value={stats ? formatEuro(stats.pendingAmount) : loading ? '…' : formatEuro(0)}
+            detail={stats ? (stats.pendingInvoices === 0 ? 'Sin facturas pendientes' : `${stats.pendingInvoices} factura(s) abiertas`) : undefined}
+            icon={<Euro className="h-5 w-5" />}
+            tone="amber"
+          />
+          <MetricTile
+            label="WhatsApp"
+            value={stats ? String(stats.externalConversations) : loading ? '…' : '0'}
+            detail={stats ? (stats.externalConversations === 0 ? 'Sin conversaciones de WhatsApp todavía' : `${stats.unreadConversations} sin leer`) : undefined}
+            icon={<Inbox className="h-5 w-5" />}
+            href="/inbox"
+            tone="emerald"
+          />
+        </div>
+      )}
 
-        <Link
-          href="/opportunities"
-          className="group rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-sky-600 shadow-sm ring-1 ring-sky-100">
-              <Building2 className="h-4 w-4" />
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-sky-400 transition-transform group-hover:translate-x-0.5" />
-          </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Propiedades en cartera</p>
-          <p className="text-[11px] text-gray-500">
-            {stats
-              ? stats.propertiesActive === 0
-                ? 'Sin propiedades activas todavía'
-                : `${stats.propertiesActive} activas en gestión`
-              : 'Cargando…'}
-          </p>
-        </Link>
+      {/* Centro operativo — solo con datos (demo o real). Vacío → onboarding. */}
+      {!loadError && stats && !isEmpty && (
+        <>
+          {/* Hoy + Prioridades */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SectionCard title="Hoy" description="Lo más inmediato ahora mismo">
+              {hasTodayItems ? (
+                <div className="space-y-2.5">
+                  {nextEvent && (
+                    <Link
+                      href="/calendar"
+                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3 transition-colors hover:border-sky-100 hover:bg-sky-50/40"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                        <CalendarIcon className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-600">Próxima cita</p>
+                        <p className="truncate text-sm font-semibold text-gray-900">{nextEvent.title}</p>
+                        <p className="truncate text-[11px] text-gray-500">
+                          {[formatDateShort(nextEvent.startAt), nextEvent.clientName].filter(Boolean).join(' · ') || 'Programada'}
+                        </p>
+                      </div>
+                      <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  )}
+                  {urgentTask && (
+                    <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+                        <ListChecks className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Tarea urgente</p>
+                        <p className="truncate text-sm font-semibold text-gray-900">{urgentTask.title}</p>
+                        <p className="truncate text-[11px] text-gray-500">
+                          {[urgentTask.dueDate ? `Vence ${formatDateShort(urgentTask.dueDate)}` : null, urgentTask.clientName].filter(Boolean).join(' · ') || 'Sin fecha límite'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {reviewOp && (
+                    <Link
+                      href="/opportunities"
+                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3 transition-colors hover:border-violet-100 hover:bg-violet-50/40"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Operación a revisar</p>
+                        <p className="truncate text-sm font-semibold text-gray-900">{reviewOp.title}</p>
+                        <p className="truncate text-[11px] text-gray-500">
+                          {[STAGE_LABELS[reviewOp.stage] ?? reviewOp.stage, reviewOp.value ? formatEuro(reviewOp.value) : null].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                  <CheckCircle2 className="mb-2 h-6 w-6 text-emerald-500" />
+                  <p className="text-sm font-medium text-gray-700">Nada urgente para hoy</p>
+                  <p className="mt-1 text-xs text-gray-500">No tienes citas, tareas ni operaciones que revisar ahora mismo.</p>
+                </div>
+              )}
+            </SectionCard>
 
-        <Link
-          href="/clients"
-          className="group rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm ring-1 ring-indigo-100">
-              <UsersIcon className="h-4 w-4" />
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-indigo-400 transition-transform group-hover:translate-x-0.5" />
+            <SectionCard title="Prioridades" description="Lo que necesita tu atención">
+              {priorities.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {priorities.map((p) => {
+                    const row = (
+                      <div className="group flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3 py-2.5 transition-colors hover:border-indigo-100 hover:bg-indigo-50/40">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 ring-1 ring-gray-100">{p.icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-gray-800">{p.label}</p>
+                          {p.hint && <p className="text-[11px] font-medium text-amber-600">{p.hint}</p>}
+                        </div>
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-700">{p.count}</span>
+                        {p.href && <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />}
+                      </div>
+                    )
+                    return <li key={p.key}>{p.href ? <Link href={p.href} className="block">{row}</Link> : row}</li>
+                  })}
+                </ul>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                  <Target className="mb-2 h-6 w-6 text-indigo-400" />
+                  <p className="text-sm font-medium text-gray-700">No hay prioridades pendientes</p>
+                  <p className="mt-1 text-xs text-gray-500">Todo está al día. Aprovecha para añadir un cliente o planificar una cita.</p>
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <Button size="sm" variant="secondary" onClick={handleNewClient}><Plus className="h-3.5 w-3.5" />Nuevo cliente</Button>
+                    <Button size="sm" variant="secondary" onClick={() => router.push('/calendar')}><CalendarIcon className="h-3.5 w-3.5" />Planificar cita</Button>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
           </div>
-          <p className="mt-2 text-sm font-semibold text-gray-900">Clientes activos</p>
-          <p className="text-[11px] text-gray-500">
-            {stats
-              ? stats.activeClients === 0
-                ? 'Sin clientes activos todavía'
-                : `${stats.activeClients} activos · ${stats.leads} leads`
-              : 'Cargando…'}
-          </p>
-        </Link>
-      </div>
 
-      {/* Próximos eventos + leads calientes */}
+          {/* Pipeline por etapa (mini gráfico) */}
+          <SectionCard
+            title="Pipeline por etapa"
+            description="Operaciones abiertas por fase"
+            action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver pipeline</Link>}
+          >
+            {pipelineTotal > 0 ? (
+              <div className="pt-1">
+                <MiniBarChart data={pipeline.map((p) => ({ label: p.label, value: p.count }))} accent="indigo" />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                <BarChart3 className="mb-2 h-6 w-6 text-gray-300" />
+                <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
+                <p className="mt-1 text-xs text-gray-500">Cuando registres operaciones, verás aquí el pipeline por etapa.</p>
+              </div>
+            )}
+          </SectionCard>
+
+      {/* Próximas citas + clientes recientes */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
         <SectionCard
           title="Próximas citas"
@@ -534,7 +697,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <ul className="space-y-1">
-            {activity.map((item) => (
+            {activity.slice(0, 5).map((item) => (
               <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-indigo-50/40">
                 <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${activityBg[item.type]}`}>
                   {activityIcons[item.type]}
@@ -549,8 +712,10 @@ export default function DashboardPage() {
           </ul>
         )}
       </SectionCard>
+        </>
+      )}
 
-      {isEmpty && !loadError && (
+      {!loadError && stats && isEmpty && (
         <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm sm:p-6">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100">
