@@ -29,7 +29,6 @@ import { useRouter } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
-import { DonutChart, type DonutSegment } from '@/components/charts/DonutChart'
 import { containsBlockedText } from '@/lib/text-safety'
 import { featureFlags } from '@/lib/feature-flags'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
@@ -274,26 +273,34 @@ function compactEuro(value: number) {
 }
 
 // "Week rail": 7 tiles compactos (mini calendario) con recuento de citas y
-// tareas por día. No usa barras altas → no queda vacío/feo cuando hay poco.
+// tareas por día. Tiles clicables → calendario; resalta hoy y el siguiente día
+// con actividad. No usa barras altas → no queda vacío/feo cuando hay poco.
 function WeekRail({ days }: { days: WeekDay[] }) {
+  const nextActiveIdx = days.findIndex((d, i) => i > 0 && d.events + d.tasks > 0)
   return (
     <div className="grid grid-cols-7 gap-1.5">
       {days.map((d, i) => {
         const total = d.events + d.tasks
         const isToday = i === 0
+        const isNextActive = i === nextActiveIdx
         return (
-          <div
+          <Link
             key={`${d.label}-${i}`}
+            href="/calendar"
             title={d.tooltip}
             className={cn(
-              'flex flex-col items-center gap-1 rounded-lg border px-0.5 py-2',
-              isToday ? 'border-indigo-200 bg-indigo-50/60' : 'border-gray-100 bg-white',
-              total === 0 && !isToday && 'opacity-70',
+              'group relative flex flex-col items-center gap-1 overflow-hidden rounded-xl border px-0.5 py-2 transition-all hover:-translate-y-0.5 hover:shadow-sm',
+              isToday ? 'border-indigo-200 bg-indigo-50/70'
+                : total > 0 ? 'border-gray-200 bg-white'
+                : 'border-gray-100 bg-gray-50/40',
             )}
           >
+            {total > 0 && !isToday && (
+              <span className={cn('absolute inset-x-0 top-0 h-0.5', isNextActive ? 'bg-indigo-400' : 'bg-gray-200')} aria-hidden />
+            )}
             <span className={cn('text-[10px] font-semibold', isToday ? 'text-indigo-600' : 'text-gray-400')}>{d.label}</span>
-            <span className="text-sm font-bold leading-none tabular-nums text-gray-900">{d.dayNum}</span>
-            <div className="flex min-h-[14px] items-center gap-1">
+            <span className={cn('text-sm font-bold leading-none tabular-nums', isToday ? 'text-indigo-700' : 'text-gray-900')}>{d.dayNum}</span>
+            <div className="flex min-h-[26px] flex-col items-center justify-center gap-0.5">
               {d.events > 0 && (
                 <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-sky-600">
                   <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />{d.events}
@@ -306,9 +313,54 @@ function WeekRail({ days }: { days: WeekDay[] }) {
               )}
               {total === 0 && <span className="text-[11px] leading-none text-gray-300">·</span>}
             </div>
-          </div>
+          </Link>
         )
       })}
+    </div>
+  )
+}
+
+// "Embudo comercial": resumen de OPORTUNIDADES ABIERTAS por etapa. Cabecera con
+// total de oportunidades + valor potencial en cartera (nunca facturación), y una
+// fila por etapa con barra proporcional al valor (o al número si no hay valor),
+// recuento y valor. Pensado para que en 2s se entienda qué muestra y dónde está
+// el dinero potencial del pipeline.
+function OpportunityFunnel({ stages, totalCount, totalValue }: { stages: PipelineStage[]; totalCount: number; totalValue: number }) {
+  const active = stages.filter((s) => s.count > 0)
+  const byValue = active.some((s) => s.value > 0)
+  const max = Math.max(1, ...active.map((s) => (byValue ? s.value : s.count)))
+  return (
+    <div className="space-y-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[1.6rem] font-bold leading-none tabular-nums text-gray-900">{totalCount}</p>
+          <p className="mt-1 text-[11px] font-medium text-gray-500">Oportunidades abiertas</p>
+        </div>
+        {totalValue > 0 && (
+          <div className="text-right">
+            <p className="text-lg font-bold leading-none tabular-nums text-gray-900">{formatEuro(totalValue)}</p>
+            <p className="mt-1 text-[11px] font-medium text-gray-500">Valor potencial en cartera</p>
+          </div>
+        )}
+      </div>
+      <ul className="space-y-1.5 border-t border-gray-100 pt-3">
+        {active.map((s) => {
+          const metric = byValue ? s.value : s.count
+          const pct = Math.max(6, Math.round((metric / max) * 100))
+          const color = STAGE_COLORS[s.stage] ?? '#94a3b8'
+          return (
+            <li key={s.stage} className="flex items-center gap-2.5">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+              <span className="w-16 shrink-0 truncate text-[11px] font-medium text-gray-600" title={s.label}>{s.label}</span>
+              <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+              </div>
+              <span className="w-4 shrink-0 text-right text-xs font-bold tabular-nums text-gray-800">{s.count}</span>
+              <span className="w-14 shrink-0 text-right text-[10px] font-medium tabular-nums text-gray-400">{s.value > 0 ? compactEuro(s.value) : '—'}</span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -492,10 +544,8 @@ export default function DashboardPage() {
   const nextEvent = upcoming[0]
   const hasTodayItems = Boolean(nextEvent || urgentTask || reviewOp)
   const pipelineTotal = pipeline.reduce((sum, p) => sum + p.count, 0)
-  const donutSegments: DonutSegment[] = pipeline
-    .filter((p) => p.count > 0)
-    .map((p) => ({ key: p.stage, label: p.label, count: p.count, value: p.value, color: STAGE_COLORS[p.stage] ?? '#94a3b8' }))
   const weekHasData = weekActivity.some((d) => d.events + d.tasks > 0)
+  const weekTotals = weekActivity.reduce((acc, d) => ({ events: acc.events + d.events, tasks: acc.tasks + d.tasks }), { events: 0, tasks: 0 })
   const todayLabel = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const priorities: PriorityRow[] = stats
     ? [
@@ -572,7 +622,7 @@ export default function DashboardPage() {
         <MetricTile
           label="Oportunidades abiertas"
           value={stats ? String(stats.opportunitiesOpen) : loading ? '…' : '0'}
-          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin oportunidades abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} en cartera` : 'En curso') : undefined}
+          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin oportunidades abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} valor potencial` : 'En curso') : undefined}
           icon={<FileText className="h-5 w-5" />}
           href="/opportunities"
           tone="violet"
@@ -619,28 +669,20 @@ export default function DashboardPage() {
       {/* Centro operativo — solo con datos (demo o real). Vacío → onboarding. */}
       {!loadError && stats && !isEmpty && (
         <>
-          {/* Banda ejecutiva — Resumen comercial (donut) · Semana operativa */}
+          {/* Banda ejecutiva — Resumen comercial (embudo) · Semana operativa */}
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard
               title="Resumen comercial"
-              description="Oportunidades por etapa"
+              description="Oportunidades activas por etapa · valor potencial"
               action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver oportunidades</Link>}
             >
               {pipelineTotal > 0 ? (
-                <div className="space-y-3">
-                  <DonutChart segments={donutSegments} totalLabel="Abiertas" formatValue={compactEuro} />
-                  <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-xs">
-                    <span className="text-gray-500">{pipelineTotal} oportunidad{pipelineTotal === 1 ? '' : 'es'} abierta{pipelineTotal === 1 ? '' : 's'}</span>
-                    {stats && stats.pipelineValue > 0 && (
-                      <span className="font-semibold text-gray-900">{formatEuro(stats.pipelineValue)} en cartera</span>
-                    )}
-                  </div>
-                </div>
+                <OpportunityFunnel stages={pipeline} totalCount={pipelineTotal} totalValue={stats.pipelineValue} />
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <PieChart className="mb-2 h-6 w-6 text-gray-300" />
                   <p className="text-sm font-medium text-gray-700">Sin oportunidades abiertas</p>
-                  <p className="mt-1 text-xs text-gray-500">Cuando registres oportunidades, verás aquí su distribución por etapa.</p>
+                  <p className="mt-1 text-xs text-gray-500">Cuando registres oportunidades, verás aquí su estado por etapa y su valor potencial.</p>
                 </div>
               )}
             </SectionCard>
@@ -653,9 +695,9 @@ export default function DashboardPage() {
               {weekHasData ? (
                 <div className="space-y-3">
                   <WeekRail days={weekActivity} />
-                  <div className="flex items-center justify-center gap-4 border-t border-gray-100 pt-3 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />Citas</span>
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Tareas</span>
+                  <div className="flex items-center justify-center gap-5 border-t border-gray-100 pt-3 text-[11px] font-medium text-gray-600">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />{weekTotals.events} cita{weekTotals.events === 1 ? '' : 's'}</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />{weekTotals.tasks} tarea{weekTotals.tasks === 1 ? '' : 's'}</span>
                   </div>
                 </div>
               ) : (
