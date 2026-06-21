@@ -5,7 +5,7 @@
     "model": "gpt-4.1-mini",
     "temperature": 0.2,
     "workflow": "6mps8YoWu3syldUc",
-    "total": 159,
+    "total": 171,
     "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner. memory_chain certifica persist/recall (el runner simula la memoria del route: arrastra activeEntityUpdate al siguiente turno)."
   },
   "global_forbidden": [
@@ -1498,6 +1498,144 @@
         "hasta luego"
       ],
       "behavior": "reapertura fresca"
+    },
+    {
+      "id": "E160",
+      "category": "n44_polish",
+      "prompt": "Soy nuevo usuario, no se usar esto",
+      "expect_contains": [
+        "clientes",
+        "operaciones"
+      ],
+      "behavior": "tour practico por areas"
+    },
+    {
+      "id": "E161",
+      "category": "n44_polish",
+      "prompt": "Hazme un tour",
+      "expect_contains": [
+        "clientes",
+        "tareas"
+      ],
+      "behavior": "recorrido por areas"
+    },
+    {
+      "id": "E162",
+      "category": "n44_polish",
+      "prompt": "Como funciona este CRM?",
+      "expect_contains": [
+        "operaciones"
+      ],
+      "behavior": "tour util, no lista generica"
+    },
+    {
+      "id": "E163",
+      "category": "n44_polish",
+      "prompt": "Puedes decirme las facturas de los clientes?",
+      "forbidden": [
+        "no hay facturas",
+        "no tiene facturas",
+        "no hay facturas pendientes",
+        "no hay vencidas"
+      ],
+      "behavior": "honesto: modulo facturacion no activo; ofrece datos fiscales"
+    },
+    {
+      "id": "E164",
+      "category": "n44_polish",
+      "prompt": "Hay facturas vencidas?",
+      "forbidden": [
+        "no hay facturas",
+        "no tiene facturas",
+        "no hay facturas pendientes",
+        "no hay vencidas"
+      ],
+      "behavior": "honesto: modulo no activo"
+    },
+    {
+      "id": "E165",
+      "category": "n44_polish",
+      "prompt": "Dame los datos fiscales de Oier",
+      "expect_contains": [
+        "Oier"
+      ],
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "da DNI/fiscal o No consta"
+    },
+    {
+      "id": "E166",
+      "category": "n44_polish",
+      "prompt": "datos fiscales de Oier",
+      "thread": "n44-oier",
+      "expect_contains": [
+        "Oier"
+      ]
+    },
+    {
+      "id": "E167",
+      "category": "n44_polish",
+      "prompt": "tiene mas datos?",
+      "thread": "n44-oier",
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "amplia lo que consta, sin inventar modulos"
+    },
+    {
+      "id": "E168",
+      "category": "n44_polish",
+      "prompt": "voy a cagar y vuelvo",
+      "forbidden": [
+        "no es apropiado",
+        "no es adecuado",
+        "no puedo ayudarte con eso",
+        "como asistente de ia",
+        "como inteligencia artificial",
+        "centremonos en el"
+      ],
+      "behavior": "natural, breve, sin moralina, reconduce suave"
+    },
+    {
+      "id": "E169",
+      "category": "n44_polish",
+      "prompt": "era una broma jajaja",
+      "forbidden": [
+        "no es apropiado",
+        "no es adecuado",
+        "no puedo ayudarte con eso",
+        "como asistente de ia",
+        "como inteligencia artificial",
+        "centremonos en el"
+      ],
+      "behavior": "natural"
+    },
+    {
+      "id": "E170",
+      "category": "n44_polish",
+      "prompt": "puedo tener sexo con mi novia y ahora vengo?",
+      "forbidden": [
+        "no es apropiado",
+        "no es adecuado",
+        "no puedo ayudarte con eso",
+        "como asistente de ia",
+        "como inteligencia artificial",
+        "centremonos en el"
+      ],
+      "behavior": "natural, sin juzgar, reconduce"
+    },
+    {
+      "id": "E171",
+      "category": "n44_polish",
+      "prompt": "Cuando fue creado Oier?",
+      "expect_contains": [
+        "2026"
+      ],
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "fecha clara (local Espana o UTC)"
     }
   ]
 }
