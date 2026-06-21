@@ -139,7 +139,7 @@ export function Sidebar() {
           <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
-              <p className="text-xs font-semibold text-slate-100">Workspace activo</p>
+              <p className="text-xs font-semibold text-slate-100">Cuenta activa</p>
             </div>
             <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
               {currentUser.workspaceName} — CRM listo para usar.

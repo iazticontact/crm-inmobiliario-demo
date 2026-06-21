@@ -242,17 +242,17 @@ const TONE_BAR: Record<NonNullable<MetricTileProps['tone']>, string> = {
 
 function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: MetricTileProps) {
   const inner = (
-    <div className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white p-4 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
+    <div className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white px-4 py-3.5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
       <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-80', TONE_BAR[tone])} aria-hidden />
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-          <p className="mt-1.5 text-[1.8rem] font-bold leading-none tracking-tight text-gray-900">{value}</p>
+          <p className="mt-1 text-[1.7rem] font-bold leading-none tracking-tight text-gray-900">{value}</p>
         </div>
         <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
       </div>
       {detail && (
-        <p className="mt-2 truncate text-xs text-gray-500">{detail}</p>
+        <p className="mt-1.5 truncate text-xs text-gray-500">{detail}</p>
       )}
     </div>
   )
@@ -290,7 +290,7 @@ function WeekRail({ days }: { days: WeekDay[] }) {
             href="/calendar"
             title={d.tooltip}
             className={cn(
-              'group relative flex flex-col items-center gap-1 overflow-hidden rounded-xl border px-0.5 py-2 transition-all hover:-translate-y-0.5 hover:shadow-sm',
+              'group relative flex flex-col items-center gap-0.5 overflow-hidden rounded-xl border px-0.5 py-1.5 transition-all hover:-translate-y-0.5 hover:shadow-sm',
               isToday ? 'border-indigo-200 bg-indigo-50/70'
                 : total > 0 ? 'border-gray-200 bg-white'
                 : 'border-gray-100 bg-gray-50/40',
@@ -301,7 +301,7 @@ function WeekRail({ days }: { days: WeekDay[] }) {
             )}
             <span className={cn('text-[10px] font-semibold', isToday ? 'text-indigo-600' : 'text-gray-400')}>{d.label}</span>
             <span className={cn('text-sm font-bold leading-none tabular-nums', isToday ? 'text-indigo-700' : 'text-gray-900')}>{d.dayNum}</span>
-            <div className="flex min-h-[26px] flex-col items-center justify-center gap-0.5">
+            <div className="flex min-h-[22px] flex-col items-center justify-center gap-0.5">
               {d.events > 0 && (
                 <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-sky-600">
                   <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />{d.events}
@@ -586,10 +586,10 @@ export default function DashboardPage() {
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-4 pb-2"
+      className="space-y-3 pb-2"
     >
       {/* Hero compacto — cabecera tipo "centro de mando" del CRM */}
-      <div className="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-gradient-to-br from-indigo-50/80 via-white to-white px-4 py-3.5 shadow-sm sm:px-5 sm:py-4">
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-gradient-to-br from-indigo-50/80 via-white to-white px-4 py-3 shadow-sm sm:px-5 sm:py-3.5">
         <div
           className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-indigo-100/50 blur-3xl"
           aria-hidden
@@ -605,7 +605,7 @@ export default function DashboardPage() {
               </Badge>
             </div>
             <p className="mt-0.5 text-[13px] text-gray-500">
-              Tu resumen comercial de hoy · <span className="font-medium capitalize text-gray-400">{todayLabel}</span>
+              Tu resumen comercial de hoy · <span className="font-medium text-gray-400">{todayLabel}</span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -710,6 +710,7 @@ export default function DashboardPage() {
               title="Resumen comercial"
               description="Operaciones comerciales en seguimiento · valor potencial"
               action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver operaciones</Link>}
+              bodyClassName="p-4"
             >
               {pipelineTotal > 0 ? (
                 <OpportunityFunnel stages={pipeline} totalCount={pipelineTotal} totalValue={stats.pipelineValue} />
@@ -726,6 +727,7 @@ export default function DashboardPage() {
               title="Semana operativa"
               description="Citas y tareas · próximos 7 días"
               action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver agenda</Link>}
+              bodyClassName="p-4"
             >
               {weekHasData ? (
                 <div className="space-y-3">
@@ -747,13 +749,13 @@ export default function DashboardPage() {
 
           {/* Banda operativa — Hoy · Prioridades · Actividad reciente */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <SectionCard title="Hoy" description="Lo más inmediato">
+            <SectionCard title="Hoy" description="Lo más inmediato" bodyClassName="p-4">
               {hasTodayItems ? (
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {nextEvent && (
                     <Link
                       href="/calendar"
-                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3 transition-colors hover:border-sky-100 hover:bg-sky-50/40"
+                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-sky-100 hover:bg-sky-50/40"
                     >
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
                         <CalendarIcon className="h-4 w-4" />
@@ -769,7 +771,7 @@ export default function DashboardPage() {
                     </Link>
                   )}
                   {urgentTask && (
-                    <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3">
+                    <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-2.5">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100">
                         <ListChecks className="h-4 w-4" />
                       </span>
@@ -785,7 +787,7 @@ export default function DashboardPage() {
                   {reviewOp && (
                     <Link
                       href="/opportunities"
-                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-3 transition-colors hover:border-violet-100 hover:bg-violet-50/40"
+                      className="group flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-violet-100 hover:bg-violet-50/40"
                     >
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
                         <FileText className="h-4 w-4" />
@@ -810,12 +812,12 @@ export default function DashboardPage() {
               )}
             </SectionCard>
 
-            <SectionCard title="Prioridades" description="Lo que necesita tu atención">
+            <SectionCard title="Prioridades" description="Lo que necesita tu atención" bodyClassName="p-4">
               {priorities.length > 0 ? (
-                <ul className="space-y-1.5">
+                <ul className="space-y-1">
                   {priorities.map((p) => {
                     const row = (
-                      <div className="group flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3 py-2.5 transition-colors hover:border-indigo-100 hover:bg-indigo-50/40">
+                      <div className="group flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3 py-2 transition-colors hover:border-indigo-100 hover:bg-indigo-50/40">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 ring-1 ring-gray-100">{p.icon}</span>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-gray-800">{p.label}</p>
@@ -844,13 +846,14 @@ export default function DashboardPage() {
             <SectionCard
               title="Actividad reciente"
               action={stats && stats.tasksOpen > 0 ? <Badge variant="indigo">{stats.tasksOpen} tareas</Badge> : <Badge variant="default">Al día</Badge>}
+              bodyClassName="p-4"
             >
               {activity.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">Sin actividad reciente todavía.</div>
               ) : (
                 <ul className="space-y-0.5">
                   {activity.slice(0, 4).map((item) => (
-                    <li key={item.id} className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-indigo-50/40">
+                    <li key={item.id} className="flex items-start gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-indigo-50/40">
                       <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${activityBg[item.type]}`}>
                         {activityIcons[item.type]}
                       </div>
