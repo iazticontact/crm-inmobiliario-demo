@@ -29,7 +29,7 @@ import { useRouter } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
-import { MiniBarChart } from '@/components/charts/MiniBarChart'
+import { MiniColumns } from '@/components/charts/MiniColumns'
 import { featureFlags } from '@/lib/feature-flags'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -75,7 +75,8 @@ type RealStats = {
 // Estructuras normalizadas para los bloques "Hoy", "Prioridades" y el mini
 // gráfico de pipeline. Las calculamos igual en modo demo y modo real, así que el
 // JSX no depende de la forma cruda de cada fuente.
-type PipelineStage = { stage: string; label: string; count: number }
+type PipelineStage = { stage: string; label: string; count: number; value: number }
+type WeekDay = { label: string; dayNum: number; events: number; tasks: number; tooltip: string }
 type UrgentTask = { id: string; title: string; dueDate?: string; clientName?: string; priority: string }
 type ReviewOp = { id: string; title: string; stage: string; value: number | null }
 type PriorityRow = { key: string; label: string; count: number; href?: string; hint?: string; icon: React.ReactNode }
@@ -94,8 +95,60 @@ const STAGE_LABELS: Record<string, string> = Object.fromEntries(
   [...PIPELINE_ORDER.map((s) => [s.key, s.label]), ['won', 'Ganada'], ['lost', 'Perdida'], ['closed', 'Cerrada']],
 )
 
-function buildPipeline(openOpps: { stage: string }[]): PipelineStage[] {
-  return PIPELINE_ORDER.map((s) => ({ stage: s.key, label: s.label, count: openOpps.filter((o) => o.stage === s.key).length }))
+function buildPipeline(openOpps: { stage: string; value: number | null }[]): PipelineStage[] {
+  return PIPELINE_ORDER.map((s) => {
+    const rows = openOpps.filter((o) => o.stage === s.key)
+    return {
+      stage: s.key,
+      label: s.label,
+      count: rows.length,
+      value: rows.reduce((sum, o) => sum + (o.value ?? 0), 0),
+    }
+  })
+}
+
+// "Próximos 7 días": citas y tareas con fecha dentro de la ventana [hoy, hoy+6].
+// Solo bucketea registros que ya tienen fecha (sin inventar); los sin fecha o
+// fuera de ventana no cuentan. Funciona igual en demo (events con .date) y real
+// (events con .startAt). Cancelados excluidos.
+const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+function buildNext7Days(
+  events: { startAt?: string | null; date?: string | null; status?: string | null }[],
+  openTasks: { due_date?: string | null }[],
+): WeekDay[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const counts = Array.from({ length: 7 }, () => ({ events: 0, tasks: 0 }))
+  const indexFor = (iso?: string | null) => {
+    if (!iso) return -1
+    const ms = Date.parse(iso)
+    if (Number.isNaN(ms)) return -1
+    const day = new Date(ms)
+    day.setHours(0, 0, 0, 0)
+    const diff = Math.round((day.getTime() - today.getTime()) / 86_400_000)
+    return diff >= 0 && diff < 7 ? diff : -1
+  }
+  for (const e of events) {
+    if (e.status === 'cancelled') continue
+    const i = indexFor(e.startAt ?? e.date)
+    if (i >= 0) counts[i].events += 1
+  }
+  for (const t of openTasks) {
+    const i = indexFor(t.due_date)
+    if (i >= 0) counts[i].tasks += 1
+  }
+  return counts.map((c, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    const label = i === 0 ? 'Hoy' : WEEKDAY_LABELS[d.getDay()]
+    return {
+      label,
+      dayNum: d.getDate(),
+      events: c.events,
+      tasks: c.tasks,
+      tooltip: `${label} ${d.getDate()} · ${c.events} cita(s) · ${c.tasks} tarea(s)`,
+    }
+  })
 }
 
 function pickUrgentTask(
@@ -165,15 +218,27 @@ const TONE_STYLES: Record<NonNullable<MetricTileProps['tone']>, string> = {
   slate: 'bg-gray-50 text-gray-600 ring-gray-100',
 }
 
+// Acento superior por tono: una línea fina de color que da más "presencia" a la
+// KPI card sin recargar (no fondo de color sólido).
+const TONE_BAR: Record<NonNullable<MetricTileProps['tone']>, string> = {
+  indigo: 'from-indigo-400 to-violet-400',
+  emerald: 'from-emerald-400 to-teal-400',
+  amber: 'from-amber-400 to-orange-400',
+  sky: 'from-sky-400 to-indigo-400',
+  violet: 'from-violet-400 to-fuchsia-400',
+  slate: 'from-gray-300 to-gray-400',
+}
+
 function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: MetricTileProps) {
   const inner = (
-    <div className="rounded-xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.04]">
+    <div className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
+      <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-80', TONE_BAR[tone])} aria-hidden />
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-500">{label}</p>
-          <p className="mt-1.5 text-2xl font-semibold text-gray-900">{value}</p>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+          <p className="mt-1.5 text-[1.7rem] font-bold leading-none tracking-tight text-gray-900">{value}</p>
         </div>
-        <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
+        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
       </div>
       {detail && (
         <p className="mt-3 text-xs text-gray-500">{detail}</p>
@@ -198,6 +263,7 @@ export default function DashboardPage() {
   const [upcoming, setUpcoming] = useState<{ id: string; title: string; startAt?: string; clientName?: string; type?: string }[]>([])
   const [hotLeads, setHotLeads] = useState<{ id: string; name: string; status: string; leadScore: number; company?: string }[]>([])
   const [pipeline, setPipeline] = useState<PipelineStage[]>([])
+  const [weekActivity, setWeekActivity] = useState<WeekDay[]>([])
   const [urgentTask, setUrgentTask] = useState<UrgentTask | null>(null)
   const [reviewOp, setReviewOp] = useState<ReviewOp | null>(null)
   const [loadError, setLoadError] = useState('')
@@ -252,6 +318,7 @@ export default function DashboardPage() {
             .map((c) => ({ id: c.id, name: c.name, status: c.status, leadScore: c.leadScore, company: c.company })),
         )
         setPipeline(buildPipeline(openOpps))
+        setWeekActivity(buildNext7Days(demoCalendarEvents, openTasks))
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
         setLoading(false)
@@ -268,6 +335,7 @@ export default function DashboardPage() {
           setUpcoming([])
           setHotLeads([])
           setPipeline([])
+          setWeekActivity([])
           setUrgentTask(null)
           setReviewOp(null)
           setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
@@ -336,6 +404,7 @@ export default function DashboardPage() {
         setUpcoming(upcomingEvents)
         setHotLeads(top)
         setPipeline(buildPipeline(openOpps))
+        setWeekActivity(buildNext7Days(events, openTasks))
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
       } catch {
@@ -345,6 +414,7 @@ export default function DashboardPage() {
         setUpcoming([])
         setHotLeads([])
         setPipeline([])
+        setWeekActivity([])
         setUrgentTask(null)
         setReviewOp(null)
         setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
@@ -377,6 +447,8 @@ export default function DashboardPage() {
   const nextEvent = upcoming[0]
   const hasTodayItems = Boolean(nextEvent || urgentTask || reviewOp)
   const pipelineTotal = pipeline.reduce((sum, p) => sum + p.count, 0)
+  const weekHasData = weekActivity.some((d) => d.events + d.tasks > 0)
+  const todayLabel = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const priorities: PriorityRow[] = stats
     ? [
         { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
@@ -410,6 +482,7 @@ export default function DashboardPage() {
               </Badge>
             </div>
             <p className="mt-1.5 text-sm text-gray-600">Aquí tienes el estado de tu CRM hoy.</p>
+            <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">{todayLabel}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {featureFlags.assistant && (
@@ -594,24 +667,69 @@ export default function DashboardPage() {
             </SectionCard>
           </div>
 
-          {/* Pipeline por etapa (mini gráfico) */}
-          <SectionCard
-            title="Pipeline por etapa"
-            description="Operaciones abiertas por fase"
-            action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver pipeline</Link>}
-          >
-            {pipelineTotal > 0 ? (
-              <div className="pt-1">
-                <MiniBarChart data={pipeline.map((p) => ({ label: p.label, value: p.count }))} accent="indigo" />
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
-                <BarChart3 className="mb-2 h-6 w-6 text-gray-300" />
-                <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
-                <p className="mt-1 text-xs text-gray-500">Cuando registres operaciones, verás aquí el pipeline por etapa.</p>
-              </div>
-            )}
-          </SectionCard>
+          {/* Banda de analítica — dos mini gráficos (datos ya cargados) */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SectionCard
+              title="Pipeline por etapa"
+              description="Operaciones abiertas por fase"
+              action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver pipeline</Link>}
+            >
+              {pipelineTotal > 0 ? (
+                <div className="space-y-3 pt-1">
+                  <MiniColumns
+                    data={pipeline.map((p) => ({
+                      label: p.label,
+                      tooltip: `${p.label}: ${p.count} oper.${p.value > 0 ? ` · ${formatEuro(p.value)}` : ''}`,
+                      segments: [{ value: p.count, tone: 'indigo' as const }],
+                    }))}
+                  />
+                  <div className="flex items-center justify-between border-t border-gray-100 pt-3 text-xs">
+                    <span className="text-gray-500">{pipelineTotal} operación{pipelineTotal === 1 ? '' : 'es'} abierta{pipelineTotal === 1 ? '' : 's'}</span>
+                    {stats && stats.pipelineValue > 0 && (
+                      <span className="font-semibold text-gray-900">{formatEuro(stats.pipelineValue)} en pipeline</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                  <BarChart3 className="mb-2 h-6 w-6 text-gray-300" />
+                  <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
+                  <p className="mt-1 text-xs text-gray-500">Cuando registres operaciones, verás aquí el pipeline por etapa.</p>
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Próximos 7 días"
+              description="Citas y tareas por día"
+              action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver agenda</Link>}
+            >
+              {weekHasData ? (
+                <div className="space-y-3 pt-1">
+                  <MiniColumns
+                    data={weekActivity.map((d) => ({
+                      label: d.label,
+                      tooltip: d.tooltip,
+                      segments: [
+                        { value: d.events, tone: 'sky' as const },
+                        { value: d.tasks, tone: 'amber' as const },
+                      ],
+                    }))}
+                  />
+                  <div className="flex items-center justify-center gap-4 border-t border-gray-100 pt-3 text-[11px] text-gray-500">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />Citas</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Tareas</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                  <CalendarIcon className="mb-2 h-6 w-6 text-gray-300" />
+                  <p className="text-sm font-medium text-gray-700">Semana despejada</p>
+                  <p className="mt-1 text-xs text-gray-500">No hay citas ni tareas con fecha en los próximos 7 días.</p>
+                </div>
+              )}
+            </SectionCard>
+          </div>
 
       {/* Próximas citas + clientes recientes */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
