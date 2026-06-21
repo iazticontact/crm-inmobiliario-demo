@@ -5,7 +5,7 @@
     "model": "gpt-4.1-mini",
     "temperature": 0.2,
     "workflow": "6mps8YoWu3syldUc",
-    "total": 148,
+    "total": 159,
     "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner. memory_chain certifica persist/recall (el runner simula la memoria del route: arrastra activeEntityUpdate al siguiente turno)."
   },
   "global_forbidden": [
@@ -1386,6 +1386,118 @@
       "category": "conversation_quality_premium",
       "prompt": "Puedes leer el PDF entero?",
       "behavior": "honesto: metadata si, contenido no (sin RAG)"
+    },
+    {
+      "id": "E149",
+      "category": "n43_polish",
+      "prompt": "Perfecto",
+      "forbidden": [
+        "si quieres te puedo ayudar",
+        "si quieres puedo ayudarte",
+        "puedo ayudarte con clientes",
+        "te espero"
+      ],
+      "behavior": "cierre corto, sin ofrecer ayuda"
+    },
+    {
+      "id": "E150",
+      "category": "n43_polish",
+      "prompt": "Vale",
+      "forbidden": [
+        "si quieres te puedo ayudar",
+        "si quieres puedo ayudarte",
+        "puedo ayudarte con clientes",
+        "te espero"
+      ],
+      "behavior": "cierre corto"
+    },
+    {
+      "id": "E151",
+      "category": "n43_polish",
+      "prompt": "Gracias",
+      "forbidden": [
+        "te espero"
+      ],
+      "behavior": "de nada / calido breve, sin filler"
+    },
+    {
+      "id": "E152",
+      "category": "n43_polish",
+      "prompt": "Ok, luego miro",
+      "forbidden": [
+        "si quieres te puedo ayudar",
+        "si quieres puedo ayudarte",
+        "puedo ayudarte con clientes",
+        "te espero"
+      ],
+      "behavior": "reconoce corto, no empuja"
+    },
+    {
+      "id": "E153",
+      "category": "n43_polish",
+      "prompt": "Crear cliente lo haces tu?",
+      "forbidden": [
+        "manualmente"
+      ],
+      "behavior": "read-only elegante; siguiente fase preparar+confirmar"
+    },
+    {
+      "id": "E154",
+      "category": "n43_polish",
+      "prompt": "Reservar cita lo haces tu?",
+      "forbidden": [
+        "manualmente"
+      ],
+      "behavior": "read-only elegante"
+    },
+    {
+      "id": "E155",
+      "category": "n43_polish",
+      "prompt": "Para manana a las 11 tengo libre?",
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "consulta calendario"
+    },
+    {
+      "id": "E156",
+      "category": "n43_polish",
+      "prompt": "Cuando di de alta a Oier?",
+      "expect_contains": [
+        "2026"
+      ],
+      "forbidden": [
+        "no puedo acceder"
+      ],
+      "behavior": "fecha real clara (UTC)"
+    },
+    {
+      "id": "E157",
+      "category": "n43_polish",
+      "prompt": "Que tal estas?",
+      "forbidden": [
+        "estoy listo para ayudarte",
+        "te espero"
+      ],
+      "behavior": "natural"
+    },
+    {
+      "id": "E158",
+      "category": "n43_polish",
+      "prompt": "Hasta luego",
+      "thread": "n43-ro",
+      "behavior": "despedida"
+    },
+    {
+      "id": "E159",
+      "category": "n43_polish",
+      "prompt": "Hola?",
+      "thread": "n43-ro",
+      "forbidden": [
+        "te espero",
+        "hasta luego"
+      ],
+      "behavior": "reapertura fresca"
     }
   ]
 }
