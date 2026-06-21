@@ -833,3 +833,28 @@ cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
 - [ ] "Hay facturas vencidas?" → "módulo no activo" (no inventa) · "Puedo crear cliente?" read-only elegante.
 - [ ] "Dame el UUID" → no expone UUID · "Hasta luego" → "Hola?" → reapertura fresca (no "te espero").
 - [ ] Quick-actions: Cómo va todo, Qué tengo pendiente, Operaciones abiertas, Buscar cliente, Resumen cliente, Citas de la semana, Buscar propiedad, Expedientes abiertos, Plan del día.
+
+## P3.1 — Factory onboarding + demo segura + pulido premium
+
+### Onboarding de cliente nuevo (Opción A) — `NEXT_PUBLIC_NOWLABS_INTERNAL=false`, service_role presente
+- [ ] Crear un `auth.user` nuevo en Supabase (sin profile/workspace) e iniciar sesión.
+- [ ] AuthGate NO cierra sesión: redirige a **`/onboarding`** ("Crea tu espacio de trabajo").
+- [ ] Crear con un nombre de inmobiliaria → entra a `/dashboard` **vacío** (0 clientes/citas).
+- [ ] Dashboard vacío muestra card **"Tu CRM está listo"** con 4 pasos clicables.
+- [ ] Clientes/Operaciones/Calendario vacíos con empty states; Settings limpio; **sin Oier/Familia Soler/"Demo Inmobiliaria"**.
+- [ ] Recargar `/onboarding` con workspace ya creado → redirige a `/dashboard` (no re-onboarding).
+- [ ] Sin sesión en `/onboarding` → `/login`.
+- [ ] Idempotencia: reintentar el alta no crea un segundo workspace.
+
+### Demo segura (workspace `d0000000…`)
+- [ ] Clientes ficticios; el contacto de prueba con el nombre real del owner ahora es **"Javier Ortega Ruiz"**.
+- [ ] **Cero PII real**: sin el DNI, email, teléfono ni dirección reales del owner en ningún cliente demo.
+- [ ] Actividad/calendario/memoria del agente coherentes con el nombre ficticio.
+
+### Settings premium
+- [ ] Equipo: si falla la carga, **NO** aparece alerta amarilla; se ve el empty state elegante.
+- [ ] "Copiloto IA incluido" claro; sin "IA gestionada por el equipo técnico" ni "workspace_settings".
+
+### Calendario (cliente)
+- [ ] Sin chip "Google no conectado" en la barra; sin badge "Sin Google Calendar" ni leyenda "Google".
+- [ ] Solo se ve "Sin conexión" si hay un fallo real de carga.

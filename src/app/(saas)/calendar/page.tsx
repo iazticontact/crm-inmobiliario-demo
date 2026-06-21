@@ -1535,6 +1535,10 @@ export default function CalendarPage() {
   // Calendar" salvo en build de operador (NOWLABS_INTERNAL) para no exponer un
   // módulo que el cliente no tiene contratado.
   const showGoogleConnectCta = !isInitialCalendarLoading && !loadError && isRealMode && !googleConnected && !googleStatusLoading && process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true'
+  // Igual que el CTA: los indicadores de estado de Google ("Google no conectado",
+  // "Sin Google Calendar") solo tienen sentido en el build de operador. En el
+  // pack básico Google nunca está conectado, así que mostrarlos es solo ruido.
+  const showGoogleStatus = process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true'
   const writableCalendars = useMemo(
     () => googleCalendars.filter((c) => !c.unavailable && canWriteToCalendar(c.accessRole)),
     [googleCalendars],
@@ -1611,6 +1615,7 @@ export default function CalendarPage() {
         description={`${weekRangeLabel(weekStart)} · Visitas, citas y disponibilidad`}
         action={
           <div className="flex flex-wrap items-center gap-2">
+            {showGoogleStatus && (
             <button
               type="button"
               onClick={partialFailure && googleConnected ? openCalendarsPanel : undefined}
@@ -1647,6 +1652,7 @@ export default function CalendarPage() {
                 <span className="text-[10px] text-gray-400">· {lastSyncLabel}</span>
               )}
             </button>
+            )}
             <div className="hidden items-center gap-1 md:flex" role="group" aria-label="Navegación de semana">
               <button
                 type="button"
@@ -2530,14 +2536,23 @@ export default function CalendarPage() {
               {eventTypeConfig[type].label}
             </span>
           ))}
-          <span className="inline-flex items-center gap-1.5">
-            <span className={cn('h-2 w-2 rounded-full', googleEventStyle.dot)} />
-            Google
-          </span>
+          {showGoogleStatus && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className={cn('h-2 w-2 rounded-full', googleEventStyle.dot)} />
+              Google
+            </span>
+          )}
         </div>
-        <Badge variant={googleConnected ? 'success' : loadError ? 'warning' : 'default'} dot>
-          {googleConnected ? 'Google Calendar conectado' : googleStatusLoading ? 'Comprobando Google Calendar' : loadError ? 'Sin conexión' : 'Sin Google Calendar'}
-        </Badge>
+        {/* Para el cliente (pack básico) no exponemos el estado de Google: solo
+            informamos de un fallo real de carga. El operador interno ve el
+            estado completo de la sincronización. */}
+        {showGoogleStatus ? (
+          <Badge variant={googleConnected ? 'success' : loadError ? 'warning' : 'default'} dot>
+            {googleConnected ? 'Google Calendar conectado' : googleStatusLoading ? 'Comprobando Google Calendar' : loadError ? 'Sin conexión' : 'Sin Google Calendar'}
+          </Badge>
+        ) : loadError ? (
+          <Badge variant="warning" dot>Sin conexión</Badge>
+        ) : null}
       </div>
 
       <button

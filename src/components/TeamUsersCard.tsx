@@ -102,7 +102,10 @@ export function TeamUsersCard({
         </Button>
       }
     >
-      {loadError && (
+      {/* Un fallo de carga del equipo no se le enseña al cliente como una alerta
+          técnica: cae con elegancia al empty state (abajo). Solo el build de
+          operador interno ve el detalle del error para poder diagnosticarlo. */}
+      {loadError && process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
         <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {loadError}
         </div>
@@ -113,7 +116,13 @@ export function TeamUsersCard({
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando equipo…
         </div>
       ) : users.length === 0 ? (
-        <p className="text-sm text-gray-500">Aún no hay otros usuarios en el workspace.</p>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-8 text-center">
+          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-200">
+            <UserIcon className="h-4 w-4" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Aún no hay otros usuarios en este workspace</p>
+          <p className="mt-1 text-xs text-gray-500">Invita a tu equipo para trabajar juntos en el CRM.</p>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-100">
           <table className="w-full">

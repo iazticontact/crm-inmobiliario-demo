@@ -11,7 +11,6 @@ import {
   Calendar as CalendarIcon,
   FileText,
   Building2,
-  Activity as ActivityIcon,
   Plus,
   ArrowRight,
   MessageSquare,
@@ -20,6 +19,7 @@ import {
   Star,
   AlertTriangle,
   Bot,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
@@ -551,21 +551,85 @@ export default function DashboardPage() {
       </SectionCard>
 
       {isEmpty && !loadError && (
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5 shadow-sm sm:p-6">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100">
-              <ActivityIcon className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
             </span>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-900">Tu workspace está listo. Empieza por crear el primer cliente.</p>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Tu CRM está listo</p>
               <p className="mt-1 text-xs text-gray-500">
-                A medida que crees clientes, citas y expedientes, este panel se irá rellenando con los datos reales de tu inmobiliaria.
+                Da los primeros pasos para empezar a trabajar con tus clientes y operaciones reales.
               </p>
-              <Button size="sm" className="mt-3" onClick={handleNewClient}>
-                <Plus className="h-3.5 w-3.5" />
-                Crear primer cliente
-              </Button>
             </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <button
+              onClick={handleNewClient}
+              className="group flex items-start gap-3 rounded-xl border border-gray-200/70 bg-white p-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                <Users className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  1. Añade tu primer cliente
+                  <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <span className="mt-0.5 block text-[11px] text-gray-500">Registra un contacto y empieza el seguimiento comercial.</span>
+              </span>
+            </button>
+
+            <Link
+              href="/opportunities"
+              className="group flex items-start gap-3 rounded-xl border border-gray-200/70 bg-white p-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  2. Crea una operación
+                  <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <span className="mt-0.5 block text-[11px] text-gray-500">Abre una oportunidad y muévela por el pipeline.</span>
+              </span>
+            </Link>
+
+            <Link
+              href="/calendar"
+              className="group flex items-start gap-3 rounded-xl border border-gray-200/70 bg-white p-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                <CalendarIcon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  3. Planifica una cita
+                  <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <span className="mt-0.5 block text-[11px] text-gray-500">Agenda una visita o reunión con un cliente.</span>
+              </span>
+            </Link>
+
+            {featureFlags.assistant && (
+              <Link
+                href="/assistant"
+                className="group flex items-start gap-3 rounded-xl border border-gray-200/70 bg-white p-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                  <Bot className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                    4. Pregunta al copiloto
+                    <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-gray-500">Consulta el estado de tu CRM en lenguaje natural.</span>
+                </span>
+              </Link>
+            )}
           </div>
         </div>
       )}

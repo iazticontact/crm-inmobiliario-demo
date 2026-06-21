@@ -83,11 +83,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         }
 
         if (!profile || !profile.workspace_id) {
-          // Sin profile o sin workspace asignado de verdad: cerramos sesión y
-          // mandamos al login con el mensaje "sin workspace".
-          await supabase.auth.signOut().catch(() => null)
+          // Sesión válida pero sin workspace asignado: en vez de cerrar sesión,
+          // llevamos al usuario al onboarding para que cree su espacio VACÍO
+          // (alta de fábrica, sin SQL manual). Mantener la sesión es seguro: el
+          // endpoint de onboarding solo permite crear el workspace propio del
+          // usuario autenticado, sin seed de demo.
           window.localStorage.removeItem(DEMO_MODE_KEY)
-          router.replace('/login?error=no_profile')
+          router.replace('/onboarding')
           return
         }
 

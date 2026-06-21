@@ -28,7 +28,20 @@
 La **demo offline** (botón "Ver demo", `DEMO_MODE_KEY`) usa mocks de `src/lib/demo/` y NO
 toca Supabase → siempre limpia y separada del cliente real.
 
-## 3. Alta de un cliente nuevo (workspace VACÍO) — admin SQL
+## 3. Alta de un cliente nuevo (workspace VACÍO)
+
+### 3.a Self-onboarding desde la UI (recomendado, P3.1)
+Implementado en P3.1. Un usuario autenticado **sin workspace** ya no se expulsa: `AuthGate`
+lo lleva a **`/onboarding`**, donde escribe el nombre de su inmobiliaria y se crea su
+espacio **vacío** (workspace + profile `client_admin` + member `owner`, **sin seed**) vía
+`POST /api/onboarding/workspace` (server-side, service_role tras verificar la sesión;
+idempotente: si ya tiene workspace, no crea otro). Flujo comercial:
+1. El operador crea (o invita) el `auth.user` del cliente.
+2. El cliente entra, ve **"Crea tu espacio de trabajo"**, pone su nombre → CRM vacío.
+No requiere SQL manual. Requiere `SUPABASE_SERVICE_ROLE_KEY` en el servidor; si falta, el
+endpoint responde 503 y se cae al alta admin (§3.b).
+
+### 3.b Alta admin por SQL (fallback)
 El usuario se registra por Supabase Auth (o invitación) → existe `auth.users.id`. Luego,
 **en el SQL editor (service_role)**:
 ```sql
@@ -73,9 +86,14 @@ commit;
 - El seed demo debe verse **bonito**: "Cliente creado", "Visita programada", "Operación
   actualizada", "Tarea completada". **El dashboard ya filtra borrados** ("Cliente
   eliminado: …") para que no aparezcan en la home (P3).
-- **PII**: el workspace de pruebas tiene datos reales del propio Oier (DNI/email/teléfono).
-  Antes de usarlo como **demo comercial pública**, sustituir por ficticios (script
-  workspace-scoped, con confirmación). No publicar PII real en seeds del repo.
+- **PII**: ✅ **SANEADO en P3.1** (`20260621_p31_sanitize_demo_workspace_pii.sql`, aplicado
+  vía MCP). El único cliente con PII real (el contacto de prueba del propio owner: nombre,
+  DNI, email, teléfono y dirección reales) se sustituyó por un cliente ficticio coherente
+  (**"Javier Ortega Ruiz"**, `javier.ortega@example.com`, `+34 600 109 209`, DNI demo
+  `00000000T`). El resto de clientes del seed ya eran ficticios (`example.com`,
+  `+34 600 10X`). Verificado: 0 tokens de PII real en el workspace demo. **Nota:** el
+  *owner/profile* sigue siendo el real (saludo "Buenas tardes, …") — eso es la identidad del
+  usuario que enseña su CRM, no un contacto; no es PII de cliente.
 
 ## 6. Qué NO tocar
 `auth.users`, `workspaces`/`profiles`/`workspace_members` (salvo el alta controlada de §3),
