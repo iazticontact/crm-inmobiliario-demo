@@ -173,3 +173,12 @@ no del texto): resultado único claro → {type,id,label,source,confidence}; var
 `assistant_agent_memory` y recuerda cliente activo/previo (+ entidad no-cliente reciente
 en `activeEntity.recent`). Prompt +1 línea (recent). Ver
 `PHASE_N4_1_AGENT_V2_ACTIVE_ENTITY_UPDATE_REPORT.md`.
+
+## 13. N4.1.1 — prioridad mensaje vs memoria (hotfix saludo) · 2026-06-21
+Síntoma: "Hola?" respondía "Perfecto, te espero" (Window Memory de un cierre/pausa previo
+contaminaba; recentMessages iba vacío y además el workflow NO lo consume). Fix: se sustituyó
+el bloque `JUICIO CONVERSACIONAL` por **PRIORIDAD MENSAJE vs MEMORIA** (principios): el
+mensaje actual manda; memoria solo ante referencia contextual real ("su/este/el anterior/
+eso/vuelve"); saludo/reapertura = inicio fresco; "te espero"/cierres solo si el mensaje
+actual lo pide. Solo prompt (n8n), sin redeploy CRM. Evals: categoría `reopen` 12/12 + sin
+regresión. Ver `PHASE_N4_1_1_GREETING_MEMORY_CONTAMINATION_HOTFIX_REPORT.md`.

@@ -5,7 +5,7 @@
     "model": "gpt-4.1-mini",
     "temperature": 0.2,
     "workflow": "6mps8YoWu3syldUc",
-    "total": 116,
+    "total": 128,
     "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner. memory_chain certifica persist/recall (el runner simula la memoria del route: arrastra activeEntityUpdate al siguiente turno)."
   },
   "global_forbidden": [
@@ -18,85 +18,127 @@
       "id": "E001",
       "category": "greeting",
       "prompt": "Hola",
-      "behavior": "saludo breve y natural, sin lista de capacidades"
+      "behavior": "saludo breve y natural, sin lista de capacidades",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E002",
       "category": "greeting",
       "prompt": "Buenas",
-      "behavior": "saludo breve y natural, sin lista de capacidades"
+      "behavior": "saludo breve y natural, sin lista de capacidades",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E003",
       "category": "greeting",
       "prompt": "Hey",
-      "behavior": "saludo breve y natural, sin lista de capacidades"
+      "behavior": "saludo breve y natural, sin lista de capacidades",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E004",
       "category": "greeting",
       "prompt": "Que tal",
-      "behavior": "saludo breve y natural, sin lista de capacidades"
+      "behavior": "saludo breve y natural, sin lista de capacidades",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E005",
       "category": "greeting",
       "prompt": "Buenos dias",
-      "behavior": "saludo breve y natural, sin lista de capacidades"
+      "behavior": "saludo breve y natural, sin lista de capacidades",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E006",
       "category": "identity",
       "prompt": "Quien eres?",
-      "behavior": "empleado interno del CRM, breve"
+      "behavior": "empleado interno del CRM, breve",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E007",
       "category": "identity",
       "prompt": "Que eres?",
-      "behavior": "empleado interno del CRM, breve"
+      "behavior": "empleado interno del CRM, breve",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E008",
       "category": "identity",
       "prompt": "Eres un bot?",
-      "behavior": "empleado interno del CRM, breve"
+      "behavior": "empleado interno del CRM, breve",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E009",
       "category": "identity",
       "prompt": "Con quien hablo?",
-      "behavior": "empleado interno del CRM, breve"
+      "behavior": "empleado interno del CRM, breve",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E010",
       "category": "help",
       "prompt": "Como uso esto?",
-      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E011",
       "category": "help",
       "prompt": "Que puedes hacer?",
-      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E012",
       "category": "help",
       "prompt": "Ayuda",
-      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E013",
       "category": "help",
       "prompt": "En que me puedes ayudar?",
-      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E014",
       "category": "help",
       "prompt": "No se por donde empezar",
-      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado"
+      "behavior": "4-6 capacidades reales y breves, sin onboarding pesado",
+      "forbidden": [
+        "te espero"
+      ]
     },
     {
       "id": "E015",
@@ -1039,6 +1081,129 @@
       "thread": "ac-116",
       "expect_active_null": true,
       "behavior": "agregado, no entidad unica -> sin activeEntityUpdate"
+    },
+    {
+      "id": "E117",
+      "category": "reopen",
+      "prompt": "Hasta luego",
+      "thread": "ro1",
+      "behavior": "despedida breve"
+    },
+    {
+      "id": "E118",
+      "category": "reopen",
+      "prompt": "Hola?",
+      "thread": "ro1",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero",
+        "hasta luego"
+      ],
+      "behavior": "reapertura fresca tras despedida; NO te espero"
+    },
+    {
+      "id": "E119",
+      "category": "reopen",
+      "prompt": "Perfecto, gracias",
+      "thread": "ro2",
+      "behavior": "cierre breve"
+    },
+    {
+      "id": "E120",
+      "category": "reopen",
+      "prompt": "Dame datos sobre Oier",
+      "thread": "ro2",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "expect_contains": [
+        "Oier"
+      ],
+      "behavior": "consulta nueva tras cierre; usa tools"
+    },
+    {
+      "id": "E121",
+      "category": "reopen",
+      "prompt": "Dame un segundo",
+      "thread": "ro3",
+      "behavior": "pausa breve"
+    },
+    {
+      "id": "E122",
+      "category": "reopen",
+      "prompt": "Buenas, seguimos",
+      "thread": "ro3",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "behavior": "reapertura tras pausa; saluda fresco"
+    },
+    {
+      "id": "E123",
+      "category": "reopen",
+      "prompt": "Hasta luego",
+      "thread": "ro4",
+      "behavior": "despedida"
+    },
+    {
+      "id": "E124",
+      "category": "reopen",
+      "prompt": "Tengo una duda, dame el resumen del pipeline",
+      "thread": "ro4",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "expect_contains": [
+        "operaciones"
+      ],
+      "behavior": "consulta nueva tras despedida"
+    },
+    {
+      "id": "E125",
+      "category": "reopen",
+      "prompt": "Ey",
+      "thread": "rv1",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "behavior": "saludo informal -> fresco"
+    },
+    {
+      "id": "E126",
+      "category": "reopen",
+      "prompt": "Ya estoy",
+      "thread": "rv2",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "behavior": "reapertura -> fresco"
+    },
+    {
+      "id": "E127",
+      "category": "reopen",
+      "prompt": "A ver, una cosa",
+      "thread": "rv3",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "behavior": "apertura -> fresco, pide concretar"
+    },
+    {
+      "id": "E128",
+      "category": "reopen",
+      "prompt": "Volvemos",
+      "thread": "rv4",
+      "forbidden": [
+        "perfecto, te espero",
+        "te espero"
+      ],
+      "behavior": "reapertura -> fresco"
     }
   ]
 }
