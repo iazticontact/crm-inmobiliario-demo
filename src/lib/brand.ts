@@ -9,9 +9,9 @@
 
 export const BRAND = {
   /** Visible product name — titles, sidebar, login, topbar fallback. */
-  appName: 'CRM Inmobiliario Demo',
+  appName: 'CRM Inmobiliario',
   /** Short tagline / HTML meta description. */
-  appDescription: 'Prototipo funcional de CRM para inmobiliarias',
+  appDescription: 'CRM para inmobiliarias: clientes, operaciones, agenda y copiloto IA',
   /** Default workspace label shown before a real Supabase workspace resolves. */
   workspaceName: 'Demo Inmobiliaria',
   /** Who the user should contact for support — neutral, no brand. */

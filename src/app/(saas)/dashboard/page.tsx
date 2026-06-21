@@ -23,6 +23,7 @@ import {
   PieChart,
   Target,
   CheckCircle2,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
@@ -320,11 +321,11 @@ function WeekRail({ days }: { days: WeekDay[] }) {
   )
 }
 
-// "Embudo comercial": resumen de OPORTUNIDADES ABIERTAS por etapa. Cabecera con
-// total de oportunidades + valor potencial en cartera (nunca facturación), y una
-// fila por etapa con barra proporcional al valor (o al número si no hay valor),
-// recuento y valor. Pensado para que en 2s se entienda qué muestra y dónde está
-// el dinero potencial del pipeline.
+// "Resumen comercial": estado de las OPERACIONES ABIERTAS por etapa. Cabecera con
+// total de operaciones + valor potencial en cartera (nunca facturación), y una
+// fila por etapa (clicable → /opportunities) con barra proporcional al valor (o al
+// número si no hay valor), recuento y valor. Pensado para que en 2s se entienda qué
+// muestra y dónde está el valor potencial de la cartera.
 function OpportunityFunnel({ stages, totalCount, totalValue }: { stages: PipelineStage[]; totalCount: number; totalValue: number }) {
   const active = stages.filter((s) => s.count > 0)
   const byValue = active.some((s) => s.value > 0)
@@ -334,7 +335,7 @@ function OpportunityFunnel({ stages, totalCount, totalValue }: { stages: Pipelin
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="text-[1.6rem] font-bold leading-none tabular-nums text-gray-900">{totalCount}</p>
-          <p className="mt-1 text-[11px] font-medium text-gray-500">Oportunidades abiertas</p>
+          <p className="mt-1 text-[11px] font-medium text-gray-500">Operaciones abiertas</p>
         </div>
         {totalValue > 0 && (
           <div className="text-right">
@@ -343,24 +344,34 @@ function OpportunityFunnel({ stages, totalCount, totalValue }: { stages: Pipelin
           </div>
         )}
       </div>
-      <ul className="space-y-1.5 border-t border-gray-100 pt-3">
+      <ul className="space-y-0.5 border-t border-gray-100 pt-2.5">
         {active.map((s) => {
           const metric = byValue ? s.value : s.count
           const pct = Math.max(6, Math.round((metric / max) * 100))
+          const share = totalValue > 0 && s.value > 0
+            ? Math.round((s.value / totalValue) * 100)
+            : totalCount > 0 ? Math.round((s.count / totalCount) * 100) : 0
           const color = STAGE_COLORS[s.stage] ?? '#94a3b8'
           return (
-            <li key={s.stage} className="flex items-center gap-2.5">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-              <span className="w-16 shrink-0 truncate text-[11px] font-medium text-gray-600" title={s.label}>{s.label}</span>
-              <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
-              </div>
-              <span className="w-4 shrink-0 text-right text-xs font-bold tabular-nums text-gray-800">{s.count}</span>
-              <span className="w-14 shrink-0 text-right text-[10px] font-medium tabular-nums text-gray-400">{s.value > 0 ? compactEuro(s.value) : '—'}</span>
+            <li key={s.stage}>
+              <Link
+                href="/opportunities"
+                title={`${s.label} · ${s.count} operación(es)${s.value > 0 ? ` · ${formatEuro(s.value)}` : ''} · ${share}% de la cartera`}
+                className="flex items-center gap-2.5 rounded-md px-1 py-1 transition-colors hover:bg-gray-50"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="w-16 shrink-0 truncate text-[11px] font-medium text-gray-600">{s.label}</span>
+                <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                  <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+                <span className="w-4 shrink-0 text-right text-xs font-bold tabular-nums text-gray-800">{s.count}</span>
+                <span className="w-14 shrink-0 text-right text-[10px] font-medium tabular-nums text-gray-400">{s.value > 0 ? compactEuro(s.value) : '—'}</span>
+              </Link>
             </li>
           )
         })}
       </ul>
+      <p className="text-[10px] leading-snug text-gray-400">Valor potencial estimado si se cierran · no es facturación.</p>
     </div>
   )
 }
@@ -377,12 +388,22 @@ export default function DashboardPage() {
   const [reviewOp, setReviewOp] = useState<ReviewOp | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
+  // Freshness: el dashboard carga datos frescos en cada montaje/navegación (las
+  // queries corren en useEffect). `reloadKey` permite un refresco manual SILENCIOSO
+  // (botón "Actualizar") sin volver a mostrar el esqueleto: mantenemos los datos
+  // actuales en pantalla y solo los reemplazamos al llegar los nuevos. No usamos
+  // refetch al foco de ventana a propósito (evita el lag de S6/S7).
+  const [reloadKey, setReloadKey] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     const load = async () => {
-      setLoading(true)
+      // Solo mostramos el esqueleto completo en la carga inicial; los refrescos
+      // manuales son silenciosos (refreshing) y conservan los datos visibles.
+      if (reloadKey === 0) setLoading(true)
+      else setRefreshing(true)
       setLoadError('')
 
       // Demo mode: construir KPIs y listas desde datos mock inmobiliarios, sin Supabase.
@@ -424,6 +445,7 @@ export default function DashboardPage() {
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
         setLoading(false)
+        setRefreshing(false)
         return
       }
 
@@ -516,13 +538,16 @@ export default function DashboardPage() {
         setReviewOp(null)
         setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setRefreshing(false)
+        }
       }
     }
 
     void load()
     return () => { cancelled = true }
-  }, [])
+  }, [reloadKey])
 
   const greeting = useMemo(() => {
     const h = new Date().getHours()
@@ -549,7 +574,7 @@ export default function DashboardPage() {
   const todayLabel = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const priorities: PriorityRow[] = stats
     ? [
-        { key: 'ops', label: 'Oportunidades abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
+        { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
         { key: 'tasks', label: 'Tareas pendientes', count: stats.tasksOpen, hint: stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : undefined, icon: <ListChecks className="h-4 w-4" /> },
         { key: 'docs', label: 'Expedientes esperando docs', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
         { key: 'events', label: 'Citas próximas', count: stats.upcomingEvents, href: '/calendar', icon: <CalendarIcon className="h-4 w-4" /> },
@@ -584,6 +609,16 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setReloadKey((k) => k + 1)}
+              disabled={refreshing || loading}
+              title="Actualizar datos"
+              aria-label="Actualizar datos"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+            </Button>
             {featureFlags.assistant && (
               <Button variant="secondary" size="sm" onClick={() => router.push('/assistant')}>
                 <Bot className="h-3.5 w-3.5" />
@@ -620,9 +655,9 @@ export default function DashboardPage() {
           tone="indigo"
         />
         <MetricTile
-          label="Oportunidades abiertas"
+          label="Operaciones abiertas"
           value={stats ? String(stats.opportunitiesOpen) : loading ? '…' : '0'}
-          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin oportunidades abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} valor potencial` : 'En curso') : undefined}
+          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} valor potencial` : 'En seguimiento') : undefined}
           icon={<FileText className="h-5 w-5" />}
           href="/opportunities"
           tone="violet"
@@ -673,16 +708,16 @@ export default function DashboardPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard
               title="Resumen comercial"
-              description="Oportunidades activas por etapa · valor potencial"
-              action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver oportunidades</Link>}
+              description="Operaciones comerciales en seguimiento · valor potencial"
+              action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver operaciones</Link>}
             >
               {pipelineTotal > 0 ? (
                 <OpportunityFunnel stages={pipeline} totalCount={pipelineTotal} totalValue={stats.pipelineValue} />
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <PieChart className="mb-2 h-6 w-6 text-gray-300" />
-                  <p className="text-sm font-medium text-gray-700">Sin oportunidades abiertas</p>
-                  <p className="mt-1 text-xs text-gray-500">Cuando registres oportunidades, verás aquí su estado por etapa y su valor potencial.</p>
+                  <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
+                  <p className="mt-1 text-xs text-gray-500">Las operaciones que abras (ventas y alquileres en seguimiento) aparecerán aquí por etapa, con su valor potencial.</p>
                 </div>
               )}
             </SectionCard>
@@ -756,7 +791,7 @@ export default function DashboardPage() {
                         <FileText className="h-4 w-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Oportunidad a revisar</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Operación a revisar</p>
                         <p className="truncate text-sm font-semibold text-gray-900">{reviewOp.title}</p>
                         <p className="truncate text-[11px] text-gray-500">
                           {[STAGE_LABELS[reviewOp.stage] ?? reviewOp.stage, reviewOp.value ? formatEuro(reviewOp.value) : null].filter(Boolean).join(' · ')}
@@ -770,7 +805,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <CheckCircle2 className="mb-2 h-6 w-6 text-emerald-500" />
                   <p className="text-sm font-medium text-gray-700">Nada urgente para hoy</p>
-                  <p className="mt-1 text-xs text-gray-500">No tienes citas, tareas ni oportunidades que revisar ahora mismo.</p>
+                  <p className="mt-1 text-xs text-gray-500">No tienes citas, tareas ni operaciones que revisar ahora mismo.</p>
                 </div>
               )}
             </SectionCard>
@@ -876,7 +911,7 @@ export default function DashboardPage() {
                   2. Crea una operación
                   <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
                 </span>
-                <span className="mt-0.5 block text-[11px] text-gray-500">Abre una oportunidad y muévela por el pipeline.</span>
+                <span className="mt-0.5 block text-[11px] text-gray-500">Abre una operación y avanza por sus etapas.</span>
               </span>
             </Link>
 
