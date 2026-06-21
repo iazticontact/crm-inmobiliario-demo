@@ -858,3 +858,23 @@ cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
 ### Calendario (cliente)
 - [ ] Sin chip "Google no conectado" en la barra; sin badge "Sin Google Calendar" ni leyenda "Google".
 - [ ] Solo se ve "Sin conexión" si hay un fallo real de carga.
+
+## P3.2 — Dashboard premium + mini gráfico de pipeline
+
+### Demo (datos)
+- [ ] Hero con saludo + "Aquí tienes el estado de tu CRM hoy." + badge + acciones (sin cortarse en 390px).
+- [ ] 4 KPIs: Clientes activos / Operaciones abiertas (€ pipeline) / Tareas pendientes (+vencidas) / Próximas citas.
+- [ ] **Hoy**: próxima cita + tarea urgente + operación a revisar.
+- [ ] **Prioridades**: conteos > 0 con enlace.
+- [ ] **Pipeline por etapa**: barras por fase (Nuevo…Negociación) coherentes con las operaciones.
+- [ ] **Actividad reciente** ≤ 5, sin "Cliente eliminado".
+- [ ] Móvil: todo apila, sin scroll horizontal, etiquetas del gráfico legibles.
+
+### Workspace vacío
+- [ ] Hero + KPIs a 0 + onboarding 4 pasos. **NO** aparece gráfico vacío ni Hoy/Prioridades vacíos.
+
+### Cliente con clientes pero sin operaciones
+- [ ] El gráfico muestra empty state "Cuando registres operaciones, verás aquí el pipeline por etapa".
+
+### Operador (NOWLABS_INTERNAL=true)
+- [ ] Aparece la fila extra de KPIs Cobros/WhatsApp; el cliente NO la ve.
