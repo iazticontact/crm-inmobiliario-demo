@@ -601,7 +601,7 @@ export default function DashboardPage() {
                 {greeting}, {userLoading ? '…' : currentUser.name || currentUser.workspaceName}
               </h2>
               <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'} dot>
-                {userLoading ? 'Cargando' : currentUser.isDemo ? 'Cuenta de ejemplo' : 'Cuenta activa'}
+                {userLoading ? 'Cargando' : currentUser.isDemo ? 'Entorno de ejemplo' : 'Cuenta activa'}
               </Badge>
             </div>
             <p className="mt-0.5 text-[13px] text-gray-500">

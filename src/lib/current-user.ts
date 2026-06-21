@@ -45,28 +45,30 @@ const OFFLINE_FORCE_DEV =
   process.env.NODE_ENV !== 'production' &&
   process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
 
+// Usuario del ENTORNO DE EJEMPLO (showcase offline). Nombre de inmobiliaria
+// realista a propósito: el producto nunca debe parecer una maqueta.
 const demoUser: CurrentUser = {
-  name: BRAND.workspaceName,
+  name: BRAND.exampleWorkspaceName,
   email: 'demo@crm-demo.local',
-  workspaceName: BRAND.workspaceName,
-  initials: 'DI',
+  workspaceName: BRAND.exampleWorkspaceName,
+  initials: 'IC',
   isDemo: true,
   isAuthenticated: false,
   isFallback: false,
-  trialLabel: 'Modo demo',
+  trialLabel: 'Entorno de ejemplo',
   role: 'member',
   hasProfile: false,
 }
 
 const offlineCurrentUser: CurrentUser = {
-  name: BRAND.workspaceName,
+  name: BRAND.exampleWorkspaceName,
   email: 'local@crm-demo.local',
-  workspaceName: BRAND.workspaceName,
-  initials: 'DI',
+  workspaceName: BRAND.exampleWorkspaceName,
+  initials: 'IC',
   isDemo: true,
   isAuthenticated: false,
   isFallback: false,
-  trialLabel: 'Modo local',
+  trialLabel: 'Entorno de ejemplo',
   role: 'member',
   hasProfile: false,
 }

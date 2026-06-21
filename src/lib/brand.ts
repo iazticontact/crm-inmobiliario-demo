@@ -12,8 +12,12 @@ export const BRAND = {
   appName: 'CRM Inmobiliario',
   /** Short tagline / HTML meta description. */
   appDescription: 'CRM para inmobiliarias: clientes, operaciones, agenda y copiloto IA',
-  /** Default workspace label shown before a real Supabase workspace resolves. */
-  workspaceName: 'Demo Inmobiliaria',
+  /** Neutral fallback label shown for a REAL workspace before its name resolves
+   *  (never "Demo" — this is a real product). */
+  workspaceName: 'Tu inmobiliaria',
+  /** Name of the optional EXAMPLE/showcase environment (offline demo). Looks like
+   *  a real agency on purpose, so the product never reads as a mockup. */
+  exampleWorkspaceName: 'Inmobiliaria Costa Azul',
   /** Who the user should contact for support — neutral, no brand. */
   supportName: 'equipo técnico',
   /** Visible name of the in-app AI assistant (chat, titles, timeline). */
