@@ -25,12 +25,12 @@ import { cn } from '@/lib/utils'
 import {
   createActivity,
   createClientLead,
-  deleteClient,
   getClients,
   getWorkspaceContext,
   updateClient,
 } from '@/lib/supabase-queries'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { DeleteClientDialog } from '@/components/DeleteClientDialog'
 import { clients as demoClients } from '@/lib/mock-data'
 import type { Client, ClientStatus } from '@/lib/types'
 
@@ -239,7 +239,6 @@ export default function ClientsPage() {
   const [loadError, setLoadError] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const loadClients = useCallback(async () => {
@@ -397,25 +396,15 @@ export default function ClientsPage() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!clientToDelete) return
+  // El borrado real (preview + doble confirmación + cascada) lo gestiona
+  // DeleteClientDialog contra /api/clients/[id]/delete. En modo demo es solo
+  // lectura, así que abrir el diálogo se bloquea desde el botón de la papelera.
+  const requestDeleteClient = (client: Client) => {
     if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
       toast.info('Modo demo (solo lectura)', { description: 'Eliminar clientes estará disponible al conectar tu cuenta.' })
-      setClientToDelete(null)
       return
     }
-    setDeleting(true)
-    try {
-      await deleteClient(clientToDelete.id)
-      if (workspaceId) await createActivity(workspaceId, { type: 'note', description: `Cliente eliminado: ${clientToDelete.name}`, clientName: clientToDelete.name })
-      await loadClients()
-      toast.success(`Cliente eliminado: ${clientToDelete.name}`)
-      setClientToDelete(null)
-    } catch (error) {
-      toast.error('No se pudo eliminar el cliente', { description: error instanceof Error ? error.message : 'Revisa la conexión.' })
-    } finally {
-      setDeleting(false)
-    }
+    setClientToDelete(client)
   }
 
   return (
@@ -564,7 +553,7 @@ export default function ClientsPage() {
                           <a href={`tel:${phone}`} title={`Llamar a ${phone}`} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Phone className="h-3.5 w-3.5" /></a>
                         )}
                         <button onClick={() => openEditModal(client)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => setClientToDelete(client)} title="Eliminar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => requestDeleteClient(client)} title="Eliminar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -844,23 +833,15 @@ export default function ClientsPage() {
         </div>
       )}
 
-      {clientToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="border-b border-gray-100 px-6 py-5">
-              <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
-                <Trash2 className="h-5 w-5" />
-              </div>
-              <h2 className="text-base font-bold text-gray-950">¿Eliminar a {clientToDelete.name}?</h2>
-              <p className="mt-1.5 text-sm leading-6 text-gray-500">Se eliminará la ficha del workspace. Esta acción no se puede deshacer.</p>
-            </div>
-            <div className="flex items-center justify-end gap-2 bg-gray-50 px-6 py-4">
-              <Button variant="secondary" size="sm" onClick={() => setClientToDelete(null)} disabled={deleting}>Cancelar</Button>
-              <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>Eliminar cliente</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteClientDialog
+        client={clientToDelete ? { id: clientToDelete.id, name: clientToDelete.name } : null}
+        onClose={() => setClientToDelete(null)}
+        onDeleted={(name) => {
+          setClientToDelete(null)
+          void loadClients()
+          toast.success(`Cliente eliminado: ${name}`, { description: 'También se ha eliminado su información relacionada.' })
+        }}
+      />
     </motion.div>
   )
 }

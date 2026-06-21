@@ -62,6 +62,10 @@ on conflict do nothing;
 ```
 No ejecutar ningún seed de demo para este workspace.
 
+> **Borrado de un cliente concreto (no del workspace entero):** usar el flujo de producto
+> con doble confirmación + limpieza relacional (RPC `delete_client_cascade`), documentado en
+> `docs/CLIENT_DELETE_POLICY.md` (P3.9A). El reset de abajo es para vaciar un workspace entero.
+
 ## 4. Reset SEGURO de un workspace (datos, no estructura)
 Borra SOLO las entidades del workspace elegido. Workspace-scoped, transaccional, **nunca**
 `auth.users`/`workspaces`/`profiles`/`workspace_members`.
