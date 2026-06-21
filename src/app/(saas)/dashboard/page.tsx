@@ -20,7 +20,7 @@ import {
   Sparkles,
   Clock,
   ListChecks,
-  BarChart3,
+  PieChart,
   Target,
   CheckCircle2,
 } from 'lucide-react'
@@ -29,6 +29,7 @@ import { useRouter } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
+import { DonutChart, type DonutSegment } from '@/components/charts/DonutChart'
 import { containsBlockedText } from '@/lib/text-safety'
 import { featureFlags } from '@/lib/feature-flags'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
@@ -94,6 +95,16 @@ const PIPELINE_ORDER: { key: string; label: string }[] = [
 const STAGE_LABELS: Record<string, string> = Object.fromEntries(
   [...PIPELINE_ORDER.map((s) => [s.key, s.label]), ['won', 'Ganada'], ['lost', 'Perdida'], ['closed', 'Cerrada']],
 )
+
+// Paleta del donut por etapa (hex para el stroke SVG). Tonos premium, no chillón.
+const STAGE_COLORS: Record<string, string> = {
+  new: '#6366f1',
+  contacted: '#8b5cf6',
+  qualified: '#0ea5e9',
+  visit_scheduled: '#06b6d4',
+  offer: '#f59e0b',
+  negotiation: '#10b981',
+}
 
 function buildPipeline(openOpps: { stage: string; value: number | null }[]): PipelineStage[] {
   return PIPELINE_ORDER.map((s) => {
@@ -236,7 +247,7 @@ function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: Metri
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-          <p className="mt-1 text-2xl font-bold leading-none tracking-tight text-gray-900">{value}</p>
+          <p className="mt-1.5 text-[1.8rem] font-bold leading-none tracking-tight text-gray-900">{value}</p>
         </div>
         <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
       </div>
@@ -260,29 +271,6 @@ function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: Metri
 function compactEuro(value: number) {
   if (value >= 1000) return `€${Math.round(value / 1000)}k`
   return `€${Math.round(value)}`
-}
-
-// Pipeline en formato "funnel strip": filas compactas por etapa con barra
-// proporcional, recuento y valor. Lee de datos ya calculados (PipelineStage[]).
-function PipelineFunnel({ stages }: { stages: PipelineStage[] }) {
-  const max = Math.max(1, ...stages.map((s) => s.count))
-  return (
-    <div className="space-y-1.5">
-      {stages.map((s) => (
-        <div key={s.stage} className="flex items-center gap-2.5">
-          <span className="w-16 shrink-0 truncate text-[11px] font-medium text-gray-500" title={s.label}>{s.label}</span>
-          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-indigo-500 to-violet-400 transition-[width] duration-500"
-              style={{ width: `${s.count > 0 ? Math.max(8, (s.count / max) * 100) : 0}%` }}
-            />
-          </div>
-          <span className="w-4 shrink-0 text-right text-xs font-bold tabular-nums text-gray-800">{s.count}</span>
-          <span className="w-12 shrink-0 text-right text-[10px] font-medium tabular-nums text-gray-400">{s.value > 0 ? compactEuro(s.value) : ''}</span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 // "Week rail": 7 tiles compactos (mini calendario) con recuento de citas y
@@ -504,11 +492,14 @@ export default function DashboardPage() {
   const nextEvent = upcoming[0]
   const hasTodayItems = Boolean(nextEvent || urgentTask || reviewOp)
   const pipelineTotal = pipeline.reduce((sum, p) => sum + p.count, 0)
+  const donutSegments: DonutSegment[] = pipeline
+    .filter((p) => p.count > 0)
+    .map((p) => ({ key: p.stage, label: p.label, count: p.count, value: p.value, color: STAGE_COLORS[p.stage] ?? '#94a3b8' }))
   const weekHasData = weekActivity.some((d) => d.events + d.tasks > 0)
   const todayLabel = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const priorities: PriorityRow[] = stats
     ? [
-        { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
+        { key: 'ops', label: 'Oportunidades abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
         { key: 'tasks', label: 'Tareas pendientes', count: stats.tasksOpen, hint: stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : undefined, icon: <ListChecks className="h-4 w-4" /> },
         { key: 'docs', label: 'Expedientes esperando docs', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
         { key: 'events', label: 'Citas próximas', count: stats.upcomingEvents, href: '/calendar', icon: <CalendarIcon className="h-4 w-4" /> },
@@ -535,11 +526,11 @@ export default function DashboardPage() {
                 {greeting}, {userLoading ? '…' : currentUser.name || currentUser.workspaceName}
               </h2>
               <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'} dot>
-                {userLoading ? 'Cargando' : currentUser.isDemo ? 'Modo demo' : 'Workspace activo'}
+                {userLoading ? 'Cargando' : currentUser.isDemo ? 'Cuenta de ejemplo' : 'Cuenta activa'}
               </Badge>
             </div>
             <p className="mt-0.5 text-[13px] text-gray-500">
-              Aquí tienes el estado de tu CRM hoy · <span className="font-medium capitalize text-gray-400">{todayLabel}</span>
+              Tu resumen comercial de hoy · <span className="font-medium capitalize text-gray-400">{todayLabel}</span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -579,9 +570,9 @@ export default function DashboardPage() {
           tone="indigo"
         />
         <MetricTile
-          label="Operaciones abiertas"
+          label="Oportunidades abiertas"
           value={stats ? String(stats.opportunitiesOpen) : loading ? '…' : '0'}
-          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} en pipeline` : 'En curso') : undefined}
+          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin oportunidades abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} en cartera` : 'En curso') : undefined}
           icon={<FileText className="h-5 w-5" />}
           href="/opportunities"
           tone="violet"
@@ -628,8 +619,57 @@ export default function DashboardPage() {
       {/* Centro operativo — solo con datos (demo o real). Vacío → onboarding. */}
       {!loadError && stats && !isEmpty && (
         <>
-          {/* Main cockpit — Hoy · Estado comercial · Prioridades */}
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {/* Banda ejecutiva — Resumen comercial (donut) · Semana operativa */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SectionCard
+              title="Resumen comercial"
+              description="Oportunidades por etapa"
+              action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver oportunidades</Link>}
+            >
+              {pipelineTotal > 0 ? (
+                <div className="space-y-3">
+                  <DonutChart segments={donutSegments} totalLabel="Abiertas" formatValue={compactEuro} />
+                  <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-xs">
+                    <span className="text-gray-500">{pipelineTotal} oportunidad{pipelineTotal === 1 ? '' : 'es'} abierta{pipelineTotal === 1 ? '' : 's'}</span>
+                    {stats && stats.pipelineValue > 0 && (
+                      <span className="font-semibold text-gray-900">{formatEuro(stats.pipelineValue)} en cartera</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
+                  <PieChart className="mb-2 h-6 w-6 text-gray-300" />
+                  <p className="text-sm font-medium text-gray-700">Sin oportunidades abiertas</p>
+                  <p className="mt-1 text-xs text-gray-500">Cuando registres oportunidades, verás aquí su distribución por etapa.</p>
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Semana operativa"
+              description="Citas y tareas · próximos 7 días"
+              action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver agenda</Link>}
+            >
+              {weekHasData ? (
+                <div className="space-y-3">
+                  <WeekRail days={weekActivity} />
+                  <div className="flex items-center justify-center gap-4 border-t border-gray-100 pt-3 text-[11px] text-gray-500">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />Citas</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Tareas</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center">
+                  <CalendarIcon className="mb-2 h-6 w-6 text-gray-300" />
+                  <p className="text-sm font-medium text-gray-700">Semana despejada</p>
+                  <p className="mt-1 text-xs text-gray-500">No hay citas ni tareas en los próximos 7 días.</p>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          {/* Banda operativa — Hoy · Prioridades · Actividad reciente */}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <SectionCard title="Hoy" description="Lo más inmediato">
               {hasTodayItems ? (
                 <div className="space-y-2.5">
@@ -674,7 +714,7 @@ export default function DashboardPage() {
                         <FileText className="h-4 w-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Operación a revisar</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Oportunidad a revisar</p>
                         <p className="truncate text-sm font-semibold text-gray-900">{reviewOp.title}</p>
                         <p className="truncate text-[11px] text-gray-500">
                           {[STAGE_LABELS[reviewOp.stage] ?? reviewOp.stage, reviewOp.value ? formatEuro(reviewOp.value) : null].filter(Boolean).join(' · ')}
@@ -688,31 +728,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <CheckCircle2 className="mb-2 h-6 w-6 text-emerald-500" />
                   <p className="text-sm font-medium text-gray-700">Nada urgente para hoy</p>
-                  <p className="mt-1 text-xs text-gray-500">No tienes citas, tareas ni operaciones que revisar ahora mismo.</p>
-                </div>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title="Estado comercial"
-              description="Pipeline por etapa"
-              action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver pipeline</Link>}
-            >
-              {pipelineTotal > 0 ? (
-                <div className="space-y-3">
-                  <PipelineFunnel stages={pipeline} />
-                  <div className="flex items-center justify-between border-t border-gray-100 pt-3 text-xs">
-                    <span className="text-gray-500">{pipelineTotal} oper. abierta{pipelineTotal === 1 ? '' : 's'}</span>
-                    {stats && stats.pipelineValue > 0 && (
-                      <span className="font-semibold text-gray-900">{formatEuro(stats.pipelineValue)}</span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
-                  <BarChart3 className="mb-2 h-6 w-6 text-gray-300" />
-                  <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
-                  <p className="mt-1 text-xs text-gray-500">Cuando registres operaciones, verás aquí el pipeline.</p>
+                  <p className="mt-1 text-xs text-gray-500">No tienes citas, tareas ni oportunidades que revisar ahora mismo.</p>
                 </div>
               )}
             </SectionCard>
@@ -747,31 +763,6 @@ export default function DashboardPage() {
                 </div>
               )}
             </SectionCard>
-          </div>
-
-          {/* Banda inferior compacta — Semana operativa · Actividad reciente */}
-          <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-            <SectionCard
-              title="Semana operativa"
-              description="Citas y tareas · próximos 7 días"
-              action={<Link href="/calendar" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver agenda</Link>}
-            >
-              {weekHasData ? (
-                <div className="space-y-3">
-                  <WeekRail days={weekActivity} />
-                  <div className="flex items-center justify-center gap-4 border-t border-gray-100 pt-3 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />Citas</span>
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Tareas</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center">
-                  <CalendarIcon className="mb-2 h-6 w-6 text-gray-300" />
-                  <p className="text-sm font-medium text-gray-700">Semana despejada</p>
-                  <p className="mt-1 text-xs text-gray-500">No hay citas ni tareas en los próximos 7 días.</p>
-                </div>
-              )}
-            </SectionCard>
 
             <SectionCard
               title="Actividad reciente"
@@ -781,7 +772,7 @@ export default function DashboardPage() {
                 <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">Sin actividad reciente todavía.</div>
               ) : (
                 <ul className="space-y-0.5">
-                  {activity.slice(0, 3).map((item) => (
+                  {activity.slice(0, 4).map((item) => (
                     <li key={item.id} className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-indigo-50/40">
                       <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${activityBg[item.type]}`}>
                         {activityIcons[item.type]}
