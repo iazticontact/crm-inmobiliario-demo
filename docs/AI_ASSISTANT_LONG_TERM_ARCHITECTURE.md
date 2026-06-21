@@ -167,3 +167,12 @@ active/previous por `entity_type`, así una propiedad/documento no machaca al cl
 activo). `loadThreadMemory` → cliente activo + previo + reciente no-cliente; el route
 recuerda y reenvía a n8n. Certificado: active_capture 4/4, memory_chain 7/7 (el runner
 simula la persistencia del route). Ver `PHASE_N4_1_AGENT_V2_ACTIVE_ENTITY_UPDATE_REPORT.md`.
+
+---
+
+## N4.2 — Personalidad premium · 2026-06-21
+El Agent V2 pasa de sonar a chatbot genérico a copiloto interno natural: bloque
+PERSONALIDAD Y ESTILO + guía de estilo en el prompt (gobierna por intención, no parches),
+ficha estructurada. Build Response blinda UUIDs en el texto al usuario (id sigue interno).
+Solo n8n (prompt + Build Response), sin redeploy CRM. Certificado: conversation_quality_premium
+20/20 + regresión (memoria/datos/no_score/no_uuids) sin pérdidas. Suite 148 casos.

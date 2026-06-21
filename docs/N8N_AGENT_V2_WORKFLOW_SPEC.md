@@ -182,3 +182,12 @@ mensaje actual manda; memoria solo ante referencia contextual real ("su/este/el 
 eso/vuelve"); saludo/reapertura = inicio fresco; "te espero"/cierres solo si el mensaje
 actual lo pide. Solo prompt (n8n), sin redeploy CRM. Evals: categoría `reopen` 12/12 + sin
 regresión. Ver `PHASE_N4_1_1_GREETING_MEMORY_CONTAMINATION_HOTFIX_REPORT.md`.
+
+## 14. N4.2 — calidad conversacional premium · 2026-06-21
+Prompt 5603→7895 chars: nueva intro de persona (copiloto interno, no bot), bloque
+**PERSONALIDAD Y ESTILO** + **GUIA DE ESTILO** (8 ejemplos de tono, no plantillas) y ficha
+estructurada (bullets + "No consta"); recortadas prohibiciones de tono redundantes. Reglas
+de datos/tools/memoria/seguridad/PRIORIDAD intactas. **Build Response** ahora ELIMINA
+cualquier UUID del `reply` (el id sigue interno en activeEntityUpdate) → el usuario nunca
+ve UUIDs ni aunque los pida. Solo n8n, sin redeploy. Evals: conversation_quality_premium
+20/20 + regresión completa (148 casos). Ver `PHASE_N4_2_CONVERSATIONAL_QUALITY_PREMIUM_REPORT.md`.

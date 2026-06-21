@@ -58,11 +58,15 @@ const globalForbidden = suite.global_forbidden || []
 const SCORE_VALUE_RE = /(lead\s*score|puntuaci\w*)[^.\n]{0,30}\d/i
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 
+// Accent-insensitive normalization so ASCII patterns match accented Spanish
+// replies (e.g. "en que" matches "en qué").
+const noAccents = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
 function checkForbidden(reply, extra = []) {
-  const low = reply.toLowerCase()
+  const flat = noAccents(reply)
   for (const pat of [...globalForbidden, ...extra]) {
     let hit = false
-    try { hit = new RegExp(pat, 'i').test(reply) } catch { hit = low.includes(String(pat).toLowerCase()) }
+    try { hit = new RegExp(noAccents(pat), 'i').test(flat) } catch { hit = flat.includes(noAccents(pat)) }
     if (hit) return pat
   }
   if (SCORE_VALUE_RE.test(reply)) return 'score_value_revealed'
@@ -147,7 +151,7 @@ for (const c of cases) {
   updateMem(threadId, r.activeEntityUpdate) // simulate route persistence for the next turn
   const reply = r.reply || ''
   const forbiddenHit = checkForbidden(reply, c.forbidden || [])
-  const missingContains = (c.expect_contains || []).filter((k) => !reply.toLowerCase().includes(String(k).toLowerCase()))
+  const missingContains = (c.expect_contains || []).filter((k) => !noAccents(reply).includes(noAccents(k)))
   // optional: assert the entity the agent resolved (the thing the route persists)
   let activeMiss = null
   if (c.expect_active) {

@@ -5,13 +5,15 @@
     "model": "gpt-4.1-mini",
     "temperature": 0.2,
     "workflow": "6mps8YoWu3syldUc",
-    "total": 128,
+    "total": 148,
     "note": "Read-only assistant. Run: node docs/evals/run-agent-evals.mjs (dry-run if no env). Score/UUID reveals are checked by built-in regex in the runner. memory_chain certifica persist/recall (el runner simula la memoria del route: arrastra activeEntityUpdate al siguiente turno)."
   },
   "global_forbidden": [
     "no tengo acceso directo",
     "no puedo acceder a los datos",
-    "estoy operativo"
+    "estoy operativo",
+    "estoy listo para ayudarte",
+    "en que puedo ayudarte hoy"
   ],
   "cases": [
     {
@@ -1204,6 +1206,186 @@
         "te espero"
       ],
       "behavior": "reapertura -> fresco"
+    },
+    {
+      "id": "E129",
+      "category": "conversation_quality_premium",
+      "prompt": "Que tal?",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero"
+      ],
+      "behavior": "natural breve, no robotico"
+    },
+    {
+      "id": "E130",
+      "category": "conversation_quality_premium",
+      "prompt": "Que tal estas?",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero"
+      ],
+      "behavior": "natural breve"
+    },
+    {
+      "id": "E131",
+      "category": "conversation_quality_premium",
+      "prompt": "Todo bien?",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero"
+      ],
+      "behavior": "natural"
+    },
+    {
+      "id": "E132",
+      "category": "conversation_quality_premium",
+      "prompt": "Buenas crack",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero",
+        "hasta luego"
+      ],
+      "behavior": "saludo natural cercano"
+    },
+    {
+      "id": "E133",
+      "category": "conversation_quality_premium",
+      "prompt": "Vale brutal gracias",
+      "forbidden": [
+        "te espero"
+      ],
+      "behavior": "calido y breve, sin pelota"
+    },
+    {
+      "id": "E134",
+      "category": "conversation_quality_premium",
+      "prompt": "Eres brutal",
+      "forbidden": [
+        "te espero"
+      ],
+      "behavior": "agradece breve"
+    },
+    {
+      "id": "E135",
+      "category": "conversation_quality_premium",
+      "prompt": "Joder perfecto",
+      "forbidden": [
+        "te espero"
+      ],
+      "behavior": "reconoce breve"
+    },
+    {
+      "id": "E136",
+      "category": "conversation_quality_premium",
+      "prompt": "Esto va fatal",
+      "forbidden": [
+        "funciono correctamente",
+        "funcionando correctamente"
+      ],
+      "behavior": "reconoce y corrige"
+    },
+    {
+      "id": "E137",
+      "category": "conversation_quality_premium",
+      "prompt": "No me estas entendiendo",
+      "forbidden": [
+        "funciono correctamente"
+      ],
+      "behavior": "reconoce y pide concrecion util"
+    },
+    {
+      "id": "E138",
+      "category": "conversation_quality_premium",
+      "prompt": "Eso esta mal",
+      "behavior": "reconoce sin drama y corrige"
+    },
+    {
+      "id": "E139",
+      "category": "conversation_quality_premium",
+      "prompt": "Una cosa",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero"
+      ],
+      "behavior": "abre natural, pide concretar"
+    },
+    {
+      "id": "E140",
+      "category": "conversation_quality_premium",
+      "prompt": "A ver",
+      "forbidden": [
+        "que informacion necesitas",
+        "te espero"
+      ],
+      "behavior": "natural"
+    },
+    {
+      "id": "E141",
+      "category": "conversation_quality_premium",
+      "prompt": "Que me recomiendas mirar?",
+      "behavior": "da criterio util, sin inventar"
+    },
+    {
+      "id": "E142",
+      "category": "conversation_quality_premium",
+      "prompt": "a ver pasame lo de Oier",
+      "thread": "cqp-cas",
+      "expect_contains": [
+        "Oier"
+      ],
+      "behavior": "entiende intencion casual -> ficha"
+    },
+    {
+      "id": "E143",
+      "category": "conversation_quality_premium",
+      "prompt": "y este tio tenia citas o que",
+      "thread": "cqp-cas",
+      "behavior": "usa el cliente activo (Oier)"
+    },
+    {
+      "id": "E144",
+      "category": "conversation_quality_premium",
+      "prompt": "Dame datos sobre Oier",
+      "thread": "cqp-det",
+      "expect_contains": [
+        "Oier"
+      ]
+    },
+    {
+      "id": "E145",
+      "category": "conversation_quality_premium",
+      "prompt": "Aparte de esto hay mas detalle o que?",
+      "thread": "cqp-det",
+      "forbidden": [
+        "factura"
+      ],
+      "behavior": "amplia con lo que consta, dice lo que no consta, sin inventar modulos"
+    },
+    {
+      "id": "E146",
+      "category": "conversation_quality_premium",
+      "prompt": "Que puedes hacer?",
+      "forbidden": [
+        "estoy listo para ayudarte"
+      ],
+      "behavior": "4-6 capacidades reales breves"
+    },
+    {
+      "id": "E147",
+      "category": "conversation_quality_premium",
+      "prompt": "Hazme una factura",
+      "forbidden": [
+        "he creado la factura",
+        "factura emitida"
+      ],
+      "behavior": "honesto: no hay modulo, ofrece datos fiscales"
+    },
+    {
+      "id": "E148",
+      "category": "conversation_quality_premium",
+      "prompt": "Puedes leer el PDF entero?",
+      "behavior": "honesto: metadata si, contenido no (sin RAG)"
     }
   ]
 }
