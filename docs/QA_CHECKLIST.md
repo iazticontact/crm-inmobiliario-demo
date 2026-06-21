@@ -805,3 +805,31 @@ cliente real. Se ejecuta antes de cada fork nuevo. Referencias:
 - [ ] `npx tsc --noEmit` → exit 0.
 - [ ] `npm run build` → exit 0, 43 rutas listadas o más.
 - [ ] Sin warnings de Next sobre rutas dinámicas o RSC inesperadas.
+
+---
+
+## P2 — Pack básico cliente: visual + responsive (2026-06-21)
+
+> Vista de CLIENTE: desplegar con `NEXT_PUBLIC_NOWLABS_INTERNAL=false`. Verificar en
+> **390px** (móvil), **768px** (tablet) y **1440px** (desktop). Lo no automatizable en build.
+
+### Factory state (cliente)
+- [ ] Sidebar SOLO: Dashboard, Clientes, Operaciones, Calendario, Asistente IA, Configuración.
+- [ ] NO aparecen WhatsApp/Inbox, Automatizaciones, Facturación, chips "Score", KPIs Cobros/WhatsApp.
+- [ ] Configuración sin editor n8n / "WhatsApp/Stripe pendientes" / flags técnicos.
+- [ ] Sin textos "n8n", "OpenAI", "V1/V2", "Backend agent".
+
+### Dashboard
+- [ ] Header: saludo + badge + subtítulo (sin "cobros"). Botones **Copiloto**, Calendario, Nuevo cliente — sin cortarse en 390px (flex-wrap).
+- [ ] KPIs Clientes/Eventos (2 cols móvil, 4 desktop). Snapshot Expedientes/Propiedades/Clientes con empty states.
+- [ ] "Copiloto" lleva a `/assistant`. Sin métricas fake ni scroll horizontal.
+
+### Responsive por página (390/768/1440)
+- [ ] Clientes (listado + ficha 360), Operaciones (pipeline), Calendario, Asistente: sin overflow, cards/tablas legibles, skeletons elegantes.
+
+### Asistente — prompts N4.x (reconfirmar en UI; ya certificados por 171 evals)
+- [ ] "Qué tal estás?" natural · "Hazme un tour" recorrido por áreas · "Dame datos sobre Oier" ficha estructurada.
+- [ ] "Dame su DNI" usa cliente activo · "Vuelve al anterior" usa previo · "Para mañana a las 11 tengo libre?" calendario.
+- [ ] "Hay facturas vencidas?" → "módulo no activo" (no inventa) · "Puedo crear cliente?" read-only elegante.
+- [ ] "Dame el UUID" → no expone UUID · "Hasta luego" → "Hola?" → reapertura fresca (no "te espero").
+- [ ] Quick-actions: Cómo va todo, Qué tengo pendiente, Operaciones abiertas, Buscar cliente, Resumen cliente, Citas de la semana, Buscar propiedad, Expedientes abiertos, Plan del día.

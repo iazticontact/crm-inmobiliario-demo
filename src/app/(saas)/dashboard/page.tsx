@@ -19,12 +19,14 @@ import {
   Mail,
   Star,
   AlertTriangle,
+  Bot,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
+import { featureFlags } from '@/lib/feature-flags'
 import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
@@ -315,7 +317,13 @@ export default function DashboardPage() {
             Resumen del día: clientes, citas y expedientes del workspace.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {featureFlags.assistant && (
+            <Button variant="secondary" size="sm" onClick={() => router.push('/assistant')}>
+              <Bot className="h-3.5 w-3.5" />
+              Copiloto
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => router.push('/calendar')}>
             <CalendarIcon className="h-3.5 w-3.5" />
             Calendario

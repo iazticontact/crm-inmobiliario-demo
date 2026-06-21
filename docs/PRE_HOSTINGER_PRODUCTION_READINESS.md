@@ -140,3 +140,14 @@ runtime (`/api/assistant/v2`, `/api/agent/tool`) → **requiere redeploy del CRM
 guarda SOLO referencias (sin PII). `lead_score` queda fuera del alcance del LLM. Confirmar
 tras desplegar: memoria de hilo, búsqueda por texto en `crm_read_query`, y que el agente
 rehúsa mostrar lead score. Ver `PHASE_N4_AGENT_V2_PRO_MEMORY_AND_FULL_CRM_INTELLIGENCE_REPORT.md`.
+
+---
+
+## P2 — CRM básico como producto · 2026-06-21
+El pack básico ya está productizado (branding centralizado, módulos premium ocultos por
+feature flags, naming comercial, dashboard responsive con empty states, asistente read-only
+certificado). **Para un clon de cliente:** `NEXT_PUBLIC_NOWLABS_INTERNAL=false` (oculta
+WhatsApp/Inbox, Automatizaciones, Facturación, chips de score, KPIs cobros/WhatsApp, tiles
+técnicos de Settings); `NEXT_PUBLIC_ENABLE_DEMO_DATA` según caso; branding en `src/lib/brand.ts`.
+QA visual: `docs/QA_CHECKLIST.md` (secciones "P2 — Pack básico cliente" + "Clone readiness QA").
+Roadmap básico vs premium: `docs/PRODUCT_MODULE_ROADMAP.md`. Requiere redeploy (P1+N4 runtime).
