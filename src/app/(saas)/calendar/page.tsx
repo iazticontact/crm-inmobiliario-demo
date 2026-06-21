@@ -1530,7 +1530,11 @@ export default function CalendarPage() {
   const googleStatusLoading = googleConnectionStatus === 'loading'
   const isInitialCalendarLoading = loading && events.length === 0
   const googleNeedsCalendarSelection = googleConnected && googleSelectedCalendarIds.length === 0
-  const showGoogleConnectCta = !isInitialCalendarLoading && !loadError && isRealMode && !googleConnected && !googleStatusLoading
+  // La sincronización con Google Calendar es un módulo premium/futuro: el pack
+  // básico usa el calendario interno. Ocultamos el CTA "Conecta tu Google
+  // Calendar" salvo en build de operador (NOWLABS_INTERNAL) para no exponer un
+  // módulo que el cliente no tiene contratado.
+  const showGoogleConnectCta = !isInitialCalendarLoading && !loadError && isRealMode && !googleConnected && !googleStatusLoading && process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true'
   const writableCalendars = useMemo(
     () => googleCalendars.filter((c) => !c.unavailable && canWriteToCalendar(c.accessRole)),
     [googleCalendars],

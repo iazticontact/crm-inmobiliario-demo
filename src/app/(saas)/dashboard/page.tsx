@@ -261,7 +261,10 @@ export default function DashboardPage() {
           propertiesActive: activeProperties.length,
           tasksOpen: tasks.filter((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed').length,
         })
-        setActivity(activities)
+        // El feed del dashboard es la "home" del producto: dejamos fuera el ruido
+        // de borrados (p. ej. "Cliente eliminado: …"), que queda en el detalle/log
+        // pero no aporta a la vista de estado del negocio.
+        setActivity(activities.filter((a) => !/\b(elimin|borrad)/i.test(String(a.description ?? ''))))
         setUpcoming(upcomingEvents)
         setHotLeads(top)
       } catch {

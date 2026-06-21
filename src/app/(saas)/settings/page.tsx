@@ -1103,8 +1103,8 @@ export default function SettingsPage() {
           )}
 
           <SectionCard
-            title="Plataforma IA"
-            description="Inteligencia artificial y mantenimiento gestionados por el equipo técnico."
+            title="Copiloto IA"
+            description="Tu asistente del CRM, incluido y listo para usar."
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="flex items-start gap-3">
@@ -1112,22 +1112,21 @@ export default function SettingsPage() {
                   <Zap className="h-4 w-4 text-indigo-700" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-indigo-900">IA gestionada por el equipo técnico</p>
+                  <p className="text-sm font-semibold text-indigo-900">Copiloto IA incluido</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    La inteligencia artificial, las automatizaciones backend y el mantenimiento están gestionados por el equipo técnico. No necesitas configurar ninguna clave de IA.
+                    El asistente está configurado y listo para ayudarte con clientes, operaciones, tareas y calendario. No necesitas configurar nada.
                   </p>
                 </div>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {[
-                { label: 'Asistente IA', detail: 'Activo', desc: 'Responde en Inbox, Dashboard y Asistente IA' },
-                { label: 'Automatizaciones', detail: 'Configurable', desc: 'Flujos internos preparados, sin envíos reales aún' },
-                { label: 'Mantenimiento', detail: 'Incluido', desc: 'Actualizaciones y soporte por el equipo técnico' },
+                { label: 'Asistente IA', detail: 'Activo', desc: 'Consulta y resume datos del CRM al instante' },
+                { label: 'Soporte y actualizaciones', detail: 'Incluidos', desc: 'Mantenimiento del producto sin coste extra' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
                   <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-indigo-600">{item.detail}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-indigo-600">{item.detail}</p>
                   <p className="mt-1 text-[10px] text-gray-500">{item.desc}</p>
                 </div>
               ))}
