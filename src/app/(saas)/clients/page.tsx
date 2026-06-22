@@ -29,9 +29,11 @@ import {
   getWorkspaceContext,
   updateClient,
 } from '@/lib/supabase-queries'
+import { listOpportunities } from '@/lib/vertical-queries'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { DeleteClientDialog } from '@/components/DeleteClientDialog'
 import { clients as demoClients } from '@/lib/mock-data'
+import { demoOpportunities } from '@/lib/demo/demo-real-estate'
 import type { Client, ClientStatus } from '@/lib/types'
 
 // Status filter — sólo Activos/Inactivos/Archivados como protagonistas.
@@ -221,6 +223,19 @@ function buildMetadata(form: ClientForm, existing?: Record<string, unknown>) {
   return meta
 }
 
+// Cuenta operaciones ABIERTAS por cliente (1 pasada en memoria, sin N+1).
+function groupOpenOps(opps: { client_id?: string | null; stage?: string | null }[]): Record<string, number> {
+  const map: Record<string, number> = {}
+  for (const o of opps) {
+    const stage = String(o.stage ?? '')
+    if (stage === 'won' || stage === 'lost' || stage === 'closed') continue
+    const cid = o.client_id ? String(o.client_id) : ''
+    if (!cid) continue
+    map[cid] = (map[cid] ?? 0) + 1
+  }
+  return map
+}
+
 export default function ClientsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -239,6 +254,8 @@ export default function ClientsPage() {
   const [loadError, setLoadError] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
+  // Señal por cliente: nº de operaciones ABIERTAS (1 agregado, sin N+1).
+  const [openOpsByClient, setOpenOpsByClient] = useState<Record<string, number>>({})
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const loadClients = useCallback(async () => {
@@ -247,6 +264,7 @@ export default function ClientsPage() {
     if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
       setClientList(demoClients)
       setWorkspaceId(null)
+      setOpenOpsByClient(groupOpenOps(demoOpportunities))
       setLoadError('')
       setLoading(false)
       return
@@ -257,15 +275,22 @@ export default function ClientsPage() {
       if (!resolved) {
         setClientList([])
         setWorkspaceId(null)
+        setOpenOpsByClient({})
         setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
         return
       }
-      const realClients = await getClients(resolved)
+      // Clientes + operaciones abiertas en paralelo (2 lecturas agregadas).
+      const [realClients, opps] = await Promise.all([
+        getClients(resolved),
+        listOpportunities(resolved).catch(() => []),
+      ])
       setClientList(realClients)
       setWorkspaceId(resolved)
+      setOpenOpsByClient(groupOpenOps(opps))
     } catch {
       setClientList([])
       setWorkspaceId(null)
+      setOpenOpsByClient({})
       setLoadError('No se pudieron cargar los clientes. Vuelve a intentarlo o contacta con soporte.')
     } finally {
       setLoading(false)
@@ -529,6 +554,12 @@ export default function ClientsPage() {
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">{client.name}</p>
                           <p className="truncate text-[11px] text-gray-500">{client.company !== 'No consta' && client.company !== '-' ? client.company : 'Sin empresa'}</p>
+                          {(openOpsByClient[client.id] ?? 0) > 0 && (
+                            <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600">
+                              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                              {openOpsByClient[client.id]} operación{openOpsByClient[client.id] === 1 ? '' : 'es'} abierta{openOpsByClient[client.id] === 1 ? '' : 's'}
+                            </p>
+                          )}
                         </div>
                       </button>
                     </td>
@@ -632,6 +663,12 @@ export default function ClientsPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{client.name}</p>
                       <p className="truncate text-[11px] text-gray-500">{subtitle || 'Sin empresa'}</p>
+                      {(openOpsByClient[client.id] ?? 0) > 0 && (
+                        <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600">
+                          <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                          {openOpsByClient[client.id]} operación{openOpsByClient[client.id] === 1 ? '' : 'es'} abierta{openOpsByClient[client.id] === 1 ? '' : 's'}
+                        </p>
+                      )}
                     </div>
                   </button>
                   <Badge variant={status.variant} dot>{status.label}</Badge>
