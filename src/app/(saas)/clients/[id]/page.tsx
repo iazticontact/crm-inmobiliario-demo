@@ -1043,8 +1043,8 @@ export default function ClientDetailPage() {
             <SectionCard title="Resumen ejecutivo" description="Lo esencial de este cliente de un vistazo" bodyClassName="p-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
-                  { icon: <UserIcon className="h-4 w-4" />, label: 'Perfil', value: (CLIENT_TYPE_LABEL[meta.clientType] ?? '') || 'No consta' },
-                  { icon: <Target className="h-4 w-4" />, label: 'Interés', value: (SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? MAIN_AREA_LABEL[meta.mainArea] ?? '') || 'No consta' },
+                  { icon: <UserIcon className="h-4 w-4" />, label: 'Perfil', value: (CLIENT_TYPE_LABEL[meta.clientType] ?? '') || (client.company && client.company !== 'No consta' && client.company !== '-' ? client.company : '') || '—' },
+                  { icon: <Target className="h-4 w-4" />, label: 'Interés', value: (SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? MAIN_AREA_LABEL[meta.mainArea] ?? '') || meta.interestZone || meta.cityArea || '—' },
                   { icon: <Building2 className="h-4 w-4" />, label: 'Operación activa', value: activeOpp ? activeOpp.title : 'Sin operaciones abiertas' },
                   { icon: <CalendarIcon className="h-4 w-4" />, label: 'Próxima cita', value: nextEvent ? formatDate(nextEvent.startAt ?? nextEvent.date, true) : 'Sin citas próximas' },
                   { icon: <CheckSquare className="h-4 w-4" />, label: 'Tarea pendiente', value: (sortedTasks.find((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed')?.title) || 'Sin tareas pendientes' },
@@ -1139,13 +1139,15 @@ export default function ClientDetailPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="Documentos y recursos" description="DNI, contratos, nota simple, reservas…">
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-7 text-center">
-                <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-white text-gray-400 ring-1 ring-gray-200">
+            <SectionCard title="Documentos y recursos" bodyClassName="p-4">
+              <div className="flex items-start gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-3 py-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-gray-400 ring-1 ring-gray-200">
                   <FileText className="h-4 w-4" />
                 </span>
-                <p className="text-sm font-medium text-gray-700">Aquí aparecerán los documentos del cliente</p>
-                <p className="mt-1 text-xs text-gray-500">Centraliza identificación, contratos y justificantes vinculados a este cliente.</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-700">Documentación del cliente</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-gray-500">Centraliza aquí la documentación vinculada: identificación, contratos, nota simple, reservas y justificantes.</p>
+                </div>
               </div>
             </SectionCard>
 
@@ -1282,7 +1284,10 @@ export default function ClientDetailPage() {
               </div>
             )}
             {cases.length === 0 ? (
-              <p className="text-sm text-gray-500">Sin expedientes abiertos para este cliente.</p>
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-4 text-center">
+                <p className="text-sm font-medium text-gray-700">Sin expedientes abiertos</p>
+                <p className="mt-0.5 text-xs text-gray-500">Aquí aparecerán trámites como documentación, contrato, tasación o financiación.</p>
+              </div>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {cases.map((c) => (
@@ -1321,7 +1326,7 @@ export default function ClientDetailPage() {
 
           <SectionCard className="order-3" title="Propiedades vinculadas" description="Captaciones y propiedades de interés">
             {properties.length === 0 ? (
-              <p className="text-sm text-gray-500">Sin propiedades vinculadas a este cliente.</p>
+              <p className="text-sm text-gray-500">Sin propiedades vinculadas.</p>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {properties.map((p) => (
@@ -1366,14 +1371,16 @@ export default function ClientDetailPage() {
             {opportunities.length === 0 ? (
               <p className="text-sm text-gray-500">Aún no hay operaciones abiertas con este cliente. Crea una para empezar el seguimiento comercial.</p>
             ) : (
-              <ul className="divide-y divide-gray-100">
+              <ul className="space-y-2.5">
                 {opportunities.map((o) => (
-                  <li key={o.id} className="py-3">
-                    <div className="flex items-center justify-between gap-3">
+                  <li key={o.id} className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm shadow-gray-950/[0.02]">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
-                        <p className="text-[11px] text-gray-500">
-                          {[stageLabel(o.vertical, o.stage), o.value ? formatEuro(o.value, o.currency ?? 'EUR') : null, o.probability != null ? `${o.probability}%` : null, o.expected_close_date ? `cierre ${formatDate(o.expected_close_date)}` : null].filter(Boolean).join(' · ')}
+                        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
+                          {o.value != null && o.value > 0 && <span className="font-semibold text-gray-700">{formatEuro(o.value, o.currency ?? 'EUR')}</span>}
+                          {o.probability != null && <span>{o.probability}% prob.</span>}
+                          {o.expected_close_date && <span>cierre {formatDate(o.expected_close_date)}</span>}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
@@ -1629,8 +1636,10 @@ export default function ClientDetailPage() {
 
 function DetailItem({ label, value, className }: { label: string; value?: string; className?: string }) {
   const present = value && value.trim().length > 0
+  // Los campos vacíos pierden la caja (borde/fondo) para que no compitan con los
+  // datos reales: el dato relleno destaca, el vacío recede con un "—" discreto.
   return (
-    <div className={cn('rounded-lg border border-gray-100 bg-gray-50/40 px-3 py-2.5', className)}>
+    <div className={cn('rounded-lg px-3 py-2.5', present ? 'border border-gray-100 bg-gray-50/40' : 'border border-transparent', className)}>
       <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</dt>
       <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'text-gray-300')}>
         {present ? value : '—'}
