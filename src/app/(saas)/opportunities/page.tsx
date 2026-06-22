@@ -61,6 +61,7 @@ import {
   getAutomationTemplatesForVertical,
   AUTOMATION_TEMPLATES,
   type VerticalKey,
+  type PipelineStage,
 } from '@/lib/demo/vertical-templates'
 import {
   listOpportunities,
@@ -130,6 +131,15 @@ function closesSoon(value: string | null): boolean {
   if (Number.isNaN(t)) return false
   const diffDays = (t - new Date().getTime()) / 86_400_000
   return diffDays >= 0 && diffDays <= 30
+}
+
+// Vencimiento (trámite) dentro de los próximos 7 días.
+function dueSoon(value: string | null): boolean {
+  if (!value) return false
+  const t = new Date(value).getTime()
+  if (Number.isNaN(t)) return false
+  const diffDays = (t - new Date().getTime()) / 86_400_000
+  return diffDays >= 0 && diffDays <= 7
 }
 
 export default function OpportunitiesPage() {
@@ -214,18 +224,41 @@ export default function OpportunitiesPage() {
     return [] // Properties only apply to real_estate today.
   }, [properties, vertical])
 
-  const verticalForPipeline: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
-  const pipeline = getPipelineForVertical(verticalForPipeline)
+  // Vertical para elegir el pipeline cuando el filtro es "Todos": si solo hay una vertical
+  // con datos (caso normal inmobiliaria) usa su pipeline; por defecto inmobiliaria — NUNCA
+  // 'general', que escondería etapas reales (visita, oferta, negociación…).
+  const verticalForPipeline: VerticalKey = useMemo(() => {
+    if (vertical !== 'all') return vertical as VerticalKey
+    const set = new Set<string>()
+    for (const o of opportunities) if (o.vertical) set.add(String(o.vertical))
+    return set.size === 1 ? (Array.from(set)[0] as VerticalKey) : 'real_estate'
+  }, [vertical, opportunities])
+
+  // Etapas a renderizar = pipeline canónico + cualquier etapa presente en los datos que no
+  // esté en él (así NINGUNA operación queda oculta), etiquetada desde su propio pipeline.
+  const renderStages = useMemo(() => {
+    const base = getPipelineForVertical(verticalForPipeline)
+    const known = new Set(base.map((s) => s.id))
+    const extras: PipelineStage[] = []
+    for (const o of visibleOpportunities) {
+      if (o.stage && !known.has(o.stage)) {
+        known.add(o.stage)
+        const own = getPipelineForVertical((o.vertical as VerticalKey) ?? 'general').find((s) => s.id === o.stage)
+        extras.push(own ?? { id: o.stage, label: o.stage, description: '', defaultProbability: 0, tone: 'bg-gray-50 text-gray-700 border-gray-100' })
+      }
+    }
+    return [...base, ...extras]
+  }, [verticalForPipeline, visibleOpportunities])
 
   const opportunitiesByStage = useMemo(() => {
     const out: Record<string, OpportunityRow[]> = {}
-    for (const stage of pipeline) out[stage.id] = []
+    for (const stage of renderStages) out[stage.id] = []
     for (const opp of visibleOpportunities) {
       if (!out[opp.stage]) out[opp.stage] = []
       out[opp.stage].push(opp)
     }
     return out
-  }, [visibleOpportunities, pipeline])
+  }, [visibleOpportunities, renderStages])
 
   const automationTemplates = useMemo(() => {
     if (vertical === 'all') return AUTOMATION_TEMPLATES
@@ -238,7 +271,37 @@ export default function OpportunitiesPage() {
   )
   const openValue = openOpportunities.reduce((sum, o) => sum + (o.value ?? 0), 0)
   const activeCases = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length
+  const casesDueSoon = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved' && dueSoon(c.due_date)).length
   const clientNameOf = (id: string | null) => (id ? clientNames[id] ?? '' : '')
+
+  // Verticales realmente presentes en los datos del workspace. Una inmobiliaria normal
+  // solo tiene `real_estate` → no se muestra el selector de verticales (UI mínima). El
+  // selector solo aparece cuando hay datos en más de una vertical (workspace mixto), y
+  // únicamente con las verticales presentes (sin "Extranjería"/"Servicios" vacíos).
+  const presentVerticals = useMemo(() => {
+    const s = new Set<string>()
+    for (const o of opportunities) if (o.vertical) s.add(String(o.vertical))
+    for (const c of cases) if (c.vertical) s.add(String(c.vertical))
+    if (properties.length) s.add('real_estate')
+    return s
+  }, [opportunities, cases, properties])
+
+  const showVerticalBar = presentVerticals.size > 1
+  const visibleVerticalTabs = useMemo(
+    () => VERTICAL_TABS.filter((t) => t.key === 'all' || presentVerticals.has(t.key)),
+    [presentVerticals],
+  )
+
+  // Las propiedades solo aplican a inmobiliaria. En verticales sin inmuebles se oculta la
+  // pestaña (y el KPI) para no mostrar "0 propiedades" sin contexto.
+  const verticalSupportsProperties = vertical === 'all' || vertical === 'real_estate'
+  const visibleSubtabs = useMemo(
+    () => SUBTABS.filter((t) => t.key !== 'properties' || verticalSupportsProperties),
+    [verticalSupportsProperties],
+  )
+  // Subtab efectivo: si el activo deja de ser visible (cambio de vertical), cae a Operaciones
+  // sin tocar estado en efecto (evita el lint set-state-in-effect).
+  const activeSubtab: Subtab = visibleSubtabs.some((t) => t.key === subtab) ? subtab : 'pipeline'
 
   // Inline stage / status edits — optimistic + persisted.
   async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
@@ -303,19 +366,20 @@ export default function OpportunitiesPage() {
     >
       <PageHeader
         title="Operaciones"
-        description="Gestiona oportunidades comerciales, trámites y propiedades en seguimiento."
+        description="Gestiona los negocios abiertos, sus trámites y los inmuebles asociados."
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>
+            <Button variant="ghost" size="sm" onClick={() => void loadData()} disabled={loading} title="Refrescar" aria-label="Refrescar" className="px-2">
               <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-              Refrescar
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nueva propiedad
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
               <Plus className="h-3.5 w-3.5" /> Nuevo trámite
             </Button>
+            {verticalSupportsProperties && (
+              <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
+                <Plus className="h-3.5 w-3.5" /> Nueva propiedad
+              </Button>
+            )}
             <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
               <Plus className="h-3.5 w-3.5" /> Nueva operación
             </Button>
@@ -323,33 +387,40 @@ export default function OpportunitiesPage() {
         }
       />
 
-      {/* Vertical tabs */}
-      <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm">
-        {VERTICAL_TABS.map((tab) => {
-          const active = vertical === tab.key
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setVertical(tab.key)}
-              title={tab.description}
-              className={cn(
-                'rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
-                active
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                  : 'text-gray-600 hover:bg-gray-50',
-              )}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
+      {/* Selector de vertical — solo en workspaces mixtos (datos en >1 vertical). Una
+          inmobiliaria normal no lo ve: experiencia mínima y sin "Extranjería"/"Servicios". */}
+      {showVerticalBar && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium text-gray-400">Área de negocio:</span>
+          <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm">
+            {visibleVerticalTabs.map((tab) => {
+              const active = vertical === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setVertical(tab.key)}
+                  title={tab.description}
+                  className={cn(
+                    'rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
+                    active
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                      : 'text-gray-600 hover:bg-gray-50',
+                  )}
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
-      {/* Subtabs */}
+      {/* Subtabs — Operaciones · Trámites · Propiedades (Propiedades se oculta en verticales
+          sin inmuebles). Plantillas/Automatizaciones solo en superficie de operador. */}
       <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm">
-        {SUBTABS.map((tab) => {
+        {visibleSubtabs.map((tab) => {
           const Icon = tab.icon
-          const active = subtab === tab.key
+          const active = activeSubtab === tab.key
           return (
             <button
               key={tab.key}
@@ -397,17 +468,27 @@ export default function OpportunitiesPage() {
           detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
           tone="border-violet-100 bg-violet-50/40"
         />
-        <KpiCard
-          icon={<Building2 className="h-4 w-4 text-sky-600" />}
-          label="Propiedades en cartera"
-          value={String(visibleProperties.length)}
-          detail={visibleProperties.length ? 'En cartera' : (vertical !== 'all' && vertical !== 'real_estate' ? 'Solo en Inmobiliaria' : 'Sin propiedades')}
-          tone="border-sky-100 bg-sky-50/40"
-        />
+        {verticalSupportsProperties ? (
+          <KpiCard
+            icon={<Building2 className="h-4 w-4 text-sky-600" />}
+            label="Propiedades en cartera"
+            value={String(visibleProperties.length)}
+            detail={visibleProperties.length ? 'En cartera' : 'Sin propiedades'}
+            tone="border-sky-100 bg-sky-50/40"
+          />
+        ) : (
+          <KpiCard
+            icon={<FileText className="h-4 w-4 text-amber-600" />}
+            label="Vencen pronto"
+            value={String(casesDueSoon)}
+            detail={casesDueSoon ? 'Trámites en 7 días' : 'Sin vencimientos próximos'}
+            tone="border-amber-100 bg-amber-50/40"
+          />
+        )}
       </div>
 
       {/* PIPELINE */}
-      {subtab === 'pipeline' && (
+      {activeSubtab === 'pipeline' && (
         <SectionCard
           title="Operaciones en seguimiento"
           description="Negocio abierto por etapa: lo que tu inmobiliaria puede cerrar."
@@ -423,24 +504,30 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<Target className="h-6 w-6 text-gray-300" />}
               title={vertical === 'all' ? 'Todavía no hay operaciones' : `Sin operaciones en ${VERTICALS[verticalForPipeline].label.toLowerCase()}`}
-              description="Crea tu primera operación comercial cuando tengas un comprador, vendedor o inmueble en seguimiento."
+              description={vertical === 'all'
+                ? 'Crea tu primera operación comercial cuando tengas un comprador, vendedor o inmueble en seguimiento.'
+                : 'No hay operaciones en este filtro. Vuelve a «Todos» o crea una nueva.'}
               action={
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
                     <Plus className="h-3.5 w-3.5" /> Nueva operación
                   </Button>
-                  <Link
-                    href="/clients"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
-                  >
-                    Crear cliente
-                  </Link>
+                  {vertical === 'all' ? (
+                    <Link
+                      href="/clients"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+                    >
+                      Crear cliente
+                    </Link>
+                  ) : (
+                    <Button variant="secondary" size="sm" onClick={() => setVertical('all')}>Ver todas</Button>
+                  )}
                 </div>
               }
             />
           ) : (
             <div className="space-y-2">
-              {pipeline.map((stage) => {
+              {renderStages.map((stage) => {
                 const items = opportunitiesByStage[stage.id] ?? []
                 if (items.length === 0) return null
                 const stageValue = items.reduce((s, o) => s + (o.value ?? 0), 0)
@@ -512,7 +599,7 @@ export default function OpportunitiesPage() {
       )}
 
       {/* CASES */}
-      {subtab === 'cases' && (
+      {activeSubtab === 'cases' && (
         <SectionCard
           title="Trámites"
           description="Gestiones asociadas a clientes u operaciones: documentación, contrato, tasación, financiación…"
@@ -528,11 +615,18 @@ export default function OpportunitiesPage() {
             <EmptyState
               icon={<FileText className="h-6 w-6 text-gray-300" />}
               title="Sin trámites abiertos"
-              description="Aquí aparecerán gestiones como documentación, contrato, tasación o financiación."
+              description={vertical === 'all'
+                ? 'Aquí aparecerán gestiones como documentación, contrato, tasación o financiación.'
+                : 'No hay trámites en este filtro. Vuelve a «Todos» o crea uno nuevo.'}
               action={
-                <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nuevo trámite
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Nuevo trámite
+                  </Button>
+                  {vertical !== 'all' && (
+                    <Button variant="secondary" size="sm" onClick={() => setVertical('all')}>Ver todos</Button>
+                  )}
+                </div>
               }
             />
           ) : (
@@ -585,7 +679,7 @@ export default function OpportunitiesPage() {
       )}
 
       {/* PROPERTIES */}
-      {subtab === 'properties' && (
+      {activeSubtab === 'properties' && (
         <SectionCard
           title="Propiedades"
           description={vertical === 'immigration' ? 'No aplica al vertical de extranjería.' : 'Captaciones, ventas y alquileres.'}
@@ -665,12 +759,12 @@ export default function OpportunitiesPage() {
       )}
 
       {/* TEMPLATES */}
-      {subtab === 'templates' && (
+      {activeSubtab === 'templates' && (
         <WorkspaceTemplatesPanel workspaceId={workspaceId} vertical={vertical === 'all' ? 'all' : (vertical as VerticalKey)} />
       )}
 
       {/* AUTOMATIONS — only when the operator surface is on */}
-      {subtab === 'automations' && featureFlags.nowlabsInternal && (
+      {activeSubtab === 'automations' && featureFlags.nowlabsInternal && (
         <SectionCard
           title="Automatizaciones preparadas"
           description="Catálogo listo. Se ejecutarán cuando conectes n8n + WhatsApp/Instagram real."
