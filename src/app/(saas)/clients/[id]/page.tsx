@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
+  Bot,
   Building2,
   Calendar as CalendarIcon,
   Check,
@@ -32,6 +33,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { featureFlags } from '@/lib/feature-flags'
 import { cn } from '@/lib/utils'
 import {
   createActivity,
@@ -820,6 +822,19 @@ export default function ClientDetailPage() {
   const cleanEmail = client?.email && client.email !== 'No consta' ? client.email : ''
   const cleanPhone = client?.phone && client.phone !== '-' && client.phone !== 'No consta' ? client.phone : ''
 
+  // Resumen ejecutivo: próxima cita y operación abierta del cliente.
+  const nextEvent = useMemo(() => {
+    const nowMs = new Date().getTime()
+    return [...events]
+      .map((e) => ({ e, t: Date.parse((e.startAt ?? e.date) ?? '') }))
+      .filter((x) => !Number.isNaN(x.t) && x.t >= nowMs)
+      .sort((a, b) => a.t - b.t)[0]?.e ?? null
+  }, [events])
+  const activeOpp = useMemo(
+    () => opportunities.find((o) => !['won', 'lost', 'closed'].includes(o.stage)) ?? null,
+    [opportunities],
+  )
+
   // Datos derivados del metadata para mostrar profesionalmente.
   const meta = useMemo(() => ({
     documentId: readMeta(client, 'document_id'),
@@ -987,6 +1002,15 @@ export default function ClientDetailPage() {
             <Button variant="secondary" size="sm" onClick={() => router.push(`/clients?edit=${client.id}`)}>
               <Pencil className="h-3.5 w-3.5" /> Editar
             </Button>
+            {featureFlags.assistant && (
+              <Button
+                size="sm"
+                onClick={() => router.push('/assistant')}
+                title={`Abre el copiloto para preguntar sobre ${client.name}`}
+              >
+                <Bot className="h-3.5 w-3.5" /> Copiloto
+              </Button>
+            )}
           </div>
         </div>
       </SectionCard>
@@ -1021,6 +1045,25 @@ export default function ClientDetailPage() {
       {activeTab === 'summary' && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
           <div className="space-y-4">
+            <SectionCard title="Resumen ejecutivo" description="Lo esencial de este cliente de un vistazo" bodyClassName="p-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { icon: <UserIcon className="h-4 w-4" />, label: 'Perfil', value: (CLIENT_TYPE_LABEL[meta.clientType] ?? '') || 'No consta' },
+                  { icon: <Target className="h-4 w-4" />, label: 'Interés', value: (SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? MAIN_AREA_LABEL[meta.mainArea] ?? '') || 'No consta' },
+                  { icon: <CalendarIcon className="h-4 w-4" />, label: 'Próxima cita', value: nextEvent ? formatDate(nextEvent.startAt ?? nextEvent.date, true) : 'Sin citas próximas' },
+                  { icon: <Building2 className="h-4 w-4" />, label: 'Operación activa', value: activeOpp ? activeOpp.title : 'Sin operaciones abiertas' },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-indigo-100">{item.icon}</span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{item.label}</p>
+                      <p className="truncate text-sm font-semibold text-gray-900" title={item.value}>{item.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+
             <SectionCard title="Datos personales / fiscales" description="Identificación del cliente">
               <dl className="grid gap-3 sm:grid-cols-2">
                 <DetailItem label="Nombre" value={client.name} />
@@ -1092,10 +1135,20 @@ export default function ClientDetailPage() {
           <div className="space-y-4">
             <SectionCard title="Resumen operativo">
               <div className="grid grid-cols-2 gap-3 text-center">
-                <StatPill label="Documentos" value={documents.length} hint="Privados al workspace" />
+                <StatPill label="Operaciones" value={opportunities.length} hint="Del cliente" />
                 <StatPill label="Expedientes" value={cases.length} hint="Trámites abiertos" />
                 <StatPill label="Citas" value={events.length} hint="Programadas" />
                 <StatPill label="Tareas" value={tasks.length} hint="Asignadas" />
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Documentos y recursos" description="DNI, contratos, nota simple, reservas…">
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-7 text-center">
+                <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-white text-gray-400 ring-1 ring-gray-200">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <p className="text-sm font-medium text-gray-700">Aquí aparecerán los documentos del cliente</p>
+                <p className="mt-1 text-xs text-gray-500">Centraliza identificación, contratos y justificantes vinculados a este cliente.</p>
               </div>
             </SectionCard>
 

@@ -313,11 +313,20 @@ export default function ClientsPage() {
     return true
   }), [clientList, search, statusFilter])
 
-  const counts = useMemo(() => ({
-    total: clientList.length,
-    active: clientList.filter((c) => c.status === 'active').length,
-    inactive: clientList.filter((c) => c.status === 'inactive').length,
-  }), [clientList])
+  const counts = useMemo(() => {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+    return {
+      total: clientList.length,
+      active: clientList.filter((c) => c.status === 'active').length,
+      lead: clientList.filter((c) => c.status === 'lead').length,
+      inactive: clientList.filter((c) => c.status === 'inactive').length,
+      newThisMonth: clientList.filter((c) => {
+        const t = c.createdAt ? Date.parse(c.createdAt) : NaN
+        return !Number.isNaN(t) && t >= monthStart
+      }).length,
+    }
+  }, [clientList])
 
   const openCreateModal = () => {
     setForm(emptyForm)
@@ -434,6 +443,23 @@ export default function ClientsPage() {
         </div>
       )}
 
+      {!loading && counts.total > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: 'Total clientes', value: counts.total, tone: 'text-gray-900', bar: 'from-gray-300 to-gray-400' },
+            { label: 'Activos', value: counts.active, tone: 'text-emerald-700', bar: 'from-emerald-400 to-teal-400' },
+            { label: 'En seguimiento', value: counts.lead, tone: 'text-indigo-700', bar: 'from-indigo-400 to-violet-400' },
+            { label: 'Nuevos este mes', value: counts.newThisMonth, tone: 'text-sky-700', bar: 'from-sky-400 to-indigo-400' },
+          ].map((s) => (
+            <div key={s.label} className="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-white px-4 py-3 shadow-sm">
+              <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-80', s.bar)} aria-hidden />
+              <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">{s.label}</p>
+              <p className={cn('mt-1 text-2xl font-bold leading-none tabular-nums', s.tone)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <SectionCard
         title="Base de clientes"
         description="Listado completo del workspace"
@@ -526,7 +552,7 @@ export default function ClientsPage() {
                       {area ? (
                         <Badge variant={area.tone}>{area.label}</Badge>
                       ) : (
-                        <span className="text-xs text-gray-400">Sin completar</span>
+                        <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
 
