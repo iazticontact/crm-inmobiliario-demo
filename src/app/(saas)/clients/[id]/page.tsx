@@ -195,6 +195,12 @@ function isDemoMode() {
   return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
 }
 
+// mailto: puro (sin subject/body/plantilla). Trim para evitar espacios sobrantes del
+// seed/import que romperían el handler del cliente de correo. El '@' se conserva válido.
+function buildMailtoHref(email: string): string {
+  return `mailto:${email.trim()}`
+}
+
 function labelOr(map: Record<string, string>, value?: string | null): string {
   if (!value) return ''
   return map[value] ?? value
@@ -958,7 +964,7 @@ export default function ClientDetailPage() {
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-600">
               {cleanEmail && (
                 <span className="inline-flex items-center gap-1">
-                  <a href={`mailto:${cleanEmail}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
+                  <a href={buildMailtoHref(cleanEmail)} aria-label={`Enviar email a ${cleanEmail}`} className="inline-flex items-center gap-1.5 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 transition-colors hover:text-indigo-700 hover:decoration-indigo-500">
                     <Mail className="h-3.5 w-3.5" /> {cleanEmail}
                   </a>
                   <button type="button" onClick={() => copyToClipboard(cleanEmail, 'Email')} title="Copiar email" className="text-gray-300 transition-colors hover:text-indigo-600">
@@ -990,7 +996,7 @@ export default function ClientDetailPage() {
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {cleanEmail && (
-              <a href={`mailto:${cleanEmail}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
+              <a href={buildMailtoHref(cleanEmail)} aria-label={`Enviar email a ${cleanEmail}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
                 <Mail className="h-3.5 w-3.5" /> Email
               </a>
             )}
@@ -1074,7 +1080,7 @@ export default function ClientDetailPage() {
 
             <SectionCard title="Contacto" description="Email, teléfonos y dirección">
               <dl className="grid gap-3 sm:grid-cols-2">
-                <DetailItem label="Email" value={cleanEmail} href={cleanEmail ? `mailto:${cleanEmail}` : undefined} />
+                <DetailItem label="Email" value={cleanEmail} href={cleanEmail ? buildMailtoHref(cleanEmail) : undefined} />
                 <DetailItem label="Teléfono" value={client.phone !== 'No consta' && client.phone !== '-' ? client.phone : ''} />
                 <DetailItem label="Teléfono secundario" value={meta.secondaryPhone} />
                 <DetailItem label="Ciudad / zona" value={meta.cityArea} />
@@ -1657,7 +1663,7 @@ function DetailItem({ label, value, href, className }: { label: string; value?: 
       <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'text-gray-300')}>
         {present
           ? href
-            ? <a href={href} title={value} aria-label={`${label}: ${value}`} className="inline-flex max-w-full items-center gap-1.5 truncate font-medium text-gray-900 transition-colors hover:text-indigo-600 hover:underline"><Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" /><span className="truncate">{value}</span></a>
+            ? <a href={href} title={value} aria-label={href.startsWith('mailto:') ? `Enviar email a ${value}` : `${label}: ${value}`} className="inline-flex max-w-full items-center gap-1.5 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 transition-colors hover:text-indigo-700 hover:decoration-indigo-500"><Mail className="h-3.5 w-3.5 shrink-0 text-indigo-500" /><span className="truncate">{value}</span></a>
             : value
           : '—'}
       </dd>

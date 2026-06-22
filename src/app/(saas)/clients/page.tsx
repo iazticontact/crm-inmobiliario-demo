@@ -155,6 +155,11 @@ function readMeta(client: Client, key: string, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+// mailto: puro (sin subject/body). Trim para evitar espacios sobrantes del seed/import.
+function buildMailtoHref(email: string): string {
+  return `mailto:${email.trim()}`
+}
+
 function toForm(client: Client): ClientForm {
   const company = client.company === 'Sin empresa' || client.company === '-' || client.company === 'No consta' ? '' : client.company
   const phone = client.phone === '-' || client.phone === 'No consta' ? '' : client.phone
@@ -578,7 +583,7 @@ export default function ClientsPage() {
                     <td className="px-4 py-3.5">
                       <div className="space-y-0.5">
                         {email ? (
-                          <a href={`mailto:${email}`} className="block truncate text-xs text-gray-700 hover:text-indigo-600">{email}</a>
+                          <a href={buildMailtoHref(email)} aria-label={`Enviar email a ${email}`} className="block truncate text-xs font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-700 hover:decoration-indigo-500">{email}</a>
                         ) : (
                           <span className="block text-xs text-gray-400">Sin email</span>
                         )}
@@ -686,7 +691,7 @@ export default function ClientsPage() {
                 </div>
                 {(email || phone) && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                    {email && <a href={`mailto:${email}`} className="inline-flex min-w-0 items-center gap-1 hover:text-indigo-600"><Mail className="h-3 w-3 shrink-0" /><span className="truncate">{email}</span></a>}
+                    {email && <a href={buildMailtoHref(email)} aria-label={`Enviar email a ${email}`} className="inline-flex min-w-0 items-center gap-1 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-700 hover:decoration-indigo-500"><Mail className="h-3 w-3 shrink-0" /><span className="truncate">{email}</span></a>}
                     {phone && <a href={`tel:${phone}`} className="inline-flex items-center gap-1 hover:text-indigo-600"><Phone className="h-3 w-3" />{phone}</a>}
                   </div>
                 )}
