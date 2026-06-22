@@ -33,6 +33,7 @@ import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { EmailAction } from '@/components/EmailAction'
 import { featureFlags } from '@/lib/feature-flags'
 import { cn } from '@/lib/utils'
 import {
@@ -193,12 +194,6 @@ const REAL_ESTATE_STAGES = getPipelineForVertical('real_estate')
 
 function isDemoMode() {
   return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-}
-
-// mailto: puro (sin subject/body/plantilla). Trim para evitar espacios sobrantes del
-// seed/import que romperían el handler del cliente de correo. El '@' se conserva válido.
-function buildMailtoHref(email: string): string {
-  return `mailto:${email.trim()}`
 }
 
 function labelOr(map: Record<string, string>, value?: string | null): string {
@@ -962,16 +957,7 @@ export default function ClientDetailPage() {
               {client.company === 'No consta' || !client.company ? 'Sin empresa registrada' : client.company}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-600">
-              {cleanEmail && (
-                <span className="inline-flex items-center gap-1">
-                  <a href={buildMailtoHref(cleanEmail)} aria-label={`Enviar email a ${cleanEmail}`} className="inline-flex items-center gap-1.5 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 transition-colors hover:text-indigo-700 hover:decoration-indigo-500">
-                    <Mail className="h-3.5 w-3.5" /> {cleanEmail}
-                  </a>
-                  <button type="button" onClick={() => copyToClipboard(cleanEmail, 'Email')} title="Copiar email" className="text-gray-300 transition-colors hover:text-indigo-600">
-                    <Copy className="h-3 w-3" />
-                  </button>
-                </span>
-              )}
+              {cleanEmail && <EmailAction email={cleanEmail} variant="link" />}
               {cleanPhone && (
                 <span className="inline-flex items-center gap-1">
                   <a href={`tel:${cleanPhone}`} className="inline-flex items-center gap-1.5 hover:text-indigo-600">
@@ -995,11 +981,7 @@ export default function ClientDetailPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {cleanEmail && (
-              <a href={buildMailtoHref(cleanEmail)} aria-label={`Enviar email a ${cleanEmail}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
-                <Mail className="h-3.5 w-3.5" /> Email
-              </a>
-            )}
+            {cleanEmail && <EmailAction email={cleanEmail} variant="button" label="Email" />}
             <Button variant="secondary" size="sm" onClick={() => router.push(`/clients?edit=${client.id}`)}>
               <Pencil className="h-3.5 w-3.5" /> Editar
             </Button>
@@ -1080,7 +1062,7 @@ export default function ClientDetailPage() {
 
             <SectionCard title="Contacto" description="Email, teléfonos y dirección">
               <dl className="grid gap-3 sm:grid-cols-2">
-                <DetailItem label="Email" value={cleanEmail} href={cleanEmail ? buildMailtoHref(cleanEmail) : undefined} />
+                <DetailItem label="Email">{cleanEmail ? <EmailAction email={cleanEmail} variant="link" /> : null}</DetailItem>
                 <DetailItem label="Teléfono" value={client.phone !== 'No consta' && client.phone !== '-' ? client.phone : ''} />
                 <DetailItem label="Teléfono secundario" value={meta.secondaryPhone} />
                 <DetailItem label="Ciudad / zona" value={meta.cityArea} />
@@ -1652,20 +1634,16 @@ export default function ClientDetailPage() {
   )
 }
 
-function DetailItem({ label, value, href, className }: { label: string; value?: string; href?: string; className?: string }) {
-  const present = value && value.trim().length > 0
+function DetailItem({ label, value, children, className }: { label: string; value?: string; children?: React.ReactNode; className?: string }) {
+  const present = children != null || (value && value.trim().length > 0)
   // Los campos vacíos pierden la caja (borde/fondo) para que no compitan con los
   // datos reales: el dato relleno destaca, el vacío recede con un "—" discreto.
-  // Si se pasa `href` (p. ej. mailto: puro), el valor es clicable.
+  // `children` permite renderizar un valor accionable (p. ej. <EmailAction/>).
   return (
     <div className={cn('rounded-lg px-3 py-2.5', present ? 'border border-gray-100 bg-gray-50/40' : 'border border-transparent', className)}>
       <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</dt>
       <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'text-gray-300')}>
-        {present
-          ? href
-            ? <a href={href} title={value} aria-label={href.startsWith('mailto:') ? `Enviar email a ${value}` : `${label}: ${value}`} className="inline-flex max-w-full items-center gap-1.5 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 transition-colors hover:text-indigo-700 hover:decoration-indigo-500"><Mail className="h-3.5 w-3.5 shrink-0 text-indigo-500" /><span className="truncate">{value}</span></a>
-            : value
-          : '—'}
+        {children ?? (present ? value : '—')}
       </dd>
     </div>
   )

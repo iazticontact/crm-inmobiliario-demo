@@ -6,7 +6,6 @@ import { motion } from 'framer-motion'
 import {
   Search,
   Plus,
-  Mail,
   Phone,
   X,
   User,
@@ -32,6 +31,7 @@ import {
 import { listOpportunities } from '@/lib/vertical-queries'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { DeleteClientDialog } from '@/components/DeleteClientDialog'
+import { EmailAction } from '@/components/EmailAction'
 import { clients as demoClients } from '@/lib/mock-data'
 import { demoOpportunities } from '@/lib/demo/demo-real-estate'
 import type { Client, ClientStatus } from '@/lib/types'
@@ -153,11 +153,6 @@ function readMeta(client: Client, key: string, fallback = ''): string {
   if (!m) return fallback
   const value = m[key]
   return typeof value === 'string' ? value : fallback
-}
-
-// mailto: puro (sin subject/body). Trim para evitar espacios sobrantes del seed/import.
-function buildMailtoHref(email: string): string {
-  return `mailto:${email.trim()}`
 }
 
 function toForm(client: Client): ClientForm {
@@ -583,7 +578,7 @@ export default function ClientsPage() {
                     <td className="px-4 py-3.5">
                       <div className="space-y-0.5">
                         {email ? (
-                          <a href={buildMailtoHref(email)} aria-label={`Enviar email a ${email}`} className="block truncate text-xs font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-700 hover:decoration-indigo-500">{email}</a>
+                          <EmailAction email={email} variant="link" className="text-xs" />
                         ) : (
                           <span className="block text-xs text-gray-400">Sin email</span>
                         )}
@@ -691,7 +686,7 @@ export default function ClientsPage() {
                 </div>
                 {(email || phone) && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                    {email && <a href={buildMailtoHref(email)} aria-label={`Enviar email a ${email}`} className="inline-flex min-w-0 items-center gap-1 font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-700 hover:decoration-indigo-500"><Mail className="h-3 w-3 shrink-0" /><span className="truncate">{email}</span></a>}
+                    {email && <EmailAction email={email} variant="link" className="text-[11px]" />}
                     {phone && <a href={`tel:${phone}`} className="inline-flex items-center gap-1 hover:text-indigo-600"><Phone className="h-3 w-3" />{phone}</a>}
                   </div>
                 )}
