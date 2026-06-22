@@ -1046,12 +1046,14 @@ export default function ClientDetailPage() {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
           <div className="space-y-4">
             <SectionCard title="Resumen ejecutivo" description="Lo esencial de este cliente de un vistazo" bodyClassName="p-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
                   { icon: <UserIcon className="h-4 w-4" />, label: 'Perfil', value: (CLIENT_TYPE_LABEL[meta.clientType] ?? '') || 'No consta' },
                   { icon: <Target className="h-4 w-4" />, label: 'Interés', value: (SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? MAIN_AREA_LABEL[meta.mainArea] ?? '') || 'No consta' },
-                  { icon: <CalendarIcon className="h-4 w-4" />, label: 'Próxima cita', value: nextEvent ? formatDate(nextEvent.startAt ?? nextEvent.date, true) : 'Sin citas próximas' },
                   { icon: <Building2 className="h-4 w-4" />, label: 'Operación activa', value: activeOpp ? activeOpp.title : 'Sin operaciones abiertas' },
+                  { icon: <CalendarIcon className="h-4 w-4" />, label: 'Próxima cita', value: nextEvent ? formatDate(nextEvent.startAt ?? nextEvent.date, true) : 'Sin citas próximas' },
+                  { icon: <CheckSquare className="h-4 w-4" />, label: 'Tarea pendiente', value: (sortedTasks.find((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed')?.title) || 'Sin tareas pendientes' },
+                  { icon: <FileText className="h-4 w-4" />, label: 'Expediente abierto', value: (cases[0]?.title) || 'Sin expedientes abiertos' },
                 ].map((item) => (
                   <div key={item.label} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-indigo-100">{item.icon}</span>
