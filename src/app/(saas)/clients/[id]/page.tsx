@@ -179,7 +179,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   visit: 'Visita',
   meeting: 'Reunión',
   call: 'Llamada',
-  demo: 'Demo',
+  demo: 'Evento',
   'follow-up': 'Seguimiento',
   task: 'Tarea',
   deadline: 'Vencimiento',
@@ -564,8 +564,8 @@ export default function ClientDetailPage() {
 
   // RT4.2 — crear expediente real vinculado al cliente (RLS; activity interna).
   const handleCreateCase = async () => {
-    if (!caseForm.title.trim()) { toast.error('Falta el título del expediente.'); return }
-    if (isDemoMode()) { toast.info('Modo demo (no se guarda)', { description: 'Crear expedientes estará disponible al conectar tu cuenta.' }); return }
+    if (!caseForm.title.trim()) { toast.error('Falta el título del trámite.'); return }
+    if (isDemoMode()) { toast.info('Modo demo (no se guarda)', { description: 'Crear trámites estará disponible al conectar tu cuenta.' }); return }
     if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
     setCaseSaving(true)
     try {
@@ -581,14 +581,14 @@ export default function ClientDetailPage() {
         dueDate: caseForm.dueDate || null,
         notes: caseForm.notes.trim() || null,
       })
-      if (!created) { toast.error('No se pudo crear el expediente'); return }
+      if (!created) { toast.error('No se pudo crear el trámite'); return }
       setCases((prev) => [created, ...prev])
       await reloadActivityFeed()
-      toast.success('Expediente creado')
+      toast.success('Trámite creado')
       setCaseForm({ title: '', caseType: '', status: 'open', priority: 'normal', dueDate: '', assignedTo: '', notes: '' })
       setCaseFormOpen(false)
     } catch (error) {
-      toast.error('No se pudo crear el expediente', { description: error instanceof Error ? error.message : '' })
+      toast.error('No se pudo crear el trámite', { description: error instanceof Error ? error.message : '' })
     } finally {
       setCaseSaving(false)
     }
@@ -671,13 +671,13 @@ export default function ClientDetailPage() {
         dueDate: editCase.dueDate || null,
         notes: editCase.notes.trim() || null,
       })
-      if (!updated) { toast.error('No se pudo actualizar el expediente'); return }
+      if (!updated) { toast.error('No se pudo actualizar el trámite'); return }
       setCases((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       await reloadActivityFeed()
-      toast.success('Expediente actualizado')
+      toast.success('Trámite actualizado')
       setEditCase(null)
     } catch (error) {
-      toast.error('No se pudo actualizar el expediente', { description: error instanceof Error ? error.message : '' })
+      toast.error('No se pudo actualizar el trámite', { description: error instanceof Error ? error.message : '' })
     } finally {
       setCaseEditSaving(false)
     }
@@ -1074,7 +1074,7 @@ export default function ClientDetailPage() {
 
             <SectionCard title="Contacto" description="Email, teléfonos y dirección">
               <dl className="grid gap-3 sm:grid-cols-2">
-                <DetailItem label="Email" value={client.email !== 'No consta' ? client.email : ''} />
+                <DetailItem label="Email" value={cleanEmail} href={cleanEmail ? `mailto:${cleanEmail}` : undefined} />
                 <DetailItem label="Teléfono" value={client.phone !== 'No consta' && client.phone !== '-' ? client.phone : ''} />
                 <DetailItem label="Teléfono secundario" value={meta.secondaryPhone} />
                 <DetailItem label="Ciudad / zona" value={meta.cityArea} />
@@ -1182,7 +1182,7 @@ export default function ClientDetailPage() {
       {activeTab === 'documents' && (
         <SectionCard
           title="Documentos del cliente"
-          description="PDFs, contratos, expedientes y adjuntos. Privados al workspace."
+          description="PDFs, contratos, documentación y adjuntos. Privados al workspace."
           action={
             <div className="flex items-center gap-2">
               <input
@@ -1267,7 +1267,7 @@ export default function ClientDetailPage() {
             action={
               <div className="flex items-center gap-2">
                 <Button size="sm" variant={caseFormOpen ? 'secondary' : 'primary'} onClick={() => setCaseFormOpen((v) => !v)}>
-                  <Plus className="h-3.5 w-3.5" /> {caseFormOpen ? 'Cerrar' : 'Nuevo expediente'}
+                  <Plus className="h-3.5 w-3.5" /> {caseFormOpen ? 'Cerrar' : 'Nuevo trámite'}
                 </Button>
                 <Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ir a Gestión</Link>
               </div>
@@ -1276,21 +1276,21 @@ export default function ClientDetailPage() {
             {caseFormOpen && (
               <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={caseForm.title} onChange={(e) => setCaseForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Expediente NIE" className={taskInputCls} /></label>
-                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><input value={caseForm.caseType} onChange={(e) => setCaseForm((p) => ({ ...p, caseType: e.target.value }))} placeholder="NIE, residencia…" className={taskInputCls} /></label>
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={caseForm.title} onChange={(e) => setCaseForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Contrato de arras" className={taskInputCls} /></label>
+                  <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><input value={caseForm.caseType} onChange={(e) => setCaseForm((p) => ({ ...p, caseType: e.target.value }))} placeholder="Contrato, tasación, financiación…" className={taskInputCls} /></label>
                   <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Estado</span><select value={caseForm.status} onChange={(e) => setCaseForm((p) => ({ ...p, status: e.target.value }))} className={taskInputCls}>{Object.entries(CASE_STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
                   <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Prioridad</span><select value={caseForm.priority} onChange={(e) => setCaseForm((p) => ({ ...p, priority: e.target.value }))} className={taskInputCls}><option value="low">Baja</option><option value="normal">Normal</option><option value="high">Alta</option></select></label>
                   <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Vencimiento</span><input type="date" value={caseForm.dueDate} onChange={(e) => setCaseForm((p) => ({ ...p, dueDate: e.target.value }))} className={taskInputCls} /></label>
                   <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Responsable</span><select value={caseForm.assignedTo} onChange={(e) => setCaseForm((p) => ({ ...p, assignedTo: e.target.value }))} className={taskInputCls}><option value="">Sin asignar</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
                   <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Notas</span><input value={caseForm.notes} onChange={(e) => setCaseForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Opcional" className={taskInputCls} /></label>
                 </div>
-                <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setCaseFormOpen(false)}>Cancelar</Button><Button size="sm" loading={caseSaving} onClick={handleCreateCase}>Crear expediente</Button></div>
+                <div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setCaseFormOpen(false)}>Cancelar</Button><Button size="sm" loading={caseSaving} onClick={handleCreateCase}>Crear trámite</Button></div>
               </div>
             )}
             {cases.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-4 text-center">
-                <p className="text-sm font-medium text-gray-700">Sin expedientes abiertos</p>
-                <p className="mt-0.5 text-xs text-gray-500">Aquí aparecerán trámites como documentación, contrato, tasación o financiación.</p>
+                <p className="text-sm font-medium text-gray-700">Sin trámites abiertos</p>
+                <p className="mt-0.5 text-xs text-gray-500">Aquí aparecerán gestiones como documentación, contrato, tasación o financiación.</p>
               </div>
             ) : (
               <ul className="divide-y divide-gray-100">
@@ -1433,7 +1433,7 @@ export default function ClientDetailPage() {
             <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={evForm.title} onChange={(e) => setEvForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Visita al piso" className={taskInputCls} /></label>
-                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={evForm.type} onChange={(e) => setEvForm((p) => ({ ...p, type: e.target.value }))} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Demo</option></select></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={evForm.type} onChange={(e) => setEvForm((p) => ({ ...p, type: e.target.value }))} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Evento</option></select></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={evForm.duration} onChange={(e) => setEvForm((p) => ({ ...p, duration: e.target.value }))} className={taskInputCls} /></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={evForm.date} onChange={(e) => setEvForm((p) => ({ ...p, date: e.target.value }))} className={taskInputCls} /></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={evForm.time} onChange={(e) => setEvForm((p) => ({ ...p, time: e.target.value }))} className={taskInputCls} /></label>
@@ -1444,11 +1444,15 @@ export default function ClientDetailPage() {
             </div>
           )}
           {events.length === 0 ? (
-            <p className="text-sm text-gray-500">Sin citas programadas para este cliente.</p>
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-6 text-center">
+              <CalendarIcon className="mx-auto mb-2 h-6 w-6 text-gray-400" />
+              <p className="text-sm font-medium text-gray-700">Sin citas programadas</p>
+              <p className="mt-1 text-xs text-gray-500">Aquí aparecerán visitas, llamadas o reuniones vinculadas a este cliente.</p>
+            </div>
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="space-y-2.5">
               {events.map((event) => (
-                <li key={event.id} className="py-3">
+                <li key={event.id} className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm shadow-gray-950/[0.02]">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
@@ -1465,7 +1469,7 @@ export default function ClientDetailPage() {
                     <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={editEvent.title} onChange={(e) => setEditEvent((p) => p && { ...p, title: e.target.value })} className={taskInputCls} /></label>
-                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={editEvent.type} onChange={(e) => setEditEvent((p) => p && { ...p, type: e.target.value })} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Demo</option></select></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={editEvent.type} onChange={(e) => setEditEvent((p) => p && { ...p, type: e.target.value })} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Evento</option></select></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={editEvent.duration} onChange={(e) => setEditEvent((p) => p && { ...p, duration: e.target.value })} className={taskInputCls} /></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={editEvent.date} onChange={(e) => setEditEvent((p) => p && { ...p, date: e.target.value })} className={taskInputCls} /></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={editEvent.time} onChange={(e) => setEditEvent((p) => p && { ...p, time: e.target.value })} className={taskInputCls} /></label>
@@ -1530,14 +1534,18 @@ export default function ClientDetailPage() {
             </div>
           )}
           {sortedTasks.length === 0 ? (
-            <p className="text-sm text-gray-500">No hay tareas pendientes.</p>
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-6 text-center">
+              <CheckSquare className="mx-auto mb-2 h-6 w-6 text-gray-400" />
+              <p className="text-sm font-medium text-gray-700">Sin tareas pendientes</p>
+              <p className="mt-1 text-xs text-gray-500">Aquí aparecerán seguimientos, llamadas y acciones comerciales del cliente.</p>
+            </div>
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="space-y-2.5">
               {sortedTasks.map((t) => {
                 const due = taskDueState(t.due_date, t.status)
                 const closed = t.status === 'done' || t.status === 'completed' || t.status === 'closed' || t.status === 'cancelled'
                 return (
-                  <li key={t.id} className="py-3">
+                  <li key={t.id} className={cn('rounded-xl border bg-white p-3 shadow-sm shadow-gray-950/[0.02]', due === 'overdue' && !closed ? 'border-red-200' : 'border-gray-100')}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className={cn('truncate text-sm font-semibold', closed ? 'text-gray-400 line-through' : 'text-gray-900')}>{t.title}</p>
@@ -1638,15 +1646,20 @@ export default function ClientDetailPage() {
   )
 }
 
-function DetailItem({ label, value, className }: { label: string; value?: string; className?: string }) {
+function DetailItem({ label, value, href, className }: { label: string; value?: string; href?: string; className?: string }) {
   const present = value && value.trim().length > 0
   // Los campos vacíos pierden la caja (borde/fondo) para que no compitan con los
   // datos reales: el dato relleno destaca, el vacío recede con un "—" discreto.
+  // Si se pasa `href` (p. ej. mailto: puro), el valor es clicable.
   return (
     <div className={cn('rounded-lg px-3 py-2.5', present ? 'border border-gray-100 bg-gray-50/40' : 'border border-transparent', className)}>
       <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</dt>
       <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'text-gray-300')}>
-        {present ? value : '—'}
+        {present
+          ? href
+            ? <a href={href} title={value} aria-label={`${label}: ${value}`} className="inline-flex max-w-full items-center gap-1.5 truncate font-medium text-gray-900 transition-colors hover:text-indigo-600 hover:underline"><Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" /><span className="truncate">{value}</span></a>
+            : value
+          : '—'}
       </dd>
     </div>
   )
