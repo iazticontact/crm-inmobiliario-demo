@@ -1048,7 +1048,7 @@ export default function ClientDetailPage() {
                   { icon: <Building2 className="h-4 w-4" />, label: 'Operación activa', value: activeOpp ? activeOpp.title : 'Sin operaciones abiertas' },
                   { icon: <CalendarIcon className="h-4 w-4" />, label: 'Próxima cita', value: nextEvent ? formatDate(nextEvent.startAt ?? nextEvent.date, true) : 'Sin citas próximas' },
                   { icon: <CheckSquare className="h-4 w-4" />, label: 'Tarea pendiente', value: (sortedTasks.find((t) => t.status !== 'done' && t.status !== 'completed' && t.status !== 'closed')?.title) || 'Sin tareas pendientes' },
-                  { icon: <FileText className="h-4 w-4" />, label: 'Expediente abierto', value: (cases[0]?.title) || 'Sin expedientes abiertos' },
+                  { icon: <FileText className="h-4 w-4" />, label: 'Trámite abierto', value: (cases[0]?.title) || 'Sin trámites abiertos' },
                 ].map((item) => (
                   <div key={item.label} className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-indigo-100">{item.icon}</span>
@@ -1083,12 +1083,16 @@ export default function ClientDetailPage() {
             </SectionCard>
 
             <SectionCard title="Interés y servicio" description="Qué busca o qué le ofrecemos">
-              <dl className="grid gap-3 sm:grid-cols-2">
-                <DetailItem label="Área principal" value={MAIN_AREA_LABEL[meta.mainArea] ?? ''} />
-                <DetailItem label="Servicio / interés" value={SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? ''} />
-                <DetailItem label="Presupuesto" value={meta.budgetRange} />
-                <DetailItem label="Zona de interés" value={meta.interestZone} />
-              </dl>
+              {(MAIN_AREA_LABEL[meta.mainArea] || SERVICE_INTEREST_LABEL[meta.serviceInterest] || meta.budgetRange || meta.interestZone || meta.cityArea) ? (
+                <dl className="grid gap-3 sm:grid-cols-2">
+                  <DetailItem label="Área principal" value={MAIN_AREA_LABEL[meta.mainArea] ?? ''} />
+                  <DetailItem label="Servicio / interés" value={SERVICE_INTEREST_LABEL[meta.serviceInterest] ?? ''} />
+                  <DetailItem label="Presupuesto" value={meta.budgetRange} />
+                  <DetailItem label="Zona de interés" value={meta.interestZone || meta.cityArea} />
+                </dl>
+              ) : (
+                <p className="text-sm text-gray-500">Añade preferencias (zona, presupuesto o tipo de inmueble) para afinar el seguimiento comercial.</p>
+              )}
             </SectionCard>
 
             <SectionCard
@@ -1133,7 +1137,7 @@ export default function ClientDetailPage() {
             <SectionCard title="Resumen operativo">
               <div className="grid grid-cols-2 gap-3 text-center">
                 <StatPill label="Operaciones" value={opportunities.length} hint="Del cliente" />
-                <StatPill label="Expedientes" value={cases.length} hint="Trámites abiertos" />
+                <StatPill label="Trámites" value={cases.length} hint="Gestiones abiertas" />
                 <StatPill label="Citas" value={events.length} hint="Programadas" />
                 <StatPill label="Tareas" value={tasks.length} hint="Asignadas" />
               </div>
@@ -1258,8 +1262,8 @@ export default function ClientDetailPage() {
         <div className="flex flex-col gap-4">
           <SectionCard
             className="order-2"
-            title="Expedientes y trámites"
-            description="Gestiones del cliente (NIE, residencia, documentación…)"
+            title="Trámites y documentación"
+            description="Gestiones asociadas: documentación, contrato, tasación, financiación…"
             action={
               <div className="flex items-center gap-2">
                 <Button size="sm" variant={caseFormOpen ? 'secondary' : 'primary'} onClick={() => setCaseFormOpen((v) => !v)}>
