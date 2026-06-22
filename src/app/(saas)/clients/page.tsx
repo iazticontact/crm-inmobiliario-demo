@@ -186,6 +186,11 @@ function toForm(client: Client): ClientForm {
   }
 }
 
+const CLIENT_TYPE_PROFILE: Record<string, string> = {
+  comprador: 'Comprador', vendedor: 'Vendedor', inversor: 'Inversor',
+  inquilino: 'Inquilino', propietario: 'Propietario', arrendador: 'Arrendador', otro: 'Otro',
+}
+
 function describeArea(client: Client): { label: string; tone: 'indigo' | 'info' | 'purple' | 'default' } | null {
   const area = readMeta(client, 'main_area')
   const service = readMeta(client, 'service_interest')
@@ -196,9 +201,15 @@ function describeArea(client: Client): { label: string; tone: 'indigo' | 'info' 
     ''
   const labelService = SERVICE_INTEREST_OPTIONS.find((o) => o.value === service)?.label ?? ''
   const combined = [labelArea, labelService].filter(Boolean).join(' · ')
-  if (!combined) return null
-  const tone: 'indigo' | 'info' | 'purple' = area === 'gestoria' ? 'purple' : area === 'inmobiliaria' ? 'info' : 'indigo'
-  return { label: combined, tone }
+  if (combined) {
+    const tone: 'indigo' | 'info' | 'purple' = area === 'gestoria' ? 'purple' : area === 'inmobiliaria' ? 'info' : 'indigo'
+    return { label: combined, tone }
+  }
+  // Fallback al tipo/perfil del cliente (comprador/vendedor/inversor…), que suele
+  // estar relleno cuando área/servicio no, para que la columna no quede en "—".
+  const profile = CLIENT_TYPE_PROFILE[readMeta(client, 'client_type') ?? '']
+  if (profile) return { label: profile, tone: 'default' }
+  return null
 }
 
 function buildMetadata(form: ClientForm, existing?: Record<string, unknown>) {
@@ -523,7 +534,7 @@ export default function ClientsPage() {
               <tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
                 <th className="px-5 py-3 text-left font-semibold">Cliente</th>
                 <th className="px-4 py-3 text-left font-semibold">Contacto</th>
-                <th className="px-4 py-3 text-left font-semibold">Área / servicio</th>
+                <th className="px-4 py-3 text-left font-semibold">Perfil</th>
                 <th className="px-4 py-3 text-left font-semibold">Estado</th>
                 <th className="px-4 py-3 text-left font-semibold">Alta</th>
                 <th className="px-4 py-3 text-right font-semibold">Acciones</th>

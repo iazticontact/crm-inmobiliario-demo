@@ -70,7 +70,7 @@ type TabKey = 'summary' | 'documents' | 'cases' | 'calendar' | 'tasks' | 'conver
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'summary', label: 'Resumen', icon: <UserIcon className="h-3.5 w-3.5" /> },
   { key: 'documents', label: 'Documentos', icon: <FileText className="h-3.5 w-3.5" /> },
-  { key: 'cases', label: 'Expedientes', icon: <Building2 className="h-3.5 w-3.5" /> },
+  { key: 'cases', label: 'Operaciones', icon: <Building2 className="h-3.5 w-3.5" /> },
   { key: 'calendar', label: 'Visitas y citas', icon: <CalendarIcon className="h-3.5 w-3.5" /> },
   { key: 'tasks', label: 'Tareas', icon: <CheckSquare className="h-3.5 w-3.5" /> },
   { key: 'conversations', label: 'Conversaciones', icon: <MessageSquare className="h-3.5 w-3.5" /> },
@@ -946,7 +946,7 @@ export default function ClientDetailPage() {
                 <Badge variant="purple">{MAIN_AREA_LABEL[meta.mainArea]}</Badge>
               )}
               {client.channel && (
-                <Badge variant="info">{CHANNEL_LABEL[client.channel] ?? client.channel}</Badge>
+                <Badge variant="default">Origen · {CHANNEL_LABEL[client.channel] ?? client.channel}</Badge>
               )}
               {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && client.leadScore > 0 && (
                 <Badge variant="default">Score {client.leadScore}</Badge>
@@ -989,11 +989,6 @@ export default function ClientDetailPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {cleanPhone && (
-              <a href={`tel:${cleanPhone}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
-                <Phone className="h-3.5 w-3.5" /> Llamar
-              </a>
-            )}
             {cleanEmail && (
               <a href={`mailto:${cleanEmail}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900">
                 <Mail className="h-3.5 w-3.5" /> Email
@@ -1255,12 +1250,14 @@ export default function ClientDetailPage() {
         </SectionCard>
       )}
 
-      {/* Expedientes / propiedades / pipeline */}
+      {/* Operaciones · trámites · propiedades del cliente. Orden por CSS:
+          operaciones primero (lo más comercial), luego trámites y propiedades. */}
       {activeTab === 'cases' && (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <SectionCard
-            title="Expedientes"
-            description="Trámites de gestoría y extranjería"
+            className="order-2"
+            title="Expedientes y trámites"
+            description="Gestiones del cliente (NIE, residencia, documentación…)"
             action={
               <div className="flex items-center gap-2">
                 <Button size="sm" variant={caseFormOpen ? 'secondary' : 'primary'} onClick={() => setCaseFormOpen((v) => !v)}>
@@ -1322,7 +1319,7 @@ export default function ClientDetailPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Propiedades vinculadas" description="Captaciones y propiedades de interés">
+          <SectionCard className="order-3" title="Propiedades vinculadas" description="Captaciones y propiedades de interés">
             {properties.length === 0 ? (
               <p className="text-sm text-gray-500">Sin propiedades vinculadas a este cliente.</p>
             ) : (
@@ -1343,8 +1340,9 @@ export default function ClientDetailPage() {
           </SectionCard>
 
           <SectionCard
-            title="Pipeline comercial"
-            description="Operaciones vinculadas"
+            className="order-1"
+            title="Operaciones del cliente"
+            description="Compraventas y alquileres en seguimiento"
             action={
               <Button size="sm" variant={opFormOpen ? 'secondary' : 'primary'} onClick={() => setOpFormOpen((v) => !v)}>
                 <Plus className="h-3.5 w-3.5" /> {opFormOpen ? 'Cerrar' : 'Nueva operación'}
@@ -1366,7 +1364,7 @@ export default function ClientDetailPage() {
               </div>
             )}
             {opportunities.length === 0 ? (
-              <p className="text-sm text-gray-500">Sin operaciones activas.</p>
+              <p className="text-sm text-gray-500">Aún no hay operaciones abiertas con este cliente. Crea una para empezar el seguimiento comercial.</p>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {opportunities.map((o) => (
@@ -1634,8 +1632,8 @@ function DetailItem({ label, value, className }: { label: string; value?: string
   return (
     <div className={cn('rounded-lg border border-gray-100 bg-gray-50/40 px-3 py-2.5', className)}>
       <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</dt>
-      <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'italic text-gray-400')}>
-        {present ? value : 'Sin completar'}
+      <dd className={cn('mt-0.5 text-sm', present ? 'text-gray-900' : 'text-gray-300')}>
+        {present ? value : '—'}
       </dd>
     </div>
   )
