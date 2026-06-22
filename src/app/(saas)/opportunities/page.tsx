@@ -1,10 +1,15 @@
 'use client'
 
-// /opportunities — Gestión.
+// /opportunities — Operaciones (centro comercial del CRM).
 //
-// Expedientes · Propiedades · Seguimiento (pipeline) · Plantillas.
-// La ruta sigue siendo /opportunities para no romper enlaces; el label visual
-// pasó a "Gestión" porque la página opera todo lo operativo del workspace.
+// Vista por defecto: Operaciones (negocio abierto por etapa). Tabs visibles al cliente:
+// Operaciones · Trámites · Propiedades. "Plantillas" y "Automatizaciones" son superficie
+// de operador (solo NEXT_PUBLIC_NOWLABS_INTERNAL). La ruta sigue siendo /opportunities
+// para no romper enlaces.
+//
+// Lenguaje de producto: Operación = negocio comercial abierto; Trámite (tabla service_cases)
+// = gestión/documentación asociada; Propiedad = inmueble. "Expediente" se sustituyó por
+// "Trámite" en toda la UI visible.
 //
 // Lecturas: helpers workspace-scoped en vertical-queries.ts (RLS al fondo).
 // Escrituras: drawers laterales en src/components/VerticalForms.tsx — usan los
@@ -13,6 +18,7 @@
 // updateOpportunityStage / updateServiceCaseStatus / updatePropertyStatus.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   Target,
@@ -47,12 +53,13 @@ import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags } from '@/lib/feature-flags'
 import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
+import { clients as demoClients } from '@/lib/mock-data'
+import { getClients } from '@/lib/supabase-queries'
 import {
   VERTICALS,
   getPipelineForVertical,
   getAutomationTemplatesForVertical,
   AUTOMATION_TEMPLATES,
-  CASE_TYPES,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import {
@@ -73,25 +80,26 @@ type Subtab = 'pipeline' | 'cases' | 'properties' | 'templates' | 'automations'
 const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: string }> = [
   { key: 'all',                    label: 'Todos',         description: 'Operativa completa del workspace.' },
   { key: 'real_estate',            label: 'Inmobiliaria',  description: 'Captaciones, visitas y operaciones inmobiliarias.' },
-  { key: 'immigration',            label: 'Extranjería',   description: 'Expedientes y trámites de extranjería.' },
+  { key: 'immigration',            label: 'Extranjería',   description: 'Trámites y gestiones de extranjería.' },
   { key: 'professional_services',  label: 'Servicios',     description: 'Asesorías y servicios profesionales recurrentes.' },
 ]
 
-// The "Automatizaciones" subtab is operator-only — it shows the catalog of
-// n8n/Meta workflows. Hide from clients by default and only surface when
-// NEXT_PUBLIC_NOWLABS_INTERNAL=true.
-//
-// Orden visible para asesoría/inmobiliaria: Expedientes y Propiedades primero,
-// luego Seguimiento (pipeline comercial) y Plantillas.
+// Orden comercial: Operaciones (negocio abierto) primero, luego Trámites (gestiones)
+// y Propiedades (cartera). "Plantillas" y "Automatizaciones" son superficie de operador:
+// se ocultan al cliente y solo aparecen con NEXT_PUBLIC_NOWLABS_INTERNAL=true (no aportan
+// al pack básico y confunden el módulo comercial).
 const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }>; internal?: boolean }> = [
-  { key: 'cases',        label: 'Expedientes',      icon: FileText },
-  { key: 'properties',   label: 'Propiedades',      icon: Building2 },
   { key: 'pipeline',     label: 'Operaciones',      icon: Target },
-  { key: 'templates',    label: 'Plantillas',       icon: Sparkles },
+  { key: 'cases',        label: 'Trámites',         icon: FileText },
+  { key: 'properties',   label: 'Propiedades',      icon: Building2 },
+  { key: 'templates',    label: 'Plantillas',       icon: Sparkles, internal: true },
   { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
 
 const SUBTABS = ALL_SUBTABS.filter((tab) => !tab.internal || featureFlags.nowlabsInternal)
+
+// Etapas terminales (cerradas): no cuentan como "operación abierta" ni suman valor potencial.
+const TERMINAL_STAGES = new Set(['won', 'lost', 'resolved', 'closed'])
 
 const SELECT_CLS =
   'h-7 rounded-lg border border-gray-200 bg-white px-2 text-[11px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500'
@@ -114,14 +122,25 @@ function formatDate(value: string | null) {
   } catch { return null }
 }
 
+// Cierre estimado dentro de los próximos 30 días (y no pasado). Usa `new Date()` para
+// la fecha actual (patrón aceptado por el linter de purity en este repo).
+function closesSoon(value: string | null): boolean {
+  if (!value) return false
+  const t = new Date(value).getTime()
+  if (Number.isNaN(t)) return false
+  const diffDays = (t - new Date().getTime()) / 86_400_000
+  return diffDays >= 0 && diffDays <= 30
+}
+
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
 
   const [vertical, setVertical] = useState<VerticalTab>('all')
-  const [subtab, setSubtab] = useState<Subtab>('cases')
+  const [subtab, setSubtab] = useState<Subtab>('pipeline')
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
+  const [clientNames, setClientNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -142,26 +161,31 @@ export default function OpportunitiesPage() {
       setOpportunities(demoOpportunities)
       setCases(demoServiceCases)
       setProperties(demoProperties)
+      setClientNames(Object.fromEntries(demoClients.map((c) => [c.id, c.name])))
       setLoadError('')
       setLoading(false)
       return
     }
     if (!workspaceId) {
-      setOpportunities([]); setCases([]); setProperties([])
+      setOpportunities([]); setCases([]); setProperties([]); setClientNames({})
       setLoading(false)
       return
     }
     setLoading(true)
     setLoadError('')
     try {
-      const [opps, srv, props] = await Promise.all([
+      // Una lectura agregada de clientes (no N+1) para resolver el nombre del cliente
+      // por operación/trámite. El resto son los listados workspace-scoped (RLS).
+      const [opps, srv, props, clientList] = await Promise.all([
         listOpportunities(workspaceId).catch(() => []),
         listServiceCases(workspaceId).catch(() => []),
         listProperties(workspaceId).catch(() => []),
+        getClients(workspaceId).catch(() => []),
       ])
       setOpportunities(opps)
       setCases(srv)
       setProperties(props)
+      setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error cargando datos.')
     } finally {
@@ -208,8 +232,13 @@ export default function OpportunitiesPage() {
     return getAutomationTemplatesForVertical(vertical as VerticalKey)
   }, [vertical])
 
-  const totalPipelineValue = visibleOpportunities.reduce((sum, o) => sum + (o.value ?? 0), 0)
+  const openOpportunities = useMemo(
+    () => visibleOpportunities.filter((o) => !TERMINAL_STAGES.has(o.stage)),
+    [visibleOpportunities],
+  )
+  const openValue = openOpportunities.reduce((sum, o) => sum + (o.value ?? 0), 0)
   const activeCases = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length
+  const clientNameOf = (id: string | null) => (id ? clientNames[id] ?? '' : '')
 
   // Inline stage / status edits — optimistic + persisted.
   async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
@@ -226,7 +255,7 @@ export default function OpportunitiesPage() {
       void loadData()
       return
     }
-    toast.success(`Operación → ${nextStage}`)
+    toast.success('Operación actualizada')
   }
 
   async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
@@ -239,11 +268,11 @@ export default function OpportunitiesPage() {
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updateServiceCaseStatus(workspaceId, row.id, nextStatus)
     if (!ok) {
-      toast.error('No se pudo cambiar el estado del expediente.')
+      toast.error('No se pudo cambiar el estado del trámite.')
       void loadData()
       return
     }
-    toast.success(`Expediente → ${nextStatus}`)
+    toast.success('Trámite actualizado')
   }
 
   async function handlePropertyStatus(row: PropertyRow, nextStatus: string) {
@@ -260,7 +289,7 @@ export default function OpportunitiesPage() {
       void loadData()
       return
     }
-    toast.success(`Propiedad → ${nextStatus}`)
+    toast.success('Propiedad actualizada')
   }
 
   const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
@@ -274,7 +303,7 @@ export default function OpportunitiesPage() {
     >
       <PageHeader
         title="Operaciones"
-        description="Pipeline comercial, expedientes y propiedades del workspace."
+        description="Gestiona oportunidades comerciales, trámites y propiedades en seguimiento."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -284,8 +313,11 @@ export default function OpportunitiesPage() {
             <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
               <Plus className="h-3.5 w-3.5" /> Nueva propiedad
             </Button>
-            <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nuevo expediente
+            <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nuevo trámite
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
+              <Plus className="h-3.5 w-3.5" /> Nueva operación
             </Button>
           </div>
         }
@@ -342,36 +374,43 @@ export default function OpportunitiesPage() {
         </div>
       )}
 
-      {/* KPI strip (always visible) */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/* KPI strip — comerciales (qué negocio hay abierto, cuánto vale, qué requiere atención) */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          icon={<Target className="h-4 w-4 text-indigo-600" />}
+          label="Operaciones abiertas"
+          value={String(openOpportunities.length)}
+          detail={visibleOpportunities.length ? `${visibleOpportunities.length} en total` : 'Sin operaciones aún'}
+          tone="border-indigo-100 bg-indigo-50/40"
+        />
+        <KpiCard
+          icon={<Sparkles className="h-4 w-4 text-emerald-600" />}
+          label="Valor potencial"
+          value={formatCurrency(openValue)}
+          detail={openOpportunities.length ? 'En operaciones abiertas' : 'Sin valor en seguimiento'}
+          tone="border-emerald-100 bg-emerald-50/40"
+        />
         <KpiCard
           icon={<FileText className="h-4 w-4 text-violet-600" />}
-          label="Expedientes activos"
+          label="Trámites abiertos"
           value={String(activeCases)}
-          detail={cases.length ? `${cases.length} en total` : 'Sin expedientes'}
+          detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
           tone="border-violet-100 bg-violet-50/40"
         />
         <KpiCard
           icon={<Building2 className="h-4 w-4 text-sky-600" />}
-          label="Propiedades"
+          label="Propiedades en cartera"
           value={String(visibleProperties.length)}
           detail={visibleProperties.length ? 'En cartera' : (vertical !== 'all' && vertical !== 'real_estate' ? 'Solo en Inmobiliaria' : 'Sin propiedades')}
           tone="border-sky-100 bg-sky-50/40"
-        />
-        <KpiCard
-          icon={<Target className="h-4 w-4 text-indigo-600" />}
-          label="Operaciones"
-          value={String(visibleOpportunities.length)}
-          detail={visibleOpportunities.length ? `${formatCurrency(totalPipelineValue)} en pipeline` : 'Sin operaciones aún'}
-          tone="border-indigo-100 bg-indigo-50/40"
         />
       </div>
 
       {/* PIPELINE */}
       {subtab === 'pipeline' && (
         <SectionCard
-          title="Pipeline comercial"
-          description={`Etapas operativas del flujo ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`}
+          title="Operaciones en seguimiento"
+          description="Negocio abierto por etapa: lo que tu inmobiliaria puede cerrar."
           action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} operaciones</Badge>}
         >
           {loading ? (
@@ -383,16 +422,20 @@ export default function OpportunitiesPage() {
           ) : visibleOpportunities.length === 0 ? (
             <EmptyState
               icon={<Target className="h-6 w-6 text-gray-300" />}
-              title="Sin operaciones abiertas"
-              description={
-                vertical === 'all'
-                  ? 'Crea una operación para vincular un cliente con un inmueble o trámite.'
-                  : `Sin operaciones en ${VERTICALS[verticalForPipeline].label.toLowerCase()}.`
-              }
+              title={vertical === 'all' ? 'Todavía no hay operaciones' : `Sin operaciones en ${VERTICALS[verticalForPipeline].label.toLowerCase()}`}
+              description="Crea tu primera operación comercial cuando tengas un comprador, vendedor o inmueble en seguimiento."
               action={
-                <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nueva operación
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Nueva operación
+                  </Button>
+                  <Link
+                    href="/clients"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+                  >
+                    Crear cliente
+                  </Link>
+                </div>
               }
             />
           ) : (
@@ -400,14 +443,17 @@ export default function OpportunitiesPage() {
               {pipeline.map((stage) => {
                 const items = opportunitiesByStage[stage.id] ?? []
                 if (items.length === 0) return null
+                const stageValue = items.reduce((s, o) => s + (o.value ?? 0), 0)
                 return (
                   <div key={stage.id} className="rounded-xl border border-gray-100 bg-white p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
-                        <span className="text-[10px] text-gray-400">{stage.description}</span>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
+                        <span className="truncate text-[10px] text-gray-400">{stage.description}</span>
                       </div>
-                      <span className="text-[10px] text-gray-400">{items.length} {items.length !== 1 ? 'operaciones' : 'operación'}</span>
+                      <span className="shrink-0 text-[10px] font-medium text-gray-500">
+                        {items.length} {items.length !== 1 ? 'ops' : 'op'} · {formatCurrency(stageValue)}
+                      </span>
                     </div>
                     <ul className="space-y-1.5">
                       {items.map((opp) => (
@@ -420,12 +466,17 @@ export default function OpportunitiesPage() {
                           >
                             <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
                             <p className="truncate text-[11px] text-gray-500">
-                              {opp.vertical !== 'general' ? VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical : ''}
-                              {opp.expected_close_date ? ` · cierre ${formatDate(opp.expected_close_date)}` : ''}
-                              {opp.source ? ` · ${opp.source}` : ''}
+                              {[
+                                clientNameOf(opp.client_id),
+                                opp.vertical !== 'general' ? (VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical) : '',
+                                opp.expected_close_date ? `cierre ${formatDate(opp.expected_close_date)}` : '',
+                              ].filter(Boolean).join(' · ') || 'Sin cliente vinculado'}
                             </p>
                           </button>
                           <div className="flex shrink-0 items-center gap-2">
+                            {closesSoon(opp.expected_close_date) && (
+                              <span className="hidden rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:inline">Cierre pronto</span>
+                            )}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
                             {typeof opp.probability === 'number' && (
                               <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{opp.probability}%</span>
@@ -463,9 +514,9 @@ export default function OpportunitiesPage() {
       {/* CASES */}
       {subtab === 'cases' && (
         <SectionCard
-          title="Expedientes"
-          description={vertical === 'immigration' ? 'Trámites de extranjería abiertos.' : 'Casos abiertos del workspace.'}
-          action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} expedientes</Badge>}
+          title="Trámites"
+          description="Gestiones asociadas a clientes u operaciones: documentación, contrato, tasación, financiación…"
+          action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} {visibleCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
         >
           {loading ? (
             <div className="space-y-2.5 py-2">
@@ -476,11 +527,11 @@ export default function OpportunitiesPage() {
           ) : visibleCases.length === 0 ? (
             <EmptyState
               icon={<FileText className="h-6 w-6 text-gray-300" />}
-              title="Sin expedientes abiertos"
-              description="Crea un expediente para empezar a organizar la operación o trámite del cliente."
+              title="Sin trámites abiertos"
+              description="Aquí aparecerán gestiones como documentación, contrato, tasación o financiación."
               action={
                 <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nuevo expediente
+                  <Plus className="h-3.5 w-3.5" /> Nuevo trámite
                 </Button>
               }
             />
@@ -493,7 +544,7 @@ export default function OpportunitiesPage() {
                       type="button"
                       onClick={() => setEditCase(c)}
                       className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900 hover:text-indigo-700"
-                      title="Editar expediente"
+                      title="Editar trámite"
                     >
                       {c.title}
                     </button>
@@ -511,7 +562,7 @@ export default function OpportunitiesPage() {
                       <button
                         type="button"
                         onClick={() => setEditCase(c)}
-                        title="Editar expediente"
+                        title="Editar trámite"
                         className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
                       >
                         <Pencil className="h-3 w-3" />
@@ -519,26 +570,16 @@ export default function OpportunitiesPage() {
                     </div>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
-                    {c.case_type}
-                    {c.priority !== 'normal' ? ` · prioridad ${c.priority}` : ''}
-                    {c.due_date ? ` · vence ${formatDate(c.due_date)}` : ''}
+                    {[
+                      clientNameOf(c.client_id),
+                      c.case_type,
+                      c.priority !== 'normal' ? `prioridad ${c.priority}` : '',
+                      c.due_date ? `vence ${formatDate(c.due_date)}` : '',
+                    ].filter(Boolean).join(' · ')}
                   </p>
                 </li>
               ))}
             </ul>
-          )}
-
-          {(vertical === 'immigration' || vertical === 'all') && (
-            <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tipos de expediente preparados</p>
-              <div className="flex flex-wrap gap-1.5">
-                {CASE_TYPES.filter((t) => t.vertical === 'immigration' || vertical === 'all').slice(0, 6).map((t) => (
-                  <span key={t.id} className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-700" title={t.description}>
-                    {t.label}
-                  </span>
-                ))}
-              </div>
-            </div>
           )}
         </SectionCard>
       )}
@@ -608,11 +649,13 @@ export default function OpportunitiesPage() {
                     </div>
                   </div>
                   <p className="mt-0.5 text-[11px] text-gray-500">
-                    {p.property_type}
-                    {p.operation_type ? ` · ${p.operation_type}` : ''}
-                    {p.city ? ` · ${p.city}` : ''}
-                    {p.area ? ` · ${p.area}` : ''}
-                    {p.price ? ` · ${formatCurrency(p.price, p.currency ?? 'EUR')}` : ''}
+                    {[
+                      p.property_type,
+                      p.operation_type,
+                      [p.city, p.area].filter(Boolean).join(', '),
+                      p.price ? formatCurrency(p.price, p.currency ?? 'EUR') : '',
+                      clientNameOf(p.client_id) || p.owner_name || '',
+                    ].filter(Boolean).join(' · ')}
                   </p>
                 </li>
               ))}
