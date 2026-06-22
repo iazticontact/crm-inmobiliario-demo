@@ -1,15 +1,16 @@
 'use client'
 
-// /opportunities — Operaciones (centro comercial del CRM).
+// /opportunities — Cartera inmobiliaria (centro del CRM).
 //
-// Vista por defecto: Operaciones (negocio abierto por etapa). Tabs visibles al cliente:
-// Operaciones · Trámites · Propiedades. "Plantillas" y "Automatizaciones" son superficie
+// Vista por defecto: Inmuebles (la cartera). Tabs visibles al cliente:
+// Inmuebles · Operaciones · Trámites. "Plantillas" y "Automatizaciones" son superficie
 // de operador (solo NEXT_PUBLIC_NOWLABS_INTERNAL). La ruta sigue siendo /opportunities
-// para no romper enlaces.
+// (sidebar "Cartera") para no romper enlaces.
 //
-// Lenguaje de producto: Operación = negocio comercial abierto; Trámite (tabla service_cases)
-// = gestión/documentación asociada; Propiedad = inmueble. "Expediente" se sustituyó por
-// "Trámite" en toda la UI visible.
+// Lenguaje de producto: Inmueble (tabla properties) = activo gestionado; Operación = negocio
+// comercial; Trámite (tabla service_cases) = gestión/documentación. "Expediente" y "Pipeline"
+// no aparecen en la UI visible. Fotos/documentos de inmueble: pendiente (sin Storage) → ver
+// docs/REAL_ESTATE_MEDIA_AND_DOCUMENTS_ROADMAP.md (placeholder, sin upload falso).
 //
 // Lecturas: helpers workspace-scoped en vertical-queries.ts (RLS al fondo).
 // Escrituras: drawers laterales en src/components/VerticalForms.tsx — usan los
@@ -23,12 +24,14 @@ import { motion } from 'framer-motion'
 import {
   Target,
   Building2,
+  Home,
   FileText,
   RefreshCcw,
   Sparkles,
   Plus,
   PlayCircle,
   Pencil,
+  MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -90,9 +93,9 @@ const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: strin
 // se ocultan al cliente y solo aparecen con NEXT_PUBLIC_NOWLABS_INTERNAL=true (no aportan
 // al pack básico y confunden el módulo comercial).
 const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType<{ className?: string }>; internal?: boolean }> = [
+  { key: 'properties',   label: 'Inmuebles',        icon: Building2 },
   { key: 'pipeline',     label: 'Operaciones',      icon: Target },
   { key: 'cases',        label: 'Trámites',         icon: FileText },
-  { key: 'properties',   label: 'Propiedades',      icon: Building2 },
   { key: 'templates',    label: 'Plantillas',       icon: Sparkles, internal: true },
   { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
@@ -142,11 +145,45 @@ function dueSoon(value: string | null): boolean {
   return diffDays >= 0 && diffDays <= 7
 }
 
+// Etiquetas inmobiliarias (es-ES) con fallback al valor crudo capitalizado.
+const PROPERTY_TYPE_LABEL: Record<string, string> = {
+  piso: 'Piso', atico: 'Ático', duplex: 'Dúplex', chalet: 'Chalet', adosado: 'Adosado',
+  casa: 'Casa', local: 'Local', oficina: 'Oficina', nave: 'Nave', terreno: 'Terreno',
+  garaje: 'Garaje', trastero: 'Trastero', edificio: 'Edificio',
+}
+const PROPERTY_OPERATION_LABEL: Record<string, string> = {
+  venta: 'Venta', alquiler: 'Alquiler', captacion: 'Captación', inversion: 'Inversión',
+  traspaso: 'Traspaso', alquiler_opcion_compra: 'Alquiler con opción a compra',
+}
+// Estado del inmueble → etiqueta + tono de badge.
+const PROPERTY_STATUS_META: Record<string, { label: string; tone: string }> = {
+  prospecting:    { label: 'Captación',  tone: 'bg-gray-50 text-gray-600 border-gray-100' },
+  listed:         { label: 'Publicado',  tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  available:      { label: 'Disponible', tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  under_contract: { label: 'Reservado',  tone: 'bg-amber-50 text-amber-700 border-amber-100' },
+  reserved:       { label: 'Reservado',  tone: 'bg-amber-50 text-amber-700 border-amber-100' },
+  sold:           { label: 'Vendido',    tone: 'bg-sky-50 text-sky-700 border-sky-100' },
+  rented:         { label: 'Alquilado',  tone: 'bg-sky-50 text-sky-700 border-sky-100' },
+  archived:       { label: 'Archivado',  tone: 'bg-gray-50 text-gray-400 border-gray-100' },
+}
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+function propLabel(map: Record<string, string>, value: string | null): string {
+  if (!value) return ''
+  return map[value] ?? cap(value)
+}
+// Lee un numérico del inmueble desde columna real o, en su defecto, de metadata (datos demo).
+function propNum(p: PropertyRow, col: 'bedrooms' | 'bathrooms' | 'area_m2', metaKey: string): number | null {
+  const direct = p[col]
+  if (typeof direct === 'number') return direct
+  const meta = p.metadata?.[metaKey]
+  return typeof meta === 'number' ? meta : null
+}
+
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
 
   const [vertical, setVertical] = useState<VerticalTab>('all')
-  const [subtab, setSubtab] = useState<Subtab>('pipeline')
+  const [subtab, setSubtab] = useState<Subtab>('properties')
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
@@ -274,6 +311,27 @@ export default function OpportunitiesPage() {
   const casesDueSoon = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved' && dueSoon(c.due_date)).length
   const clientNameOf = (id: string | null) => (id ? clientNames[id] ?? '' : '')
 
+  // Mapas para enlazar entidades (vínculos reales ya cargados, sin N+1).
+  const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
+  const opportunitiesById = useMemo(() => Object.fromEntries(opportunities.map((o) => [o.id, o])), [opportunities])
+  // Nº de operaciones por inmueble (vía metadata.property_id). Honesto: 0 si no hay enlace.
+  const opsCountByProperty = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const o of opportunities) {
+      const pid = o.metadata?.property_id
+      if (typeof pid === 'string') m[pid] = (m[pid] ?? 0) + 1
+    }
+    return m
+  }, [opportunities])
+
+  // KPIs de cartera (vista Inmuebles). El "valor de cartera" es la suma de precios listados
+  // (no facturación ni ingresos): excluye vendidos/archivados.
+  const portfolioListed = visibleProperties.filter((p) => p.status === 'listed' || p.status === 'available').length
+  const portfolioReserved = visibleProperties.filter((p) => p.status === 'under_contract' || p.status === 'reserved').length
+  const portfolioValue = visibleProperties
+    .filter((p) => p.status !== 'sold' && p.status !== 'archived')
+    .reduce((s, p) => s + (p.price ?? 0), 0)
+
   // Verticales realmente presentes en los datos del workspace. Una inmobiliaria normal
   // solo tiene `real_estate` → no se muestra el selector de verticales (UI mínima). El
   // selector solo aparece cuando hay datos en más de una vertical (workspace mixto), y
@@ -348,11 +406,11 @@ export default function OpportunitiesPage() {
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updatePropertyStatus(workspaceId, row.id, nextStatus)
     if (!ok) {
-      toast.error('No se pudo cambiar el estado de la propiedad.')
+      toast.error('No se pudo cambiar el estado del inmueble.')
       void loadData()
       return
     }
-    toast.success('Propiedad actualizada')
+    toast.success('Inmueble actualizado')
   }
 
   const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
@@ -365,8 +423,8 @@ export default function OpportunitiesPage() {
       className="space-y-5 pb-2"
     >
       <PageHeader
-        title="Operaciones"
-        description="Gestiona los negocios abiertos, sus trámites y los inmuebles asociados."
+        title="Cartera inmobiliaria"
+        description="Tus inmuebles, las operaciones comerciales y la documentación asociada."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => void loadData()} disabled={loading} title="Refrescar" aria-label="Refrescar" className="px-2">
@@ -375,14 +433,20 @@ export default function OpportunitiesPage() {
             <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
               <Plus className="h-3.5 w-3.5" /> Nuevo trámite
             </Button>
-            {verticalSupportsProperties && (
-              <Button variant="secondary" size="sm" onClick={() => setOpenProp(true)}>
-                <Plus className="h-3.5 w-3.5" /> Nueva propiedad
+            {verticalSupportsProperties ? (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => setOpenOpp(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nueva operación
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Nuevo inmueble
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
+                <Plus className="h-3.5 w-3.5" /> Nueva operación
               </Button>
             )}
-            <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nueva operación
-            </Button>
           </div>
         }
       />
@@ -445,45 +509,80 @@ export default function OpportunitiesPage() {
         </div>
       )}
 
-      {/* KPI strip — comerciales (qué negocio hay abierto, cuánto vale, qué requiere atención) */}
+      {/* KPI strip — contextual: cartera en la vista Inmuebles; comercial en el resto. */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          icon={<Target className="h-4 w-4 text-indigo-600" />}
-          label="Operaciones abiertas"
-          value={String(openOpportunities.length)}
-          detail={visibleOpportunities.length ? `${visibleOpportunities.length} en total` : 'Sin operaciones aún'}
-          tone="border-indigo-100 bg-indigo-50/40"
-        />
-        <KpiCard
-          icon={<Sparkles className="h-4 w-4 text-emerald-600" />}
-          label="Valor potencial"
-          value={formatCurrency(openValue)}
-          detail={openOpportunities.length ? 'En operaciones abiertas' : 'Sin valor en seguimiento'}
-          tone="border-emerald-100 bg-emerald-50/40"
-        />
-        <KpiCard
-          icon={<FileText className="h-4 w-4 text-violet-600" />}
-          label="Trámites abiertos"
-          value={String(activeCases)}
-          detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
-          tone="border-violet-100 bg-violet-50/40"
-        />
-        {verticalSupportsProperties ? (
-          <KpiCard
-            icon={<Building2 className="h-4 w-4 text-sky-600" />}
-            label="Propiedades en cartera"
-            value={String(visibleProperties.length)}
-            detail={visibleProperties.length ? 'En cartera' : 'Sin propiedades'}
-            tone="border-sky-100 bg-sky-50/40"
-          />
+        {activeSubtab === 'properties' ? (
+          <>
+            <KpiCard
+              icon={<Building2 className="h-4 w-4 text-indigo-600" />}
+              label="Inmuebles en cartera"
+              value={String(visibleProperties.length)}
+              detail={visibleProperties.length ? 'Activos gestionados' : 'Sin inmuebles aún'}
+              tone="border-indigo-100 bg-indigo-50/40"
+            />
+            <KpiCard
+              icon={<Home className="h-4 w-4 text-emerald-600" />}
+              label="En comercialización"
+              value={String(portfolioListed)}
+              detail={portfolioListed ? 'Publicados / disponibles' : 'Ninguno publicado'}
+              tone="border-emerald-100 bg-emerald-50/40"
+            />
+            <KpiCard
+              icon={<Target className="h-4 w-4 text-amber-600" />}
+              label="Reservados"
+              value={String(portfolioReserved)}
+              detail={portfolioReserved ? 'Reserva / bajo contrato' : 'Ninguno reservado'}
+              tone="border-amber-100 bg-amber-50/40"
+            />
+            <KpiCard
+              icon={<Sparkles className="h-4 w-4 text-sky-600" />}
+              label="Valor de cartera"
+              value={formatCurrency(portfolioValue)}
+              detail="Suma de precios listados"
+              tone="border-sky-100 bg-sky-50/40"
+            />
+          </>
         ) : (
-          <KpiCard
-            icon={<FileText className="h-4 w-4 text-amber-600" />}
-            label="Vencen pronto"
-            value={String(casesDueSoon)}
-            detail={casesDueSoon ? 'Trámites en 7 días' : 'Sin vencimientos próximos'}
-            tone="border-amber-100 bg-amber-50/40"
-          />
+          <>
+            <KpiCard
+              icon={<Target className="h-4 w-4 text-indigo-600" />}
+              label="Operaciones abiertas"
+              value={String(openOpportunities.length)}
+              detail={visibleOpportunities.length ? `${visibleOpportunities.length} en total` : 'Sin operaciones aún'}
+              tone="border-indigo-100 bg-indigo-50/40"
+            />
+            <KpiCard
+              icon={<Sparkles className="h-4 w-4 text-emerald-600" />}
+              label="Valor potencial"
+              value={formatCurrency(openValue)}
+              detail={openOpportunities.length ? 'En operaciones abiertas' : 'Sin valor en seguimiento'}
+              tone="border-emerald-100 bg-emerald-50/40"
+            />
+            <KpiCard
+              icon={<FileText className="h-4 w-4 text-violet-600" />}
+              label="Trámites abiertos"
+              value={String(activeCases)}
+              detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
+              tone="border-violet-100 bg-violet-50/40"
+            />
+            {verticalSupportsProperties ? (
+              <KpiCard
+                icon={<Building2 className="h-4 w-4 text-sky-600" />}
+                label="Inmuebles en cartera"
+                value={String(visibleProperties.length)}
+                detail={visibleProperties.length ? 'En cartera' : 'Sin inmuebles'}
+                tone="border-sky-100 bg-sky-50/40"
+              />
+            ) : (
+              <KpiCard
+                icon={<FileText className="h-4 w-4 text-amber-600" />}
+                label="Vencen pronto"
+                value={String(casesDueSoon)}
+                detail={casesDueSoon ? 'Trámites en 7 días' : 'Sin vencimientos próximos'}
+                tone="border-amber-100 bg-amber-50/40"
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -505,7 +604,7 @@ export default function OpportunitiesPage() {
               icon={<Target className="h-6 w-6 text-gray-300" />}
               title={vertical === 'all' ? 'Todavía no hay operaciones' : `Sin operaciones en ${VERTICALS[verticalForPipeline].label.toLowerCase()}`}
               description={vertical === 'all'
-                ? 'Crea tu primera operación comercial cuando tengas un comprador, vendedor o inmueble en seguimiento.'
+                ? 'Cuando un cliente esté interesado en un inmueble, crea una operación para hacer el seguimiento comercial hasta el cierre.'
                 : 'No hay operaciones en este filtro. Vuelve a «Todos» o crea una nueva.'}
               action={
                 <div className="flex flex-wrap items-center justify-center gap-2">
@@ -555,9 +654,9 @@ export default function OpportunitiesPage() {
                             <p className="truncate text-[11px] text-gray-500">
                               {[
                                 clientNameOf(opp.client_id),
-                                opp.vertical !== 'general' ? (VERTICALS[(opp.vertical as VerticalKey) ?? 'general']?.shortLabel ?? opp.vertical) : '',
+                                propertiesById[String(opp.metadata?.property_id ?? '')]?.title || '',
                                 opp.expected_close_date ? `cierre ${formatDate(opp.expected_close_date)}` : '',
-                              ].filter(Boolean).join(' · ') || 'Sin cliente vinculado'}
+                              ].filter(Boolean).join(' · ') || 'Sin cliente ni inmueble vinculado'}
                             </p>
                           </button>
                           <div className="flex shrink-0 items-center gap-2">
@@ -666,6 +765,7 @@ export default function OpportunitiesPage() {
                   <p className="mt-0.5 text-[11px] text-gray-500">
                     {[
                       clientNameOf(c.client_id),
+                      (c.opportunity_id ? opportunitiesById[c.opportunity_id]?.title : '') || '',
                       c.case_type,
                       c.priority !== 'normal' ? `prioridad ${c.priority}` : '',
                       c.due_date ? `vence ${formatDate(c.due_date)}` : '',
@@ -678,81 +778,78 @@ export default function OpportunitiesPage() {
         </SectionCard>
       )}
 
-      {/* PROPERTIES */}
+      {/* INMUEBLES — vista principal de la cartera (cards premium) */}
       {activeSubtab === 'properties' && (
         <SectionCard
-          title="Propiedades"
-          description={vertical === 'immigration' ? 'No aplica al vertical de extranjería.' : 'Captaciones, ventas y alquileres.'}
-          action={<Badge variant={visibleProperties.length ? 'indigo' : 'default'} dot>{visibleProperties.length} propiedades</Badge>}
+          title="Inmuebles"
+          description="Tu cartera de inmuebles: ventas, alquileres y captaciones."
+          action={<Badge variant={visibleProperties.length ? 'indigo' : 'default'} dot>{visibleProperties.length} {visibleProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>}
         >
           {loading ? (
-            <div className="space-y-2.5 py-2">
-              {[0, 1, 2, 3].map((skeleton) => (
-                <div key={skeleton} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[0, 1, 2].map((s) => <div key={s} className="h-56 w-full animate-pulse rounded-2xl bg-slate-100" />)}
             </div>
-          ) : vertical === 'immigration' ? (
-            <EmptyState
-              icon={<Building2 className="h-6 w-6 text-gray-300" />}
-              title="Sin propiedades en este vertical"
-              description="Las propiedades son parte del vertical Inmobiliaria. Cambia el tab arriba para verlas."
-            />
           ) : visibleProperties.length === 0 ? (
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
-              title="Sin propiedades en cartera"
-              description="Registra una propiedad para empezar a gestionarla."
+              title="Todavía no tienes inmuebles en cartera"
+              description="Empieza registrando una vivienda, local o terreno. Después podrás vincular clientes, visitas, operaciones y documentación."
               action={
-                <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nueva propiedad
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Nuevo inmueble
+                  </Button>
+                  <Link href="/clients" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
+                    Crear cliente
+                  </Link>
+                </div>
               }
             />
           ) : (
-            <ul className="space-y-2">
-              {visibleProperties.map((p) => (
-                <li key={p.id} className="rounded-xl border border-gray-100 bg-white p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditProp(p)}
-                      className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900 hover:text-indigo-700"
-                      title="Editar propiedad"
-                    >
-                      {p.title}
+            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {visibleProperties.map((p) => {
+                const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
+                const beds = propNum(p, 'bedrooms', 'rooms')
+                const baths = propNum(p, 'bathrooms', 'baths')
+                const m2 = propNum(p, 'area_m2', 'm2')
+                const specs = [beds != null ? `${beds} hab` : '', baths != null ? `${baths} baños` : '', m2 != null ? `${m2} m²` : ''].filter(Boolean).join(' · ')
+                const refRaw = p.reference ?? p.metadata?.reference
+                const ref = typeof refRaw === 'string' ? refRaw : ''
+                const ops = opsCountByProperty[p.id] ?? 0
+                const owner = clientNameOf(p.client_id) || p.owner_name || ''
+                const isRent = p.operation_type === 'alquiler' || p.operation_type === 'alquiler_opcion_compra'
+                return (
+                  <li key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03]">
+                    <button type="button" onClick={() => setEditProp(p)} className="block text-left" title="Ver / editar inmueble">
+                      {/* Placeholder visual — fotos de inmueble pendientes (sin Storage). Ver roadmap. */}
+                      <div className="relative flex aspect-[16/10] items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+                        <Home className="h-9 w-9 text-gray-300" />
+                        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+                        <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
+                      </div>
+                      <div className="p-3">
+                        <p className="truncate text-sm font-semibold text-gray-900">{p.title}</p>
+                        <p className="mt-0.5 truncate text-[11px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
+                        {specs && <p className="mt-1 truncate text-[11px] text-gray-500">{specs}</p>}
+                        <p className="mt-1.5 text-base font-bold text-gray-900">{p.price ? `${formatCurrency(p.price, p.currency ?? 'EUR')}${isRent ? '/mes' : ''}` : '—'}</p>
+                        <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-gray-500">
+                          <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
+                          {[[p.city, p.area].filter(Boolean).join(', '), owner].filter(Boolean).join(' · ') || 'Sin ubicación'}
+                        </p>
+                        {ops > 0 && <p className="mt-1 text-[11px] font-medium text-indigo-600">{ops} {ops === 1 ? 'operación vinculada' : 'operaciones vinculadas'}</p>}
+                      </div>
                     </button>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <select
-                        aria-label="Cambiar estado"
-                        className={SELECT_CLS}
-                        value={p.status}
-                        onChange={(e) => void handlePropertyStatus(p, e.target.value)}
-                      >
-                        {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => (
-                          <option key={s.id} value={s.id}>{s.label}</option>
-                        ))}
+                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-50 px-3 py-2">
+                      <select aria-label="Cambiar estado" className={SELECT_CLS} value={p.status} onChange={(e) => void handlePropertyStatus(p, e.target.value)}>
+                        {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => setEditProp(p)}
-                        title="Editar propiedad"
-                        className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
-                      >
-                        <Pencil className="h-3 w-3" />
+                      <button type="button" onClick={() => setEditProp(p)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">
+                        <Pencil className="h-3 w-3" /> Editar
                       </button>
                     </div>
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-gray-500">
-                    {[
-                      p.property_type,
-                      p.operation_type,
-                      [p.city, p.area].filter(Boolean).join(', '),
-                      p.price ? formatCurrency(p.price, p.currency ?? 'EUR') : '',
-                      clientNameOf(p.client_id) || p.owner_name || '',
-                    ].filter(Boolean).join(' · ')}
-                  </p>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </SectionCard>

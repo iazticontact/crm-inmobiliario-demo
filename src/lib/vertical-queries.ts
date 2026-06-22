@@ -93,6 +93,7 @@ export type PropertyRow = {
   workspace_id: string
   client_id: string | null
   title: string
+  reference?: string | null
   property_type: string | null
   operation_type: string | null
   status: string
@@ -101,6 +102,9 @@ export type PropertyRow = {
   address: string | null
   price: number | null
   currency: string | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  area_m2?: number | null
   owner_name: string | null
   owner_phone: string | null
   notes: string | null

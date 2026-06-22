@@ -176,13 +176,13 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
     { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
     { label: 'Citas de la semana', prompt: '¿Qué citas tengo esta semana?', intent: 'calendar_week', sender: 'agent' },
-    { label: 'Buscar propiedad', prompt: 'Busca propiedades por zona, tipo o estado.', intent: 'property_search', sender: 'agent' },
-    { label: 'Expedientes abiertos', prompt: '¿Qué expedientes abiertos hay? Resúmelos.', intent: 'list_service_cases', sender: 'agent' },
+    { label: 'Buscar inmueble', prompt: 'Busca inmuebles por zona, tipo o estado.', intent: 'property_search', sender: 'agent' },
+    { label: 'Trámites abiertos', prompt: '¿Qué trámites abiertos hay? Resúmelos.', intent: 'list_service_cases', sender: 'agent' },
     { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, operaciones y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }
 
-const capabilities = ['Clientes', 'Operaciones', 'Expedientes', 'Tareas', 'Citas', 'Próximas acciones', 'Plan del día']
+const capabilities = ['Clientes', 'Inmuebles', 'Operaciones', 'Trámites', 'Tareas', 'Citas', 'Próximas acciones', 'Plan del día']
 const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp Business próximo']
 const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }> = [
   { label: 'Estado conexion', prompt: 'Estado de conexion Inbox Assistant', intent: 'manual_status', sender: 'agent' },
@@ -195,7 +195,7 @@ const capabilityExamples = [
   'Resume este cliente',
   'Prepara una cita',
   'Crea una operación',
-  'Abre un expediente',
+  'Abre un trámite',
   'Dime la próxima acción',
   'Busca un cliente',
   'Mueve una operación de etapa',
@@ -2248,10 +2248,10 @@ export default function AssistantPage() {
           toast.success('Operación creada')
           setLastActionStatus('Última acción confirmada: operación creada')
         } else if (preparedAction.type === 'create_service_case') {
-          const caseMsg = summaryMessage || `Expediente creado para ${preparedAction.clientName}.`
+          const caseMsg = summaryMessage || `Trámite creado para ${preparedAction.clientName}.`
           await appendAssistantMessage(activeConversation.id, caseMsg, preparedAction.clientName).catch(() => null)
-          toast.success('Expediente creado')
-          setLastActionStatus('Última acción confirmada: expediente creado')
+          toast.success('Trámite creado')
+          setLastActionStatus('Última acción confirmada: trámite creado')
         } else if (preparedAction.type === 'move_operation_stage') {
           const opMsg = summaryMessage || `Operación "${preparedAction.title}" movida.`
           await appendAssistantMessage(activeConversation.id, opMsg, preparedAction.clientName).catch(() => null)
@@ -2263,10 +2263,10 @@ export default function AssistantPage() {
           toast.success('Tarea actualizada')
           setLastActionStatus('Última acción confirmada: tarea actualizada')
         } else if (preparedAction.type === 'update_service_case') {
-          const cMsg = summaryMessage || `Expediente "${preparedAction.title}" actualizado.`
+          const cMsg = summaryMessage || `Trámite "${preparedAction.title}" actualizado.`
           await appendAssistantMessage(activeConversation.id, cMsg, preparedAction.clientName).catch(() => null)
-          toast.success('Expediente actualizado')
-          setLastActionStatus('Última acción confirmada: expediente actualizado')
+          toast.success('Trámite actualizado')
+          setLastActionStatus('Última acción confirmada: trámite actualizado')
         }
       }
 
@@ -3191,7 +3191,7 @@ export default function AssistantPage() {
       />
       <PageHeader
         title="Asistente IA"
-        description="Copiloto interno del CRM: consulta clientes, operaciones, expedientes, tareas y calendario, y prepara acciones con confirmación."
+        description="Copiloto interno del CRM: consulta clientes, inmuebles, operaciones, trámites, tareas y calendario, y prepara acciones con confirmación."
         action={
           <div className="flex items-center gap-2">
             <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
@@ -3436,7 +3436,7 @@ export default function AssistantPage() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-gray-950">
-                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'create_operation' ? 'Crear operación' : preparedAction.type === 'create_service_case' ? 'Crear expediente' : preparedAction.type === 'move_operation_stage' ? 'Mover operación' : preparedAction.type === 'update_task' ? 'Actualizar tarea' : preparedAction.type === 'update_service_case' ? 'Actualizar expediente' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
+                              {preparedAction.type === 'booking' ? 'Crear cita' : preparedAction.type === 'invoice' ? 'Crear factura' : preparedAction.type === 'task' ? 'Crear tarea' : preparedAction.type === 'cancel_booking' ? 'Cancelar cita' : preparedAction.type === 'reschedule_booking' ? 'Reprogramar cita' : preparedAction.type === 'cancel_multiple_bookings' ? 'Cancelar varias citas' : preparedAction.type === 'cleanup_duplicate_bookings' ? 'Limpiar duplicados' : preparedAction.type === 'create_operation' ? 'Crear operación' : preparedAction.type === 'create_service_case' ? 'Crear trámite' : preparedAction.type === 'move_operation_stage' ? 'Mover operación' : preparedAction.type === 'update_task' ? 'Actualizar tarea' : preparedAction.type === 'update_service_case' ? 'Actualizar trámite' : preparedAction.type === 'generate_invoice_pdf' ? 'PDF de factura' : 'PDF de informe'}
                             </p>
                             <p className="text-[11px] text-gray-500">{preparedAction.title} · Asistente IA</p>
                           </div>
@@ -3602,7 +3602,7 @@ export default function AssistantPage() {
                           {preparedAction.type === 'create_service_case' && (
                             <>
                               <div className="col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Expediente</span>
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">Trámite</span>
                                 {preparedAction.title}
                               </div>
                               {preparedAction.priority && (
@@ -3634,7 +3634,7 @@ export default function AssistantPage() {
                           {(preparedAction.type === 'update_task' || preparedAction.type === 'update_service_case') && (
                             <>
                               <div className="col-span-2 rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                                <span className="block text-[10px] font-semibold uppercase text-gray-400">{preparedAction.type === 'update_task' ? 'Tarea' : 'Expediente'}</span>
+                                <span className="block text-[10px] font-semibold uppercase text-gray-400">{preparedAction.type === 'update_task' ? 'Tarea' : 'Trámite'}</span>
                                 {preparedAction.title}
                               </div>
                               {preparedAction.status && (
@@ -3857,7 +3857,7 @@ export default function AssistantPage() {
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
                     ? 'Crea una conversación para probar el Assistant. Cuando conectes WhatsApp Business, los mensajes reales aparecerán aquí.'
-                    : 'Pregúntame por tus clientes, operaciones, expedientes, tareas o calendario, y preparo acciones (siempre con tu confirmación). Tus consultas se guardan aquí.'}
+                    : 'Pregúntame por tus clientes, inmuebles, operaciones, trámites, tareas o calendario, y preparo acciones (siempre con tu confirmación). Tus consultas se guardan aquí.'}
                 </p>
                 <div className="mx-auto mt-3 grid max-w-sm gap-1.5 text-left">
                   {capabilityExamples.slice(0, 4).map((example) => (

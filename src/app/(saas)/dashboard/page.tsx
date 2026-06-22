@@ -576,7 +576,7 @@ export default function DashboardPage() {
     ? [
         { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
         { key: 'tasks', label: 'Tareas pendientes', count: stats.tasksOpen, hint: stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : undefined, icon: <ListChecks className="h-4 w-4" /> },
-        { key: 'docs', label: 'Expedientes esperando docs', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
+        { key: 'docs', label: 'Trámites esperando documentación', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
         { key: 'events', label: 'Citas próximas', count: stats.upcomingEvents, href: '/calendar', icon: <CalendarIcon className="h-4 w-4" /> },
       ].filter((p) => p.count > 0)
     : []

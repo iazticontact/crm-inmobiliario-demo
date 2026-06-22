@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
   Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
-  Inbox, Target,
+  Inbox, Building2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -25,7 +25,7 @@ import { BRAND } from '@/lib/brand'
 const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean }> = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
   { href: '/clients',       label: 'Clientes',          icon: Users },
-  { href: '/opportunities', label: 'Operaciones',       icon: Target,     flag: 'opportunities' },
+  { href: '/opportunities', label: 'Cartera',           icon: Building2,  flag: 'opportunities' },
   { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
   { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
   // Operator-only routes kept in code but hidden from the client sidebar.
