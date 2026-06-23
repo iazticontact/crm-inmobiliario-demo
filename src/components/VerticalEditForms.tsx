@@ -33,7 +33,7 @@ import {
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
-import { SERVICE_CASE_STATUS_OPTIONS, serviceCaseStatusLabel, TRAMITE_TYPE_OPTIONS } from '@/components/VerticalForms'
+import { SERVICE_CASE_STATUS_OPTIONS, serviceCaseStatusLabel, TRAMITE_TYPE_OPTIONS, estimateCommission, formatEuro } from '@/components/VerticalForms'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 
 // En modo demo offline no hay workspace real: las ediciones se simulan y
@@ -89,10 +89,11 @@ type EditOpportunityDrawerProps = {
   workspaceId: string | null
   opportunity: OpportunityRow | null
   showVerticalSelect?: boolean
+  properties?: Array<{ id: string; title: string; price?: number | null }>
   onUpdated?: (row: OpportunityRow) => void
 }
 
-export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity, showVerticalSelect, onUpdated }: EditOpportunityDrawerProps) {
+export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity, showVerticalSelect, properties, onUpdated }: EditOpportunityDrawerProps) {
   if (!opportunity) return null
   return (
     <EditOpportunityInner
@@ -102,6 +103,7 @@ export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity,
       workspaceId={workspaceId}
       opportunity={opportunity}
       showVerticalSelect={showVerticalSelect}
+      properties={properties}
       onUpdated={onUpdated}
     />
   )
@@ -115,6 +117,7 @@ function EditOpportunityInner({
   workspaceId,
   opportunity,
   showVerticalSelect = false,
+  properties = [],
   onUpdated,
 }: EditOpportunityInnerProps) {
   const [title, setTitle] = useState(() => opportunity.title || '')
@@ -122,13 +125,16 @@ function EditOpportunityInner({
   const [stage, setStage] = useState(() => opportunity.stage || 'new')
   const [clientId, setClientId] = useState<string | null>(() => opportunity.client_id ?? null)
   const [value, setValue] = useState(() => (opportunity.value != null ? String(opportunity.value) : ''))
-  const [probability, setProbability] = useState(() => (opportunity.probability != null ? String(opportunity.probability) : ''))
+  const [commissionRate, setCommissionRate] = useState(() => (opportunity.commission_rate != null ? String(opportunity.commission_rate) : ''))
   const [source, setSource] = useState(() => opportunity.source ?? '')
   const [expectedClose, setExpectedClose] = useState(() => opportunity.expected_close_date ?? '')
   const [notes, setNotes] = useState(() => opportunity.notes ?? '')
   const [saving, setSaving] = useState(false)
 
   const stages = formStagesForVertical(vertical, stage)
+  const linkedProperty = opportunity.property_id ? properties.find((p) => p.id === opportunity.property_id) : undefined
+  const commissionBase = linkedProperty?.price ?? (value ? Number(value) || null : null)
+  const commissionAmount = estimateCommission(commissionBase, commissionRate ? Number(commissionRate) || null : null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -147,7 +153,7 @@ function EditOpportunityInner({
         stage,
         clientId,
         value: value === '' ? null : Number(value) || null,
-        probability: probability === '' ? null : Number(probability) || null,
+        commissionRate: commissionRate === '' ? null : Number(commissionRate) || null,
         source: source.trim() || null,
         expectedCloseDate: expectedClose.trim() || null,
         notes: notes.trim() || null,
@@ -221,9 +227,19 @@ function EditOpportunityInner({
           <label className={FIELD_LABEL_CLS}>Cliente relacionado</label>
           <ClientPicker workspaceId={workspaceId ?? null} value={clientId} onChange={(id) => setClientId(id)} />
         </div>
+        {linkedProperty && (
+          <p className="text-[11px] text-gray-500">Inmueble vinculado: <span className="font-medium text-gray-700">{linkedProperty.title}</span>{linkedProperty.price != null ? ` · ${formatEuro(linkedProperty.price)}` : ''}</p>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Input label="Valor potencial (€)" type="number" min="0" placeholder="Opcional" value={value} onChange={(e) => setValue(e.target.value)} />
-          <Input label="Probabilidad (%)" type="number" min="0" max="100" placeholder="Opcional" value={probability} onChange={(e) => setProbability(e.target.value)} />
+          <Input label="Comisión pactada (%)" type="number" min="0" max="100" step="0.1" placeholder="Opcional" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} />
+        </div>
+        <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-600">Comisión estimada</span>
+            <span className="text-sm font-semibold text-gray-900">{commissionAmount != null ? formatEuro(commissionAmount) : '—'}</span>
+          </div>
+          <p className="mt-0.5 text-[10px] text-gray-400">Estimación orientativa; no es una factura.</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Origen" placeholder="whatsapp, instagram, web…" value={source} onChange={(e) => setSource(e.target.value)} />

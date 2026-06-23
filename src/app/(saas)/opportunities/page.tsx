@@ -143,15 +143,6 @@ function closesSoon(value: string | null): boolean {
   return diffDays >= 0 && diffDays <= 30
 }
 
-// Vencimiento (trámite) dentro de los próximos 7 días.
-function dueSoon(value: string | null): boolean {
-  if (!value) return false
-  const t = new Date(value).getTime()
-  if (Number.isNaN(t)) return false
-  const diffDays = (t - new Date().getTime()) / 86_400_000
-  return diffDays >= 0 && diffDays <= 7
-}
-
 // Etiquetas inmobiliarias (es-ES) con fallback al valor crudo capitalizado.
 const PROPERTY_TYPE_LABEL: Record<string, string> = {
   piso: 'Piso', atico: 'Ático', duplex: 'Dúplex', chalet: 'Chalet', adosado: 'Adosado',
@@ -330,7 +321,6 @@ export default function OpportunitiesPage() {
   )
   const openValue = openOpportunities.reduce((sum, o) => sum + (o.value ?? 0), 0)
   const activeCases = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved').length
-  const casesDueSoon = visibleCases.filter((c) => c.status !== 'closed' && c.status !== 'resolved' && dueSoon(c.due_date)).length
   const clientNameOf = (id: string | null) => (id ? clientNames[id] ?? '' : '')
 
   // Mapas para enlazar entidades (vínculos reales ya cargados, sin N+1).
@@ -353,6 +343,13 @@ export default function OpportunitiesPage() {
   const portfolioValue = visibleProperties
     .filter((p) => p.status !== 'sold' && p.status !== 'archived')
     .reduce((s, p) => s + (p.price ?? 0), 0)
+
+  // Comisión estimada en cartera (orientativa, NO facturación): suma de base × rate / 100 de
+  // las operaciones abiertas con comisión pactada. Base = precio del inmueble o valor potencial.
+  const openCommission = openOpportunities.reduce((sum, o) => {
+    const base = (o.property_id ? propertiesById[o.property_id]?.price : null) ?? o.value
+    return sum + (base && o.commission_rate ? Math.round((base * o.commission_rate) / 100) : 0)
+  }, 0)
 
   // Verticales realmente presentes en los datos del workspace. Una inmobiliaria normal
   // solo tiene `real_estate` → no se muestra el selector de verticales (UI mínima). El
@@ -677,29 +674,19 @@ export default function OpportunitiesPage() {
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
+              icon={<Sparkles className="h-4 w-4 text-teal-600" />}
+              label="Comisión estimada"
+              value={openCommission > 0 ? formatCurrency(openCommission) : '—'}
+              detail="Orientativa · no es facturación"
+              tone="border-teal-100 bg-teal-50/40"
+            />
+            <KpiCard
               icon={<FileText className="h-4 w-4 text-violet-600" />}
               label="Trámites abiertos"
               value={String(activeCases)}
               detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
               tone="border-violet-100 bg-violet-50/40"
             />
-            {verticalSupportsProperties ? (
-              <KpiCard
-                icon={<Building2 className="h-4 w-4 text-sky-600" />}
-                label="Inmuebles en cartera"
-                value={String(visibleProperties.length)}
-                detail={visibleProperties.length ? 'En cartera' : 'Sin inmuebles'}
-                tone="border-sky-100 bg-sky-50/40"
-              />
-            ) : (
-              <KpiCard
-                icon={<FileText className="h-4 w-4 text-amber-600" />}
-                label="Vencen pronto"
-                value={String(casesDueSoon)}
-                detail={casesDueSoon ? 'Trámites en 7 días' : 'Sin vencimientos próximos'}
-                tone="border-amber-100 bg-amber-50/40"
-              />
-            )}
           </>
         )}
       </div>
@@ -782,9 +769,13 @@ export default function OpportunitiesPage() {
                               <span className="hidden rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:inline">Cierre pronto</span>
                             )}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
-                            {typeof opp.probability === 'number' && (
-                              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{opp.probability}%</span>
-                            )}
+                            {(() => {
+                              const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
+                              const amount = base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
+                              return amount != null
+                                ? <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Comisión estimada (orientativa)">Com. {formatCurrency(amount)}</span>
+                                : null
+                            })()}
                             <select
                               aria-label="Cambiar etapa"
                               className={SELECT_CLS}
@@ -1070,6 +1061,7 @@ export default function OpportunitiesPage() {
         workspaceId={workspaceId}
         opportunity={editOpp}
         showVerticalSelect={showVerticalBar}
+        properties={properties}
         onUpdated={(row) => setOpportunities((prev) => prev.map((o) => (o.id === row.id ? row : o)))}
       />
       <EditServiceCaseDrawer

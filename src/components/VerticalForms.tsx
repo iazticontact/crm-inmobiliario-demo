@@ -71,7 +71,19 @@ export const TRAMITE_TYPE_OPTIONS = [
   'Certificado energético', 'Financiación / hipoteca', 'Escritura / notaría', 'Documentación',
 ]
 
-type RelProperty = { id: string; title: string; city?: string | null }
+type RelProperty = { id: string; title: string; city?: string | null; price?: number | null }
+
+export function formatEuro(n: number): string {
+  try { return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n) }
+  catch { return `${n} €` }
+}
+
+// Comisión estimada (orientativa, NO factura): base × rate / 100. Base = precio del inmueble
+// vinculado o, si no hay, el valor potencial introducido.
+export function estimateCommission(base: number | null, ratePct: number | null): number | null {
+  if (!base || !ratePct) return null
+  return Math.round((base * ratePct) / 100)
+}
 type RelOpportunity = { id: string; title: string; property_id?: string | null }
 
 // -----------------------------------------------------------------------------
@@ -113,7 +125,7 @@ export function NewOpportunityDrawer({
   const [operationKind, setOperationKind] = useState('venta')
   const [customType, setCustomType] = useState('')
   const [value, setValue] = useState('')
-  const [probability, setProbability] = useState('')
+  const [commissionRate, setCommissionRate] = useState('')
   const [closeDate, setCloseDate] = useState('')
   const [sourceKind, setSourceKind] = useState(defaultSource ?? '')
   const [customSource, setCustomSource] = useState('')
@@ -121,6 +133,9 @@ export function NewOpportunityDrawer({
   const [saving, setSaving] = useState(false)
 
   const stages = formStagesForVertical(vertical)
+  const selectedProperty = properties.find((p) => p.id === propertyId)
+  const commissionBase = selectedProperty?.price ?? (value ? Number(value) || null : null)
+  const commissionAmount = estimateCommission(commissionBase, commissionRate ? Number(commissionRate) || null : null)
 
   function reset() {
     setTitle('')
@@ -131,7 +146,7 @@ export function NewOpportunityDrawer({
     setOperationKind('venta')
     setCustomType('')
     setValue('')
-    setProbability('')
+    setCommissionRate('')
     setCloseDate('')
     setSourceKind(defaultSource ?? '')
     setCustomSource('')
@@ -172,7 +187,7 @@ export function NewOpportunityDrawer({
         clientName: clientName.trim() || null,
         propertyId: propertyId || null,
         value: value ? Number(value) || null : null,
-        probability: probability ? Number(probability) || null : null,
+        commissionRate: commissionRate ? Number(commissionRate) || null : null,
         expectedCloseDate: closeDate || null,
         source: sourceVal,
         notes: notes.trim() || null,
@@ -265,8 +280,19 @@ export function NewOpportunityDrawer({
         )}
         <div className="grid grid-cols-3 gap-3">
           <Input label="Valor potencial (€)" type="number" min="0" placeholder="Opcional" value={value} onChange={(e) => setValue(e.target.value)} />
-          <Input label="Probabilidad (%)" type="number" min="0" max="100" placeholder="Opcional" value={probability} onChange={(e) => setProbability(e.target.value)} />
+          <Input label="Comisión pactada (%)" type="number" min="0" max="100" step="0.1" placeholder="Opcional" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} />
           <Input label="Cierre estimado" type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)} />
+        </div>
+        <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-600">Comisión estimada</span>
+            <span className="text-sm font-semibold text-gray-900">{commissionAmount != null ? formatEuro(commissionAmount) : '—'}</span>
+          </div>
+          <p className="mt-0.5 text-[10px] text-gray-400">
+            {commissionAmount != null
+              ? `Sobre ${selectedProperty?.price != null ? 'el precio del inmueble' : 'el valor potencial'}. Estimación orientativa; no es una factura.`
+              : 'Indica valor o inmueble y la comisión pactada para estimarla. No es una factura.'}
+          </p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className={FIELD_LABEL_CLS}>Origen <span className="font-normal text-gray-400">· opcional</span></label>

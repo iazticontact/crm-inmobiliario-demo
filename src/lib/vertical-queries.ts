@@ -61,6 +61,7 @@ export type OpportunityRow = {
   stage: string
   value: number | null
   probability: number | null
+  commission_rate?: number | null
   currency: string | null
   source: string | null
   assigned_to: string | null
@@ -206,6 +207,7 @@ export async function createOpportunity(workspaceId: string, input: {
   propertyId?: string | null
   value?: number | null
   probability?: number | null
+  commissionRate?: number | null
   source?: string | null
   assignedTo?: string | null
   expectedCloseDate?: string | null
@@ -226,6 +228,7 @@ export async function createOpportunity(workspaceId: string, input: {
       stage: input.stage ?? 'new',
       value: input.value ?? null,
       probability: input.probability ?? null,
+      commission_rate: input.commissionRate ?? null,
       source: input.source ?? null,
       assigned_to: input.assignedTo ?? null,
       expected_close_date: input.expectedCloseDate ?? null,
@@ -283,6 +286,7 @@ export type UpdateOpportunityInput = {
   clientId?: string | null
   value?: number | null
   probability?: number | null
+  commissionRate?: number | null
   source?: string | null
   assignedTo?: string | null
   expectedCloseDate?: string | null
@@ -299,6 +303,7 @@ export async function updateOpportunity(workspaceId: string, id: string, input: 
   if (input.clientId !== undefined) patch.client_id = input.clientId
   if (input.value !== undefined) patch.value = input.value
   if (input.probability !== undefined) patch.probability = input.probability
+  if (input.commissionRate !== undefined) patch.commission_rate = input.commissionRate
   if (input.source !== undefined) patch.source = input.source
   if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
   if (input.expectedCloseDate !== undefined) patch.expected_close_date = input.expectedCloseDate

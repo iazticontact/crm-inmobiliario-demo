@@ -132,7 +132,7 @@ export function getPipelineForVertical(vertical: VerticalKey): PipelineStage[] {
 // Etapas OCULTAS en los formularios (crear/editar/edición rápida) por simplicidad. NO se borran
 // del pipeline: el tablero sigue agrupando por ellas y los datos antiguos en esas etapas se siguen
 // mostrando. "Cualificado" es un micro-paso de CRM que una inmobiliaria pequeña no separa.
-const HIDDEN_FORM_STAGE_IDS = new Set<string>(['qualified'])
+const HIDDEN_FORM_STAGE_IDS = new Set<string>(['qualified', 'negotiation'])
 
 // Etapas ofrecidas en los selects de formulario: el pipeline visible + (si la operación ya está
 // en una etapa oculta/antigua) esa etapa actual, para que no quede en blanco ni se pierda.
