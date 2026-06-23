@@ -21,7 +21,6 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  CASE_TYPES,
   REAL_ESTATE_PIPELINE,
   IMMIGRATION_PIPELINE,
   GENERAL_PIPELINE,
@@ -49,6 +48,40 @@ function pipelineForVertical(vertical: VerticalKey) {
   return GENERAL_PIPELINE
 }
 
+const OTRO = '__otro__'
+
+// Tipo de operación comercial (se guarda en metadata.operation_kind; no es columna).
+const OPERATION_KIND_OPTIONS = [
+  { id: 'venta', label: 'Venta' },
+  { id: 'alquiler', label: 'Alquiler' },
+  { id: 'captacion', label: 'Captación' },
+  { id: 'compra', label: 'Compra' },
+  { id: 'inversion', label: 'Inversión' },
+  { id: 'valoracion', label: 'Valoración' },
+  { id: OTRO, label: 'Otro' },
+]
+
+// Origen del lead/operación (columna `source`).
+const SOURCE_OPTIONS = [
+  { id: 'web', label: 'Web' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'referido', label: 'Referido' },
+  { id: 'portal', label: 'Portal inmobiliario' },
+  { id: 'oficina', label: 'Oficina' },
+  { id: 'llamada', label: 'Llamada' },
+  { id: OTRO, label: 'Otro' },
+]
+
+// Tipos de trámite inmobiliario (se guarda el label en `case_type`, que es texto libre).
+const TRAMITE_TYPE_OPTIONS = [
+  'Nota simple', 'Contrato de arras', 'Reserva', 'Encargo de venta',
+  'Certificado energético', 'Tasación', 'Hipoteca / financiación', 'Due diligence',
+  'Escritura / notaría', 'Documentación cliente', 'Documentación inmueble',
+]
+
+type RelProperty = { id: string; title: string; city?: string | null }
+type RelOpportunity = { id: string; title: string; property_id?: string | null }
+
 // -----------------------------------------------------------------------------
 // New Opportunity
 // -----------------------------------------------------------------------------
@@ -61,6 +94,9 @@ type NewOpportunityDrawerProps = {
   defaultClientId?: string | null
   defaultClientName?: string | null
   defaultSource?: string | null
+  defaultPropertyId?: string | null
+  properties?: RelProperty[]
+  showVerticalSelect?: boolean
   onCreated?: (row: OpportunityRow) => void
 }
 
@@ -68,19 +104,27 @@ export function NewOpportunityDrawer({
   open,
   onClose,
   workspaceId,
-  defaultVertical = 'general',
+  defaultVertical = 'real_estate',
   defaultClientId = null,
   defaultClientName = null,
   defaultSource = null,
+  defaultPropertyId = null,
+  properties = [],
+  showVerticalSelect = false,
   onCreated,
 }: NewOpportunityDrawerProps) {
   const [title, setTitle] = useState('')
   const [vertical, setVertical] = useState<VerticalKey>(defaultVertical)
-  const [stage, setStage] = useState('new')
+  const [stage, setStage] = useState(() => pipelineForVertical(defaultVertical)[0]?.id ?? 'new')
   const [clientName, setClientName] = useState(defaultClientName ?? '')
+  const [propertyId, setPropertyId] = useState(defaultPropertyId ?? '')
+  const [operationKind, setOperationKind] = useState('venta')
+  const [customType, setCustomType] = useState('')
   const [value, setValue] = useState('')
   const [probability, setProbability] = useState('')
-  const [source, setSource] = useState(defaultSource ?? '')
+  const [closeDate, setCloseDate] = useState('')
+  const [sourceKind, setSourceKind] = useState(defaultSource ?? '')
+  const [customSource, setCustomSource] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -89,11 +133,16 @@ export function NewOpportunityDrawer({
   function reset() {
     setTitle('')
     setVertical(defaultVertical)
-    setStage('new')
+    setStage(pipelineForVertical(defaultVertical)[0]?.id ?? 'new')
     setClientName(defaultClientName ?? '')
+    setPropertyId(defaultPropertyId ?? '')
+    setOperationKind('venta')
+    setCustomType('')
     setValue('')
     setProbability('')
-    setSource(defaultSource ?? '')
+    setCloseDate('')
+    setSourceKind(defaultSource ?? '')
+    setCustomSource('')
     setNotes('')
   }
 
@@ -101,6 +150,10 @@ export function NewOpportunityDrawer({
     e.preventDefault()
     if (!title.trim()) {
       toast.error('Necesito al menos un título.')
+      return
+    }
+    if (operationKind === OTRO && !customType.trim()) {
+      toast.error('Especifica el tipo de operación.')
       return
     }
     if (isDemoMode()) {
@@ -115,16 +168,23 @@ export function NewOpportunityDrawer({
     }
     setSaving(true)
     try {
+      const meta: Record<string, unknown> = operationKind === OTRO
+        ? { operation_kind: 'otro', custom_type: customType.trim(), source: 'user_custom' }
+        : { operation_kind: operationKind }
+      const sourceVal = sourceKind === OTRO ? (customSource.trim() || null) : (sourceKind || null)
       const row = await createOpportunity(workspaceId, {
         title: title.trim(),
         vertical,
         stage,
         clientId: defaultClientId,
         clientName: clientName.trim() || null,
+        propertyId: propertyId || null,
         value: value ? Number(value) || null : null,
         probability: probability ? Number(probability) || null : null,
-        source: source.trim() || null,
+        expectedCloseDate: closeDate || null,
+        source: sourceVal,
         notes: notes.trim() || null,
+        metadata: meta,
       })
       if (!row) {
         toast.error('No se pudo crear la operación. Revisa la sesión y vuelve a intentarlo.')
@@ -144,7 +204,7 @@ export function NewOpportunityDrawer({
       open={open}
       onClose={onClose}
       title="Nueva operación"
-      description="Negocio comercial en seguimiento. Se registra como actividad y respeta tu vertical activo."
+      description="Negocio comercial con un cliente y, si aplica, un inmueble."
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={onClose} disabled={saving}>Cancelar</Button>
@@ -154,80 +214,81 @@ export function NewOpportunityDrawer({
     >
       <form id="new-opportunity-form" onSubmit={handleSubmit} className="space-y-3">
         <Input
-          label="Título"
-          placeholder='Ej: "Venta piso 3 hab en Málaga centro — Ana Pérez"'
+          label="Título de la operación"
+          placeholder="Ej: Venta piso Calle Mayor 14 — Familia Soler"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           autoFocus
           required
         />
+        <Input
+          label="Cliente"
+          placeholder="Nombre del cliente — opcional"
+          value={clientName}
+          onChange={(e) => setClientName(e.target.value)}
+        />
+        {properties.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <label className={FIELD_LABEL_CLS}>Inmueble vinculado <span className="font-normal text-gray-400">· opcional</span></label>
+            <select className={SELECT_CLS} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+              <option value="">Sin inmueble</option>
+              {properties.map((p) => <option key={p.id} value={p.id}>{p.title}{p.city ? ` · ${p.city}` : ''}</option>)}
+            </select>
+            <p className="text-[11px] text-gray-400">Puedes crear la operación sin inmueble y vincularlo más tarde.</p>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Vertical</label>
-            <select
-              className={SELECT_CLS}
-              value={vertical}
-              onChange={(e) => {
-                const v = e.target.value as VerticalKey
-                setVertical(v)
-                // Reset stage to first stage of new pipeline.
-                setStage(pipelineForVertical(v)[0]?.id ?? 'new')
-              }}
-            >
-              {Object.values(VERTICALS).map((v) => (
-                <option key={v.key} value={v.key}>{v.label}</option>
-              ))}
+            <label className={FIELD_LABEL_CLS}>Tipo de operación</label>
+            <select className={SELECT_CLS} value={operationKind} onChange={(e) => setOperationKind(e.target.value)}>
+              {OPERATION_KIND_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Etapa</label>
             <select className={SELECT_CLS} value={stage} onChange={(e) => setStage(e.target.value)}>
-              {stages.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
+              {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </div>
         </div>
-        <Input
-          label="Cliente"
-          placeholder="Nombre visible — opcional"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-        />
-        <div className="grid grid-cols-2 gap-3">
+        {operationKind === OTRO && (
           <Input
-            label="Valor (€)"
-            type="number"
-            min="0"
-            placeholder="Opcional"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
+            label="Especifica el tipo"
+            placeholder="Ej: Gestión patrimonial, alquiler con opción a compra…"
+            value={customType}
+            onChange={(e) => setCustomType(e.target.value)}
           />
-          <Input
-            label="Probabilidad (%)"
-            type="number"
-            min="0"
-            max="100"
-            placeholder="Opcional"
-            value={probability}
-            onChange={(e) => setProbability(e.target.value)}
-          />
+        )}
+        {showVerticalSelect && (
+          <div className="flex flex-col gap-1.5">
+            <label className={FIELD_LABEL_CLS}>Área de negocio</label>
+            <select
+              className={SELECT_CLS}
+              value={vertical}
+              onChange={(e) => { const v = e.target.value as VerticalKey; setVertical(v); setStage(pipelineForVertical(v)[0]?.id ?? 'new') }}
+            >
+              {Object.values(VERTICALS).map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="grid grid-cols-3 gap-3">
+          <Input label="Valor potencial (€)" type="number" min="0" placeholder="Opcional" value={value} onChange={(e) => setValue(e.target.value)} />
+          <Input label="Probabilidad (%)" type="number" min="0" max="100" placeholder="Opcional" value={probability} onChange={(e) => setProbability(e.target.value)} />
+          <Input label="Cierre estimado" type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)} />
         </div>
-        <Input
-          label="Origen"
-          placeholder="whatsapp, instagram, web, referencia…"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-        />
+        <div className="flex flex-col gap-1.5">
+          <label className={FIELD_LABEL_CLS}>Origen <span className="font-normal text-gray-400">· opcional</span></label>
+          <select className={SELECT_CLS} value={sourceKind} onChange={(e) => setSourceKind(e.target.value)}>
+            <option value="">Sin especificar</option>
+            {SOURCE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        {sourceKind === OTRO && (
+          <Input label="Especifica el origen" placeholder="Ej: Feria inmobiliaria, colaborador…" value={customSource} onChange={(e) => setCustomSource(e.target.value)} />
+        )}
         <div className="flex flex-col gap-1.5">
           <label className={FIELD_LABEL_CLS}>Notas</label>
-          <textarea
-            rows={3}
-            className={TEXTAREA_CLS}
-            placeholder="Contexto extra, requisitos, deal-breakers…"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+          <textarea rows={3} className={TEXTAREA_CLS} placeholder="Contexto, requisitos, próximos pasos…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
       </form>
     </SideDrawer>
@@ -245,15 +306,21 @@ type NewServiceCaseDrawerProps = {
   defaultVertical?: VerticalKey
   defaultClientId?: string | null
   defaultClientName?: string | null
+  opportunities?: RelOpportunity[]
+  properties?: RelProperty[]
+  showVerticalSelect?: boolean
   onCreated?: (row: ServiceCaseRow) => void
 }
 
 const SERVICE_STATUS_OPTIONS = [
   { id: 'open', label: 'Abierto' },
-  { id: 'documentation_pending', label: 'Documentación pendiente' },
   { id: 'in_review', label: 'En revisión' },
+  { id: 'documentation_pending', label: 'Pendiente de documentación' },
+  { id: 'signature_pending', label: 'Pendiente de firma' },
+  { id: 'blocked', label: 'Bloqueado' },
+  { id: 'resolved', label: 'Completado' },
+  // Compatibilidad con datos antiguos (se muestran, no son primarios).
   { id: 'submitted', label: 'Presentado' },
-  { id: 'resolved', label: 'Resuelto' },
   { id: 'closed', label: 'Cerrado' },
 ]
 
@@ -268,75 +335,73 @@ export function NewServiceCaseDrawer({
   open,
   onClose,
   workspaceId,
-  defaultVertical = 'immigration',
+  defaultVertical = 'real_estate',
   defaultClientId = null,
   defaultClientName = null,
+  opportunities = [],
+  properties = [],
+  showVerticalSelect = false,
   onCreated,
 }: NewServiceCaseDrawerProps) {
   const [title, setTitle] = useState('')
-  const [caseType, setCaseType] = useState(CASE_TYPES[0]?.id ?? 'nie_renewal')
+  const [caseTypeSel, setCaseTypeSel] = useState(TRAMITE_TYPE_OPTIONS[0])
+  const [customType, setCustomType] = useState('')
   const [vertical, setVertical] = useState<VerticalKey>(defaultVertical)
   const [status, setStatus] = useState('open')
   const [priority, setPriority] = useState('normal')
   const [clientName, setClientName] = useState(defaultClientName ?? '')
+  const [opportunityId, setOpportunityId] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const availableCaseTypes = CASE_TYPES.filter((t) => t.vertical === vertical || vertical === 'general')
+  const linkedOpp = opportunities.find((o) => o.id === opportunityId)
+  const linkedProperty = linkedOpp?.property_id ? (properties.find((p) => p.id === linkedOpp.property_id) ?? null) : null
 
   function reset() {
     setTitle('')
-    setCaseType(CASE_TYPES[0]?.id ?? 'nie_renewal')
+    setCaseTypeSel(TRAMITE_TYPE_OPTIONS[0])
+    setCustomType('')
     setVertical(defaultVertical)
     setStatus('open')
     setPriority('normal')
     setClientName(defaultClientName ?? '')
+    setOpportunityId('')
     setDueDate('')
     setNotes('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim()) {
-      toast.error('Necesito al menos un título.')
-      return
-    }
-    if (!caseType.trim()) {
-      toast.error('Selecciona un tipo de expediente.')
-      return
-    }
+    if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
+    if (caseTypeSel === OTRO && !customType.trim()) { toast.error('Especifica el tipo de trámite.'); return }
     if (isDemoMode()) {
-      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: abrir expedientes estará disponible al conectar tu cuenta.' })
-      reset()
-      onClose()
-      return
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: crear trámites estará disponible al conectar tu cuenta.' })
+      reset(); onClose(); return
     }
-    if (!workspaceId) {
-      toast.error('Sin workspace activo. Inicia sesión real.')
-      return
-    }
+    if (!workspaceId) { toast.error('Sin workspace activo. Inicia sesión real.'); return }
     setSaving(true)
     try {
+      const caseType = caseTypeSel === OTRO ? customType.trim() : caseTypeSel
+      const meta: Record<string, unknown> = caseTypeSel === OTRO
+        ? { custom_type: customType.trim(), source: 'user_custom' }
+        : {}
       const row = await createServiceCase(workspaceId, {
         title: title.trim(),
-        caseType: caseType.trim(),
+        caseType,
         vertical,
         status,
         priority,
         clientId: defaultClientId,
         clientName: clientName.trim() || null,
-        dueDate: dueDate.trim() || null,
+        opportunityId: opportunityId || null,
+        dueDate: dueDate || null,
         notes: notes.trim() || null,
+        metadata: meta,
       })
-      if (!row) {
-        toast.error('No se pudo abrir el expediente. Revisa la sesión.')
-        return
-      }
-      toast.success(`Expediente abierto: ${row.title}`)
-      onCreated?.(row)
-      reset()
-      onClose()
+      if (!row) { toast.error('No se pudo crear el trámite. Revisa la sesión.'); return }
+      toast.success(`Trámite creado: ${row.title}`)
+      onCreated?.(row); reset(); onClose()
     } finally {
       setSaving(false)
     }
@@ -346,86 +411,81 @@ export function NewServiceCaseDrawer({
     <SideDrawer
       open={open}
       onClose={onClose}
-      title="Nuevo expediente"
-      description="Trámite o servicio operativo. Asocia un cliente y un tipo de expediente."
+      title="Nuevo trámite"
+      description="Gestión o documentación vinculada a un cliente, inmueble u operación."
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button variant="primary" size="sm" type="submit" form="new-service-case-form" loading={saving} disabled={saving}>Abrir expediente</Button>
+          <Button variant="primary" size="sm" type="submit" form="new-service-case-form" loading={saving} disabled={saving}>Crear trámite</Button>
         </div>
       }
     >
       <form id="new-service-case-form" onSubmit={handleSubmit} className="space-y-3">
         <Input
-          label="Título"
-          placeholder='Ej: "Renovación NIE — Ana Pérez"'
+          label="Título del trámite"
+          placeholder="Ej: Nota simple — Piso Calle Mayor 14"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           autoFocus
           required
         />
+        <Input
+          label="Cliente"
+          placeholder="Nombre del cliente — opcional"
+          value={clientName}
+          onChange={(e) => setClientName(e.target.value)}
+        />
+        {opportunities.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <label className={FIELD_LABEL_CLS}>Operación vinculada <span className="font-normal text-gray-400">· opcional</span></label>
+            <select className={SELECT_CLS} value={opportunityId} onChange={(e) => setOpportunityId(e.target.value)}>
+              <option value="">Sin operación</option>
+              {opportunities.map((o) => <option key={o.id} value={o.id}>{o.title}</option>)}
+            </select>
+            {linkedProperty && <p className="text-[11px] text-gray-500">Inmueble: {linkedProperty.title}</p>}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Vertical</label>
-            <select
-              className={SELECT_CLS}
-              value={vertical}
-              onChange={(e) => setVertical(e.target.value as VerticalKey)}
-            >
-              {Object.values(VERTICALS).map((v) => (
-                <option key={v.key} value={v.key}>{v.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Tipo</label>
-            <select className={SELECT_CLS} value={caseType} onChange={(e) => setCaseType(e.target.value)}>
-              {availableCaseTypes.map((t) => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-              <option value="custom">Otro / personalizado</option>
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Estado</label>
-            <select className={SELECT_CLS} value={status} onChange={(e) => setStatus(e.target.value)}>
-              {SERVICE_STATUS_OPTIONS.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
+            <label className={FIELD_LABEL_CLS}>Tipo de trámite</label>
+            <select className={SELECT_CLS} value={caseTypeSel} onChange={(e) => setCaseTypeSel(e.target.value)}>
+              {TRAMITE_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+              <option value={OTRO}>Otro</option>
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Prioridad</label>
             <select className={SELECT_CLS} value={priority} onChange={(e) => setPriority(e.target.value)}>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
+              {PRIORITY_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select>
           </div>
         </div>
-        <Input
-          label="Cliente"
-          placeholder="Nombre visible — opcional"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-        />
-        <Input
-          label="Fecha límite"
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-        />
+        {caseTypeSel === OTRO && (
+          <Input
+            label="Especifica el tipo"
+            placeholder="Ej: Licencia turística, ITE, comunidad de propietarios…"
+            value={customType}
+            onChange={(e) => setCustomType(e.target.value)}
+          />
+        )}
+        <div className="flex flex-col gap-1.5">
+          <label className={FIELD_LABEL_CLS}>Estado</label>
+          <select className={SELECT_CLS} value={status} onChange={(e) => setStatus(e.target.value)}>
+            {SERVICE_STATUS_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        {showVerticalSelect && (
+          <div className="flex flex-col gap-1.5">
+            <label className={FIELD_LABEL_CLS}>Área de negocio</label>
+            <select className={SELECT_CLS} value={vertical} onChange={(e) => setVertical(e.target.value as VerticalKey)}>
+              {Object.values(VERTICALS).map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+            </select>
+          </div>
+        )}
+        <Input label="Fecha límite" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         <div className="flex flex-col gap-1.5">
           <label className={FIELD_LABEL_CLS}>Notas</label>
-          <textarea
-            rows={3}
-            className={TEXTAREA_CLS}
-            placeholder="Documentación esperada, número de expediente, contacto en administración…"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+          <textarea rows={3} className={TEXTAREA_CLS} placeholder="Documentación esperada, contacto, referencia…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
       </form>
     </SideDrawer>

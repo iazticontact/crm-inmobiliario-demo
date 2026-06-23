@@ -203,6 +203,7 @@ export async function createOpportunity(workspaceId: string, input: {
   stage?: string
   clientId?: string | null
   clientName?: string | null
+  propertyId?: string | null
   value?: number | null
   probability?: number | null
   source?: string | null
@@ -218,6 +219,7 @@ export async function createOpportunity(workspaceId: string, input: {
     .insert({
       workspace_id: workspaceId,
       client_id: input.clientId ?? null,
+      property_id: input.propertyId ?? null,
       title: input.title.trim(),
       vertical: input.vertical,
       pipeline: input.pipeline ?? 'default',
@@ -367,7 +369,7 @@ export async function createServiceCase(workspaceId: string, input: {
   await logActivity(supabase, {
     workspaceId,
     type: 'service_case_created',
-    title: `Expediente abierto: ${row.title}`,
+    title: `Trámite abierto: ${row.title}`,
     description: `${row.case_type} · estado ${row.status}${row.due_date ? ` · vence ${row.due_date}` : ''}`,
     clientId: row.client_id,
     clientName: input.clientName ?? null,

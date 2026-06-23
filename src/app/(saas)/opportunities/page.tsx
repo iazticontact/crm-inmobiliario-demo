@@ -430,7 +430,9 @@ export default function OpportunitiesPage() {
     })
   }, [])
 
-  const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
+  // Por defecto inmobiliaria (no 'general'): una inmobiliaria crea operaciones/trámites de
+  // real_estate salvo que esté filtrando explícitamente por otra vertical (workspace mixto).
+  const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'real_estate' : (vertical as VerticalKey)
 
   return (
     <motion.div
@@ -911,13 +913,18 @@ export default function OpportunitiesPage() {
         onClose={() => setOpenOpp(false)}
         workspaceId={workspaceId}
         defaultVertical={defaultVerticalForCreate}
+        properties={properties}
+        showVerticalSelect={showVerticalBar}
         onCreated={() => void loadData()}
       />
       <NewServiceCaseDrawer
         open={openCase}
         onClose={() => setOpenCase(false)}
         workspaceId={workspaceId}
-        defaultVertical={defaultVerticalForCreate === 'general' ? 'immigration' : defaultVerticalForCreate}
+        defaultVertical={defaultVerticalForCreate}
+        opportunities={opportunities}
+        properties={properties}
+        showVerticalSelect={showVerticalBar}
         onCreated={() => void loadData()}
       />
       <NewPropertyDrawer
