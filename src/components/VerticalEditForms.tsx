@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Archive } from 'lucide-react'
 import { SideDrawer } from '@/components/SideDrawer'
+import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
 import { ClientPicker } from '@/components/ClientPicker'
@@ -559,6 +560,9 @@ function EditPropertyInner({
           <textarea rows={3} className={TEXTAREA_CLS} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
       </form>
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <PropertyPhotosManager workspaceId={workspaceId} propertyId={property.id} />
+      </div>
     </SideDrawer>
   )
 }

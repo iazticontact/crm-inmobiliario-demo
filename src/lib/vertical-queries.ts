@@ -54,6 +54,7 @@ export type OpportunityRow = {
   id: string
   workspace_id: string
   client_id: string | null
+  property_id?: string | null
   title: string
   vertical: VerticalKey | string
   pipeline: string

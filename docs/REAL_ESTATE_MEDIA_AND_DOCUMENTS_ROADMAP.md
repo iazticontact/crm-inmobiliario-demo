@@ -1,8 +1,11 @@
 # Roadmap — Medios y documentos inmobiliarios (D-files)
 
-> Estado: **NO implementado** (no hay Storage ni tablas de archivos). Documentado para fase
-> dedicada. **No se finge**: la UI muestra placeholder elegante de foto y bloques honestos, sin
-> botones de subida que no funcionen.
+> **Actualización P7 (2026-06-23):** la infraestructura **YA está implementada** (tabla
+> `entity_files` + bucket privado `entity-files` + RLS + helper `src/lib/entity-files.ts`).
+> **Fotos de inmueble: FUNCIONAN** (subir/ver/portada/borrar en el drawer de editar inmueble +
+> portada en la card). Pendiente: **UI de documentos** (la infra ya lo soporta con
+> `category='document'`) y **ficha de inmueble dedicada**. Ver
+> `docs/PHASE_P7_PORTFOLIO_STORAGE_REPORT.md`.
 
 ## Por qué es central
 Una inmobiliaria necesita **fotos de inmuebles** y **documentos** (DNI/NIE/CIF, contrato de arras,

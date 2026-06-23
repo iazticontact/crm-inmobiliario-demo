@@ -58,6 +58,7 @@ import { featureFlags } from '@/lib/feature-flags'
 import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
 import { clients as demoClients } from '@/lib/mock-data'
 import { getClients } from '@/lib/supabase-queries'
+import { coverUrlsForProperties } from '@/lib/entity-files'
 import {
   VERTICALS,
   getPipelineForVertical,
@@ -188,6 +189,7 @@ export default function OpportunitiesPage() {
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
+  const [coverUrls, setCoverUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -209,12 +211,13 @@ export default function OpportunitiesPage() {
       setCases(demoServiceCases)
       setProperties(demoProperties)
       setClientNames(Object.fromEntries(demoClients.map((c) => [c.id, c.name])))
+      setCoverUrls({}) // modo demo offline no tiene Storage real
       setLoadError('')
       setLoading(false)
       return
     }
     if (!workspaceId) {
-      setOpportunities([]); setCases([]); setProperties([]); setClientNames({})
+      setOpportunities([]); setCases([]); setProperties([]); setClientNames({}); setCoverUrls({})
       setLoading(false)
       return
     }
@@ -233,6 +236,8 @@ export default function OpportunitiesPage() {
       setCases(srv)
       setProperties(props)
       setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
+      // Portadas reales (Storage privado + signed URLs); no bloquea el render.
+      coverUrlsForProperties(workspaceId, props.map((p) => p.id)).then(setCoverUrls).catch(() => setCoverUrls({}))
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error cargando datos.')
     } finally {
@@ -318,7 +323,7 @@ export default function OpportunitiesPage() {
   const opsCountByProperty = useMemo(() => {
     const m: Record<string, number> = {}
     for (const o of opportunities) {
-      const pid = o.metadata?.property_id
+      const pid = o.property_id ?? (typeof o.metadata?.property_id === 'string' ? o.metadata.property_id : null)
       if (typeof pid === 'string') m[pid] = (m[pid] ?? 0) + 1
     }
     return m
@@ -430,23 +435,23 @@ export default function OpportunitiesPage() {
             <Button variant="ghost" size="sm" onClick={() => void loadData()} disabled={loading} title="Refrescar" aria-label="Refrescar" className="px-2">
               <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setOpenCase(true)}>
-              <Plus className="h-3.5 w-3.5" /> Nuevo trámite
-            </Button>
-            {verticalSupportsProperties ? (
-              <>
-                <Button variant="secondary" size="sm" onClick={() => setOpenOpp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nueva operación
+            {(() => {
+              // CTA por pestaña: el PRIMARIO es el "crear" de la vista activa; los otros van
+              // como secundarios discretos (a la izquierda). "Nuevo inmueble" solo protagoniza
+              // en Inmuebles, nunca en Operaciones/Trámites.
+              const actions = [
+                { key: 'properties', label: 'Nuevo inmueble', onClick: () => setOpenProp(true), show: verticalSupportsProperties },
+                { key: 'pipeline', label: 'Nueva operación', onClick: () => setOpenOpp(true), show: true },
+                { key: 'cases', label: 'Nuevo trámite', onClick: () => setOpenCase(true), show: true },
+              ].filter((a) => a.show)
+              const primaryKey = actions.some((a) => a.key === activeSubtab) ? activeSubtab : 'pipeline'
+              const ordered = [...actions.filter((a) => a.key !== primaryKey), ...actions.filter((a) => a.key === primaryKey)]
+              return ordered.map((a) => (
+                <Button key={a.key} variant={a.key === primaryKey ? 'primary' : 'secondary'} size="sm" onClick={a.onClick}>
+                  <Plus className="h-3.5 w-3.5" /> {a.label}
                 </Button>
-                <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
-                  <Plus className="h-3.5 w-3.5" /> Nuevo inmueble
-                </Button>
-              </>
-            ) : (
-              <Button variant="primary" size="sm" onClick={() => setOpenOpp(true)}>
-                <Plus className="h-3.5 w-3.5" /> Nueva operación
-              </Button>
-            )}
+              ))
+            })()}
           </div>
         }
       />
@@ -654,7 +659,7 @@ export default function OpportunitiesPage() {
                             <p className="truncate text-[11px] text-gray-500">
                               {[
                                 clientNameOf(opp.client_id),
-                                propertiesById[String(opp.metadata?.property_id ?? '')]?.title || '',
+                                propertiesById[opp.property_id ?? String(opp.metadata?.property_id ?? '')]?.title || '',
                                 opp.expected_close_date ? `cierre ${formatDate(opp.expected_close_date)}` : '',
                               ].filter(Boolean).join(' · ') || 'Sin cliente ni inmueble vinculado'}
                             </p>
@@ -821,9 +826,11 @@ export default function OpportunitiesPage() {
                 return (
                   <li key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03]">
                     <button type="button" onClick={() => setEditProp(p)} className="block text-left" title="Ver / editar inmueble">
-                      {/* Placeholder visual — fotos de inmueble pendientes (sin Storage). Ver roadmap. */}
-                      <div className="relative flex aspect-[16/10] items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-                        <Home className="h-9 w-9 text-gray-300" />
+                      {/* Portada real (Storage privado + signed URL) o placeholder elegante. */}
+                      <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+                        {coverUrls[p.id]
+                          ? <img src={coverUrls[p.id]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
+                          : <Home className="h-9 w-9 text-gray-300" />}
                         <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
                         <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
                       </div>
