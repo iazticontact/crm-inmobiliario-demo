@@ -65,6 +65,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   VERTICALS,
   getPipelineForVertical,
+  formStagesForVertical,
   getAutomationTemplatesForVertical,
   AUTOMATION_TEMPLATES,
   type VerticalKey,
@@ -199,6 +200,8 @@ export default function OpportunitiesPage() {
   // Borrado seguro (P6.8)
   const [deleteOppTarget, setDeleteOppTarget] = useState<OpportunityRow | null>(null)
   const [deleteCaseTarget, setDeleteCaseTarget] = useState<ServiceCaseRow | null>(null)
+  const [blockedOppTarget, setBlockedOppTarget] = useState<OpportunityRow | null>(null)
+  const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -458,11 +461,23 @@ export default function OpportunitiesPage() {
   function requestDeleteOpp(opp: OpportunityRow) {
     const linked = cases.filter((c) => c.opportunity_id === opp.id).length
     if (linked > 0) {
-      toast.error('No puedes eliminar esta operación', { description: `Tiene ${linked} trámite${linked === 1 ? '' : 's'} vinculado${linked === 1 ? '' : 's'}. Elimina o reasigna los trámites primero.` })
+      // No se borra: se guía al usuario a resolver los trámites primero (la FK es SET NULL,
+      // borrar la operación los desvincularía en silencio).
+      setBlockedOppTarget(opp)
       return
     }
     setDeleteError(null)
     setDeleteOppTarget(opp)
+  }
+
+  // "Ver trámites" desde el modal de bloqueo → va a Trámites y resalta los vinculados.
+  function viewLinkedTramites() {
+    const opp = blockedOppTarget
+    if (!opp) return
+    setHighlightOpId(opp.id)
+    setSubtab('cases')
+    setBlockedOppTarget(null)
+    toast.info('Revisa los trámites vinculados antes de eliminar la operación.')
   }
   async function confirmDeleteOpp() {
     const target = deleteOppTarget
@@ -591,7 +606,7 @@ export default function OpportunitiesPage() {
           return (
             <button
               key={tab.key}
-              onClick={() => setSubtab(tab.key)}
+              onClick={() => { setSubtab(tab.key); setHighlightOpId(null) }}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
                 active
@@ -693,7 +708,7 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'pipeline' && (
         <SectionCard
           title="Operaciones en seguimiento"
-          description="Negocio abierto por etapa: lo que tu inmobiliaria puede cerrar."
+          description="Operaciones activas agrupadas por etapa comercial."
           action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} operaciones</Badge>}
         >
           {loading ? (
@@ -776,7 +791,7 @@ export default function OpportunitiesPage() {
                               value={opp.stage}
                               onChange={(e) => void handleOpportunityStage(opp, e.target.value)}
                             >
-                              {getPipelineForVertical((opp.vertical as VerticalKey) ?? 'general').map((s) => (
+                              {formStagesForVertical((opp.vertical as VerticalKey) ?? 'general', opp.stage).map((s) => (
                                 <option key={s.id} value={s.id}>{s.label}</option>
                               ))}
                             </select>
@@ -815,6 +830,12 @@ export default function OpportunitiesPage() {
           description="Gestiones y documentación asociadas a clientes, inmuebles u operaciones."
           action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} {visibleCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
         >
+          {highlightOpId && (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800">
+              <span className="truncate">Trámites vinculados a «{opportunitiesById[highlightOpId]?.title ?? 'la operación'}».</span>
+              <button type="button" onClick={() => setHighlightOpId(null)} className="shrink-0 font-medium text-indigo-600 hover:text-indigo-700">Ver todos</button>
+            </div>
+          )}
           {loading ? (
             <div className="space-y-2.5 py-2">
               {[0, 1, 2, 3].map((skeleton) => (
@@ -842,7 +863,7 @@ export default function OpportunitiesPage() {
           ) : (
             <ul className="space-y-2">
               {visibleCases.map((c) => (
-                <li key={c.id} className="rounded-xl border border-gray-100 bg-white p-3">
+                <li key={c.id} className={cn('rounded-xl border bg-white p-3 transition-shadow', highlightOpId && c.opportunity_id === highlightOpId ? 'border-indigo-300 ring-2 ring-indigo-200' : 'border-gray-100')}>
                   <div className="flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -1069,7 +1090,23 @@ export default function OpportunitiesPage() {
         onCoverChange={handleCoverChange}
       />
 
-      {/* Borrado seguro (P6.8) */}
+      {/* Borrado seguro (P6.8/P6.9) */}
+      <ConfirmDialog
+        open={!!blockedOppTarget}
+        title="Esta operación tiene trámites vinculados"
+        description={blockedOppTarget
+          ? (() => {
+              const linked = cases.filter((c) => c.opportunity_id === blockedOppTarget.id)
+              const names = linked.slice(0, 3).map((c) => c.title).join(', ')
+              const more = linked.length > 3 ? ` y ${linked.length - 3} más` : ''
+              return `Para no perder documentación ni dejar gestiones sueltas, elimina o reasigna sus ${linked.length} trámite${linked.length === 1 ? '' : 's'} antes de borrar «${blockedOppTarget.title}». Vinculados: ${names}${more}.`
+            })()
+          : ''}
+        confirmLabel="Ver trámites"
+        cancelLabel="Cancelar"
+        onConfirm={viewLinkedTramites}
+        onCancel={() => setBlockedOppTarget(null)}
+      />
       <ConfirmDialog
         open={!!deleteOppTarget}
         title="Eliminar operación"

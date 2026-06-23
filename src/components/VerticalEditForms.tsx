@@ -29,9 +29,7 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  REAL_ESTATE_PIPELINE,
-  IMMIGRATION_PIPELINE,
-  GENERAL_PIPELINE,
+  formStagesForVertical,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -51,12 +49,6 @@ const TEXTAREA_CLS =
   'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
 
 const FIELD_LABEL_CLS = 'text-sm font-medium text-gray-700'
-
-function pipelineForVertical(vertical: VerticalKey) {
-  if (vertical === 'real_estate') return REAL_ESTATE_PIPELINE
-  if (vertical === 'immigration') return IMMIGRATION_PIPELINE
-  return GENERAL_PIPELINE
-}
 
 const PRIORITY_OPTIONS = [
   { id: 'low', label: 'Baja' },
@@ -136,7 +128,7 @@ function EditOpportunityInner({
   const [notes, setNotes] = useState(() => opportunity.notes ?? '')
   const [saving, setSaving] = useState(false)
 
-  const stages = pipelineForVertical(vertical)
+  const stages = formStagesForVertical(vertical, stage)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -206,8 +198,8 @@ function EditOpportunityInner({
               onChange={(e) => {
                 const v = e.target.value as VerticalKey
                 setVertical(v)
-                if (!pipelineForVertical(v).some((s) => s.id === stage)) {
-                  setStage(pipelineForVertical(v)[0]?.id ?? 'new')
+                if (!formStagesForVertical(v, stage).some((s) => s.id === stage)) {
+                  setStage(formStagesForVertical(v)[0]?.id ?? 'new')
                 }
               }}
             >

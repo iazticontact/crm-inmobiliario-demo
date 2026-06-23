@@ -21,9 +21,7 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  REAL_ESTATE_PIPELINE,
-  IMMIGRATION_PIPELINE,
-  GENERAL_PIPELINE,
+  formStagesForVertical,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -41,12 +39,6 @@ const TEXTAREA_CLS =
   'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
 
 const FIELD_LABEL_CLS = 'text-sm font-medium text-gray-700'
-
-function pipelineForVertical(vertical: VerticalKey) {
-  if (vertical === 'real_estate') return REAL_ESTATE_PIPELINE
-  if (vertical === 'immigration') return IMMIGRATION_PIPELINE
-  return GENERAL_PIPELINE
-}
 
 const OTRO = '__otro__'
 
@@ -115,7 +107,7 @@ export function NewOpportunityDrawer({
 }: NewOpportunityDrawerProps) {
   const [title, setTitle] = useState('')
   const [vertical, setVertical] = useState<VerticalKey>(defaultVertical)
-  const [stage, setStage] = useState(() => pipelineForVertical(defaultVertical)[0]?.id ?? 'new')
+  const [stage, setStage] = useState(() => formStagesForVertical(defaultVertical)[0]?.id ?? 'new')
   const [clientName, setClientName] = useState(defaultClientName ?? '')
   const [propertyId, setPropertyId] = useState(defaultPropertyId ?? '')
   const [operationKind, setOperationKind] = useState('venta')
@@ -128,12 +120,12 @@ export function NewOpportunityDrawer({
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const stages = pipelineForVertical(vertical)
+  const stages = formStagesForVertical(vertical)
 
   function reset() {
     setTitle('')
     setVertical(defaultVertical)
-    setStage(pipelineForVertical(defaultVertical)[0]?.id ?? 'new')
+    setStage(formStagesForVertical(defaultVertical)[0]?.id ?? 'new')
     setClientName(defaultClientName ?? '')
     setPropertyId(defaultPropertyId ?? '')
     setOperationKind('venta')
@@ -265,7 +257,7 @@ export function NewOpportunityDrawer({
             <select
               className={SELECT_CLS}
               value={vertical}
-              onChange={(e) => { const v = e.target.value as VerticalKey; setVertical(v); setStage(pipelineForVertical(v)[0]?.id ?? 'new') }}
+              onChange={(e) => { const v = e.target.value as VerticalKey; setVertical(v); setStage(formStagesForVertical(v)[0]?.id ?? 'new') }}
             >
               {Object.values(VERTICALS).map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
             </select>

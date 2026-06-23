@@ -95,7 +95,7 @@ export type PipelineStage = {
 export const REAL_ESTATE_PIPELINE: PipelineStage[] = [
   { id: 'new',             label: 'Nueva',          description: 'Entró por web, WhatsApp o portal.',           defaultProbability: 10, tone: 'bg-gray-50 text-gray-700 border-gray-100' },
   { id: 'contacted',       label: 'Contactado',     description: 'Primer contacto realizado.',                  defaultProbability: 20, tone: 'bg-sky-50 text-sky-700 border-sky-100' },
-  { id: 'qualified',       label: 'Cualificado',    description: 'Presupuesto, necesidad y plazo confirmados.', defaultProbability: 40, tone: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
+  { id: 'qualified',       label: 'Cualificado',    description: 'Necesidad y presupuesto confirmados.',        defaultProbability: 40, tone: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
   { id: 'visit_scheduled', label: 'Visita',         description: 'Cita con cliente o propietario.',             defaultProbability: 55, tone: 'bg-violet-50 text-violet-700 border-violet-100' },
   { id: 'offer',           label: 'Oferta',         description: 'Propuesta enviada.',                          defaultProbability: 70, tone: 'bg-amber-50 text-amber-700 border-amber-100' },
   { id: 'negotiation',     label: 'Negociación',    description: 'Cierre en curso.',                            defaultProbability: 85, tone: 'bg-orange-50 text-orange-700 border-orange-100' },
@@ -127,6 +127,23 @@ export function getPipelineForVertical(vertical: VerticalKey): PipelineStage[] {
   if (vertical === 'real_estate') return REAL_ESTATE_PIPELINE
   if (vertical === 'immigration') return IMMIGRATION_PIPELINE
   return GENERAL_PIPELINE
+}
+
+// Etapas OCULTAS en los formularios (crear/editar/edición rápida) por simplicidad. NO se borran
+// del pipeline: el tablero sigue agrupando por ellas y los datos antiguos en esas etapas se siguen
+// mostrando. "Cualificado" es un micro-paso de CRM que una inmobiliaria pequeña no separa.
+const HIDDEN_FORM_STAGE_IDS = new Set<string>(['qualified'])
+
+// Etapas ofrecidas en los selects de formulario: el pipeline visible + (si la operación ya está
+// en una etapa oculta/antigua) esa etapa actual, para que no quede en blanco ni se pierda.
+export function formStagesForVertical(vertical: VerticalKey, currentStage?: string): PipelineStage[] {
+  const all = getPipelineForVertical(vertical)
+  const visible = all.filter((s) => !HIDDEN_FORM_STAGE_IDS.has(s.id))
+  if (currentStage && !visible.some((s) => s.id === currentStage)) {
+    const cur = all.find((s) => s.id === currentStage)
+    return [...visible, cur ?? { id: currentStage, label: currentStage, description: '', defaultProbability: 0, tone: 'bg-gray-50 text-gray-700 border-gray-100' }]
+  }
+  return visible
 }
 
 // -----------------------------------------------------------------------------
