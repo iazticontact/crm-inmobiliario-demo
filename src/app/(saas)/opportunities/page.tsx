@@ -36,6 +36,7 @@ import {
   Coins,
   Check,
   X,
+  Archive,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -317,11 +318,40 @@ export default function OpportunitiesPage() {
   // Mapas para enlazar entidades (vínculos reales ya cargados, sin N+1).
   const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
   const opportunitiesById = useMemo(() => Object.fromEntries(opportunities.map((o) => [o.id, o])), [opportunities])
-  // Comisión estimada (orientativa) de una operación: base × rate / 100. Base = precio del
-  // inmueble vinculado o, si no hay, el valor potencial. null si no hay datos.
+  // ¿La operación es un alquiler (a efectos de comisión)? Lo es si el inmueble es de alquiler o si
+  // la operación lo declara en metadata.operation_kind.
+  const isRentalOpp = (opp: OpportunityRow): boolean => {
+    const kind = typeof opp.metadata?.operation_kind === 'string' ? opp.metadata.operation_kind : ''
+    if (kind === 'alquiler') return true
+    const p = opp.property_id ? propertiesById[opp.property_id] : undefined
+    return p?.operation_type === 'alquiler' || p?.operation_type === 'alquiler_opcion_compra'
+  }
+  // Comisión prevista (orientativa, control interno). Soporta 3 modelos vía
+  // metadata.commission_model: 'percent' (def.) · 'one_month' (1 mensualidad de alquiler) ·
+  // 'fixed' (importe en metadata.commission_fixed). Clave en alquiler %: la base es la renta ANUAL
+  // (valor potencial), no la mensualidad, para no producir cifras absurdas (3% de 1 mes).
   const commissionOf = (opp: OpportunityRow): number | null => {
-    const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
+    const meta = opp.metadata ?? {}
+    const model = typeof meta.commission_model === 'string' ? meta.commission_model : 'percent'
+    const rental = isRentalOpp(opp)
+    const monthly = rental && opp.property_id ? (propertiesById[opp.property_id]?.price ?? null) : null
+    if (model === 'fixed') {
+      const f = Number(meta.commission_fixed)
+      return Number.isFinite(f) && f > 0 ? Math.round(f) : null
+    }
+    if (model === 'one_month') {
+      return monthly ? Math.round(monthly) : null
+    }
+    // percent (por defecto): venta → base = precio del inmueble o valor; alquiler → renta anual.
+    const base = rental ? opp.value : ((opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value)
     return base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
+  }
+  // Criterio de comisión, para la lista de Comisiones: "3%", "1 mensualidad" o "importe fijo".
+  const commissionBasisLabel = (opp: OpportunityRow): string => {
+    const model = typeof opp.metadata?.commission_model === 'string' ? opp.metadata.commission_model : 'percent'
+    if (model === 'one_month') return '1 mensualidad'
+    if (model === 'fixed') return 'importe fijo'
+    return opp.commission_rate ? `${opp.commission_rate}%` : ''
   }
   // Nº de operaciones por inmueble (vía metadata.property_id). Honesto: 0 si no hay enlace.
   const opsCountByProperty = useMemo(() => {
@@ -333,19 +363,17 @@ export default function OpportunitiesPage() {
     return m
   }, [opportunities])
 
-  // KPIs de cartera (vista Inmuebles). El "valor de cartera" es la suma de precios listados
-  // (no facturación ni ingresos): excluye vendidos/archivados.
-  const portfolioListed = visibleProperties.filter((p) => p.status === 'listed' || p.status === 'available').length
-  const portfolioReserved = visibleProperties.filter((p) => p.status === 'under_contract' || p.status === 'reserved').length
-  const portfolioValue = visibleProperties
-    .filter((p) => p.status !== 'sold' && p.status !== 'archived')
-    .reduce((s, p) => s + (p.price ?? 0), 0)
-
-  // Inmuebles cerrados (vendidos/alquilados) o archivados → histórico (no se borran). Por defecto
-  // se ocultan en la lista; un toggle permite verlos.
+  // Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). Se ocultan por
+  // defecto; un toggle permite verlos. "Activos" = todo lo que sigue en cartera.
   const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
-  const soldArchivedCount = visibleProperties.filter((p) => isClosedProperty(p.status)).length
-  const shownProperties = showSoldProps ? visibleProperties : visibleProperties.filter((p) => !isClosedProperty(p.status))
+  const activeProperties = visibleProperties.filter((p) => !isClosedProperty(p.status))
+  const soldArchivedCount = visibleProperties.length - activeProperties.length
+  const shownProperties = showSoldProps ? visibleProperties : activeProperties
+
+  // KPIs de cartera (vista Inmuebles). "Valor de cartera activa" = suma de precios de los inmuebles
+  // activos (excluye el histórico vendido/alquilado): no es facturación ni ingresos.
+  const portfolioListed = activeProperties.filter((p) => p.status === 'listed' || p.status === 'available').length
+  const portfolioActiveValue = activeProperties.reduce((s, p) => s + (p.price ?? 0), 0)
 
   // Módulo Comisiones: operaciones con comisión prevista calculable (control interno de cobros).
   // Por defecto solo las cerradas (vendidas/alquiladas); el toggle suma también las abiertas.
@@ -719,30 +747,31 @@ export default function OpportunitiesPage() {
           <>
             <KpiCard
               icon={<Building2 className="h-4 w-4 text-indigo-600" />}
-              label="Inmuebles en cartera"
-              value={String(visibleProperties.length)}
-              detail={visibleProperties.length ? 'Activos gestionados' : 'Sin inmuebles aún'}
+              label="Inmuebles activos"
+              value={String(activeProperties.length)}
+              detail={soldArchivedCount > 0 ? `${visibleProperties.length} gestionados en total` : (activeProperties.length ? 'Disponibles o en gestión' : 'Sin inmuebles aún')}
+              title={soldArchivedCount > 0 ? `Total gestionado: ${visibleProperties.length} (${activeProperties.length} activos + ${soldArchivedCount} en histórico)` : undefined}
               tone="border-indigo-100 bg-indigo-50/40"
             />
             <KpiCard
               icon={<Home className="h-4 w-4 text-emerald-600" />}
               label="En comercialización"
               value={String(portfolioListed)}
-              detail={portfolioListed ? 'Publicados / disponibles' : 'Ninguno publicado'}
+              detail={portfolioListed ? 'Publicados' : 'Ninguno publicado'}
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
-              icon={<Target className="h-4 w-4 text-amber-600" />}
-              label="Reservados"
-              value={String(portfolioReserved)}
-              detail={portfolioReserved ? 'Reserva / bajo contrato' : 'Ninguno reservado'}
-              tone="border-amber-100 bg-amber-50/40"
+              icon={<Archive className="h-4 w-4 text-gray-500" />}
+              label="Histórico"
+              value={String(soldArchivedCount)}
+              detail={soldArchivedCount ? 'Vendidos / alquilados' : 'Nada cerrado aún'}
+              tone="border-gray-200 bg-gray-50/60"
             />
             <KpiCard
               icon={<Sparkles className="h-4 w-4 text-sky-600" />}
-              label="Valor de cartera"
-              value={formatCurrency(portfolioValue)}
-              detail="Suma de precios listados"
+              label="Valor de cartera activa"
+              value={formatCurrency(portfolioActiveValue)}
+              detail="Precio listado activo"
               tone="border-sky-100 bg-sky-50/40"
             />
           </>
@@ -802,9 +831,9 @@ export default function OpportunitiesPage() {
             />
             <KpiCard
               icon={<Building2 className="h-4 w-4 text-sky-600" />}
-              label="Inmuebles en cartera"
-              value={String(visibleProperties.length - soldArchivedCount)}
-              detail={soldArchivedCount ? `${soldArchivedCount} en histórico` : (visibleProperties.length ? 'Activos' : 'Sin inmuebles aún')}
+              label="Inmuebles activos"
+              value={String(activeProperties.length)}
+              detail={soldArchivedCount ? `${soldArchivedCount} en histórico` : (activeProperties.length ? 'En cartera' : 'Sin inmuebles aún')}
               tone="border-sky-100 bg-sky-50/40"
             />
           </>
@@ -882,9 +911,11 @@ export default function OpportunitiesPage() {
                             </p>
                           </button>
                           <div className="flex shrink-0 items-center gap-2">
-                            {state === 'won' && (
+                            {state === 'won' ? (
                               <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">{wonLabel(typeof opp.metadata?.operation_kind === 'string' ? opp.metadata.operation_kind : null)}</span>
-                            )}
+                            ) : isRentalOpp(opp) ? (
+                              <span className="hidden rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 sm:inline">Alquiler</span>
+                            ) : null}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
                             <select
                               aria-label="Cambiar estado"
@@ -1015,24 +1046,24 @@ export default function OpportunitiesPage() {
                       c.due_date ? `vence ${formatDate(c.due_date)}` : '',
                     ].filter(Boolean).join(' · ')}
                   </p>
-                  <div className="mt-1">
+                  <div className="mt-1.5">
                     {(docCountByCase[c.id] ?? 0) > 0 ? (
                       <button
                         type="button"
                         onClick={() => setDocsCase(c)}
                         title="Ver y gestionar documentos del trámite"
-                        className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-indigo-600 transition-colors hover:text-indigo-700"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
                       >
-                        <FileText className="h-3 w-3" /> {docCountByCase[c.id]} {docCountByCase[c.id] === 1 ? 'documento' : 'documentos'}
+                        <FileText className="h-3.5 w-3.5" /> Ver documentos ({docCountByCase[c.id]})
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => setDocsCase(c)}
                         title="Añadir un documento al trámite"
-                        className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-gray-400 transition-colors hover:text-indigo-600"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-600"
                       >
-                        <Plus className="h-3 w-3" /> Añadir documento
+                        <Plus className="h-3.5 w-3.5" /> Añadir documento
                       </button>
                     )}
                   </div>
@@ -1177,7 +1208,7 @@ export default function OpportunitiesPage() {
                         <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
                         {!isClosed && <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">En gestión</span>}
                       </div>
-                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, `${o.commission_rate}%`].filter(Boolean).join(' · ')}</p>
+                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, commissionBasisLabel(o)].filter(Boolean).join(' · ')}</p>
                       {paid && note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
                     </button>
                     <div className="flex shrink-0 items-center gap-2">
@@ -1438,9 +1469,9 @@ export default function OpportunitiesPage() {
   )
 }
 
-function KpiCard(props: { icon: React.ReactNode; label: string; value: string; detail: string; tone: string }) {
+function KpiCard(props: { icon: React.ReactNode; label: string; value: string; detail: string; tone: string; title?: string }) {
   return (
-    <div className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.02]', props.tone)}>
+    <div title={props.title} className={cn('rounded-xl border p-4 shadow-sm shadow-gray-950/[0.02]', props.tone)}>
       <div className="flex items-center justify-between">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/[0.04]">{props.icon}</div>
         <span className="text-[10px] font-semibold text-gray-500">{props.label}</span>
