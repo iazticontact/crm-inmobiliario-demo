@@ -67,12 +67,16 @@ import { coverUrlsForProperties, documentCountsForEntities, deleteEntityFilesFor
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   VERTICALS,
-  getPipelineForVertical,
-  formStagesForVertical,
+  COMM_STATE_ORDER,
+  COMM_STATE_OPTIONS,
+  COMM_STATE_TONE,
+  commStateOf,
+  wonLabel,
+  stageForCommState,
   getAutomationTemplatesForVertical,
   AUTOMATION_TEMPLATES,
+  type CommState,
   type VerticalKey,
-  type PipelineStage,
 } from '@/lib/demo/vertical-templates'
 import {
   listOpportunities,
@@ -138,18 +142,6 @@ function formatDate(value: string | null) {
   } catch { return null }
 }
 
-// Estado del cierre estimado: vencido (fecha pasada), previsto (≤30 días) o nada. Usa
-// `new Date()` (patrón aceptado por el linter de purity en este repo).
-function closeState(value: string | null): 'overdue' | 'soon' | null {
-  if (!value) return null
-  const t = new Date(value).getTime()
-  if (Number.isNaN(t)) return null
-  const diffDays = (t - new Date().getTime()) / 86_400_000
-  if (diffDays < 0) return 'overdue'
-  if (diffDays <= 30) return 'soon'
-  return null
-}
-
 // Etiquetas inmobiliarias (es-ES) con fallback al valor crudo capitalizado.
 const PROPERTY_TYPE_LABEL: Record<string, string> = {
   piso: 'Piso', atico: 'Ático', duplex: 'Dúplex', chalet: 'Chalet', adosado: 'Adosado',
@@ -202,6 +194,13 @@ export default function OpportunitiesPage() {
   const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
   const [closeOpp, setCloseOpp] = useState<OpportunityRow | null>(null)
   const [showSoldProps, setShowSoldProps] = useState(false)
+  // Comisiones: por defecto solo operaciones cerradas (vendidas/alquiladas) con comisión.
+  const [showOpenCommissions, setShowOpenCommissions] = useState(false)
+  // Registrar cobro de comisión (importe real opcional + nota opcional).
+  const [collectOpp, setCollectOpp] = useState<OpportunityRow | null>(null)
+  const [collectAmount, setCollectAmount] = useState('')
+  const [collectNote, setCollectNote] = useState('')
+  const [collectBusy, setCollectBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -283,9 +282,7 @@ export default function OpportunitiesPage() {
     return [] // Properties only apply to real_estate today.
   }, [properties, vertical])
 
-  // Vertical para elegir el pipeline cuando el filtro es "Todos": si solo hay una vertical
-  // con datos (caso normal inmobiliaria) usa su pipeline; por defecto inmobiliaria — NUNCA
-  // 'general', que escondería etapas reales (visita, oferta, negociación…).
+  // Vertical para la etiqueta del empty state cuando se filtra por una vertical concreta.
   const verticalForPipeline: VerticalKey = useMemo(() => {
     if (vertical !== 'all') return vertical as VerticalKey
     const set = new Set<string>()
@@ -293,31 +290,12 @@ export default function OpportunitiesPage() {
     return set.size === 1 ? (Array.from(set)[0] as VerticalKey) : 'real_estate'
   }, [vertical, opportunities])
 
-  // Etapas a renderizar = pipeline canónico + cualquier etapa presente en los datos que no
-  // esté en él (así NINGUNA operación queda oculta), etiquetada desde su propio pipeline.
-  const renderStages = useMemo(() => {
-    const base = getPipelineForVertical(verticalForPipeline)
-    const known = new Set(base.map((s) => s.id))
-    const extras: PipelineStage[] = []
-    for (const o of visibleOpportunities) {
-      if (o.stage && !known.has(o.stage)) {
-        known.add(o.stage)
-        const own = getPipelineForVertical((o.vertical as VerticalKey) ?? 'general').find((s) => s.id === o.stage)
-        extras.push(own ?? { id: o.stage, label: o.stage, description: '', defaultProbability: 0, tone: 'bg-gray-50 text-gray-700 border-gray-100' })
-      }
-    }
-    return [...base, ...extras]
-  }, [verticalForPipeline, visibleOpportunities])
-
-  const opportunitiesByStage = useMemo(() => {
-    const out: Record<string, OpportunityRow[]> = {}
-    for (const stage of renderStages) out[stage.id] = []
-    for (const opp of visibleOpportunities) {
-      if (!out[opp.stage]) out[opp.stage] = []
-      out[opp.stage].push(opp)
-    }
+  // El tablero agrupa por ESTADO COMERCIAL (5 buckets), no por etapa interna: simple y claro.
+  const opportunitiesByCommState = useMemo(() => {
+    const out: Record<CommState, OpportunityRow[]> = { new: [], managing: [], reserved: [], won: [], lost: [] }
+    for (const opp of visibleOpportunities) out[commStateOf(opp.stage)].push(opp)
     return out
-  }, [visibleOpportunities, renderStages])
+  }, [visibleOpportunities])
 
   const automationTemplates = useMemo(() => {
     if (vertical === 'all') return AUTOMATION_TEMPLATES
@@ -359,17 +337,22 @@ export default function OpportunitiesPage() {
     .filter((p) => p.status !== 'sold' && p.status !== 'archived')
     .reduce((s, p) => s + (p.price ?? 0), 0)
 
-  // Inmuebles vendidos/archivados → histórico (no se borran). Por defecto se ocultan en la lista;
-  // un toggle permite verlos.
-  const soldArchivedCount = visibleProperties.filter((p) => p.status === 'sold' || p.status === 'archived').length
-  const shownProperties = showSoldProps ? visibleProperties : visibleProperties.filter((p) => p.status !== 'sold' && p.status !== 'archived')
+  // Inmuebles cerrados (vendidos/alquilados) o archivados → histórico (no se borran). Por defecto
+  // se ocultan en la lista; un toggle permite verlos.
+  const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
+  const soldArchivedCount = visibleProperties.filter((p) => isClosedProperty(p.status)).length
+  const shownProperties = showSoldProps ? visibleProperties : visibleProperties.filter((p) => !isClosedProperty(p.status))
 
   // Comisión estimada en cartera (orientativa, NO facturación): suma de las comisiones de las
   // operaciones abiertas con comisión pactada.
   const openCommission = openOpportunities.reduce((sum, o) => sum + (commissionOf(o) ?? 0), 0)
 
-  // Módulo Comisiones: operaciones con comisión estimada calculable (control interno de cobros).
-  const commissionRows = visibleOpportunities.filter((o) => commissionOf(o) != null)
+  // Módulo Comisiones: operaciones con comisión prevista calculable (control interno de cobros).
+  // Por defecto solo las cerradas (vendidas/alquiladas); el toggle suma también las abiertas.
+  const allCommissionRows = visibleOpportunities.filter((o) => commissionOf(o) != null)
+  const closedCommissionRows = allCommissionRows.filter((o) => commStateOf(o.stage) === 'won')
+  const commissionRows = showOpenCommissions ? allCommissionRows : closedCommissionRows
+  const openCommissionCount = allCommissionRows.length - closedCommissionRows.length
   const commissionTotals = (() => {
     let estimated = 0
     let collected = 0
@@ -412,7 +395,9 @@ export default function OpportunitiesPage() {
 
   // Inline stage / status edits — optimistic + persisted.
   async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
-    if (nextStage === opp.stage) return
+    // El selector trabaja por estado comercial: si el bucket no cambia (p. ej. una etapa
+    // legacy que ya mapea a «En gestión»), no reescribimos la etapa ni avisamos.
+    if (commStateOf(nextStage) === commStateOf(opp.stage)) return
     // Cerrar con inmueble vinculado → confirmación guiada (también marca el inmueble como
     // vendido/alquilado, sin eliminar nada).
     if (nextStage === 'won' && opp.property_id && propertiesById[opp.property_id]) {
@@ -431,7 +416,7 @@ export default function OpportunitiesPage() {
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updateOpportunityStage(workspaceId, opp.id, nextStage)
     if (!ok) {
-      toast.error('No se pudo cambiar la etapa.')
+      toast.error('No se pudo cambiar el estado.')
       void loadData()
       return
     }
@@ -505,19 +490,50 @@ export default function OpportunitiesPage() {
     setDocCountByCase((prev) => ({ ...prev, [caseId]: count }))
   }, [])
 
-  // Control interno de comisiones: marcar cobrada (registra importe y fecha) o pendiente.
-  async function markCommission(opp: OpportunityRow, paid: boolean) {
-    const patch = paid
-      ? { commissionStatus: 'cobrada', commissionPaidAt: new Date().toISOString(), commissionPaidAmount: commissionOf(opp) }
-      : { commissionStatus: 'pendiente', commissionPaidAt: null, commissionPaidAmount: null }
+  // Control interno de comisiones: revertir a pendiente (borra importe y fecha de cobro).
+  async function markCommissionPending(opp: OpportunityRow) {
     setOpportunities((prev) => prev.map((o) => (o.id === opp.id
-      ? { ...o, commission_status: patch.commissionStatus, commission_paid_at: patch.commissionPaidAt, commission_paid_amount: patch.commissionPaidAmount }
+      ? { ...o, commission_status: 'pendiente', commission_paid_at: null, commission_paid_amount: null }
       : o)))
     if (isDemo()) { toast.info('Modo demo: cambio en pantalla (no se guarda).'); return }
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
-    const ok = await updateOpportunity(workspaceId, opp.id, patch)
+    const ok = await updateOpportunity(workspaceId, opp.id, { commissionStatus: 'pendiente', commissionPaidAt: null, commissionPaidAmount: null })
     if (!ok) { toast.error('No se pudo actualizar la comisión.'); void loadData(); return }
-    toast.success(paid ? 'Comisión marcada como cobrada' : 'Comisión marcada como pendiente')
+    toast.success('Comisión marcada como pendiente')
+  }
+
+  // Abre el modal "Registrar cobro" con la comisión prevista como importe por defecto.
+  function openCollect(opp: OpportunityRow) {
+    setCollectOpp(opp)
+    setCollectAmount(String(commissionOf(opp) ?? ''))
+    setCollectNote(typeof opp.metadata?.commission_note === 'string' ? opp.metadata.commission_note : '')
+  }
+
+  // Confirma el cobro: marca cobrada + fecha + importe real (opcional) + nota (opcional).
+  // El importe real y la nota se guardan como dato interno (NO es factura ni contabilidad).
+  async function submitCommissionCollection() {
+    const opp = collectOpp
+    if (!opp) return
+    const parsed = Number(collectAmount.replace(',', '.'))
+    const amount = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : (commissionOf(opp) ?? 0)
+    const note = collectNote.trim()
+    const nextMeta: Record<string, unknown> = { ...(opp.metadata ?? {}) }
+    if (note) nextMeta.commission_note = note
+    else delete nextMeta.commission_note
+    const nowIso = new Date().toISOString()
+    setCollectBusy(true)
+    setOpportunities((prev) => prev.map((o) => (o.id === opp.id
+      ? { ...o, commission_status: 'cobrada', commission_paid_at: nowIso, commission_paid_amount: amount, metadata: nextMeta }
+      : o)))
+    if (isDemo()) { toast.info('Modo demo: cambio en pantalla (no se guarda).'); setCollectBusy(false); setCollectOpp(null); return }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); setCollectBusy(false); return }
+    const ok = await updateOpportunity(workspaceId, opp.id, {
+      commissionStatus: 'cobrada', commissionPaidAt: nowIso, commissionPaidAmount: amount, metadata: nextMeta,
+    })
+    setCollectBusy(false)
+    if (!ok) { toast.error('No se pudo registrar el cobro.'); void loadData(); return }
+    setCollectOpp(null)
+    toast.success('Cobro de comisión registrado')
   }
 
   function isDemo() {
@@ -732,30 +748,30 @@ export default function OpportunitiesPage() {
           <>
             <KpiCard
               icon={<Coins className="h-4 w-4 text-teal-600" />}
-              label="Comisión estimada"
+              label="Comisión prevista"
               value={commissionTotals.estimated > 0 ? formatCurrency(commissionTotals.estimated) : '—'}
               detail="Orientativa · no es factura"
               tone="border-teal-100 bg-teal-50/40"
             />
             <KpiCard
               icon={<Target className="h-4 w-4 text-amber-600" />}
-              label="Comisión pendiente"
+              label="Pendiente de cobro"
               value={commissionTotals.pending > 0 ? formatCurrency(commissionTotals.pending) : '—'}
-              detail="Por cobrar"
+              detail="Aún no registrada"
               tone="border-amber-100 bg-amber-50/40"
             />
             <KpiCard
               icon={<Check className="h-4 w-4 text-emerald-600" />}
-              label="Comisión cobrada"
+              label="Cobrada"
               value={commissionTotals.collected > 0 ? formatCurrency(commissionTotals.collected) : '—'}
               detail="Registrada (no fiscal)"
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
               icon={<FileText className="h-4 w-4 text-indigo-600" />}
-              label="Operaciones"
-              value={String(commissionRows.length)}
-              detail="con comisión pactada"
+              label="Cerradas con comisión"
+              value={String(closedCommissionRows.length)}
+              detail="Vendidas / alquiladas"
               tone="border-indigo-100 bg-indigo-50/40"
             />
           </>
@@ -797,7 +813,7 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'pipeline' && (
         <SectionCard
           title="Operaciones en seguimiento"
-          description="Operaciones activas agrupadas por etapa comercial."
+          description="Agrupadas por estado comercial."
           action={<Badge variant={visibleOpportunities.length ? 'indigo' : 'default'} dot>{visibleOpportunities.length} operaciones</Badge>}
         >
           {loading ? (
@@ -833,19 +849,17 @@ export default function OpportunitiesPage() {
             />
           ) : (
             <div className="space-y-2">
-              {renderStages.map((stage) => {
-                const items = opportunitiesByStage[stage.id] ?? []
+              {COMM_STATE_ORDER.map((state) => {
+                const items = opportunitiesByCommState[state]
                 if (items.length === 0) return null
-                const stageValue = items.reduce((s, o) => s + (o.value ?? 0), 0)
+                const stateValue = items.reduce((s, o) => s + (o.value ?? 0), 0)
+                const stateLabel = COMM_STATE_OPTIONS.find((o) => o.id === state)?.label ?? state
                 return (
-                  <div key={stage.id} className="rounded-xl border border-gray-100 bg-white p-3">
+                  <div key={state} className="rounded-xl border border-gray-100 bg-white p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold', stage.tone)}>{stage.label}</span>
-                        <span className="truncate text-[10px] text-gray-400">{stage.description}</span>
-                      </div>
+                      <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold', COMM_STATE_TONE[state])}>{stateLabel}</span>
                       <span className="shrink-0 text-[10px] font-medium text-gray-500">
-                        {items.length} {items.length !== 1 ? 'ops' : 'op'} · {formatCurrency(stageValue)}
+                        {items.length} {items.length !== 1 ? 'ops' : 'op'} · {formatCurrency(stateValue)}
                       </span>
                     </div>
                     <ul className="space-y-1.5">
@@ -862,32 +876,28 @@ export default function OpportunitiesPage() {
                               {[
                                 clientNameOf(opp.client_id),
                                 propertiesById[opp.property_id ?? String(opp.metadata?.property_id ?? '')]?.title || '',
-                                opp.expected_close_date ? `cierre ${formatDate(opp.expected_close_date)}` : '',
                               ].filter(Boolean).join(' · ') || 'Sin cliente ni inmueble vinculado'}
                             </p>
                           </button>
                           <div className="flex shrink-0 items-center gap-2">
-                            {(() => {
-                              const cs = TERMINAL_STAGES.has(opp.stage) ? null : closeState(opp.expected_close_date)
-                              if (cs === 'overdue') return <span className="hidden rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 sm:inline">Cierre vencido</span>
-                              if (cs === 'soon') return <span className="hidden rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:inline">Cierre previsto</span>
-                              return null
-                            })()}
+                            {state === 'won' && (
+                              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">{wonLabel(typeof opp.metadata?.operation_kind === 'string' ? opp.metadata.operation_kind : null)}</span>
+                            )}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
                             {(() => {
                               const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
                               const amount = base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
                               return amount != null
-                                ? <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Comisión estimada (orientativa)">Com. {formatCurrency(amount)}</span>
+                                ? <span className="rounded-full bg-teal-50 px-1.5 py-0.5 text-[10px] font-medium text-teal-700" title="Comisión estimada (orientativa)">Com. {formatCurrency(amount)}</span>
                                 : null
                             })()}
                             <select
-                              aria-label="Cambiar etapa"
+                              aria-label="Cambiar estado"
                               className={SELECT_CLS}
-                              value={opp.stage}
-                              onChange={(e) => void handleOpportunityStage(opp, e.target.value)}
+                              value={commStateOf(opp.stage)}
+                              onChange={(e) => void handleOpportunityStage(opp, stageForCommState(e.target.value as CommState))}
                             >
-                              {formStagesForVertical((opp.vertical as VerticalKey) ?? 'general', opp.stage).map((s) => (
+                              {COMM_STATE_OPTIONS.map((s) => (
                                 <option key={s.id} value={s.id}>{s.label}</option>
                               ))}
                             </select>
@@ -1031,7 +1041,7 @@ export default function OpportunitiesPage() {
             <div className="flex items-center gap-2">
               {soldArchivedCount > 0 && (
                 <button type="button" onClick={() => setShowSoldProps((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
-                  {showSoldProps ? 'Ocultar vendidos' : `Ver vendidos (${soldArchivedCount})`}
+                  {showSoldProps ? 'Ocultar cerrados' : `Ver vendidos y alquilados (${soldArchivedCount})`}
                 </button>
               )}
               <Badge variant={shownProperties.length ? 'indigo' : 'default'} dot>{shownProperties.length} {shownProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>
@@ -1114,16 +1124,29 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'commissions' && (
         <SectionCard
           title="Comisiones"
-          description="Control interno de comisiones de tus operaciones. Estimación orientativa; no es facturación."
-          action={<Badge variant={commissionRows.length ? 'indigo' : 'default'} dot>{commissionRows.length} {commissionRows.length === 1 ? 'operación' : 'operaciones'}</Badge>}
+          description="Comisión prevista y cobro de tus operaciones cerradas. Orientativa, para control interno: no es factura ni contabilidad."
+          action={
+            <div className="flex items-center gap-3">
+              {(openCommissionCount > 0 || showOpenCommissions) && (
+                <button type="button" onClick={() => setShowOpenCommissions((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
+                  {showOpenCommissions ? 'Ver solo cerradas' : `Ver también abiertas (${openCommissionCount})`}
+                </button>
+              )}
+              <Badge variant={commissionRows.length ? 'indigo' : 'default'} dot>{commissionRows.length} {commissionRows.length === 1 ? 'operación' : 'operaciones'}</Badge>
+            </div>
+          }
         >
           {loading ? (
             <div className="space-y-2.5 py-2">{[0, 1, 2].map((s) => <div key={s} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />)}</div>
           ) : commissionRows.length === 0 ? (
             <EmptyState
               icon={<Coins className="h-6 w-6 text-gray-300" />}
-              title="Sin comisiones que controlar"
-              description="Añade una «comisión pactada (%)» a tus operaciones para ver aquí la comisión estimada y su estado de cobro."
+              title={showOpenCommissions ? 'Sin comisiones que controlar' : 'Aún no hay operaciones cerradas con comisión'}
+              description={
+                showOpenCommissions
+                  ? 'Añade una «comisión pactada (%)» a tus operaciones para ver aquí la comisión prevista y su estado de cobro.'
+                  : 'Cuando marques una operación como Vendida o Alquilada con comisión pactada, aparecerá aquí para registrar el cobro. Usa «Ver también abiertas» para anticipar las que siguen en gestión.'
+              }
             />
           ) : (
             <ul className="space-y-2">
@@ -1131,22 +1154,31 @@ export default function OpportunitiesPage() {
                 const est = commissionOf(o) ?? 0
                 const paid = o.commission_status === 'cobrada'
                 const propTitle = o.property_id ? propertiesById[o.property_id]?.title : ''
+                const kind = typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : ''
+                const kindLabel = kind ? (PROPERTY_OPERATION_LABEL[kind] ?? cap(kind)) : ''
+                const isClosed = commStateOf(o.stage) === 'won'
+                const realAmount = paid ? (o.commission_paid_amount ?? est) : null
+                const note = typeof o.metadata?.commission_note === 'string' ? o.metadata.commission_note : ''
                 return (
                   <li key={o.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white p-3">
                     <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
-                      <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
-                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, `${o.commission_rate}%`].filter(Boolean).join(' · ')}</p>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
+                        {!isClosed && <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">En gestión</span>}
+                      </div>
+                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, `${o.commission_rate}%`].filter(Boolean).join(' · ')}</p>
+                      {paid && note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
                     </button>
                     <div className="flex shrink-0 items-center gap-2">
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(est)}</p>
-                        <p className="text-[10px] text-gray-400">comisión estimada</p>
+                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(paid ? (realAmount ?? est) : est)}</p>
+                        <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `prevista ${formatCurrency(est)}` : 'comisión cobrada') : 'comisión prevista'}</p>
                       </div>
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
                       {paid ? (
-                        <button type="button" onClick={() => void markCommission(o, false)} title="Marcar como pendiente" className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"><RotateCcw className="h-3 w-3" /> Pendiente</button>
+                        <button type="button" onClick={() => void markCommissionPending(o)} title="Marcar como pendiente" className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"><RotateCcw className="h-3 w-3" /> Pendiente</button>
                       ) : (
-                        <button type="button" onClick={() => void markCommission(o, true)} title="Marcar como cobrada" className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"><Check className="h-3 w-3" /> Cobrada</button>
+                        <button type="button" onClick={() => openCollect(o)} title="Registrar cobro de la comisión" className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"><Check className="h-3 w-3" /> Registrar cobro</button>
                       )}
                     </div>
                   </li>
@@ -1154,6 +1186,9 @@ export default function OpportunitiesPage() {
               })}
             </ul>
           )}
+          <p className="mt-3 text-[11px] leading-snug text-gray-400">
+            La comisión prevista (precio o valor × % pactado) es orientativa. Registrar el cobro guarda el importe y la fecha como control interno; no genera factura, impuestos ni contabilidad.
+          </p>
         </SectionCard>
       )}
 
@@ -1304,6 +1339,50 @@ export default function OpportunitiesPage() {
         onConfirm={() => void confirmDeleteCase()}
         onCancel={() => { if (!deleteBusy) { setDeleteCaseTarget(null); setDeleteError(null) } }}
       />
+
+      {/* Registrar cobro de comisión — importe real opcional + nota opcional (control interno) */}
+      {collectOpp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => { if (!collectBusy) setCollectOpp(null) }} />
+          <div className="relative w-full max-w-md rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900">Registrar cobro de comisión</h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              «{collectOpp.title}» · comisión prevista {formatCurrency(commissionOf(collectOpp) ?? 0)}.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-gray-600">Importe cobrado (€) <span className="font-normal text-gray-400">· opcional</span></label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  className={SELECT_CLS}
+                  value={collectAmount}
+                  onChange={(e) => setCollectAmount(e.target.value)}
+                  placeholder={String(commissionOf(collectOpp) ?? 0)}
+                />
+                <p className="mt-1 text-[10px] text-gray-400">Déjalo como está para usar la comisión prevista, o ajústalo al importe real cobrado.</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-gray-600">Nota <span className="font-normal text-gray-400">· opcional</span></label>
+                <textarea
+                  rows={2}
+                  className={cn(SELECT_CLS, 'h-auto resize-none py-2')}
+                  value={collectNote}
+                  onChange={(e) => setCollectNote(e.target.value)}
+                  placeholder="Ej.: cobrado por transferencia, pendiente de regularizar IVA con gestoría…"
+                />
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] leading-snug text-gray-400">Control interno. No genera factura, impuestos ni contabilidad.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" disabled={collectBusy} onClick={() => setCollectOpp(null)} className="inline-flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
+              <button type="button" disabled={collectBusy} onClick={() => void submitCommissionCollection()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"><Check className="h-4 w-4" /> {collectBusy ? 'Guardando…' : 'Registrar cobro'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }

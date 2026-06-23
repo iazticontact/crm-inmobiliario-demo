@@ -21,7 +21,9 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  formStagesForVertical,
+  COMM_STATE_OPTIONS,
+  stageForCommState,
+  type CommState,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -119,7 +121,7 @@ export function NewOpportunityDrawer({
 }: NewOpportunityDrawerProps) {
   const [title, setTitle] = useState('')
   const [vertical, setVertical] = useState<VerticalKey>(defaultVertical)
-  const [stage, setStage] = useState(() => formStagesForVertical(defaultVertical)[0]?.id ?? 'new')
+  const [commState, setCommState] = useState<CommState>('new')
   const [clientName, setClientName] = useState(defaultClientName ?? '')
   const [propertyId, setPropertyId] = useState(defaultPropertyId ?? '')
   const [operationKind, setOperationKind] = useState('venta')
@@ -132,7 +134,6 @@ export function NewOpportunityDrawer({
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const stages = formStagesForVertical(vertical)
   const selectedProperty = properties.find((p) => p.id === propertyId)
   const commissionBase = selectedProperty?.price ?? (value ? Number(value) || null : null)
   const commissionAmount = estimateCommission(commissionBase, commissionRate ? Number(commissionRate) || null : null)
@@ -140,7 +141,7 @@ export function NewOpportunityDrawer({
   function reset() {
     setTitle('')
     setVertical(defaultVertical)
-    setStage(formStagesForVertical(defaultVertical)[0]?.id ?? 'new')
+    setCommState('new')
     setClientName(defaultClientName ?? '')
     setPropertyId(defaultPropertyId ?? '')
     setOperationKind('venta')
@@ -182,7 +183,7 @@ export function NewOpportunityDrawer({
       const row = await createOpportunity(workspaceId, {
         title: title.trim(),
         vertical,
-        stage,
+        stage: stageForCommState(commState),
         clientId: defaultClientId,
         clientName: clientName.trim() || null,
         propertyId: propertyId || null,
@@ -252,9 +253,9 @@ export function NewOpportunityDrawer({
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Etapa</label>
-            <select className={SELECT_CLS} value={stage} onChange={(e) => setStage(e.target.value)}>
-              {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            <label className={FIELD_LABEL_CLS}>Estado</label>
+            <select className={SELECT_CLS} value={commState} onChange={(e) => setCommState(e.target.value as CommState)}>
+              {COMM_STATE_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </div>
         </div>
@@ -272,7 +273,7 @@ export function NewOpportunityDrawer({
             <select
               className={SELECT_CLS}
               value={vertical}
-              onChange={(e) => { const v = e.target.value as VerticalKey; setVertical(v); setStage(formStagesForVertical(v)[0]?.id ?? 'new') }}
+              onChange={(e) => setVertical(e.target.value as VerticalKey)}
             >
               {Object.values(VERTICALS).map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
             </select>

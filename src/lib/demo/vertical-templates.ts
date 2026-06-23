@@ -147,6 +147,58 @@ export function formStagesForVertical(vertical: VerticalKey, currentStage?: stri
 }
 
 // -----------------------------------------------------------------------------
+// Estado comercial visible de una operación (5 estados). Colapsa las etapas internas del
+// pipeline para que la UI sea simple y muy clara para una inmobiliaria. Las claves internas
+// (new/contacted/.../won/lost) NO cambian: se mapean a estos 5 buckets sin perder datos.
+// -----------------------------------------------------------------------------
+export type CommState = 'new' | 'managing' | 'reserved' | 'won' | 'lost'
+
+export const COMM_STATE_ORDER: CommState[] = ['new', 'managing', 'reserved', 'won', 'lost']
+
+export const COMM_STATE_OPTIONS: { id: CommState; label: string }[] = [
+  { id: 'new',      label: 'Nueva' },
+  { id: 'managing', label: 'En gestión' },
+  { id: 'reserved', label: 'Reserva' },
+  { id: 'won',      label: 'Vendida / Alquilada' },
+  { id: 'lost',     label: 'Perdida' },
+]
+
+export const COMM_STATE_TONE: Record<CommState, string> = {
+  new:      'bg-gray-50 text-gray-700 border-gray-100',
+  managing: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+  reserved: 'bg-amber-50 text-amber-700 border-amber-100',
+  won:      'bg-emerald-50 text-emerald-700 border-emerald-100',
+  lost:     'bg-rose-50 text-rose-700 border-rose-100',
+}
+
+// Etapa interna → estado comercial visible. Contactado/Cualificado/Visita/Oferta/Negociación
+// (y cualquier etapa intermedia) → "En gestión".
+export function commStateOf(stage: string): CommState {
+  if (stage === 'new') return 'new'
+  if (stage === 'reserved') return 'reserved'
+  if (stage === 'won' || stage === 'closed' || stage === 'resolved') return 'won'
+  if (stage === 'lost') return 'lost'
+  return 'managing'
+}
+
+// Estado comercial → etapa interna canónica para escribir. "En gestión" → 'contacted'.
+export function stageForCommState(s: CommState): string {
+  return s === 'managing' ? 'contacted' : s
+}
+
+// Etiqueta final de una operación ganada según el tipo: alquiler → "Alquilada", resto → "Vendida".
+export function wonLabel(operationKind?: string | null): string {
+  return operationKind === 'alquiler' ? 'Alquilada' : 'Vendida'
+}
+
+// Etiqueta visible del estado comercial de una operación (con Vendida/Alquilada según el tipo).
+export function commStateLabel(stage: string, operationKind?: string | null): string {
+  const s = commStateOf(stage)
+  if (s === 'won') return wonLabel(operationKind)
+  return COMM_STATE_OPTIONS.find((o) => o.id === s)?.label ?? 'En gestión'
+}
+
+// -----------------------------------------------------------------------------
 // Service case types — primarily for immigration and professional services
 // -----------------------------------------------------------------------------
 

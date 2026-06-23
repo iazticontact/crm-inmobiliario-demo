@@ -29,7 +29,10 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  formStagesForVertical,
+  COMM_STATE_OPTIONS,
+  commStateOf,
+  stageForCommState,
+  type CommState,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -131,7 +134,6 @@ function EditOpportunityInner({
   const [notes, setNotes] = useState(() => opportunity.notes ?? '')
   const [saving, setSaving] = useState(false)
 
-  const stages = formStagesForVertical(vertical, stage)
   const linkedProperty = opportunity.property_id ? properties.find((p) => p.id === opportunity.property_id) : undefined
   const commissionBase = linkedProperty?.price ?? (value ? Number(value) || null : null)
   const commissionAmount = estimateCommission(commissionBase, commissionRate ? Number(commissionRate) || null : null)
@@ -201,13 +203,7 @@ function EditOpportunityInner({
             <select
               className={SELECT_CLS}
               value={vertical}
-              onChange={(e) => {
-                const v = e.target.value as VerticalKey
-                setVertical(v)
-                if (!formStagesForVertical(v, stage).some((s) => s.id === stage)) {
-                  setStage(formStagesForVertical(v)[0]?.id ?? 'new')
-                }
-              }}
+              onChange={(e) => setVertical(e.target.value as VerticalKey)}
             >
               {Object.values(VERTICALS).map((v) => (
                 <option key={v.key} value={v.key}>{v.label}</option>
@@ -216,9 +212,9 @@ function EditOpportunityInner({
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <label className={FIELD_LABEL_CLS}>Etapa</label>
-          <select className={SELECT_CLS} value={stage} onChange={(e) => setStage(e.target.value)}>
-            {stages.map((s) => (
+          <label className={FIELD_LABEL_CLS}>Estado</label>
+          <select className={SELECT_CLS} value={commStateOf(stage)} onChange={(e) => setStage(stageForCommState(e.target.value as CommState))}>
+            {COMM_STATE_OPTIONS.map((s) => (
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>

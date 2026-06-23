@@ -297,6 +297,7 @@ export type UpdateOpportunityInput = {
   assignedTo?: string | null
   expectedCloseDate?: string | null
   notes?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export async function updateOpportunity(workspaceId: string, id: string, input: UpdateOpportunityInput) {
@@ -317,6 +318,7 @@ export async function updateOpportunity(workspaceId: string, id: string, input: 
   if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
   if (input.expectedCloseDate !== undefined) patch.expected_close_date = input.expectedCloseDate
   if (input.notes !== undefined) patch.notes = input.notes
+  if (input.metadata !== undefined) patch.metadata = input.metadata
 
   const { data, error } = await supabase
     .from('opportunities')
