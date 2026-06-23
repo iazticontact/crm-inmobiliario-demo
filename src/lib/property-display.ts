@@ -16,7 +16,7 @@ export const PROPERTY_OPERATION_LABEL: Record<string, string> = {
 
 // Estado del inmueble → etiqueta + tono de badge. Claves internas intactas; solo mejora visible.
 export const PROPERTY_STATUS_META: Record<string, { label: string; tone: string }> = {
-  prospecting:    { label: 'Captación',  tone: 'bg-gray-50 text-gray-600 border-gray-100' },
+  prospecting:    { label: 'En preparación', tone: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
   listed:         { label: 'Publicado',  tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
   available:      { label: 'Disponible', tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
   under_contract: { label: 'Reservado',  tone: 'bg-amber-50 text-amber-700 border-amber-100' },

@@ -75,11 +75,12 @@ const OPERATION_OPTIONS = [
 ]
 
 const PROPERTY_STATUS_OPTIONS = [
-  { id: 'prospecting', label: 'Captación' },
-  { id: 'listed', label: 'Publicada' },
-  { id: 'under_contract', label: 'Bajo contrato' },
-  { id: 'sold', label: 'Vendida / alquilada' },
-  { id: 'archived', label: 'Archivada' },
+  { id: 'prospecting', label: 'En preparación' },
+  { id: 'listed', label: 'Publicado' },
+  { id: 'under_contract', label: 'Reservado' },
+  { id: 'sold', label: 'Vendido' },
+  { id: 'rented', label: 'Alquilado' },
+  { id: 'archived', label: 'Archivado' },
 ]
 
 // -----------------------------------------------------------------------------

@@ -1,20 +1,21 @@
 'use client'
 
-// Ficha de inmueble (P6.16 / arranque P7.1). Vista dedicada de un inmueble: portada/galería, datos
-// clave, operaciones y trámites vinculados, y documentos reales (EntityDocumentsManager). Carga sus
-// propios datos por id (refresh-safe) y reutiliza EditPropertyDrawer para editar. RLS por workspace,
-// signed URLs, sin service_role.
+// Ficha de inmueble (P7.1). Vista 360 dedicada y compacta: cabecera con portada + datos + acciones,
+// galería real gestionable (PropertyPhotosManager), datos clave, operaciones y trámites vinculados,
+// y documentos del inmueble (EntityDocumentsManager). Carga por id (refresh-safe). RLS por
+// workspace, signed URLs, sin service_role.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Home, MapPin, Pencil, Building2 } from 'lucide-react'
+import { ArrowLeft, Home, MapPin, Pencil, Building2, ImagePlus, FilePlus2 } from 'lucide-react'
 import { SectionCard } from '@/components/SectionCard'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
+import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
 import { EditPropertyDrawer } from '@/components/VerticalEditForms'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { cn } from '@/lib/utils'
@@ -23,14 +24,13 @@ import {
   type PropertyRow, type OpportunityRow, type ServiceCaseRow,
 } from '@/lib/vertical-queries'
 import { getClients } from '@/lib/supabase-queries'
-import { listEntityFiles, signedUrls } from '@/lib/entity-files'
 import { demoProperties, demoOpportunities, demoServiceCases } from '@/lib/demo/demo-real-estate'
 import { clients as demoClients } from '@/lib/mock-data'
 import { commStateLabel, COMM_STATE_TONE, commStateOf } from '@/lib/demo/vertical-templates'
 import { serviceCaseStatusLabel } from '@/components/VerticalForms'
 import {
   PROPERTY_TYPE_LABEL, PROPERTY_OPERATION_LABEL, PROPERTY_STATUS_META,
-  propLabel, propNum, isRentalProperty, formatPropertyPrice,
+  propLabel, propNum, isRentalProperty, isClosedPropertyStatus, formatPropertyPrice,
 } from '@/lib/property-display'
 
 function fmtDate(value: string | null): string {
@@ -39,6 +39,8 @@ function fmtDate(value: string | null): string {
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
 }
+
+const ACTION_BTN = 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50'
 
 export default function PropertyDetailPage() {
   const params = useParams<{ id: string }>()
@@ -50,23 +52,12 @@ export default function PropertyDetailPage() {
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
-  const [gallery, setGallery] = useState<string[]>([])
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
 
   const isDemo = typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
-
-  const loadGallery = useCallback(async (wsId: string, propId: string) => {
-    try {
-      const files = await listEntityFiles(wsId, 'property', propId, 'image')
-      const ordered = [...files].sort((a, b) => Number(b.is_cover) - Number(a.is_cover))
-      const urls = await signedUrls(ordered.map((f) => f.path))
-      setGallery(ordered.map((f) => urls[f.path]).filter(Boolean))
-    } catch {
-      setGallery([])
-    }
-  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -77,7 +68,6 @@ export default function PropertyDetailPage() {
       setOpportunities(demoOpportunities)
       setCases(demoServiceCases)
       setClientNames(Object.fromEntries(demoClients.map((c) => [c.id, c.name])))
-      setGallery([])
       setNotFound(!p)
       setLoading(false)
       return
@@ -96,13 +86,12 @@ export default function PropertyDetailPage() {
       setCases(srv)
       setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
       setNotFound(!p)
-      if (p) void loadGallery(workspaceId, p.id)
     } catch {
       setNotFound(true)
     } finally {
       setLoading(false)
     }
-  }, [id, workspaceId, isDemo, loadGallery])
+  }, [id, workspaceId, isDemo])
 
   useEffect(() => {
     if (userLoading) return
@@ -114,7 +103,6 @@ export default function PropertyDetailPage() {
     () => opportunities.filter((o) => o.property_id === id || (typeof o.metadata?.property_id === 'string' && o.metadata.property_id === id)),
     [opportunities, id],
   )
-  // Trámites vinculados a las operaciones de este inmueble.
   const linkedOpIds = useMemo(() => new Set(linkedOps.map((o) => o.id)), [linkedOps])
   const linkedCases = useMemo(
     () => cases.filter((c) => c.opportunity_id && linkedOpIds.has(c.opportunity_id)),
@@ -141,6 +129,7 @@ export default function PropertyDetailPage() {
   const p = property
   const st = p ? (PROPERTY_STATUS_META[p.status] ?? { label: p.status, tone: 'bg-gray-50 text-gray-600 border-gray-100' }) : null
   const isRent = p ? isRentalProperty(p.operation_type) : false
+  const historical = p ? isClosedPropertyStatus(p.status) : false
   const specs = p ? [
     propNum(p, 'bedrooms', 'rooms') != null ? `${propNum(p, 'bedrooms', 'rooms')} hab` : '',
     propNum(p, 'bathrooms', 'baths') != null ? `${propNum(p, 'bathrooms', 'baths')} baños` : '',
@@ -160,41 +149,48 @@ export default function PropertyDetailPage() {
 
       {loading || !p || !st ? (
         <div className="space-y-4">
-          <div className="h-64 w-full animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-56 w-full animate-pulse rounded-2xl bg-slate-100" />
           <div className="h-40 w-full animate-pulse rounded-2xl bg-slate-100" />
         </div>
       ) : (
         <>
-          {/* Cabecera con portada/galería + datos clave */}
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03]">
-            <div className="relative flex aspect-[16/9] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 sm:aspect-[21/9]">
-              {gallery[0]
-                ? <img src={gallery[0]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
-                : <Home className="h-12 w-12 text-gray-300" />}
-              <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
-              <span className={cn('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-[11px] font-semibold', st.tone)}>{st.label}</span>
-            </div>
-            {gallery.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto px-3 pt-3">
-                {gallery.slice(0, 8).map((url, i) => (
-                  <img key={i} src={url} alt={`${p.title} ${i + 1}`} className="h-14 w-20 shrink-0 rounded-lg object-cover ring-1 ring-black/[0.04]" />
-                ))}
+          {/* Cabecera compacta: portada (columna acotada) + datos clave + acciones */}
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm shadow-gray-950/[0.03]">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,300px)_1fr] lg:grid-cols-[minmax(0,360px)_1fr]">
+              <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gradient-to-br from-gray-50 to-gray-100">
+                {coverUrl ? (
+                  <img src={coverUrl} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
+                ) : isDemo ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center">
+                    <Home className="h-8 w-8 text-gray-300" />
+                    <span className="text-xs font-medium text-gray-500">Sin fotos</span>
+                  </div>
+                ) : (
+                  <a href="#fotos-inmueble" className="flex h-full w-full flex-col items-center justify-center gap-1 text-center transition-colors hover:bg-gray-50">
+                    <Home className="h-8 w-8 text-gray-300" />
+                    <span className="text-xs font-medium text-gray-500">Sin fotos todavía</span>
+                    <span className="text-[11px] font-semibold text-indigo-600">Subir fotos</span>
+                  </a>
+                )}
               </div>
-            )}
-            <div className="flex flex-wrap items-start justify-between gap-3 p-4">
-              <div className="min-w-0">
-                <h1 className="text-lg font-bold text-gray-900">{p.title}</h1>
-                <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
+              <div className="flex min-w-0 flex-col">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+                  <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', st.tone)}>{st.label}</span>
+                  {historical && <span className="rounded-full bg-gray-900/80 px-2 py-0.5 text-[11px] font-semibold text-white">Histórico</span>}
+                </div>
+                <h1 className="mt-2 text-xl font-bold leading-tight text-gray-900">{p.title}</h1>
+                <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type), specs].filter(Boolean).join(' · ') || '—'}</p>
                 <p className="mt-1 flex items-center gap-1 text-[13px] text-gray-600">
                   <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                   {[p.address, [p.city, p.area].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'Sin ubicación'}
                 </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-gray-900">{formatPropertyPrice(p.price, p.currency, isRent)}</p>
-                <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)} className="mt-2">
-                  <Pencil className="h-3.5 w-3.5" /> Editar
-                </Button>
+                <p className="mt-2 text-2xl font-bold text-gray-900">{formatPropertyPrice(p.price, p.currency, isRent)}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="primary" size="sm" onClick={() => setEditOpen(true)}><Pencil className="h-3.5 w-3.5" /> Editar</Button>
+                  {!isDemo && <a href="#fotos-inmueble" className={ACTION_BTN}><ImagePlus className="h-3.5 w-3.5" /> Subir fotos</a>}
+                  {!isDemo && <a href="#docs-inmueble" className={ACTION_BTN}><FilePlus2 className="h-3.5 w-3.5" /> Añadir documento</a>}
+                </div>
               </div>
             </div>
           </div>
@@ -221,7 +217,7 @@ export default function PropertyDetailPage() {
             action={<Badge variant={linkedOps.length ? 'indigo' : 'default'} dot>{linkedOps.length} {linkedOps.length === 1 ? 'operación' : 'operaciones'}</Badge>}
           >
             {linkedOps.length === 0 ? (
-              <p className="py-2 text-[13px] text-gray-400">Sin operaciones vinculadas todavía.</p>
+              <p className="py-1 text-[13px] text-gray-400">Sin operaciones vinculadas todavía.</p>
             ) : (
               <ul className="space-y-2">
                 {linkedOps.map((o) => {
@@ -247,7 +243,7 @@ export default function PropertyDetailPage() {
             action={<Badge variant={linkedCases.length ? 'indigo' : 'default'} dot>{linkedCases.length} {linkedCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
           >
             {linkedCases.length === 0 ? (
-              <p className="py-2 text-[13px] text-gray-400">Sin trámites vinculados.</p>
+              <p className="py-1 text-[13px] text-gray-400">Sin trámites vinculados.</p>
             ) : (
               <ul className="space-y-2">
                 {linkedCases.map((c) => (
@@ -263,28 +259,41 @@ export default function PropertyDetailPage() {
             )}
           </SectionCard>
 
+          {/* Fotos del inmueble (galería real gestionable) */}
+          <div id="fotos-inmueble" className="scroll-mt-4">
+            <SectionCard title="Fotos del inmueble" description="Portada y galería del inmueble. La portada se ve en la cartera.">
+              {isDemo ? (
+                <p className="py-1 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan fotos reales.</p>
+              ) : (
+                <PropertyPhotosManager workspaceId={workspaceId} propertyId={p.id} onCoverChange={(_, url) => setCoverUrl(url)} />
+              )}
+            </SectionCard>
+          </div>
+
           {/* Documentos del inmueble (reales) */}
-          <SectionCard title="Documentos del inmueble" description="Nota simple, planos, certificados o cualquier documento del inmueble.">
-            {isDemo ? (
-              <p className="py-2 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan documentos reales.</p>
-            ) : (
-              <EntityDocumentsManager
-                workspaceId={workspaceId}
-                entityType="property"
-                entityId={p.id}
-                title="Documentos del inmueble"
-                description="Sube nota simple, planos, certificado energético o escrituras del inmueble."
-              />
-            )}
-          </SectionCard>
+          <div id="docs-inmueble" className="scroll-mt-4">
+            <SectionCard title="Documentos del inmueble" description="Nota simple, planos, certificado energético, escrituras o contratos.">
+              {isDemo ? (
+                <p className="py-1 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan documentos reales.</p>
+              ) : (
+                <EntityDocumentsManager
+                  workspaceId={workspaceId}
+                  entityType="property"
+                  entityId={p.id}
+                  title="Documentos del inmueble"
+                  description="Sube nota simple, planos, certificado energético o escrituras del inmueble."
+                />
+              )}
+            </SectionCard>
+          </div>
 
           <EditPropertyDrawer
             open={editOpen}
-            onClose={() => { setEditOpen(false); if (workspaceId && p) void loadGallery(workspaceId, p.id) }}
+            onClose={() => setEditOpen(false)}
             workspaceId={workspaceId}
             property={p}
             onUpdated={(row) => setProperty(row)}
-            onCoverChange={() => { if (workspaceId && p) void loadGallery(workspaceId, p.id) }}
+            onCoverChange={(_, url) => setCoverUrl(url)}
           />
         </>
       )}

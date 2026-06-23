@@ -641,7 +641,8 @@ export default function OpportunitiesPage() {
   // real_estate salvo que esté filtrando explícitamente por otra vertical (workspace mixto).
   const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'real_estate' : (vertical as VerticalKey)
 
-  // Card de inmueble (premium). Click en la card → ficha del inmueble; pie con estado y editar.
+  // Card de inmueble (premium). Acción principal: abrir la ficha; editar es secundario. Las cards
+  // del histórico (vendido/alquilado/archivado) llevan un estilo más apagado y un sello "Histórico".
   const renderPropertyCard = (p: PropertyRow) => {
     const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
     const beds = propNum(p, 'bedrooms', 'rooms')
@@ -653,8 +654,10 @@ export default function OpportunitiesPage() {
     const ops = opsCountByProperty[p.id] ?? 0
     const owner = clientNameOf(p.client_id) || p.owner_name || ''
     const isRent = isRentalProperty(p.operation_type)
+    const historical = isClosedProperty(p.status)
+    const fichaHref = `/opportunities/properties/${p.id}`
     const statusOpts: { id: string; label: string }[] = [
-      { id: 'prospecting', label: 'Captación' },
+      { id: 'prospecting', label: 'En preparación' },
       { id: 'listed', label: 'Publicado' },
       { id: 'under_contract', label: 'Reservado' },
       { id: isRent ? 'rented' : 'sold', label: isRent ? 'Alquilado' : 'Vendido' },
@@ -664,14 +667,22 @@ export default function OpportunitiesPage() {
       statusOpts.unshift({ id: p.status, label: PROPERTY_STATUS_META[p.status]?.label ?? cap(p.status) })
     }
     return (
-      <li key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03] transition-shadow hover:shadow-md hover:shadow-gray-950/[0.06]">
-        <Link href={`/opportunities/properties/${p.id}`} className="block text-left" title="Ver ficha del inmueble">
+      <li key={p.id} className={cn(
+        'flex flex-col overflow-hidden rounded-2xl border',
+        historical
+          ? 'border-gray-100 bg-gray-50/50'
+          : 'border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03] transition-shadow hover:shadow-md hover:shadow-gray-950/[0.06]',
+      )}>
+        <Link href={fichaHref} className="block text-left" title="Ver ficha del inmueble">
           {/* Portada real (Storage privado + signed URL) o placeholder elegante. */}
           <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
             {coverUrls[p.id]
-              ? <img src={coverUrls[p.id]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
+              ? <img src={coverUrls[p.id]} alt={p.title} className={cn('absolute inset-0 h-full w-full object-cover', historical && 'opacity-90')} />
               : <Home className="h-9 w-9 text-gray-300" />}
-            <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+            <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+              <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+              {historical && <span className="rounded-full bg-gray-900/75 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">Histórico</span>}
+            </div>
             <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
           </div>
           <div className="p-3">
@@ -683,20 +694,20 @@ export default function OpportunitiesPage() {
               <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
               {[[p.city, p.area].filter(Boolean).join(', '), owner].filter(Boolean).join(' · ') || 'Sin ubicación'}
             </p>
-            <div className="mt-1.5 flex items-center justify-between gap-2">
-              {ops > 0
-                ? <span className="text-[11px] font-medium text-indigo-600">{ops} {ops === 1 ? 'operación vinculada' : 'operaciones vinculadas'}</span>
-                : <span className="text-[11px] text-gray-300">Sin operaciones</span>}
-              <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-indigo-600">Ver ficha<ChevronRight className="h-3 w-3" /></span>
-            </div>
+            {ops > 0
+              ? <p className="mt-1.5 text-[11px] font-medium text-indigo-600">{ops} {ops === 1 ? 'operación vinculada' : 'operaciones vinculadas'}</p>
+              : <p className="mt-1.5 text-[11px] text-gray-300">Sin operaciones vinculadas</p>}
           </div>
         </Link>
-        <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-50 px-3 py-2">
-          <select aria-label="Cambiar estado" className={SELECT_CLS} value={p.status} onChange={(e) => requestPropertyStatus(p, e.target.value)}>
+        <div className="mt-auto flex items-center gap-2 border-t border-gray-50 px-3 py-2">
+          <select aria-label="Cambiar estado" className={cn(SELECT_CLS, 'flex-1')} value={p.status} onChange={(e) => requestPropertyStatus(p, e.target.value)}>
             {statusOpts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
-          <button type="button" onClick={() => setEditProp(p)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">
-            <Pencil className="h-3 w-3" /> Editar
+          <Link href={fichaHref} className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700">
+            Ver ficha<ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+          <button type="button" onClick={() => setEditProp(p)} title="Editar inmueble" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700">
+            <Pencil className="h-3.5 w-3.5" />
           </button>
         </div>
       </li>
@@ -1134,7 +1145,11 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'properties' && (
         <SectionCard
           title="Inmuebles"
-          description="Tu cartera de inmuebles: ventas, alquileres y captaciones."
+          description={propView === 'history'
+            ? 'Histórico: vendidos, alquilados o archivados.'
+            : propView === 'all'
+              ? 'Cartera activa e histórico.'
+              : 'Cartera activa: inmuebles disponibles o en gestión.'}
           action={
             <div className="flex items-center gap-2">
               {soldArchivedCount > 0 && (

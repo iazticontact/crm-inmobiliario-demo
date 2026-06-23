@@ -547,12 +547,12 @@ const OPERATION_OPTIONS = [
   { id: 'rent', label: 'Alquiler' },
 ]
 
+// Estado inicial al registrar un inmueble: solo estados activos (vendido/alquilado/archivado se
+// marcan después desde la cartera o la ficha; un inmueble nuevo entra en cartera activa).
 const PROPERTY_STATUS_OPTIONS = [
-  { id: 'prospecting', label: 'Captación' },
-  { id: 'listed', label: 'Publicada' },
-  { id: 'under_contract', label: 'Bajo contrato' },
-  { id: 'sold', label: 'Vendida / alquilada' },
-  { id: 'archived', label: 'Archivada' },
+  { id: 'prospecting', label: 'En preparación' },
+  { id: 'listed', label: 'Publicado' },
+  { id: 'under_contract', label: 'Reservado' },
 ]
 
 export function NewPropertyDrawer({
@@ -673,7 +673,7 @@ export function NewPropertyDrawer({
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Estado</label>
+            <label className={FIELD_LABEL_CLS}>Estado inicial</label>
             <select className={SELECT_CLS} value={status} onChange={(e) => setStatus(e.target.value)}>
               {PROPERTY_STATUS_OPTIONS.map((s) => (
                 <option key={s.id} value={s.id}>{s.label}</option>
