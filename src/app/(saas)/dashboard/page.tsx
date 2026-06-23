@@ -53,6 +53,7 @@ import {
   recentActivity as demoActivity,
 } from '@/lib/mock-data'
 import { demoOpportunities, demoServiceCases, demoProperties, demoTasks } from '@/lib/demo/demo-real-estate'
+import { commStateOf, commStateLabel, type CommState } from '@/lib/demo/vertical-templates'
 
 type RealStats = {
   totalClients: number
@@ -82,33 +83,18 @@ type UrgentTask = { id: string; title: string; dueDate?: string; clientName?: st
 type ReviewOp = { id: string; title: string; stage: string; value: number | null }
 type PriorityRow = { key: string; label: string; count: number; href?: string; hint?: string; icon: React.ReactNode }
 
-// Orden y etiquetas del pipeline (mismas claves que usa el agente en
-// deterministic-db-actions.ts). Solo etapas ABIERTAS (won/lost quedan fuera).
-const PIPELINE_ORDER: { key: string; label: string }[] = [
-  { key: 'new', label: 'Nuevo' },
-  { key: 'contacted', label: 'Contactado' },
-  { key: 'qualified', label: 'Cualificado' },
-  { key: 'visit_scheduled', label: 'Visita' },
-  { key: 'offer', label: 'Oferta' },
-  { key: 'negotiation', label: 'Negociación' },
+// Embudo por ESTADO COMERCIAL abierto (coherente con Cartera: 5 estados). Solo abiertos:
+// Nueva · En gestión · Reserva (Vendida/Alquilada y Perdida quedan fuera del embudo).
+const OPEN_FUNNEL_STATES: { key: CommState; label: string; color: string }[] = [
+  { key: 'new', label: 'Nueva', color: '#6366f1' },
+  { key: 'managing', label: 'En gestión', color: '#8b5cf6' },
+  { key: 'reserved', label: 'Reserva', color: '#f59e0b' },
 ]
-const STAGE_LABELS: Record<string, string> = Object.fromEntries(
-  [...PIPELINE_ORDER.map((s) => [s.key, s.label]), ['won', 'Ganada'], ['lost', 'Perdida'], ['closed', 'Cerrada']],
-)
-
-// Paleta del donut por etapa (hex para el stroke SVG). Tonos premium, no chillón.
-const STAGE_COLORS: Record<string, string> = {
-  new: '#6366f1',
-  contacted: '#8b5cf6',
-  qualified: '#0ea5e9',
-  visit_scheduled: '#06b6d4',
-  offer: '#f59e0b',
-  negotiation: '#10b981',
-}
+const STAGE_COLORS: Record<string, string> = Object.fromEntries(OPEN_FUNNEL_STATES.map((s) => [s.key, s.color]))
 
 function buildPipeline(openOpps: { stage: string; value: number | null }[]): PipelineStage[] {
-  return PIPELINE_ORDER.map((s) => {
-    const rows = openOpps.filter((o) => o.stage === s.key)
+  return OPEN_FUNNEL_STATES.map((s) => {
+    const rows = openOpps.filter((o) => commStateOf(o.stage) === s.key)
     return {
       stage: s.key,
       label: s.label,
@@ -718,7 +704,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <PieChart className="mb-2 h-6 w-6 text-gray-300" />
                   <p className="text-sm font-medium text-gray-700">Sin operaciones abiertas</p>
-                  <p className="mt-1 text-xs text-gray-500">Las operaciones que abras (ventas y alquileres en seguimiento) aparecerán aquí por etapa, con su valor potencial.</p>
+                  <p className="mt-1 text-xs text-gray-500">Las operaciones que abras (ventas y alquileres en seguimiento) aparecerán aquí por estado, con su valor potencial.</p>
                 </div>
               )}
             </SectionCard>
@@ -796,7 +782,7 @@ export default function DashboardPage() {
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600">Operación a revisar</p>
                         <p className="truncate text-sm font-semibold text-gray-900">{reviewOp.title}</p>
                         <p className="truncate text-[11px] text-gray-500">
-                          {[STAGE_LABELS[reviewOp.stage] ?? reviewOp.stage, reviewOp.value ? formatEuro(reviewOp.value) : null].filter(Boolean).join(' · ')}
+                          {[commStateLabel(reviewOp.stage), reviewOp.value ? formatEuro(reviewOp.value) : null].filter(Boolean).join(' · ')}
                         </p>
                       </div>
                       <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />

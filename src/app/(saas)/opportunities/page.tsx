@@ -196,8 +196,9 @@ export default function OpportunitiesPage() {
   const [showSoldProps, setShowSoldProps] = useState(false)
   // Comisiones: por defecto solo operaciones cerradas (vendidas/alquiladas) con comisión.
   const [showOpenCommissions, setShowOpenCommissions] = useState(false)
-  // Registrar cobro de comisión (importe real opcional + nota opcional).
+  // Registrar cobro de comisión (fecha + importe real opcional + nota opcional).
   const [collectOpp, setCollectOpp] = useState<OpportunityRow | null>(null)
+  const [collectDate, setCollectDate] = useState('')
   const [collectAmount, setCollectAmount] = useState('')
   const [collectNote, setCollectNote] = useState('')
   const [collectBusy, setCollectBusy] = useState(false)
@@ -502,9 +503,10 @@ export default function OpportunitiesPage() {
     toast.success('Comisión marcada como pendiente')
   }
 
-  // Abre el modal "Registrar cobro" con la comisión prevista como importe por defecto.
+  // Abre el modal "Registrar cobro" con la comisión prevista y la fecha de hoy por defecto.
   function openCollect(opp: OpportunityRow) {
     setCollectOpp(opp)
+    setCollectDate(new Date().toISOString().slice(0, 10))
     setCollectAmount(String(commissionOf(opp) ?? ''))
     setCollectNote(typeof opp.metadata?.commission_note === 'string' ? opp.metadata.commission_note : '')
   }
@@ -520,7 +522,8 @@ export default function OpportunitiesPage() {
     const nextMeta: Record<string, unknown> = { ...(opp.metadata ?? {}) }
     if (note) nextMeta.commission_note = note
     else delete nextMeta.commission_note
-    const nowIso = new Date().toISOString()
+    // Fecha elegida (a mediodía local para evitar desfase de zona horaria) o ahora si quedó vacía.
+    const nowIso = collectDate ? new Date(`${collectDate}T12:00:00`).toISOString() : new Date().toISOString()
     setCollectBusy(true)
     setOpportunities((prev) => prev.map((o) => (o.id === opp.id
       ? { ...o, commission_status: 'cobrada', commission_paid_at: nowIso, commission_paid_amount: amount, metadata: nextMeta }
@@ -1281,16 +1284,21 @@ export default function OpportunitiesPage() {
       {/* Cierre comercial (P6.11) — marca inmueble vendido/alquilado, sin borrar */}
       <ConfirmDialog
         open={!!closeOpp}
-        title="¿Marcar la operación como cerrada?"
+        title={closeOpp && (typeof closeOpp.metadata?.operation_kind === 'string' ? closeOpp.metadata.operation_kind : '') === 'alquiler'
+          ? '¿Marcar la operación como alquilada?'
+          : '¿Marcar la operación como vendida?'}
         description={closeOpp
           ? (() => {
               const kind = typeof closeOpp.metadata?.operation_kind === 'string' ? closeOpp.metadata.operation_kind : ''
-              const action = kind === 'alquiler' ? 'alquilado' : 'vendido'
+              const opLabel = kind === 'alquiler' ? 'alquilada' : 'vendida'
+              const propAction = kind === 'alquiler' ? 'alquilado' : 'vendido'
               const prop = closeOpp.property_id ? propertiesById[closeOpp.property_id]?.title : ''
-              return `La operación quedará cerrada y el inmueble${prop ? ` «${prop}»` : ''} se marcará como ${action}. No se elimina nada: queda en el histórico (comisión, documentos y trámites se conservan).`
+              return `La operación quedará registrada como ${opLabel} y el inmueble${prop ? ` «${prop}»` : ''} se marcará como ${propAction}. No se elimina nada: pasa al histórico (comisión, documentos y trámites se conservan).`
             })()
           : ''}
-        confirmLabel="Marcar cerrada"
+        confirmLabel={closeOpp && (typeof closeOpp.metadata?.operation_kind === 'string' ? closeOpp.metadata.operation_kind : '') === 'alquiler'
+          ? 'Marcar alquilada'
+          : 'Marcar vendida'}
         cancelLabel="Cancelar"
         onConfirm={() => void confirmCloseOpp()}
         onCancel={() => setCloseOpp(null)}
@@ -1350,6 +1358,15 @@ export default function OpportunitiesPage() {
               «{collectOpp.title}» · comisión prevista {formatCurrency(commissionOf(collectOpp) ?? 0)}.
             </p>
             <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-gray-600">Fecha de cobro</label>
+                <input
+                  type="date"
+                  className={SELECT_CLS}
+                  value={collectDate}
+                  onChange={(e) => setCollectDate(e.target.value)}
+                />
+              </div>
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-gray-600">Importe cobrado (€) <span className="font-normal text-gray-400">· opcional</span></label>
                 <input
