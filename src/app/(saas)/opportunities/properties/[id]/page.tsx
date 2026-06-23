@@ -1,0 +1,302 @@
+'use client'
+
+// Ficha de inmueble (P6.16 / arranque P7.1). Vista dedicada de un inmueble: portada/galería, datos
+// clave, operaciones y trámites vinculados, y documentos reales (EntityDocumentsManager). Carga sus
+// propios datos por id (refresh-safe) y reutiliza EditPropertyDrawer para editar. RLS por workspace,
+// signed URLs, sin service_role.
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { motion } from 'framer-motion'
+import { ArrowLeft, Home, MapPin, Pencil, Building2 } from 'lucide-react'
+import { SectionCard } from '@/components/SectionCard'
+import { Badge } from '@/components/Badge'
+import { Button } from '@/components/Button'
+import { EmptyState } from '@/components/EmptyState'
+import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
+import { EditPropertyDrawer } from '@/components/VerticalEditForms'
+import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
+import { cn } from '@/lib/utils'
+import {
+  listProperties, listOpportunities, listServiceCases,
+  type PropertyRow, type OpportunityRow, type ServiceCaseRow,
+} from '@/lib/vertical-queries'
+import { getClients } from '@/lib/supabase-queries'
+import { listEntityFiles, signedUrls } from '@/lib/entity-files'
+import { demoProperties, demoOpportunities, demoServiceCases } from '@/lib/demo/demo-real-estate'
+import { clients as demoClients } from '@/lib/mock-data'
+import { commStateLabel, COMM_STATE_TONE, commStateOf } from '@/lib/demo/vertical-templates'
+import { serviceCaseStatusLabel } from '@/components/VerticalForms'
+import {
+  PROPERTY_TYPE_LABEL, PROPERTY_OPERATION_LABEL, PROPERTY_STATUS_META,
+  propLabel, propNum, isRentalProperty, formatPropertyPrice,
+} from '@/lib/property-display'
+
+function fmtDate(value: string | null): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+export default function PropertyDetailPage() {
+  const params = useParams<{ id: string }>()
+  const id = Array.isArray(params.id) ? params.id[0] : params.id
+  const { currentUser, isLoading: userLoading } = useCurrentUser()
+  const workspaceId = currentUser?.workspaceId ?? null
+
+  const [property, setProperty] = useState<PropertyRow | null>(null)
+  const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
+  const [cases, setCases] = useState<ServiceCaseRow[]>([])
+  const [clientNames, setClientNames] = useState<Record<string, string>>({})
+  const [gallery, setGallery] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+
+  const isDemo = typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+
+  const loadGallery = useCallback(async (wsId: string, propId: string) => {
+    try {
+      const files = await listEntityFiles(wsId, 'property', propId, 'image')
+      const ordered = [...files].sort((a, b) => Number(b.is_cover) - Number(a.is_cover))
+      const urls = await signedUrls(ordered.map((f) => f.path))
+      setGallery(ordered.map((f) => urls[f.path]).filter(Boolean))
+    } catch {
+      setGallery([])
+    }
+  }, [])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setNotFound(false)
+    if (isDemo) {
+      const p = demoProperties.find((x) => x.id === id) ?? null
+      setProperty(p)
+      setOpportunities(demoOpportunities)
+      setCases(demoServiceCases)
+      setClientNames(Object.fromEntries(demoClients.map((c) => [c.id, c.name])))
+      setGallery([])
+      setNotFound(!p)
+      setLoading(false)
+      return
+    }
+    if (!workspaceId) { setLoading(false); return }
+    try {
+      const [props, opps, srv, clientList] = await Promise.all([
+        listProperties(workspaceId).catch(() => []),
+        listOpportunities(workspaceId).catch(() => []),
+        listServiceCases(workspaceId).catch(() => []),
+        getClients(workspaceId).catch(() => []),
+      ])
+      const p = props.find((x) => x.id === id) ?? null
+      setProperty(p)
+      setOpportunities(opps)
+      setCases(srv)
+      setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
+      setNotFound(!p)
+      if (p) void loadGallery(workspaceId, p.id)
+    } catch {
+      setNotFound(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [id, workspaceId, isDemo, loadGallery])
+
+  useEffect(() => {
+    if (userLoading) return
+    queueMicrotask(() => { void load() })
+  }, [userLoading, load])
+
+  // Operaciones vinculadas a este inmueble (columna property_id o metadata.property_id legacy).
+  const linkedOps = useMemo(
+    () => opportunities.filter((o) => o.property_id === id || (typeof o.metadata?.property_id === 'string' && o.metadata.property_id === id)),
+    [opportunities, id],
+  )
+  // Trámites vinculados a las operaciones de este inmueble.
+  const linkedOpIds = useMemo(() => new Set(linkedOps.map((o) => o.id)), [linkedOps])
+  const linkedCases = useMemo(
+    () => cases.filter((c) => c.opportunity_id && linkedOpIds.has(c.opportunity_id)),
+    [cases, linkedOpIds],
+  )
+
+  const clientNameOf = (cid: string | null) => (cid ? clientNames[cid] ?? '' : '')
+
+  if (!loading && (notFound || !property)) {
+    return (
+      <div className="mx-auto max-w-3xl px-1 py-6">
+        <Link href="/opportunities" className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700">
+          <ArrowLeft className="h-4 w-4" /> Volver a Cartera
+        </Link>
+        <EmptyState
+          icon={<Building2 className="h-6 w-6 text-gray-300" />}
+          title="Inmueble no encontrado"
+          description="Puede que se haya eliminado o que no tengas acceso. Vuelve a la cartera para ver tus inmuebles."
+        />
+      </div>
+    )
+  }
+
+  const p = property
+  const st = p ? (PROPERTY_STATUS_META[p.status] ?? { label: p.status, tone: 'bg-gray-50 text-gray-600 border-gray-100' }) : null
+  const isRent = p ? isRentalProperty(p.operation_type) : false
+  const specs = p ? [
+    propNum(p, 'bedrooms', 'rooms') != null ? `${propNum(p, 'bedrooms', 'rooms')} hab` : '',
+    propNum(p, 'bathrooms', 'baths') != null ? `${propNum(p, 'bathrooms', 'baths')} baños` : '',
+    propNum(p, 'area_m2', 'm2') != null ? `${propNum(p, 'area_m2', 'm2')} m²` : '',
+  ].filter(Boolean).join(' · ') : ''
+  const refRaw = p ? (p.reference ?? p.metadata?.reference) : ''
+  const ref = typeof refRaw === 'string' ? refRaw : ''
+  const owner = p ? (clientNameOf(p.client_id) || p.owner_name || '') : ''
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="space-y-4">
+      <div>
+        <Link href="/opportunities" className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700">
+          <ArrowLeft className="h-4 w-4" /> Volver a Cartera
+        </Link>
+      </div>
+
+      {loading || !p || !st ? (
+        <div className="space-y-4">
+          <div className="h-64 w-full animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-40 w-full animate-pulse rounded-2xl bg-slate-100" />
+        </div>
+      ) : (
+        <>
+          {/* Cabecera con portada/galería + datos clave */}
+          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03]">
+            <div className="relative flex aspect-[16/9] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 sm:aspect-[21/9]">
+              {gallery[0]
+                ? <img src={gallery[0]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
+                : <Home className="h-12 w-12 text-gray-300" />}
+              <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+              <span className={cn('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-[11px] font-semibold', st.tone)}>{st.label}</span>
+            </div>
+            {gallery.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto px-3 pt-3">
+                {gallery.slice(0, 8).map((url, i) => (
+                  <img key={i} src={url} alt={`${p.title} ${i + 1}`} className="h-14 w-20 shrink-0 rounded-lg object-cover ring-1 ring-black/[0.04]" />
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-start justify-between gap-3 p-4">
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold text-gray-900">{p.title}</h1>
+                <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
+                <p className="mt-1 flex items-center gap-1 text-[13px] text-gray-600">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  {[p.address, [p.city, p.area].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'Sin ubicación'}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-bold text-gray-900">{formatPropertyPrice(p.price, p.currency, isRent)}</p>
+                <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)} className="mt-2">
+                  <Pencil className="h-3.5 w-3.5" /> Editar
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Datos clave */}
+          <SectionCard title="Datos del inmueble" description="Características y propietario / contacto.">
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Tipo" value={propLabel(PROPERTY_TYPE_LABEL, p.property_type) || '—'} />
+              <Field label="Operación" value={propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || '—'} />
+              <Field label="Estado" value={st.label} />
+              <Field label="Características" value={specs || '—'} />
+              <Field label="Propietario / contacto" value={owner || '—'} />
+              <Field label="Teléfono" value={p.owner_phone || '—'} />
+              <Field label={isRent ? 'Renta' : 'Precio'} value={formatPropertyPrice(p.price, p.currency, isRent)} />
+              <Field label="Actualizado" value={fmtDate(p.updated_at) || '—'} />
+            </dl>
+            {p.notes && <p className="mt-3 whitespace-pre-line rounded-lg bg-gray-50 px-3 py-2 text-[12px] text-gray-600">{p.notes}</p>}
+          </SectionCard>
+
+          {/* Operaciones vinculadas */}
+          <SectionCard
+            title="Operaciones vinculadas"
+            description="Ventas o alquileres asociados a este inmueble."
+            action={<Badge variant={linkedOps.length ? 'indigo' : 'default'} dot>{linkedOps.length} {linkedOps.length === 1 ? 'operación' : 'operaciones'}</Badge>}
+          >
+            {linkedOps.length === 0 ? (
+              <p className="py-2 text-[13px] text-gray-400">Sin operaciones vinculadas todavía.</p>
+            ) : (
+              <ul className="space-y-2">
+                {linkedOps.map((o) => {
+                  const kind = typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : null
+                  return (
+                    <li key={o.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white p-3">
+                      <Link href="/opportunities" className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
+                        <p className="truncate text-[11px] text-gray-500">{clientNameOf(o.client_id) || 'Sin cliente'}</p>
+                      </Link>
+                      <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold', COMM_STATE_TONE[commStateOf(o.stage)])}>{commStateLabel(o.stage, kind)}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </SectionCard>
+
+          {/* Trámites vinculados */}
+          <SectionCard
+            title="Trámites vinculados"
+            description="Gestiones y documentación de las operaciones de este inmueble."
+            action={<Badge variant={linkedCases.length ? 'indigo' : 'default'} dot>{linkedCases.length} {linkedCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
+          >
+            {linkedCases.length === 0 ? (
+              <p className="py-2 text-[13px] text-gray-400">Sin trámites vinculados.</p>
+            ) : (
+              <ul className="space-y-2">
+                {linkedCases.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-900">{c.title}</p>
+                      <p className="truncate text-[11px] text-gray-500">{[c.case_type, c.due_date ? `vence ${fmtDate(c.due_date)}` : ''].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600">{serviceCaseStatusLabel(c.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SectionCard>
+
+          {/* Documentos del inmueble (reales) */}
+          <SectionCard title="Documentos del inmueble" description="Nota simple, planos, certificados o cualquier documento del inmueble.">
+            {isDemo ? (
+              <p className="py-2 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan documentos reales.</p>
+            ) : (
+              <EntityDocumentsManager
+                workspaceId={workspaceId}
+                entityType="property"
+                entityId={p.id}
+                title="Documentos del inmueble"
+                description="Sube nota simple, planos, certificado energético o escrituras del inmueble."
+              />
+            )}
+          </SectionCard>
+
+          <EditPropertyDrawer
+            open={editOpen}
+            onClose={() => { setEditOpen(false); if (workspaceId && p) void loadGallery(workspaceId, p.id) }}
+            workspaceId={workspaceId}
+            property={p}
+            onUpdated={(row) => setProperty(row)}
+            onCoverChange={() => { if (workspaceId && p) void loadGallery(workspaceId, p.id) }}
+          />
+        </>
+      )}
+    </motion.div>
+  )
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/40 px-3 py-2">
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</dt>
+      <dd className="mt-0.5 truncate text-[13px] font-medium text-gray-800">{value}</dd>
+    </div>
+  )
+}

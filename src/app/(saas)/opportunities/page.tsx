@@ -37,6 +37,7 @@ import {
   Check,
   X,
   Archive,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -50,7 +51,6 @@ import {
   NewPropertyDrawer,
   SERVICE_CASE_STATUS_OPTIONS,
   serviceCaseStatusLabel,
-  PROPERTY_STATUS_OPTIONS_PUBLIC,
 } from '@/components/VerticalForms'
 import {
   EditOpportunityDrawer,
@@ -59,6 +59,17 @@ import {
 } from '@/components/VerticalEditForms'
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
+import {
+  PROPERTY_TYPE_LABEL,
+  PROPERTY_OPERATION_LABEL,
+  PROPERTY_STATUS_META,
+  propLabel,
+  propNum,
+  isRentalProperty,
+  sortPropertiesByStatus,
+  ACTIVE_STATUS_RANK,
+  HISTORY_STATUS_RANK,
+} from '@/lib/property-display'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags } from '@/lib/feature-flags'
@@ -144,39 +155,8 @@ function formatDate(value: string | null) {
   } catch { return null }
 }
 
-// Etiquetas inmobiliarias (es-ES) con fallback al valor crudo capitalizado.
-const PROPERTY_TYPE_LABEL: Record<string, string> = {
-  piso: 'Piso', atico: 'Ático', duplex: 'Dúplex', chalet: 'Chalet', adosado: 'Adosado',
-  casa: 'Casa', local: 'Local', oficina: 'Oficina', nave: 'Nave', terreno: 'Terreno',
-  garaje: 'Garaje', trastero: 'Trastero', edificio: 'Edificio',
-}
-const PROPERTY_OPERATION_LABEL: Record<string, string> = {
-  venta: 'Venta', alquiler: 'Alquiler', captacion: 'Captación', inversion: 'Inversión',
-  traspaso: 'Traspaso', alquiler_opcion_compra: 'Alquiler con opción a compra',
-}
-// Estado del inmueble → etiqueta + tono de badge.
-const PROPERTY_STATUS_META: Record<string, { label: string; tone: string }> = {
-  prospecting:    { label: 'Captación',  tone: 'bg-gray-50 text-gray-600 border-gray-100' },
-  listed:         { label: 'Publicado',  tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  available:      { label: 'Disponible', tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  under_contract: { label: 'Reservado',  tone: 'bg-amber-50 text-amber-700 border-amber-100' },
-  reserved:       { label: 'Reservado',  tone: 'bg-amber-50 text-amber-700 border-amber-100' },
-  sold:           { label: 'Vendido',    tone: 'bg-sky-50 text-sky-700 border-sky-100' },
-  rented:         { label: 'Alquilado',  tone: 'bg-sky-50 text-sky-700 border-sky-100' },
-  archived:       { label: 'Archivado',  tone: 'bg-gray-50 text-gray-400 border-gray-100' },
-}
+// Etiquetas/estados/orden de inmuebles → módulo compartido con la ficha (property-display).
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
-function propLabel(map: Record<string, string>, value: string | null): string {
-  if (!value) return ''
-  return map[value] ?? cap(value)
-}
-// Lee un numérico del inmueble desde columna real o, en su defecto, de metadata (datos demo).
-function propNum(p: PropertyRow, col: 'bedrooms' | 'bathrooms' | 'area_m2', metaKey: string): number | null {
-  const direct = p[col]
-  if (typeof direct === 'number') return direct
-  const meta = p.metadata?.[metaKey]
-  return typeof meta === 'number' ? meta : null
-}
 
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
@@ -197,7 +177,10 @@ export default function OpportunitiesPage() {
   const [blockedOppTarget, setBlockedOppTarget] = useState<OpportunityRow | null>(null)
   const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
   const [closeOpp, setCloseOpp] = useState<OpportunityRow | null>(null)
-  const [showSoldProps, setShowSoldProps] = useState(false)
+  // Inmuebles: vista de cartera (activos / histórico / todos). Por defecto, solo activos.
+  const [propView, setPropView] = useState<'active' | 'history' | 'all'>('active')
+  // Cambio de estado de un inmueble que lo pasa a histórico (vendido/alquilado/archivado) → confirma.
+  const [propStatusChange, setPropStatusChange] = useState<{ property: PropertyRow; nextStatus: string } | null>(null)
   // Comisiones: por defecto solo operaciones cerradas (vendidas/alquiladas) con comisión.
   const [showOpenCommissions, setShowOpenCommissions] = useState(false)
   // Registrar cobro de comisión (fecha + importe real opcional + nota opcional).
@@ -363,12 +346,16 @@ export default function OpportunitiesPage() {
     return m
   }, [opportunities])
 
-  // Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). Se ocultan por
-  // defecto; un toggle permite verlos. "Activos" = todo lo que sigue en cartera.
+  // Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). "Activos" = todo
+  // lo que sigue en cartera. Orden: reservados → publicados → captación (activos); vendidos →
+  // alquilados → archivados (histórico), con updated_at como desempate.
   const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
   const activeProperties = visibleProperties.filter((p) => !isClosedProperty(p.status))
-  const soldArchivedCount = visibleProperties.length - activeProperties.length
-  const shownProperties = showSoldProps ? visibleProperties : activeProperties
+  const historyProperties = visibleProperties.filter((p) => isClosedProperty(p.status))
+  const soldArchivedCount = historyProperties.length
+  const activeSorted = sortPropertiesByStatus(activeProperties, ACTIVE_STATUS_RANK)
+  const historySorted = sortPropertiesByStatus(historyProperties, HISTORY_STATUS_RANK)
+  const shownProperties = propView === 'history' ? historySorted : propView === 'all' ? [...activeSorted, ...historySorted] : activeSorted
 
   // KPIs de cartera (vista Inmuebles). "Valor de cartera activa" = suma de precios de los inmuebles
   // activos (excluye el histórico vendido/alquilado): no es facturación ni ingresos.
@@ -482,6 +469,13 @@ export default function OpportunitiesPage() {
       return
     }
     toast.success('Trámite actualizado')
+  }
+
+  // Pasar a histórico (vendido/alquilado/archivado) pide confirmación; el resto se aplica directo.
+  function requestPropertyStatus(row: PropertyRow, nextStatus: string) {
+    if (nextStatus === row.status) return
+    if (isClosedProperty(nextStatus)) { setPropStatusChange({ property: row, nextStatus }); return }
+    void handlePropertyStatus(row, nextStatus)
   }
 
   async function handlePropertyStatus(row: PropertyRow, nextStatus: string) {
@@ -646,6 +640,68 @@ export default function OpportunitiesPage() {
   // Por defecto inmobiliaria (no 'general'): una inmobiliaria crea operaciones/trámites de
   // real_estate salvo que esté filtrando explícitamente por otra vertical (workspace mixto).
   const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'real_estate' : (vertical as VerticalKey)
+
+  // Card de inmueble (premium). Click en la card → ficha del inmueble; pie con estado y editar.
+  const renderPropertyCard = (p: PropertyRow) => {
+    const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
+    const beds = propNum(p, 'bedrooms', 'rooms')
+    const baths = propNum(p, 'bathrooms', 'baths')
+    const m2 = propNum(p, 'area_m2', 'm2')
+    const specs = [beds != null ? `${beds} hab` : '', baths != null ? `${baths} baños` : '', m2 != null ? `${m2} m²` : ''].filter(Boolean).join(' · ')
+    const refRaw = p.reference ?? p.metadata?.reference
+    const ref = typeof refRaw === 'string' ? refRaw : ''
+    const ops = opsCountByProperty[p.id] ?? 0
+    const owner = clientNameOf(p.client_id) || p.owner_name || ''
+    const isRent = isRentalProperty(p.operation_type)
+    const statusOpts: { id: string; label: string }[] = [
+      { id: 'prospecting', label: 'Captación' },
+      { id: 'listed', label: 'Publicado' },
+      { id: 'under_contract', label: 'Reservado' },
+      { id: isRent ? 'rented' : 'sold', label: isRent ? 'Alquilado' : 'Vendido' },
+      { id: 'archived', label: 'Archivado' },
+    ]
+    if (!statusOpts.some((o) => o.id === p.status)) {
+      statusOpts.unshift({ id: p.status, label: PROPERTY_STATUS_META[p.status]?.label ?? cap(p.status) })
+    }
+    return (
+      <li key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03] transition-shadow hover:shadow-md hover:shadow-gray-950/[0.06]">
+        <Link href={`/opportunities/properties/${p.id}`} className="block text-left" title="Ver ficha del inmueble">
+          {/* Portada real (Storage privado + signed URL) o placeholder elegante. */}
+          <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+            {coverUrls[p.id]
+              ? <img src={coverUrls[p.id]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
+              : <Home className="h-9 w-9 text-gray-300" />}
+            <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+            <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
+          </div>
+          <div className="p-3">
+            <p className="truncate text-sm font-semibold text-gray-900">{p.title}</p>
+            <p className="mt-0.5 truncate text-[11px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
+            {specs && <p className="mt-1 truncate text-[11px] text-gray-500">{specs}</p>}
+            <p className="mt-1.5 text-base font-bold text-gray-900">{p.price ? `${formatCurrency(p.price, p.currency ?? 'EUR')}${isRent ? '/mes' : ''}` : '—'}</p>
+            <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-gray-500">
+              <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
+              {[[p.city, p.area].filter(Boolean).join(', '), owner].filter(Boolean).join(' · ') || 'Sin ubicación'}
+            </p>
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              {ops > 0
+                ? <span className="text-[11px] font-medium text-indigo-600">{ops} {ops === 1 ? 'operación vinculada' : 'operaciones vinculadas'}</span>
+                : <span className="text-[11px] text-gray-300">Sin operaciones</span>}
+              <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-indigo-600">Ver ficha<ChevronRight className="h-3 w-3" /></span>
+            </div>
+          </div>
+        </Link>
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-50 px-3 py-2">
+          <select aria-label="Cambiar estado" className={SELECT_CLS} value={p.status} onChange={(e) => requestPropertyStatus(p, e.target.value)}>
+            {statusOpts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <button type="button" onClick={() => setEditProp(p)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">
+            <Pencil className="h-3 w-3" /> Editar
+          </button>
+        </div>
+      </li>
+    )
+  }
 
   return (
     <motion.div
@@ -1082,9 +1138,22 @@ export default function OpportunitiesPage() {
           action={
             <div className="flex items-center gap-2">
               {soldArchivedCount > 0 && (
-                <button type="button" onClick={() => setShowSoldProps((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
-                  {showSoldProps ? 'Ocultar cerrados' : `Ver vendidos y alquilados (${soldArchivedCount})`}
-                </button>
+                <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5 text-[11px] font-medium">
+                  {([
+                    ['active', 'Activos'],
+                    ['history', `Histórico (${soldArchivedCount})`],
+                    ['all', 'Todos'],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPropView(key)}
+                      className={cn('rounded-md px-2.5 py-1 transition-colors', propView === key ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-black/[0.04]' : 'text-gray-500 hover:text-gray-700')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               )}
               <Badge variant={shownProperties.length ? 'indigo' : 'default'} dot>{shownProperties.length} {shownProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>
             </div>
@@ -1095,68 +1164,50 @@ export default function OpportunitiesPage() {
               {[0, 1, 2].map((s) => <div key={s} className="h-56 w-full animate-pulse rounded-2xl bg-slate-100" />)}
             </div>
           ) : shownProperties.length === 0 ? (
-            <EmptyState
-              icon={<Building2 className="h-6 w-6 text-gray-300" />}
-              title="Todavía no tienes inmuebles en cartera"
-              description="Empieza registrando una vivienda, local o terreno. Después podrás vincular clientes, visitas, operaciones y documentación."
-              action={
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
-                    <Plus className="h-3.5 w-3.5" /> Nuevo inmueble
-                  </Button>
-                  <Link href="/clients" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
-                    Crear cliente
-                  </Link>
-                </div>
-              }
-            />
+            visibleProperties.length > 0 ? (
+              <EmptyState
+                icon={<Building2 className="h-6 w-6 text-gray-300" />}
+                title={propView === 'history' ? 'Sin inmuebles en histórico' : 'No hay inmuebles activos'}
+                description={propView === 'history'
+                  ? 'Aquí aparecerán los inmuebles vendidos o alquilados. Todavía no has cerrado ninguno.'
+                  : 'Toda tu cartera está cerrada. Cambia a «Histórico» para ver los vendidos y alquilados, o registra un inmueble nuevo.'}
+                action={<Button variant="primary" size="sm" onClick={() => setOpenProp(true)}><Plus className="h-3.5 w-3.5" /> Nuevo inmueble</Button>}
+              />
+            ) : (
+              <EmptyState
+                icon={<Building2 className="h-6 w-6 text-gray-300" />}
+                title="Todavía no tienes inmuebles en cartera"
+                description="Empieza registrando una vivienda, local o terreno. Después podrás vincular clientes, visitas, operaciones y documentación."
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button variant="primary" size="sm" onClick={() => setOpenProp(true)}>
+                      <Plus className="h-3.5 w-3.5" /> Nuevo inmueble
+                    </Button>
+                    <Link href="/clients" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50">
+                      Crear cliente
+                    </Link>
+                  </div>
+                }
+              />
+            )
+          ) : propView === 'all' ? (
+            <div className="space-y-5">
+              {activeSorted.length > 0 && (
+                <section>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Cartera activa · {activeSorted.length}</p>
+                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{activeSorted.map(renderPropertyCard)}</ul>
+                </section>
+              )}
+              {historySorted.length > 0 && (
+                <section>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Histórico · {historySorted.length}</p>
+                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{historySorted.map(renderPropertyCard)}</ul>
+                </section>
+              )}
+            </div>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {shownProperties.map((p) => {
-                const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
-                const beds = propNum(p, 'bedrooms', 'rooms')
-                const baths = propNum(p, 'bathrooms', 'baths')
-                const m2 = propNum(p, 'area_m2', 'm2')
-                const specs = [beds != null ? `${beds} hab` : '', baths != null ? `${baths} baños` : '', m2 != null ? `${m2} m²` : ''].filter(Boolean).join(' · ')
-                const refRaw = p.reference ?? p.metadata?.reference
-                const ref = typeof refRaw === 'string' ? refRaw : ''
-                const ops = opsCountByProperty[p.id] ?? 0
-                const owner = clientNameOf(p.client_id) || p.owner_name || ''
-                const isRent = p.operation_type === 'alquiler' || p.operation_type === 'alquiler_opcion_compra'
-                return (
-                  <li key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm shadow-gray-950/[0.03]">
-                    <button type="button" onClick={() => setEditProp(p)} className="block text-left" title="Ver / editar inmueble">
-                      {/* Portada real (Storage privado + signed URL) o placeholder elegante. */}
-                      <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                        {coverUrls[p.id]
-                          ? <img src={coverUrls[p.id]} alt={p.title} className="absolute inset-0 h-full w-full object-cover" />
-                          : <Home className="h-9 w-9 text-gray-300" />}
-                        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
-                        <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
-                      </div>
-                      <div className="p-3">
-                        <p className="truncate text-sm font-semibold text-gray-900">{p.title}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
-                        {specs && <p className="mt-1 truncate text-[11px] text-gray-500">{specs}</p>}
-                        <p className="mt-1.5 text-base font-bold text-gray-900">{p.price ? `${formatCurrency(p.price, p.currency ?? 'EUR')}${isRent ? '/mes' : ''}` : '—'}</p>
-                        <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-gray-500">
-                          <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
-                          {[[p.city, p.area].filter(Boolean).join(', '), owner].filter(Boolean).join(' · ') || 'Sin ubicación'}
-                        </p>
-                        {ops > 0 && <p className="mt-1 text-[11px] font-medium text-indigo-600">{ops} {ops === 1 ? 'operación vinculada' : 'operaciones vinculadas'}</p>}
-                      </div>
-                    </button>
-                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-50 px-3 py-2">
-                      <select aria-label="Cambiar estado" className={SELECT_CLS} value={p.status} onChange={(e) => void handlePropertyStatus(p, e.target.value)}>
-                        {PROPERTY_STATUS_OPTIONS_PUBLIC.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                      </select>
-                      <button type="button" onClick={() => setEditProp(p)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">
-                        <Pencil className="h-3 w-3" /> Editar
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
+              {shownProperties.map(renderPropertyCard)}
             </ul>
           )}
         </SectionCard>
@@ -1341,6 +1392,23 @@ export default function OpportunitiesPage() {
         cancelLabel="Cancelar"
         onConfirm={() => void confirmCloseOpp()}
         onCancel={() => setCloseOpp(null)}
+      />
+
+      {/* Inmueble → histórico (vendido/alquilado/archivado) desde la card: confirma, no borra nada */}
+      <ConfirmDialog
+        open={!!propStatusChange}
+        title={propStatusChange?.nextStatus === 'archived'
+          ? '¿Archivar inmueble?'
+          : propStatusChange?.nextStatus === 'rented'
+            ? '¿Marcar el inmueble como alquilado?'
+            : '¿Marcar el inmueble como vendido?'}
+        description={propStatusChange
+          ? `«${propStatusChange.property.title}» saldrá de la cartera activa y quedará en el histórico. No se elimina nada: se conservan fotos, documentos, operaciones y trámites.`
+          : ''}
+        confirmLabel={propStatusChange?.nextStatus === 'archived' ? 'Archivar' : propStatusChange?.nextStatus === 'rented' ? 'Marcar alquilado' : 'Marcar vendido'}
+        cancelLabel="Cancelar"
+        onConfirm={() => { if (propStatusChange) { void handlePropertyStatus(propStatusChange.property, propStatusChange.nextStatus); setPropStatusChange(null) } }}
+        onCancel={() => setPropStatusChange(null)}
       />
 
       {/* Borrado seguro (P6.8/P6.9) */}
