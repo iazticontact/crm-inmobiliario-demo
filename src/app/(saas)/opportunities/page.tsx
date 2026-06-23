@@ -59,7 +59,7 @@ import { featureFlags } from '@/lib/feature-flags'
 import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
 import { clients as demoClients } from '@/lib/mock-data'
 import { getClients } from '@/lib/supabase-queries'
-import { coverUrlsForProperties } from '@/lib/entity-files'
+import { coverUrlsForProperties, documentCountsForEntities } from '@/lib/entity-files'
 import {
   VERTICALS,
   getPipelineForVertical,
@@ -191,6 +191,7 @@ export default function OpportunitiesPage() {
   const [properties, setProperties] = useState<PropertyRow[]>([])
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({})
+  const [docCountByCase, setDocCountByCase] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -213,12 +214,13 @@ export default function OpportunitiesPage() {
       setProperties(demoProperties)
       setClientNames(Object.fromEntries(demoClients.map((c) => [c.id, c.name])))
       setCoverUrls({}) // modo demo offline no tiene Storage real
+      setDocCountByCase({})
       setLoadError('')
       setLoading(false)
       return
     }
     if (!workspaceId) {
-      setOpportunities([]); setCases([]); setProperties([]); setClientNames({}); setCoverUrls({})
+      setOpportunities([]); setCases([]); setProperties([]); setClientNames({}); setCoverUrls({}); setDocCountByCase({})
       setLoading(false)
       return
     }
@@ -239,6 +241,8 @@ export default function OpportunitiesPage() {
       setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
       // Portadas reales (Storage privado + signed URLs); no bloquea el render.
       coverUrlsForProperties(workspaceId, props.map((p) => p.id)).then(setCoverUrls).catch(() => setCoverUrls({}))
+      // Nº de documentos por trámite (una lectura agregada, sin N+1).
+      documentCountsForEntities(workspaceId, 'service_case', srv.map((c) => c.id)).then(setDocCountByCase).catch(() => setDocCountByCase({}))
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error cargando datos.')
     } finally {
@@ -429,6 +433,11 @@ export default function OpportunitiesPage() {
       delete next[pid]
       return next
     })
+  }, [])
+
+  // Nº de documentos de un trámite cambiado desde su drawer → actualiza el indicador sin recargar.
+  const handleDocCountChange = useCallback((caseId: string, count: number) => {
+    setDocCountByCase((prev) => ({ ...prev, [caseId]: count }))
   }, [])
 
   // Por defecto inmobiliaria (no 'general'): una inmobiliaria crea operaciones/trámites de
@@ -721,7 +730,7 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'cases' && (
         <SectionCard
           title="Trámites"
-          description="Gestiones asociadas a clientes u operaciones: documentación, contrato, tasación, financiación…"
+          description="Gestiones y documentación asociadas a clientes, inmuebles u operaciones."
           action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} {visibleCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
         >
           {loading ? (
@@ -794,6 +803,11 @@ export default function OpportunitiesPage() {
                       c.due_date ? `vence ${formatDate(c.due_date)}` : '',
                     ].filter(Boolean).join(' · ')}
                   </p>
+                  {(docCountByCase[c.id] ?? 0) > 0 && (
+                    <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600">
+                      <FileText className="h-3 w-3" /> {docCountByCase[c.id]} {docCountByCase[c.id] === 1 ? 'documento' : 'documentos'}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -944,6 +958,7 @@ export default function OpportunitiesPage() {
         onClose={() => setEditOpp(null)}
         workspaceId={workspaceId}
         opportunity={editOpp}
+        showVerticalSelect={showVerticalBar}
         onUpdated={(row) => setOpportunities((prev) => prev.map((o) => (o.id === row.id ? row : o)))}
       />
       <EditServiceCaseDrawer
@@ -951,7 +966,9 @@ export default function OpportunitiesPage() {
         onClose={() => setEditCase(null)}
         workspaceId={workspaceId}
         serviceCase={editCase}
+        showVerticalSelect={showVerticalBar}
         onUpdated={(row) => setCases((prev) => prev.map((c) => (c.id === row.id ? row : c)))}
+        onDocCountChange={handleDocCountChange}
       />
       <EditPropertyDrawer
         open={!!editProp}

@@ -29,13 +29,14 @@ import {
 } from '@/lib/vertical-queries'
 import {
   VERTICALS,
-  CASE_TYPES,
   REAL_ESTATE_PIPELINE,
   IMMIGRATION_PIPELINE,
   GENERAL_PIPELINE,
   type VerticalKey,
 } from '@/lib/demo/vertical-templates'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { SERVICE_CASE_STATUS_OPTIONS, serviceCaseStatusLabel, TRAMITE_TYPE_OPTIONS } from '@/components/VerticalForms'
+import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 
 // En modo demo offline no hay workspace real: las ediciones se simulan y
 // avisamos con un toast amable en vez de un error técnico de sesión.
@@ -56,15 +57,6 @@ function pipelineForVertical(vertical: VerticalKey) {
   if (vertical === 'immigration') return IMMIGRATION_PIPELINE
   return GENERAL_PIPELINE
 }
-
-const SERVICE_STATUS_OPTIONS = [
-  { id: 'open', label: 'Abierto' },
-  { id: 'documentation_pending', label: 'Documentación pendiente' },
-  { id: 'in_review', label: 'En revisión' },
-  { id: 'submitted', label: 'Presentado' },
-  { id: 'resolved', label: 'Resuelto' },
-  { id: 'closed', label: 'Cerrado' },
-]
 
 const PRIORITY_OPTIONS = [
   { id: 'low', label: 'Baja' },
@@ -104,10 +96,11 @@ type EditOpportunityDrawerProps = {
   onClose: () => void
   workspaceId: string | null
   opportunity: OpportunityRow | null
+  showVerticalSelect?: boolean
   onUpdated?: (row: OpportunityRow) => void
 }
 
-export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity, onUpdated }: EditOpportunityDrawerProps) {
+export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity, showVerticalSelect, onUpdated }: EditOpportunityDrawerProps) {
   if (!opportunity) return null
   return (
     <EditOpportunityInner
@@ -116,6 +109,7 @@ export function EditOpportunityDrawer({ open, onClose, workspaceId, opportunity,
       onClose={onClose}
       workspaceId={workspaceId}
       opportunity={opportunity}
+      showVerticalSelect={showVerticalSelect}
       onUpdated={onUpdated}
     />
   )
@@ -128,10 +122,11 @@ function EditOpportunityInner({
   onClose,
   workspaceId,
   opportunity,
+  showVerticalSelect = false,
   onUpdated,
 }: EditOpportunityInnerProps) {
   const [title, setTitle] = useState(() => opportunity.title || '')
-  const [vertical, setVertical] = useState<VerticalKey>(() => (opportunity.vertical as VerticalKey) || 'general')
+  const [vertical, setVertical] = useState<VerticalKey>(() => (opportunity.vertical as VerticalKey) || 'real_estate')
   const [stage, setStage] = useState(() => opportunity.stage || 'new')
   const [clientId, setClientId] = useState<string | null>(() => opportunity.client_id ?? null)
   const [value, setValue] = useState(() => (opportunity.value != null ? String(opportunity.value) : ''))
@@ -179,7 +174,7 @@ function EditOpportunityInner({
       open={open}
       onClose={onClose}
       title="Editar operación"
-      description="Cambia datos del pipeline. Cada edición deja un registro en la actividad."
+      description="Cambia los datos de la operación. Cada edición deja registro en la actividad."
       width="md"
       footer={
         <div className="flex items-center justify-between gap-2">
@@ -202,9 +197,9 @@ function EditOpportunityInner({
     >
       <form id="edit-opportunity-form" onSubmit={handleSubmit} className="space-y-3">
         <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} required autoFocus />
-        <div className="grid grid-cols-2 gap-3">
+        {showVerticalSelect && (
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Vertical</label>
+            <label className={FIELD_LABEL_CLS}>Área de negocio</label>
             <select
               className={SELECT_CLS}
               value={vertical}
@@ -221,21 +216,21 @@ function EditOpportunityInner({
               ))}
             </select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Etapa</label>
-            <select className={SELECT_CLS} value={stage} onChange={(e) => setStage(e.target.value)}>
-              {stages.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
-            </select>
-          </div>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <label className={FIELD_LABEL_CLS}>Etapa</label>
+          <select className={SELECT_CLS} value={stage} onChange={(e) => setStage(e.target.value)}>
+            {stages.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className={FIELD_LABEL_CLS}>Cliente vinculado</label>
+          <label className={FIELD_LABEL_CLS}>Cliente relacionado</label>
           <ClientPicker workspaceId={workspaceId ?? null} value={clientId} onChange={(id) => setClientId(id)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Valor (€)" type="number" min="0" placeholder="Opcional" value={value} onChange={(e) => setValue(e.target.value)} />
+          <Input label="Valor potencial (€)" type="number" min="0" placeholder="Opcional" value={value} onChange={(e) => setValue(e.target.value)} />
           <Input label="Probabilidad (%)" type="number" min="0" max="100" placeholder="Opcional" value={probability} onChange={(e) => setProbability(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -260,10 +255,12 @@ type EditServiceCaseDrawerProps = {
   onClose: () => void
   workspaceId: string | null
   serviceCase: ServiceCaseRow | null
+  showVerticalSelect?: boolean
   onUpdated?: (row: ServiceCaseRow) => void
+  onDocCountChange?: (entityId: string, count: number) => void
 }
 
-export function EditServiceCaseDrawer({ open, onClose, workspaceId, serviceCase, onUpdated }: EditServiceCaseDrawerProps) {
+export function EditServiceCaseDrawer({ open, onClose, workspaceId, serviceCase, showVerticalSelect, onUpdated, onDocCountChange }: EditServiceCaseDrawerProps) {
   if (!serviceCase) return null
   return (
     <EditServiceCaseInner
@@ -272,7 +269,9 @@ export function EditServiceCaseDrawer({ open, onClose, workspaceId, serviceCase,
       onClose={onClose}
       workspaceId={workspaceId}
       serviceCase={serviceCase}
+      showVerticalSelect={showVerticalSelect}
       onUpdated={onUpdated}
+      onDocCountChange={onDocCountChange}
     />
   )
 }
@@ -284,11 +283,13 @@ function EditServiceCaseInner({
   onClose,
   workspaceId,
   serviceCase,
+  showVerticalSelect = false,
   onUpdated,
+  onDocCountChange,
 }: EditServiceCaseInnerProps) {
   const [title, setTitle] = useState(() => serviceCase.title || '')
   const [caseType, setCaseType] = useState(() => serviceCase.case_type || '')
-  const [vertical, setVertical] = useState<VerticalKey>(() => (serviceCase.vertical as VerticalKey) || 'immigration')
+  const [vertical, setVertical] = useState<VerticalKey>(() => (serviceCase.vertical as VerticalKey) || 'real_estate')
   const [status, setStatus] = useState(() => serviceCase.status || 'open')
   const [priority, setPriority] = useState(() => serviceCase.priority || 'normal')
   const [clientId, setClientId] = useState<string | null>(() => serviceCase.client_id ?? null)
@@ -296,13 +297,17 @@ function EditServiceCaseInner({
   const [notes, setNotes] = useState(() => serviceCase.notes ?? '')
   const [saving, setSaving] = useState(false)
 
-  const availableCaseTypes = CASE_TYPES.filter((t) => t.vertical === vertical || vertical === 'general')
+  // Tipo y estado: lista corta + el valor actual si fuese antiguo (no se pierde ni se ve vacío).
+  const typeOptions = caseType && !TRAMITE_TYPE_OPTIONS.includes(caseType) ? [caseType, ...TRAMITE_TYPE_OPTIONS] : TRAMITE_TYPE_OPTIONS
+  const statusOptions = SERVICE_CASE_STATUS_OPTIONS.some((s) => s.id === status)
+    ? SERVICE_CASE_STATUS_OPTIONS
+    : [...SERVICE_CASE_STATUS_OPTIONS, { id: status, label: serviceCaseStatusLabel(status) }]
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
     if (isDemoMode()) {
-      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar expedientes estará disponible al conectar tu cuenta.' })
+      toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar trámites estará disponible al conectar tu cuenta.' })
       onClose()
       return
     }
@@ -319,8 +324,8 @@ function EditServiceCaseInner({
         dueDate: dueDate.trim() || null,
         notes: notes.trim() || null,
       })
-      if (!row) { toast.error('No se pudo actualizar el expediente.'); return }
-      toast.success(`Expediente actualizado: ${row.title}`)
+      if (!row) { toast.error('No se pudo actualizar el trámite.'); return }
+      toast.success(`Trámite actualizado: ${row.title}`)
       onUpdated?.(row)
       onClose()
     } finally {
@@ -332,8 +337,8 @@ function EditServiceCaseInner({
     <SideDrawer
       open={open}
       onClose={onClose}
-      title="Editar expediente"
-      description="Actualiza estado, prioridad o documentación esperada."
+      title="Editar trámite"
+      description="Estado, prioridad, fechas y documentos de la gestión."
       width="md"
       footer={
         <div className="flex items-center justify-between gap-2">
@@ -341,11 +346,11 @@ function EditServiceCaseInner({
             variant="ghost"
             size="sm"
             type="button"
-            onClick={() => setStatus('closed')}
-            title="Cerrar expediente (sin DELETE)."
-            disabled={saving || status === 'closed'}
+            onClick={() => setStatus('resolved')}
+            title="Marcar el trámite como completado."
+            disabled={saving || status === 'resolved'}
           >
-            <Archive className="h-3.5 w-3.5" /> Cerrar expediente
+            <Archive className="h-3.5 w-3.5" /> Marcar completado
           </Button>
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" type="button" onClick={onClose} disabled={saving}>Cancelar</Button>
@@ -358,43 +363,34 @@ function EditServiceCaseInner({
         <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} required autoFocus />
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Vertical</label>
-            <select className={SELECT_CLS} value={vertical} onChange={(e) => setVertical(e.target.value as VerticalKey)}>
-              {Object.values(VERTICALS).map((v) => (
-                <option key={v.key} value={v.key}>{v.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Tipo</label>
+            <label className={FIELD_LABEL_CLS}>Tipo de trámite</label>
             <select className={SELECT_CLS} value={caseType} onChange={(e) => setCaseType(e.target.value)}>
-              {availableCaseTypes.map((t) => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-              <option value="custom">Otro / personalizado</option>
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className={FIELD_LABEL_CLS}>Estado</label>
-            <select className={SELECT_CLS} value={status} onChange={(e) => setStatus(e.target.value)}>
-              {SERVICE_STATUS_OPTIONS.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
+              {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Prioridad</label>
             <select className={SELECT_CLS} value={priority} onChange={(e) => setPriority(e.target.value)}>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
+              {PRIORITY_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select>
           </div>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className={FIELD_LABEL_CLS}>Cliente vinculado</label>
+          <label className={FIELD_LABEL_CLS}>Estado</label>
+          <select className={SELECT_CLS} value={status} onChange={(e) => setStatus(e.target.value)}>
+            {statusOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        {showVerticalSelect && (
+          <div className="flex flex-col gap-1.5">
+            <label className={FIELD_LABEL_CLS}>Área de negocio</label>
+            <select className={SELECT_CLS} value={vertical} onChange={(e) => setVertical(e.target.value as VerticalKey)}>
+              {Object.values(VERTICALS).map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <label className={FIELD_LABEL_CLS}>Cliente relacionado</label>
           <ClientPicker workspaceId={workspaceId ?? null} value={clientId} onChange={(id) => setClientId(id)} />
         </div>
         <Input label="Fecha límite" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
@@ -403,6 +399,9 @@ function EditServiceCaseInner({
           <textarea rows={3} className={TEXTAREA_CLS} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
       </form>
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <EntityDocumentsManager workspaceId={workspaceId} entityType="service_case" entityId={serviceCase.id} onCountChange={onDocCountChange} />
+      </div>
     </SideDrawer>
   )
 }

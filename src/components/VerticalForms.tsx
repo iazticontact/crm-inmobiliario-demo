@@ -74,7 +74,7 @@ const SOURCE_OPTIONS = [
 
 // Tipos de trámite inmobiliario (se guarda el label en `case_type`, texto libre). Lista corta;
 // los casos especiales van por "Otro". Tipos antiguos en datos se siguen mostrando tal cual.
-const TRAMITE_TYPE_OPTIONS = [
+export const TRAMITE_TYPE_OPTIONS = [
   'Nota simple', 'Contrato / arras', 'Reserva', 'Tasación',
   'Certificado energético', 'Financiación / hipoteca', 'Escritura / notaría', 'Documentación',
 ]
@@ -409,7 +409,7 @@ export function NewServiceCaseDrawer({
         metadata: meta,
       })
       if (!row) { toast.error('No se pudo crear el trámite. Revisa la sesión.'); return }
-      toast.success(`Trámite creado: ${row.title}`)
+      toast.success('Trámite creado', { description: 'Puedes adjuntar documentos al editarlo.' })
       onCreated?.(row); reset(); onClose()
     } finally {
       setSaving(false)

@@ -119,6 +119,23 @@ export async function setCoverPhoto(
   if (error) throw error
 }
 
+// Nº de documentos por entidad (p. ej. trámites) en una sola lectura. Para mostrar
+// "N documentos" en el listado sin N+1.
+export async function documentCountsForEntities(
+  workspaceId: string, entityType: EntityType, entityIds: string[],
+): Promise<Record<string, number>> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || entityIds.length === 0) return {}
+  const { data, error } = await supabase.from('entity_files')
+    .select('entity_id')
+    .eq('workspace_id', workspaceId).eq('entity_type', entityType).eq('category', 'document')
+    .in('entity_id', entityIds)
+  if (error || !data) return {}
+  const m: Record<string, number> = {}
+  for (const row of data as { entity_id: string }[]) m[row.entity_id] = (m[row.entity_id] ?? 0) + 1
+  return m
+}
+
 // Portada (cover, o primera imagen) de varios inmuebles en una sola lectura + signed URLs.
 export async function coverUrlsForProperties(
   workspaceId: string, propertyIds: string[],
