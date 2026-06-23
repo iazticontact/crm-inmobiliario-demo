@@ -417,9 +417,10 @@ type EditPropertyDrawerProps = {
   workspaceId: string | null
   property: PropertyRow | null
   onUpdated?: (row: PropertyRow) => void
+  onCoverChange?: (propertyId: string, coverUrl: string | null) => void
 }
 
-export function EditPropertyDrawer({ open, onClose, workspaceId, property, onUpdated }: EditPropertyDrawerProps) {
+export function EditPropertyDrawer({ open, onClose, workspaceId, property, onUpdated, onCoverChange }: EditPropertyDrawerProps) {
   if (!property) return null
   return (
     <EditPropertyInner
@@ -429,6 +430,7 @@ export function EditPropertyDrawer({ open, onClose, workspaceId, property, onUpd
       workspaceId={workspaceId}
       property={property}
       onUpdated={onUpdated}
+      onCoverChange={onCoverChange}
     />
   )
 }
@@ -441,6 +443,7 @@ function EditPropertyInner({
   workspaceId,
   property,
   onUpdated,
+  onCoverChange,
 }: EditPropertyInnerProps) {
   const [title, setTitle] = useState(() => property.title || '')
   const [propertyType, setPropertyType] = useState(() => property.property_type || 'apartment')
@@ -561,7 +564,7 @@ function EditPropertyInner({
         </div>
       </form>
       <div className="mt-4 border-t border-gray-100 pt-4">
-        <PropertyPhotosManager workspaceId={workspaceId} propertyId={property.id} />
+        <PropertyPhotosManager workspaceId={workspaceId} propertyId={property.id} onCoverChange={onCoverChange} />
       </div>
     </SideDrawer>
   )

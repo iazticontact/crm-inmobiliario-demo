@@ -418,6 +418,18 @@ export default function OpportunitiesPage() {
     toast.success('Inmueble actualizado')
   }
 
+  // Portada de un inmueble cambiada desde el gestor de fotos → actualiza la card SIN recargar.
+  // Memoizado (estable) para no recrear el efecto de carga del PropertyPhotosManager.
+  const handleCoverChange = useCallback((pid: string, url: string | null) => {
+    setCoverUrls((prev) => {
+      if (url) return { ...prev, [pid]: url }
+      if (!(pid in prev)) return prev
+      const next = { ...prev }
+      delete next[pid]
+      return next
+    })
+  }, [])
+
   const defaultVerticalForCreate: VerticalKey = vertical === 'all' ? 'general' : (vertical as VerticalKey)
 
   return (
@@ -936,6 +948,7 @@ export default function OpportunitiesPage() {
         workspaceId={workspaceId}
         property={editProp}
         onUpdated={(row) => setProperties((prev) => prev.map((p) => (p.id === row.id ? row : p)))}
+        onCoverChange={handleCoverChange}
       />
     </motion.div>
   )
