@@ -35,7 +35,6 @@ import {
   MapPin,
   Coins,
   Check,
-  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -753,21 +752,21 @@ export default function OpportunitiesPage() {
               icon={<Coins className="h-4 w-4 text-teal-600" />}
               label="Comisión prevista"
               value={commissionTotals.estimated > 0 ? formatCurrency(commissionTotals.estimated) : '—'}
-              detail="Orientativa · no es factura"
+              detail="Estimación comercial"
               tone="border-teal-100 bg-teal-50/40"
             />
             <KpiCard
               icon={<Target className="h-4 w-4 text-amber-600" />}
               label="Pendiente de cobro"
               value={commissionTotals.pending > 0 ? formatCurrency(commissionTotals.pending) : '—'}
-              detail="Aún no registrada"
+              detail="Por registrar"
               tone="border-amber-100 bg-amber-50/40"
             />
             <KpiCard
               icon={<Check className="h-4 w-4 text-emerald-600" />}
               label="Cobrada"
               value={commissionTotals.collected > 0 ? formatCurrency(commissionTotals.collected) : '—'}
-              detail="Registrada (no fiscal)"
+              detail="Registrada"
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
@@ -798,7 +797,7 @@ export default function OpportunitiesPage() {
               icon={<Sparkles className="h-4 w-4 text-teal-600" />}
               label="Comisión estimada"
               value={openCommission > 0 ? formatCurrency(openCommission) : '—'}
-              detail="Orientativa · no es facturación"
+              detail="Operaciones abiertas"
               tone="border-teal-100 bg-teal-50/40"
             />
             <KpiCard
@@ -1127,12 +1126,12 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'commissions' && (
         <SectionCard
           title="Comisiones"
-          description="Comisión prevista y cobro de tus operaciones cerradas. Orientativa, para control interno: no es factura ni contabilidad."
+          description="Control interno de comisiones comerciales."
           action={
             <div className="flex items-center gap-3">
               {(openCommissionCount > 0 || showOpenCommissions) && (
                 <button type="button" onClick={() => setShowOpenCommissions((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
-                  {showOpenCommissions ? 'Ver solo cerradas' : `Ver también abiertas (${openCommissionCount})`}
+                  {showOpenCommissions ? 'Ver solo cerradas' : `Incluir abiertas (${openCommissionCount})`}
                 </button>
               )}
               <Badge variant={commissionRows.length ? 'indigo' : 'default'} dot>{commissionRows.length} {commissionRows.length === 1 ? 'operación' : 'operaciones'}</Badge>
@@ -1148,7 +1147,7 @@ export default function OpportunitiesPage() {
               description={
                 showOpenCommissions
                   ? 'Añade una «comisión pactada (%)» a tus operaciones para ver aquí la comisión prevista y su estado de cobro.'
-                  : 'Cuando marques una operación como Vendida o Alquilada con comisión pactada, aparecerá aquí para registrar el cobro. Usa «Ver también abiertas» para anticipar las que siguen en gestión.'
+                  : 'Cuando marques una operación como Vendida o Alquilada con comisión pactada, aparecerá aquí para registrar el cobro. Usa «Incluir abiertas» para anticipar las que siguen en gestión.'
               }
             />
           ) : (
@@ -1175,13 +1174,13 @@ export default function OpportunitiesPage() {
                     <div className="flex shrink-0 items-center gap-2">
                       <div className="text-right">
                         <p className="text-sm font-semibold text-gray-900">{formatCurrency(paid ? (realAmount ?? est) : est)}</p>
-                        <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `prevista ${formatCurrency(est)}` : 'comisión cobrada') : 'comisión prevista'}</p>
+                        <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada') : 'Comisión prevista'}</p>
                       </div>
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
                       {paid ? (
-                        <button type="button" onClick={() => void markCommissionPending(o)} title="Marcar como pendiente" className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"><RotateCcw className="h-3 w-3" /> Pendiente</button>
+                        <button type="button" onClick={() => void markCommissionPending(o)} title="Volver a marcar la comisión como pendiente" className="inline-flex h-7 items-center rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Marcar pendiente</button>
                       ) : (
-                        <button type="button" onClick={() => openCollect(o)} title="Registrar cobro de la comisión" className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"><Check className="h-3 w-3" /> Registrar cobro</button>
+                        <button type="button" onClick={() => openCollect(o)} title="Registrar el cobro de la comisión" className="inline-flex h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100">Registrar cobro</button>
                       )}
                     </div>
                   </li>
@@ -1190,7 +1189,7 @@ export default function OpportunitiesPage() {
             </ul>
           )}
           <p className="mt-3 text-[11px] leading-snug text-gray-400">
-            La comisión prevista (precio o valor × % pactado) es orientativa. Registrar el cobro guarda el importe y la fecha como control interno; no genera factura, impuestos ni contabilidad.
+            Las comisiones son un control interno. La facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.
           </p>
         </SectionCard>
       )}
@@ -1354,10 +1353,11 @@ export default function OpportunitiesPage() {
           <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => { if (!collectBusy) setCollectOpp(null) }} />
           <div className="relative w-full max-w-md rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
             <h3 className="text-base font-semibold text-gray-900">Registrar cobro de comisión</h3>
-            <p className="mt-0.5 text-[12px] text-gray-500">
-              «{collectOpp.title}» · comisión prevista {formatCurrency(commissionOf(collectOpp) ?? 0)}.
-            </p>
-            <div className="mt-4 space-y-3">
+            <p className="mt-0.5 text-[12px] text-gray-500">Guarda el cobro interno de esta comisión. No genera factura.</p>
+            <div className="mt-3 truncate rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
+              <span className="font-medium text-gray-800">{collectOpp.title}</span> · comisión prevista {formatCurrency(commissionOf(collectOpp) ?? 0)}
+            </div>
+            <div className="mt-3 space-y-3">
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-gray-600">Fecha de cobro</label>
                 <input
@@ -1388,11 +1388,10 @@ export default function OpportunitiesPage() {
                   className={cn(SELECT_CLS, 'h-auto resize-none py-2')}
                   value={collectNote}
                   onChange={(e) => setCollectNote(e.target.value)}
-                  placeholder="Ej.: cobrado por transferencia, pendiente de regularizar IVA con gestoría…"
+                  placeholder="Ej.: cobrado por transferencia."
                 />
               </div>
             </div>
-            <p className="mt-3 text-[10px] leading-snug text-gray-400">Control interno. No genera factura, impuestos ni contabilidad.</p>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" disabled={collectBusy} onClick={() => setCollectOpp(null)} className="inline-flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
               <button type="button" disabled={collectBusy} onClick={() => void submitCommissionCollection()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"><Check className="h-4 w-4" /> {collectBusy ? 'Guardando…' : 'Registrar cobro'}</button>
