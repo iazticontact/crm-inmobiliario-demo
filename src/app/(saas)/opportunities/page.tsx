@@ -33,6 +33,9 @@ import {
   Pencil,
   Trash2,
   MapPin,
+  Coins,
+  Check,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -78,6 +81,7 @@ import {
   updateOpportunityStage,
   updateServiceCaseStatus,
   updatePropertyStatus,
+  updateOpportunity,
   deleteOpportunity,
   deleteServiceCase,
   type OpportunityRow,
@@ -86,7 +90,7 @@ import {
 } from '@/lib/vertical-queries'
 
 type VerticalTab = 'all' | VerticalKey
-type Subtab = 'pipeline' | 'cases' | 'properties' | 'templates' | 'automations'
+type Subtab = 'pipeline' | 'cases' | 'properties' | 'commissions' | 'templates' | 'automations'
 
 const VERTICAL_TABS: Array<{ key: VerticalTab; label: string; description: string }> = [
   { key: 'all',                    label: 'Todos',         description: 'Operativa completa del workspace.' },
@@ -103,6 +107,7 @@ const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType
   { key: 'properties',   label: 'Inmuebles',        icon: Building2 },
   { key: 'pipeline',     label: 'Operaciones',      icon: Target },
   { key: 'cases',        label: 'Trámites',         icon: FileText },
+  { key: 'commissions',  label: 'Comisiones',       icon: Coins },
   { key: 'templates',    label: 'Plantillas',       icon: Sparkles, internal: true },
   { key: 'automations',  label: 'Automatizaciones', icon: PlayCircle, internal: true },
 ]
@@ -133,14 +138,16 @@ function formatDate(value: string | null) {
   } catch { return null }
 }
 
-// Cierre estimado dentro de los próximos 30 días (y no pasado). Usa `new Date()` para
-// la fecha actual (patrón aceptado por el linter de purity en este repo).
-function closesSoon(value: string | null): boolean {
-  if (!value) return false
+// Estado del cierre estimado: vencido (fecha pasada), previsto (≤30 días) o nada. Usa
+// `new Date()` (patrón aceptado por el linter de purity en este repo).
+function closeState(value: string | null): 'overdue' | 'soon' | null {
+  if (!value) return null
   const t = new Date(value).getTime()
-  if (Number.isNaN(t)) return false
+  if (Number.isNaN(t)) return null
   const diffDays = (t - new Date().getTime()) / 86_400_000
-  return diffDays >= 0 && diffDays <= 30
+  if (diffDays < 0) return 'overdue'
+  if (diffDays <= 30) return 'soon'
+  return null
 }
 
 // Etiquetas inmobiliarias (es-ES) con fallback al valor crudo capitalizado.
@@ -193,6 +200,8 @@ export default function OpportunitiesPage() {
   const [deleteCaseTarget, setDeleteCaseTarget] = useState<ServiceCaseRow | null>(null)
   const [blockedOppTarget, setBlockedOppTarget] = useState<OpportunityRow | null>(null)
   const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
+  const [closeOpp, setCloseOpp] = useState<OpportunityRow | null>(null)
+  const [showSoldProps, setShowSoldProps] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -326,6 +335,12 @@ export default function OpportunitiesPage() {
   // Mapas para enlazar entidades (vínculos reales ya cargados, sin N+1).
   const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
   const opportunitiesById = useMemo(() => Object.fromEntries(opportunities.map((o) => [o.id, o])), [opportunities])
+  // Comisión estimada (orientativa) de una operación: base × rate / 100. Base = precio del
+  // inmueble vinculado o, si no hay, el valor potencial. null si no hay datos.
+  const commissionOf = (opp: OpportunityRow): number | null => {
+    const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
+    return base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
+  }
   // Nº de operaciones por inmueble (vía metadata.property_id). Honesto: 0 si no hay enlace.
   const opsCountByProperty = useMemo(() => {
     const m: Record<string, number> = {}
@@ -344,12 +359,27 @@ export default function OpportunitiesPage() {
     .filter((p) => p.status !== 'sold' && p.status !== 'archived')
     .reduce((s, p) => s + (p.price ?? 0), 0)
 
-  // Comisión estimada en cartera (orientativa, NO facturación): suma de base × rate / 100 de
-  // las operaciones abiertas con comisión pactada. Base = precio del inmueble o valor potencial.
-  const openCommission = openOpportunities.reduce((sum, o) => {
-    const base = (o.property_id ? propertiesById[o.property_id]?.price : null) ?? o.value
-    return sum + (base && o.commission_rate ? Math.round((base * o.commission_rate) / 100) : 0)
-  }, 0)
+  // Inmuebles vendidos/archivados → histórico (no se borran). Por defecto se ocultan en la lista;
+  // un toggle permite verlos.
+  const soldArchivedCount = visibleProperties.filter((p) => p.status === 'sold' || p.status === 'archived').length
+  const shownProperties = showSoldProps ? visibleProperties : visibleProperties.filter((p) => p.status !== 'sold' && p.status !== 'archived')
+
+  // Comisión estimada en cartera (orientativa, NO facturación): suma de las comisiones de las
+  // operaciones abiertas con comisión pactada.
+  const openCommission = openOpportunities.reduce((sum, o) => sum + (commissionOf(o) ?? 0), 0)
+
+  // Módulo Comisiones: operaciones con comisión estimada calculable (control interno de cobros).
+  const commissionRows = visibleOpportunities.filter((o) => commissionOf(o) != null)
+  const commissionTotals = (() => {
+    let estimated = 0
+    let collected = 0
+    for (const o of commissionRows) {
+      const est = commissionOf(o) ?? 0
+      estimated += est
+      if (o.commission_status === 'cobrada') collected += o.commission_paid_amount ?? est
+    }
+    return { estimated, collected, pending: Math.max(0, estimated - collected) }
+  })()
 
   // Verticales realmente presentes en los datos del workspace. Una inmobiliaria normal
   // solo tiene `real_estate` → no se muestra el selector de verticales (UI mínima). El
@@ -383,8 +413,18 @@ export default function OpportunitiesPage() {
   // Inline stage / status edits — optimistic + persisted.
   async function handleOpportunityStage(opp: OpportunityRow, nextStage: string) {
     if (nextStage === opp.stage) return
+    // Cerrar con inmueble vinculado → confirmación guiada (también marca el inmueble como
+    // vendido/alquilado, sin eliminar nada).
+    if (nextStage === 'won' && opp.property_id && propertiesById[opp.property_id]) {
+      setCloseOpp(opp)
+      return
+    }
+    await applyOpportunityStage(opp, nextStage)
+  }
+
+  async function applyOpportunityStage(opp: OpportunityRow, nextStage: string) {
     setOpportunities((prev) => prev.map((o) => (o.id === opp.id ? { ...o, stage: nextStage } : o)))
-    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+    if (isDemo()) {
       toast.info('Modo demo: cambio aplicado en pantalla (no se guarda).')
       return
     }
@@ -396,6 +436,22 @@ export default function OpportunitiesPage() {
       return
     }
     toast.success('Operación actualizada')
+  }
+
+  // Confirmar cierre: marca la operación como Cerrada y el inmueble como Vendido (venta/compra/
+  // captación/inversión/valoración) o Alquilado (alquiler). No elimina nada.
+  async function confirmCloseOpp() {
+    const opp = closeOpp
+    if (!opp || !opp.property_id) { setCloseOpp(null); return }
+    const kind = typeof opp.metadata?.operation_kind === 'string' ? opp.metadata.operation_kind : ''
+    const propStatus = kind === 'alquiler' ? 'rented' : 'sold'
+    const pid = opp.property_id
+    setCloseOpp(null)
+    setProperties((prev) => prev.map((p) => (p.id === pid ? { ...p, status: propStatus } : p)))
+    await applyOpportunityStage(opp, 'won')
+    if (!isDemo() && workspaceId) {
+      await updatePropertyStatus(workspaceId, pid, propStatus).catch(() => {})
+    }
   }
 
   async function handleCaseStatus(row: ServiceCaseRow, nextStatus: string) {
@@ -448,6 +504,21 @@ export default function OpportunitiesPage() {
   const handleDocCountChange = useCallback((caseId: string, count: number) => {
     setDocCountByCase((prev) => ({ ...prev, [caseId]: count }))
   }, [])
+
+  // Control interno de comisiones: marcar cobrada (registra importe y fecha) o pendiente.
+  async function markCommission(opp: OpportunityRow, paid: boolean) {
+    const patch = paid
+      ? { commissionStatus: 'cobrada', commissionPaidAt: new Date().toISOString(), commissionPaidAmount: commissionOf(opp) }
+      : { commissionStatus: 'pendiente', commissionPaidAt: null, commissionPaidAmount: null }
+    setOpportunities((prev) => prev.map((o) => (o.id === opp.id
+      ? { ...o, commission_status: patch.commissionStatus, commission_paid_at: patch.commissionPaidAt, commission_paid_amount: patch.commissionPaidAmount }
+      : o)))
+    if (isDemo()) { toast.info('Modo demo: cambio en pantalla (no se guarda).'); return }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    const ok = await updateOpportunity(workspaceId, opp.id, patch)
+    if (!ok) { toast.error('No se pudo actualizar la comisión.'); void loadData(); return }
+    toast.success(paid ? 'Comisión marcada como cobrada' : 'Comisión marcada como pendiente')
+  }
 
   function isDemo() {
     return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
@@ -657,6 +728,37 @@ export default function OpportunitiesPage() {
               tone="border-sky-100 bg-sky-50/40"
             />
           </>
+        ) : activeSubtab === 'commissions' ? (
+          <>
+            <KpiCard
+              icon={<Coins className="h-4 w-4 text-teal-600" />}
+              label="Comisión estimada"
+              value={commissionTotals.estimated > 0 ? formatCurrency(commissionTotals.estimated) : '—'}
+              detail="Orientativa · no es factura"
+              tone="border-teal-100 bg-teal-50/40"
+            />
+            <KpiCard
+              icon={<Target className="h-4 w-4 text-amber-600" />}
+              label="Comisión pendiente"
+              value={commissionTotals.pending > 0 ? formatCurrency(commissionTotals.pending) : '—'}
+              detail="Por cobrar"
+              tone="border-amber-100 bg-amber-50/40"
+            />
+            <KpiCard
+              icon={<Check className="h-4 w-4 text-emerald-600" />}
+              label="Comisión cobrada"
+              value={commissionTotals.collected > 0 ? formatCurrency(commissionTotals.collected) : '—'}
+              detail="Registrada (no fiscal)"
+              tone="border-emerald-100 bg-emerald-50/40"
+            />
+            <KpiCard
+              icon={<FileText className="h-4 w-4 text-indigo-600" />}
+              label="Operaciones"
+              value={String(commissionRows.length)}
+              detail="con comisión pactada"
+              tone="border-indigo-100 bg-indigo-50/40"
+            />
+          </>
         ) : (
           <>
             <KpiCard
@@ -765,9 +867,12 @@ export default function OpportunitiesPage() {
                             </p>
                           </button>
                           <div className="flex shrink-0 items-center gap-2">
-                            {closesSoon(opp.expected_close_date) && (
-                              <span className="hidden rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:inline">Cierre pronto</span>
-                            )}
+                            {(() => {
+                              const cs = TERMINAL_STAGES.has(opp.stage) ? null : closeState(opp.expected_close_date)
+                              if (cs === 'overdue') return <span className="hidden rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 sm:inline">Cierre vencido</span>
+                              if (cs === 'soon') return <span className="hidden rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:inline">Cierre previsto</span>
+                              return null
+                            })()}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
                             {(() => {
                               const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
@@ -922,13 +1027,22 @@ export default function OpportunitiesPage() {
         <SectionCard
           title="Inmuebles"
           description="Tu cartera de inmuebles: ventas, alquileres y captaciones."
-          action={<Badge variant={visibleProperties.length ? 'indigo' : 'default'} dot>{visibleProperties.length} {visibleProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>}
+          action={
+            <div className="flex items-center gap-2">
+              {soldArchivedCount > 0 && (
+                <button type="button" onClick={() => setShowSoldProps((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
+                  {showSoldProps ? 'Ocultar vendidos' : `Ver vendidos (${soldArchivedCount})`}
+                </button>
+              )}
+              <Badge variant={shownProperties.length ? 'indigo' : 'default'} dot>{shownProperties.length} {shownProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>
+            </div>
+          }
         >
           {loading ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {[0, 1, 2].map((s) => <div key={s} className="h-56 w-full animate-pulse rounded-2xl bg-slate-100" />)}
             </div>
-          ) : visibleProperties.length === 0 ? (
+          ) : shownProperties.length === 0 ? (
             <EmptyState
               icon={<Building2 className="h-6 w-6 text-gray-300" />}
               title="Todavía no tienes inmuebles en cartera"
@@ -946,7 +1060,7 @@ export default function OpportunitiesPage() {
             />
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleProperties.map((p) => {
+              {shownProperties.map((p) => {
                 const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
                 const beds = propNum(p, 'bedrooms', 'rooms')
                 const baths = propNum(p, 'bathrooms', 'baths')
@@ -987,6 +1101,53 @@ export default function OpportunitiesPage() {
                       <button type="button" onClick={() => setEditProp(p)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">
                         <Pencil className="h-3 w-3" /> Editar
                       </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </SectionCard>
+      )}
+
+      {/* COMISIONES — control interno (no facturación fiscal) */}
+      {activeSubtab === 'commissions' && (
+        <SectionCard
+          title="Comisiones"
+          description="Control interno de comisiones de tus operaciones. Estimación orientativa; no es facturación."
+          action={<Badge variant={commissionRows.length ? 'indigo' : 'default'} dot>{commissionRows.length} {commissionRows.length === 1 ? 'operación' : 'operaciones'}</Badge>}
+        >
+          {loading ? (
+            <div className="space-y-2.5 py-2">{[0, 1, 2].map((s) => <div key={s} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />)}</div>
+          ) : commissionRows.length === 0 ? (
+            <EmptyState
+              icon={<Coins className="h-6 w-6 text-gray-300" />}
+              title="Sin comisiones que controlar"
+              description="Añade una «comisión pactada (%)» a tus operaciones para ver aquí la comisión estimada y su estado de cobro."
+            />
+          ) : (
+            <ul className="space-y-2">
+              {commissionRows.map((o) => {
+                const est = commissionOf(o) ?? 0
+                const paid = o.commission_status === 'cobrada'
+                const propTitle = o.property_id ? propertiesById[o.property_id]?.title : ''
+                return (
+                  <li key={o.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white p-3">
+                    <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
+                      <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
+                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, `${o.commission_rate}%`].filter(Boolean).join(' · ')}</p>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(est)}</p>
+                        <p className="text-[10px] text-gray-400">comisión estimada</p>
+                      </div>
+                      <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
+                      {paid ? (
+                        <button type="button" onClick={() => void markCommission(o, false)} title="Marcar como pendiente" className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"><RotateCcw className="h-3 w-3" /> Pendiente</button>
+                      ) : (
+                        <button type="button" onClick={() => void markCommission(o, true)} title="Marcar como cobrada" className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"><Check className="h-3 w-3" /> Cobrada</button>
+                      )}
                     </div>
                   </li>
                 )
@@ -1080,6 +1241,24 @@ export default function OpportunitiesPage() {
         property={editProp}
         onUpdated={(row) => setProperties((prev) => prev.map((p) => (p.id === row.id ? row : p)))}
         onCoverChange={handleCoverChange}
+      />
+
+      {/* Cierre comercial (P6.11) — marca inmueble vendido/alquilado, sin borrar */}
+      <ConfirmDialog
+        open={!!closeOpp}
+        title="¿Marcar la operación como cerrada?"
+        description={closeOpp
+          ? (() => {
+              const kind = typeof closeOpp.metadata?.operation_kind === 'string' ? closeOpp.metadata.operation_kind : ''
+              const action = kind === 'alquiler' ? 'alquilado' : 'vendido'
+              const prop = closeOpp.property_id ? propertiesById[closeOpp.property_id]?.title : ''
+              return `La operación quedará cerrada y el inmueble${prop ? ` «${prop}»` : ''} se marcará como ${action}. No se elimina nada: queda en el histórico (comisión, documentos y trámites se conservan).`
+            })()
+          : ''}
+        confirmLabel="Marcar cerrada"
+        cancelLabel="Cancelar"
+        onConfirm={() => void confirmCloseOpp()}
+        onCancel={() => setCloseOpp(null)}
       />
 
       {/* Borrado seguro (P6.8/P6.9) */}

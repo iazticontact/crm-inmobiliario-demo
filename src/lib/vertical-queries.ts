@@ -62,6 +62,9 @@ export type OpportunityRow = {
   value: number | null
   probability: number | null
   commission_rate?: number | null
+  commission_status?: string | null
+  commission_paid_amount?: number | null
+  commission_paid_at?: string | null
   currency: string | null
   source: string | null
   assigned_to: string | null
@@ -287,6 +290,9 @@ export type UpdateOpportunityInput = {
   value?: number | null
   probability?: number | null
   commissionRate?: number | null
+  commissionStatus?: string | null
+  commissionPaidAmount?: number | null
+  commissionPaidAt?: string | null
   source?: string | null
   assignedTo?: string | null
   expectedCloseDate?: string | null
@@ -304,6 +310,9 @@ export async function updateOpportunity(workspaceId: string, id: string, input: 
   if (input.value !== undefined) patch.value = input.value
   if (input.probability !== undefined) patch.probability = input.probability
   if (input.commissionRate !== undefined) patch.commission_rate = input.commissionRate
+  if (input.commissionStatus !== undefined) patch.commission_status = input.commissionStatus
+  if (input.commissionPaidAmount !== undefined) patch.commission_paid_amount = input.commissionPaidAmount
+  if (input.commissionPaidAt !== undefined) patch.commission_paid_at = input.commissionPaidAt
   if (input.source !== undefined) patch.source = input.source
   if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
   if (input.expectedCloseDate !== undefined) patch.expected_close_date = input.expectedCloseDate
