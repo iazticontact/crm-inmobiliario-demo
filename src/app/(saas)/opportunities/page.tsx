@@ -59,6 +59,7 @@ import {
 } from '@/components/VerticalEditForms'
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
+import { PropertyStatusBadge } from '@/components/PropertyStatusBadge'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
@@ -644,7 +645,6 @@ export default function OpportunitiesPage() {
   // Card de inmueble (premium). Acción principal: abrir la ficha; editar es secundario. Las cards
   // del histórico (vendido/alquilado/archivado) llevan un estilo más apagado y un sello "Histórico".
   const renderPropertyCard = (p: PropertyRow) => {
-    const st = PROPERTY_STATUS_META[p.status] ?? { label: cap(p.status), tone: 'bg-gray-50 text-gray-600 border-gray-100' }
     const beds = propNum(p, 'bedrooms', 'rooms')
     const baths = propNum(p, 'bathrooms', 'baths')
     const m2 = propNum(p, 'area_m2', 'm2')
@@ -680,13 +680,10 @@ export default function OpportunitiesPage() {
               ? <img src={coverUrls[p.id]} alt={p.title} className={cn('absolute inset-0 h-full w-full object-cover', historical && 'opacity-90')} />
               : <Home className="h-9 w-9 text-gray-300" />}
             <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
-              <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
-              {historical && <span className="rounded-full bg-gray-900/75 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">Histórico</span>}
+              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+              {historical && <span className="rounded-full bg-gray-900/75 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">Histórico</span>}
             </div>
-            <span className={cn('absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>
-              {(p.status === 'listed' || p.status === 'available') && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-              {st.label}
-            </span>
+            <PropertyStatusBadge status={p.status} className="absolute right-2 top-2" />
           </div>
           <div className="p-3">
             <p className="truncate text-sm font-semibold text-gray-900">{p.title}</p>

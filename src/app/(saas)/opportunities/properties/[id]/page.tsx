@@ -17,6 +17,7 @@ import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
+import { PropertyStatusBadge } from '@/components/PropertyStatusBadge'
 import { EditPropertyDrawer } from '@/components/VerticalEditForms'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { cn } from '@/lib/utils'
@@ -136,7 +137,6 @@ export default function PropertyDetailPage() {
   const st = p ? (PROPERTY_STATUS_META[p.status] ?? { label: p.status, tone: 'bg-gray-50 text-gray-600 border-gray-100' }) : null
   const isRent = p ? isRentalProperty(p.operation_type) : false
   const historical = p ? isClosedPropertyStatus(p.status) : false
-  const published = p ? (p.status === 'listed' || p.status === 'available') : false
   const specs = p ? [
     propNum(p, 'bedrooms', 'rooms') != null ? `${propNum(p, 'bedrooms', 'rooms')} hab` : '',
     propNum(p, 'bathrooms', 'baths') != null ? `${propNum(p, 'bathrooms', 'baths')} baños` : '',
@@ -182,12 +182,9 @@ export default function PropertyDetailPage() {
               </div>
               <div className="flex min-w-0 flex-col">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
-                  <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', st.tone)}>
-                    {published && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                    {st.label}
-                  </span>
-                  {historical && <span className="rounded-full bg-gray-900/80 px-2 py-0.5 text-[11px] font-semibold text-white">Histórico</span>}
+                  <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
+                  <PropertyStatusBadge status={p.status} size="lg" />
+                  {historical && <span className="rounded-full bg-gray-900/80 px-3 py-1.5 text-xs font-semibold text-white">Histórico</span>}
                 </div>
                 <h1 className="mt-2 text-xl font-bold leading-tight text-gray-900">{p.title}</h1>
                 <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propertyTypeText(p), specs].filter(Boolean).join(' · ') || '—'}</p>

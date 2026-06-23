@@ -33,6 +33,30 @@ export function propLabel(map: Record<string, string>, value: string | null): st
   return map[value] ?? cap(value)
 }
 
+// Jerarquía visual del badge de estado (pill premium). "Publicado" destaca al máximo (verde vivo +
+// anillo + sombra + punto "en directo"); el resto, claros y legibles sin competir. Solo color/
+// énfasis; el tamaño y el punto los aporta el componente <PropertyStatusBadge>.
+const STATUS_BADGE: Record<string, { className: string; live?: boolean }> = {
+  prospecting:    { className: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  listed:         { className: 'border-emerald-300 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500/30 shadow-sm shadow-emerald-600/20', live: true },
+  available:      { className: 'border-emerald-300 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500/30 shadow-sm shadow-emerald-600/20', live: true },
+  under_contract: { className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  reserved:       { className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  sold:           { className: 'border-sky-200 bg-sky-50 text-sky-700' },
+  rented:         { className: 'border-sky-200 bg-sky-50 text-sky-700' },
+  archived:       { className: 'border-gray-200 bg-gray-100 text-gray-500' },
+}
+
+export function propertyStatusBadge(status: string): { label: string; className: string; live: boolean } {
+  const meta = PROPERTY_STATUS_META[status]
+  const b = STATUS_BADGE[status]
+  return {
+    label: meta?.label ?? cap(status),
+    className: b?.className ?? 'border-gray-200 bg-gray-100 text-gray-600',
+    live: Boolean(b?.live),
+  }
+}
+
 // Opciones de alta/edición. Claves en es-ES coherentes con PROPERTY_TYPE_LABEL/OPERATION_LABEL
 // (antes el alta guardaba claves en inglés tipo "apartment"/"sale" que se mostraban mal).
 export const PROPERTY_TYPE_OTHER = 'otro'

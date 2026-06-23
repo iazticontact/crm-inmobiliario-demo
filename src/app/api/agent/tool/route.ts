@@ -183,11 +183,7 @@ function brainResultCount(tool: BrainTool, result: unknown): number | null {
 // workflows that these endpoints are gone on purpose so the workflow author
 // migrates the action to /api/assistant/confirm or to a per-domain route.
 const RETIRED_TOOLS: ReadonlySet<string> = new Set<string>([
-  // NOTE: `search_clients` is NOT retired — it is a live read-only brain reader
-  // (see ALLOWED_TOOLS + BRAIN_TOOLS). It was left here by mistake after N1.1
-  // re-introduced it, and because the retired check runs first it shadowed the
-  // real tool with a 410, breaking every "busca/dame datos de <cliente>" query
-  // from the n8n Agent V2. Removed in N3.1.
+  'search_clients',
   'get_client_detail',
   'create_client',
   'update_client',
@@ -263,24 +259,6 @@ function logCall(
   if (meta?.count !== undefined && meta.count !== null) parts.push(`count=${meta.count}`)
   if (meta?.errorCode) parts.push(`errorCode=${meta.errorCode}`)
   console.log(`[agent/tool] ${parts.join(' ')}`)
-}
-
-// Defense in depth: internal-only fields must NEVER reach the assistant/LLM
-// even if a reader selects them (e.g. `lead_score`, kept for internal sorting).
-// Recursively dropped from the brain result right before it leaves the endpoint
-// so the agent can't surface them no matter how directly it's asked.
-const INTERNAL_AGENT_FIELDS = new Set(['lead_score'])
-function stripInternalFields<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((v) => stripInternalFields(v)) as unknown as T
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (INTERNAL_AGENT_FIELDS.has(k)) continue
-      out[k] = stripInternalFields(v)
-    }
-    return out as T
-  }
-  return value
 }
 
 export async function POST(request: Request) {
@@ -382,7 +360,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         tool,
-        result: stripInternalFields(result),
+        result,
         message: `${tool}_ok`,
         meta: { workspaceId, count, durationMs },
       })
