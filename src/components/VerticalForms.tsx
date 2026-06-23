@@ -144,7 +144,7 @@ export function NewOpportunityDrawer({
       open={open}
       onClose={onClose}
       title="Nueva operación"
-      description="Pipeline comercial. Se registra como activity y respeta tu vertical activo."
+      description="Negocio comercial en seguimiento. Se registra como actividad y respeta tu vertical activo."
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={onClose} disabled={saving}>Cancelar</Button>

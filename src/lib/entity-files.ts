@@ -77,7 +77,9 @@ export async function uploadEntityFile(opts: {
     contentType: opts.file.type || undefined,
     upsert: false,
   })
-  if (up.error) throw up.error
+  // Los errores de Storage/PostgREST no siempre son instancias de Error → normaliza a Error
+  // con un mensaje claro para que la UI pueda mostrarlo y mapearlo.
+  if (up.error) throw new Error(`[storage] ${up.error.message || 'fallo al subir el archivo'}`)
   const { data, error } = await supabase.from('entity_files').insert({
     workspace_id: opts.workspaceId,
     entity_type: opts.entityType,
@@ -93,7 +95,7 @@ export async function uploadEntityFile(opts: {
   if (error) {
     // Evita huérfanos en Storage si falla el insert de metadatos.
     await supabase.storage.from(BUCKET).remove([path]).catch(() => {})
-    throw error
+    throw new Error(`[metadata] ${error.message || 'fallo al guardar los metadatos'}${error.code ? ` (${error.code})` : ''}`)
   }
   return data as EntityFile
 }

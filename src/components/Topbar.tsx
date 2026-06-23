@@ -16,7 +16,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
   '/inbox':         { title: 'Inbox',         description: 'Conversaciones entrantes y borradores' },
   '/assistant':     { title: 'Asistente IA',  description: 'Copiloto del CRM para inmobiliaria y gestoría' },
   '/clients':       { title: 'Clientes',      description: 'Compradores, propietarios y leads' },
-  '/opportunities': { title: 'Operaciones',   description: 'Pipeline comercial' },
+  '/opportunities': { title: 'Cartera',       description: 'Inmuebles, operaciones y trámites' },
   '/automations':   { title: 'Automatizaciones', description: 'Flujos internos' },
   '/calendar':      { title: 'Calendario',    description: 'Visitas, asesorías y disponibilidad' },
   '/billing':       { title: 'Facturación',   description: 'Facturas e ingresos' },

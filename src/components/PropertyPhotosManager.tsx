@@ -10,6 +10,28 @@ import {
 
 const MAX_BYTES = 10 * 1024 * 1024
 
+// Mensaje legible desde cualquier error (Error, PostgrestError {message}, StorageError…).
+function errText(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message)
+  return ''
+}
+
+// Mapea el error técnico a un mensaje útil para el usuario.
+function friendlyUploadError(raw: string): { title: string; description?: string } {
+  const m = raw.toLowerCase()
+  if (/permission|denied|42501|not authorized|rls|policy/.test(m)) {
+    return { title: 'No tienes permisos para subir fotos a este inmueble.' }
+  }
+  if (/mime|not allowed|invalid_mime|unsupported/.test(m)) {
+    return { title: 'Formato no permitido.', description: 'Usa JPG, PNG, WebP o GIF.' }
+  }
+  if (/size|exceed|too large|maximum|payload/.test(m)) {
+    return { title: 'La imagen es demasiado grande.', description: 'Máximo 10 MB por foto.' }
+  }
+  return { title: 'No se pudo subir la foto.', description: raw || 'Revisa formato (JPG/PNG/WebP) y tamaño (máx. 10 MB).' }
+}
+
 // Galería real de fotos de un inmueble: subir (múltiples), ver, portada y borrar.
 // Storage privado + signed URLs + RLS por workspace (sin service_role).
 export function PropertyPhotosManager({ workspaceId, propertyId }: { workspaceId: string | null; propertyId: string }) {
@@ -47,7 +69,10 @@ export function PropertyPhotosManager({ workspaceId, propertyId }: { workspaceId
         await uploadEntityFile({ workspaceId, entityType: 'property', entityId: propertyId, file, category: 'image', isCover: files.length === 0 && i === 0 })
         ok += 1
       } catch (e) {
-        toast.error('No se pudo subir la foto', { description: e instanceof Error ? e.message : '' })
+        const raw = errText(e)
+        if (typeof console !== 'undefined') console.error('[PropertyPhotos] upload failed', { propertyId, workspaceId, name: file.name, type: file.type, size: file.size, error: raw })
+        const f = friendlyUploadError(raw)
+        toast.error(f.title, { description: f.description })
       }
     }
     if (ok > 0) toast.success(ok === 1 ? 'Foto subida' : `${ok} fotos subidas`)
@@ -83,7 +108,7 @@ export function PropertyPhotosManager({ workspaceId, propertyId }: { workspaceId
           disabled={uploading || !workspaceId}
           className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
         >
-          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />} Subir fotos
+          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />} {uploading ? 'Subiendo…' : 'Subir fotos'}
         </button>
         <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => void handlePick(e.target.files)} />
       </div>
