@@ -35,6 +35,7 @@ import {
   MapPin,
   Coins,
   Check,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -56,6 +57,7 @@ import {
   EditPropertyDrawer,
 } from '@/components/VerticalEditForms'
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
+import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { featureFlags } from '@/lib/feature-flags'
@@ -189,6 +191,8 @@ export default function OpportunitiesPage() {
   // Borrado seguro (P6.8)
   const [deleteOppTarget, setDeleteOppTarget] = useState<OpportunityRow | null>(null)
   const [deleteCaseTarget, setDeleteCaseTarget] = useState<ServiceCaseRow | null>(null)
+  // Documentos de un trámite gestionables directamente desde la fila (sin abrir el drawer de edición).
+  const [docsCase, setDocsCase] = useState<ServiceCaseRow | null>(null)
   const [blockedOppTarget, setBlockedOppTarget] = useState<OpportunityRow | null>(null)
   const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
   const [closeOpp, setCloseOpp] = useState<OpportunityRow | null>(null)
@@ -342,10 +346,6 @@ export default function OpportunitiesPage() {
   const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
   const soldArchivedCount = visibleProperties.filter((p) => isClosedProperty(p.status)).length
   const shownProperties = showSoldProps ? visibleProperties : visibleProperties.filter((p) => !isClosedProperty(p.status))
-
-  // Comisión estimada en cartera (orientativa, NO facturación): suma de las comisiones de las
-  // operaciones abiertas con comisión pactada.
-  const openCommission = openOpportunities.reduce((sum, o) => sum + (commissionOf(o) ?? 0), 0)
 
   // Módulo Comisiones: operaciones con comisión prevista calculable (control interno de cobros).
   // Por defecto solo las cerradas (vendidas/alquiladas); el toggle suma también las abiertas.
@@ -771,9 +771,9 @@ export default function OpportunitiesPage() {
             />
             <KpiCard
               icon={<FileText className="h-4 w-4 text-indigo-600" />}
-              label="Cerradas con comisión"
+              label="Operaciones cerradas"
               value={String(closedCommissionRows.length)}
-              detail="Vendidas / alquiladas"
+              detail="Con comisión pactada"
               tone="border-indigo-100 bg-indigo-50/40"
             />
           </>
@@ -794,18 +794,18 @@ export default function OpportunitiesPage() {
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
-              icon={<Sparkles className="h-4 w-4 text-teal-600" />}
-              label="Comisión estimada"
-              value={openCommission > 0 ? formatCurrency(openCommission) : '—'}
-              detail="Operaciones abiertas"
-              tone="border-teal-100 bg-teal-50/40"
-            />
-            <KpiCard
               icon={<FileText className="h-4 w-4 text-violet-600" />}
               label="Trámites abiertos"
               value={String(activeCases)}
               detail={cases.length ? `${cases.length} en total` : 'Sin trámites'}
               tone="border-violet-100 bg-violet-50/40"
+            />
+            <KpiCard
+              icon={<Building2 className="h-4 w-4 text-sky-600" />}
+              label="Inmuebles en cartera"
+              value={String(visibleProperties.length - soldArchivedCount)}
+              detail={soldArchivedCount ? `${soldArchivedCount} en histórico` : (visibleProperties.length ? 'Activos' : 'Sin inmuebles aún')}
+              tone="border-sky-100 bg-sky-50/40"
             />
           </>
         )}
@@ -886,13 +886,6 @@ export default function OpportunitiesPage() {
                               <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">{wonLabel(typeof opp.metadata?.operation_kind === 'string' ? opp.metadata.operation_kind : null)}</span>
                             )}
                             <span className="text-xs font-semibold text-gray-700">{formatCurrency(opp.value, opp.currency ?? 'EUR')}</span>
-                            {(() => {
-                              const base = (opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value
-                              const amount = base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
-                              return amount != null
-                                ? <span className="rounded-full bg-teal-50 px-1.5 py-0.5 text-[10px] font-medium text-teal-700" title="Comisión estimada (orientativa)">Com. {formatCurrency(amount)}</span>
-                                : null
-                            })()}
                             <select
                               aria-label="Cambiar estado"
                               className={SELECT_CLS}
@@ -1022,11 +1015,27 @@ export default function OpportunitiesPage() {
                       c.due_date ? `vence ${formatDate(c.due_date)}` : '',
                     ].filter(Boolean).join(' · ')}
                   </p>
-                  {(docCountByCase[c.id] ?? 0) > 0 && (
-                    <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600">
-                      <FileText className="h-3 w-3" /> {docCountByCase[c.id]} {docCountByCase[c.id] === 1 ? 'documento' : 'documentos'}
-                    </p>
-                  )}
+                  <div className="mt-1">
+                    {(docCountByCase[c.id] ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setDocsCase(c)}
+                        title="Ver y gestionar documentos del trámite"
+                        className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-indigo-600 transition-colors hover:text-indigo-700"
+                      >
+                        <FileText className="h-3 w-3" /> {docCountByCase[c.id]} {docCountByCase[c.id] === 1 ? 'documento' : 'documentos'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setDocsCase(c)}
+                        title="Añadir un documento al trámite"
+                        className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-gray-400 transition-colors hover:text-indigo-600"
+                      >
+                        <Plus className="h-3 w-3" /> Añadir documento
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1292,7 +1301,7 @@ export default function OpportunitiesPage() {
               const opLabel = kind === 'alquiler' ? 'alquilada' : 'vendida'
               const propAction = kind === 'alquiler' ? 'alquilado' : 'vendido'
               const prop = closeOpp.property_id ? propertiesById[closeOpp.property_id]?.title : ''
-              return `La operación quedará registrada como ${opLabel} y el inmueble${prop ? ` «${prop}»` : ''} se marcará como ${propAction}. No se elimina nada: pasa al histórico (comisión, documentos y trámites se conservan).`
+              return `La operación quedará registrada como ${opLabel} y el inmueble${prop ? ` «${prop}»` : ''} se marcará como ${propAction} y saldrá de la cartera activa. No se elimina nada: queda en el histórico (comisión, documentos y trámites se conservan).`
             })()
           : ''}
         confirmLabel={closeOpp && (typeof closeOpp.metadata?.operation_kind === 'string' ? closeOpp.metadata.operation_kind : '') === 'alquiler'
@@ -1346,6 +1355,32 @@ export default function OpportunitiesPage() {
         onConfirm={() => void confirmDeleteCase()}
         onCancel={() => { if (!deleteBusy) { setDeleteCaseTarget(null); setDeleteError(null) } }}
       />
+
+      {/* Documentos del trámite — acceso directo desde la fila (sin abrir el drawer de edición).
+          Reutiliza EntityDocumentsManager (Storage + RLS, sin service_role); el contador de la
+          fila se actualiza al instante vía handleDocCountChange. */}
+      {docsCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => setDocsCase(null)} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-base font-semibold text-gray-900">{docsCase.title}</h3>
+                <p className="truncate text-[12px] text-gray-500">Documentos del trámite</p>
+              </div>
+              <button type="button" onClick={() => setDocsCase(null)} aria-label="Cerrar" className="shrink-0 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"><X className="h-4 w-4" /></button>
+            </div>
+            <EntityDocumentsManager
+              workspaceId={workspaceId}
+              entityType="service_case"
+              entityId={docsCase.id}
+              onCountChange={handleDocCountChange}
+              title="Documentos del trámite"
+              description="Sube contratos, nota simple, tasaciones o justificantes vinculados a este trámite."
+            />
+          </div>
+        </div>
+      )}
 
       {/* Registrar cobro de comisión — importe real opcional + nota opcional (control interno) */}
       {collectOpp && (
