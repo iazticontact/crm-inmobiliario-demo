@@ -31,6 +31,7 @@ import {
   Plus,
   PlayCircle,
   Pencil,
+  Trash2,
   MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -59,7 +60,8 @@ import { featureFlags } from '@/lib/feature-flags'
 import { demoOpportunities, demoServiceCases, demoProperties } from '@/lib/demo/demo-real-estate'
 import { clients as demoClients } from '@/lib/mock-data'
 import { getClients } from '@/lib/supabase-queries'
-import { coverUrlsForProperties, documentCountsForEntities } from '@/lib/entity-files'
+import { coverUrlsForProperties, documentCountsForEntities, deleteEntityFilesFor } from '@/lib/entity-files'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   VERTICALS,
   getPipelineForVertical,
@@ -75,6 +77,8 @@ import {
   updateOpportunityStage,
   updateServiceCaseStatus,
   updatePropertyStatus,
+  deleteOpportunity,
+  deleteServiceCase,
   type OpportunityRow,
   type ServiceCaseRow,
   type PropertyRow,
@@ -192,6 +196,11 @@ export default function OpportunitiesPage() {
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({})
   const [docCountByCase, setDocCountByCase] = useState<Record<string, number>>({})
+  // Borrado seguro (P6.8)
+  const [deleteOppTarget, setDeleteOppTarget] = useState<OpportunityRow | null>(null)
+  const [deleteCaseTarget, setDeleteCaseTarget] = useState<ServiceCaseRow | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -439,6 +448,71 @@ export default function OpportunitiesPage() {
   const handleDocCountChange = useCallback((caseId: string, count: number) => {
     setDocCountByCase((prev) => ({ ...prev, [caseId]: count }))
   }, [])
+
+  function isDemo() {
+    return typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
+  }
+
+  // Operación: si tiene trámites vinculados, se BLOQUEA (la FK es SET NULL → borrar la
+  // desvincularía sin avisar). Si no, confirmación y borrado. No toca cliente ni inmueble.
+  function requestDeleteOpp(opp: OpportunityRow) {
+    const linked = cases.filter((c) => c.opportunity_id === opp.id).length
+    if (linked > 0) {
+      toast.error('No puedes eliminar esta operación', { description: `Tiene ${linked} trámite${linked === 1 ? '' : 's'} vinculado${linked === 1 ? '' : 's'}. Elimina o reasigna los trámites primero.` })
+      return
+    }
+    setDeleteError(null)
+    setDeleteOppTarget(opp)
+  }
+  async function confirmDeleteOpp() {
+    const target = deleteOppTarget
+    if (!target) return
+    if (isDemo()) {
+      setOpportunities((prev) => prev.filter((o) => o.id !== target.id))
+      toast.info('Modo demo: eliminado en pantalla (no se guarda).')
+      setDeleteOppTarget(null)
+      return
+    }
+    if (!workspaceId) { setDeleteError('Sin workspace activo.'); return }
+    setDeleteBusy(true); setDeleteError(null)
+    const ok = await deleteOpportunity(workspaceId, target.id)
+    setDeleteBusy(false)
+    if (!ok) { setDeleteError('No se pudo eliminar. Comprueba que tienes permisos de administrador.'); return }
+    setOpportunities((prev) => prev.filter((o) => o.id !== target.id))
+    toast.success('Operación eliminada')
+    setDeleteOppTarget(null)
+  }
+
+  // Trámite: confirmación (avisa de los documentos), borra primero sus documentos
+  // (Storage + metadata, sin huérfanos) y luego el trámite. No toca operación/cliente/inmueble.
+  function requestDeleteCase(c: ServiceCaseRow) {
+    setDeleteError(null)
+    setDeleteCaseTarget(c)
+  }
+  async function confirmDeleteCase() {
+    const target = deleteCaseTarget
+    if (!target) return
+    if (isDemo()) {
+      setCases((prev) => prev.filter((c) => c.id !== target.id))
+      toast.info('Modo demo: eliminado en pantalla (no se guarda).')
+      setDeleteCaseTarget(null)
+      return
+    }
+    if (!workspaceId) { setDeleteError('Sin workspace activo.'); return }
+    setDeleteBusy(true); setDeleteError(null)
+    try {
+      await deleteEntityFilesFor(workspaceId, 'service_case', target.id)
+      const ok = await deleteServiceCase(workspaceId, target.id)
+      if (!ok) { setDeleteError('No se pudo eliminar el trámite. Comprueba permisos de administrador.'); setDeleteBusy(false); return }
+      setCases((prev) => prev.filter((c) => c.id !== target.id))
+      setDocCountByCase((prev) => { const n = { ...prev }; delete n[target.id]; return n })
+      toast.success('Trámite eliminado')
+      setDeleteCaseTarget(null)
+    } catch {
+      setDeleteError('No se pudo eliminar el trámite.')
+    }
+    setDeleteBusy(false)
+  }
 
   // Por defecto inmobiliaria (no 'general'): una inmobiliaria crea operaciones/trámites de
   // real_estate salvo que esté filtrando explícitamente por otra vertical (workspace mixto).
@@ -714,6 +788,14 @@ export default function OpportunitiesPage() {
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => requestDeleteOpp(opp)}
+                              title="Eliminar operación"
+                              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
                           </div>
                         </li>
                       ))}
@@ -791,6 +873,14 @@ export default function OpportunitiesPage() {
                         className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-indigo-50 hover:text-indigo-600"
                       >
                         <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => requestDeleteCase(c)}
+                        title="Eliminar trámite"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="h-3 w-3" />
                       </button>
                     </div>
                   </div>
@@ -977,6 +1067,34 @@ export default function OpportunitiesPage() {
         property={editProp}
         onUpdated={(row) => setProperties((prev) => prev.map((p) => (p.id === row.id ? row : p)))}
         onCoverChange={handleCoverChange}
+      />
+
+      {/* Borrado seguro (P6.8) */}
+      <ConfirmDialog
+        open={!!deleteOppTarget}
+        title="Eliminar operación"
+        description={deleteOppTarget ? `¿Eliminar «${deleteOppTarget.title}»? El cliente y el inmueble vinculados no se eliminan. Esta acción no se puede deshacer.` : ''}
+        confirmLabel="Eliminar"
+        loadingLabel="Eliminando…"
+        destructive
+        loading={deleteBusy}
+        error={deleteError}
+        onConfirm={() => void confirmDeleteOpp()}
+        onCancel={() => { if (!deleteBusy) { setDeleteOppTarget(null); setDeleteError(null) } }}
+      />
+      <ConfirmDialog
+        open={!!deleteCaseTarget}
+        title="Eliminar trámite"
+        description={deleteCaseTarget
+          ? `¿Eliminar «${deleteCaseTarget.title}»?${(docCountByCase[deleteCaseTarget.id] ?? 0) > 0 ? ` Se eliminarán también sus ${docCountByCase[deleteCaseTarget.id]} documento${docCountByCase[deleteCaseTarget.id] === 1 ? '' : 's'}.` : ''} Esta acción no se puede deshacer.`
+          : ''}
+        confirmLabel="Eliminar"
+        loadingLabel="Eliminando…"
+        destructive
+        loading={deleteBusy}
+        error={deleteError}
+        onConfirm={() => void confirmDeleteCase()}
+        onCancel={() => { if (!deleteBusy) { setDeleteCaseTarget(null); setDeleteError(null) } }}
       />
     </motion.div>
   )

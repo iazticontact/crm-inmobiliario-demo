@@ -622,3 +622,31 @@ export async function listClientsLite(workspaceId: string, opts?: { query?: stri
     phone: (r.phone as string | null) ?? null,
   }))
 }
+
+// -----------------------------------------------------------------------------
+// Borrado seguro (P6.8). DELETE real protegido por RLS (is_workspace_admin). Las FKs de
+// calendar_events/tasks/service_cases.opportunity_id y calendar_events/tasks.case_id son
+// ON DELETE SET NULL → no se destruyen citas/tareas, solo se desvincula la relación.
+// El bloqueo "operación con trámites" y el borrado de documentos del trámite se gestionan
+// en la UI (no hay FK de entity_files → service_cases; es polimórfica).
+export async function deleteOpportunity(workspaceId: string, id: string): Promise<boolean> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return false
+  const { error } = await supabase.from('opportunities').delete().eq('workspace_id', workspaceId).eq('id', id)
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[deleteOpportunity]', error.message)
+    return false
+  }
+  return true
+}
+
+export async function deleteServiceCase(workspaceId: string, id: string): Promise<boolean> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return false
+  const { error } = await supabase.from('service_cases').delete().eq('workspace_id', workspaceId).eq('id', id)
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[deleteServiceCase]', error.message)
+    return false
+  }
+  return true
+}

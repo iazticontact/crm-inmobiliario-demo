@@ -100,6 +100,15 @@ export async function uploadEntityFile(opts: {
   return data as EntityFile
 }
 
+// Borra TODOS los archivos (Storage + metadata) de una entidad. Para borrado seguro de un
+// trámite/entidad: evita dejar entity_files huérfanos (no hay FK polimórfica). Best-effort.
+export async function deleteEntityFilesFor(workspaceId: string, entityType: EntityType, entityId: string): Promise<void> {
+  const files = await listEntityFiles(workspaceId, entityType, entityId).catch(() => [] as EntityFile[])
+  for (const f of files) {
+    await deleteEntityFile(f).catch(() => {})
+  }
+}
+
 export async function deleteEntityFile(file: Pick<EntityFile, 'id' | 'path'>): Promise<void> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no disponible')
