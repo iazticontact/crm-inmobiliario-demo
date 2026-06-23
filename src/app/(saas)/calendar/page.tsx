@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, ExternalLink, Lock, Phone, Plus, RefreshCw, Settings2, Trash2, User, X } from 'lucide-react'
+import Link from 'next/link'
+import { AlertCircle, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, ExternalLink, FileText, Lock, Phone, Plus, RefreshCw, Settings2, Trash2, User, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
@@ -20,9 +21,14 @@ import {
   cancelCalendarEvent,
   deleteCalendarEvent,
   getCalendarEvents,
+  getClients,
   getWorkspaceContext,
   updateCalendarEvent,
 } from '@/lib/supabase-queries'
+import { listProperties, listOpportunities, listServiceCases, type PropertyRow, type OpportunityRow, type ServiceCaseRow } from '@/lib/vertical-queries'
+import { commStateLabel } from '@/lib/demo/vertical-templates'
+import { serviceCaseStatusLabel } from '@/components/VerticalForms'
+import { EntitySelect } from '@/components/EntitySelect'
 import type { CalendarEvent, EventType, GoogleCalendarConnectionStatus, GoogleCalendarListItem } from '@/lib/types'
 import {
   areSameCalendarId,
@@ -91,13 +97,19 @@ type EventForm = {
   startMinute: number
   duration: number
   clientName: string
+  clientId?: string | null
+  propertyId?: string | null
+  opportunityId?: string | null
+  caseId?: string | null
+  location?: string
   description: string
+  durationTouched?: boolean
   googleEventId?: string
   googleCalendarId?: string
   isReadOnly?: boolean
 }
 
-const emptyEventForm: EventForm = { title: '', date: INITIAL_TODAY, type: 'visit', startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
+const emptyEventForm: EventForm = { title: '', date: INITIAL_TODAY, type: 'visit', startHour: 10, startMinute: 0, duration: 60, clientName: '', clientId: null, propertyId: null, opportunityId: null, caseId: null, location: '', description: '' }
 
 function toDateInput(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -281,7 +293,13 @@ function toForm(event: CalendarEvent): EventForm {
     startMinute: event.startMinute,
     duration: event.duration,
     clientName: event.clientName ?? '',
+    clientId: event.clientId ?? null,
+    propertyId: event.propertyId ?? null,
+    opportunityId: event.opportunityId ?? null,
+    caseId: event.caseId ?? null,
+    location: event.location ?? '',
     description: event.description ?? '',
+    durationTouched: true,
     googleEventId: event.googleEventId,
     googleCalendarId: event.googleCalendarId,
     isReadOnly: event.isReadOnly === true,
@@ -487,6 +505,11 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  // Entidades del CRM para vincular en "Nueva cita" (cliente/inmueble/operación/trámite).
+  const [crmClients, setCrmClients] = useState<{ id: string; name: string; email?: string; phone?: string; company?: string }[]>([])
+  const [crmProperties, setCrmProperties] = useState<PropertyRow[]>([])
+  const [crmOpportunities, setCrmOpportunities] = useState<OpportunityRow[]>([])
+  const [crmCases, setCrmCases] = useState<ServiceCaseRow[]>([])
   const [isRealMode, setIsRealMode] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
@@ -1306,6 +1329,98 @@ export default function CalendarPage() {
     setModalOpen(true)
   }
 
+  // Carga de entidades CRM para los selectores (RLS, Promise.all, sin N+1). Solo modo real.
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      if (!workspaceId) {
+        if (active) { setCrmClients([]); setCrmProperties([]); setCrmOpportunities([]); setCrmCases([]) }
+        return
+      }
+      const [cl, pr, op, ca] = await Promise.all([
+        getClients(workspaceId).catch(() => [] as { id: string; name: string }[]),
+        listProperties(workspaceId).catch(() => [] as PropertyRow[]),
+        listOpportunities(workspaceId).catch(() => [] as OpportunityRow[]),
+        listServiceCases(workspaceId).catch(() => [] as ServiceCaseRow[]),
+      ])
+      if (!active) return
+      setCrmClients(cl as { id: string; name: string; email?: string; phone?: string; company?: string }[])
+      setCrmProperties(pr)
+      setCrmOpportunities(op)
+      setCrmCases(ca)
+    })()
+    return () => { active = false }
+  }, [workspaceId])
+
+  // Mapas por id (sin N+1) y opciones humanas (nunca UUID) para los selectores.
+  const clientById = useMemo(() => new Map(crmClients.map((c) => [c.id, c])), [crmClients])
+  const propertyById = useMemo(() => new Map(crmProperties.map((p) => [p.id, p])), [crmProperties])
+  const opportunityById = useMemo(() => new Map(crmOpportunities.map((o) => [o.id, o])), [crmOpportunities])
+  const caseById = useMemo(() => new Map(crmCases.map((c) => [c.id, c])), [crmCases])
+
+  const propertyLocation = (p?: PropertyRow): string =>
+    !p ? '' : ([p.address, [p.city, p.area].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || p.title)
+
+  const clientOptions = useMemo(
+    () => crmClients.map((c) => ({ id: c.id, label: c.name || 'Cliente', sublabel: [c.email, c.phone, c.company].filter(Boolean).join(' · ') })),
+    [crmClients],
+  )
+  const propertyOptions = useMemo(
+    () => crmProperties.map((p) => ({ id: p.id, label: p.title, sublabel: [p.reference ? `Ref. ${p.reference}` : '', [p.city, p.area].filter(Boolean).join(', ')].filter(Boolean).join(' · ') })),
+    [crmProperties],
+  )
+  const opportunityOptions = useMemo(
+    () => crmOpportunities.map((o) => ({ id: o.id, label: o.title, sublabel: [o.client_id ? clientById.get(o.client_id)?.name : '', commStateLabel(o.stage, typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : null)].filter(Boolean).join(' · ') })),
+    [crmOpportunities, clientById],
+  )
+  const caseOptions = useMemo(
+    () => crmCases.map((c) => ({ id: c.id, label: c.title, sublabel: [c.client_id ? clientById.get(c.client_id)?.name : '', serviceCaseStatusLabel(c.status), c.due_date ? `vence ${c.due_date}` : ''].filter(Boolean).join(' · ') })),
+    [crmCases, clientById],
+  )
+
+  // Título sugerido por tipo (solo si el usuario no escribió título).
+  const suggestTitle = (type: EventType, propTitle?: string, clientName?: string): string => {
+    if ((type === 'visit' || type === 'valuation') && propTitle) return `${eventTypeConfig[type].label} — ${propTitle}`
+    if (clientName) return `${eventTypeConfig[type].label} — ${clientName}`
+    if (propTitle) return `${eventTypeConfig[type].label} — ${propTitle}`
+    return ''
+  }
+
+  // Selección de entidades con autocompletado seguro (solo rellena lo vacío; todo editable).
+  const pickClient = (id: string | null) => setForm((p) => ({ ...p, clientId: id, clientName: id ? (clientById.get(id)?.name ?? p.clientName) : '' }))
+  const pickProperty = (id: string | null) => setForm((p) => {
+    const prop = id ? propertyById.get(id) : undefined
+    const next: EventForm = { ...p, propertyId: id }
+    if (prop) {
+      if (!p.location?.trim()) next.location = propertyLocation(prop)
+      if (!p.clientId && prop.client_id) { next.clientId = prop.client_id; next.clientName = clientById.get(prop.client_id)?.name ?? p.clientName }
+      if (!p.title.trim()) next.title = suggestTitle(p.type, prop.title, next.clientName)
+    }
+    return next
+  })
+  const pickOpportunity = (id: string | null) => setForm((p) => {
+    const op = id ? opportunityById.get(id) : undefined
+    const next: EventForm = { ...p, opportunityId: id }
+    if (op) {
+      if (!p.clientId && op.client_id) { next.clientId = op.client_id; next.clientName = clientById.get(op.client_id)?.name ?? p.clientName }
+      if (!p.propertyId && op.property_id) { next.propertyId = op.property_id; if (!p.location?.trim()) next.location = propertyLocation(propertyById.get(op.property_id)) }
+      if (!p.title.trim()) next.title = op.title
+    }
+    return next
+  })
+  const pickCase = (id: string | null) => setForm((p) => {
+    const cs = id ? caseById.get(id) : undefined
+    const next: EventForm = { ...p, caseId: id }
+    if (cs) {
+      if (!p.opportunityId && cs.opportunity_id) next.opportunityId = cs.opportunity_id
+      if (!p.clientId && cs.client_id) { next.clientId = cs.client_id; next.clientName = clientById.get(cs.client_id)?.name ?? p.clientName }
+      const propId = cs.property_id || (cs.opportunity_id ? opportunityById.get(cs.opportunity_id)?.property_id ?? null : null)
+      if (!p.propertyId && propId) { next.propertyId = propId; if (!p.location?.trim()) next.location = propertyLocation(propertyById.get(propId)) }
+      if (!p.title.trim()) next.title = cs.title
+    }
+    return next
+  })
+
   type SyncEventResponse = {
     ok?: boolean
     synced?: boolean
@@ -1367,6 +1482,11 @@ export default function CalendarPage() {
       duration: event.duration ?? 60,
       type: event.type,
       clientName: event.clientName ?? '',
+      clientId: event.clientId ?? null,
+      propertyId: event.propertyId ?? null,
+      opportunityId: event.opportunityId ?? null,
+      caseId: event.caseId ?? null,
+      location: event.location ?? '',
       notes: event.notes ?? event.description ?? '',
       description: event.description ?? event.notes ?? '',
     }
@@ -1395,6 +1515,11 @@ export default function CalendarPage() {
       duration: Number(form.duration),
       type: form.type,
       clientName: form.clientName.trim(),
+      clientId: form.clientId || null,
+      propertyId: form.propertyId || null,
+      opportunityId: form.opportunityId || null,
+      caseId: form.caseId || null,
+      location: form.location?.trim() || undefined,
       notes: form.description.trim(),
       description: form.description.trim(),
     }
@@ -1451,6 +1576,10 @@ export default function CalendarPage() {
           startHour: times.startHour,
           startMinute: times.startMinute,
           duration: times.duration,
+          clientId: payload.clientId || undefined,
+          propertyId: payload.propertyId || undefined,
+          opportunityId: payload.opportunityId || undefined,
+          caseId: payload.caseId || undefined,
           clientName: payload.clientName || undefined,
           description: payload.description || undefined,
         }
@@ -1618,7 +1747,7 @@ export default function CalendarPage() {
       <ConfirmDialog
         open={cancelDialogOpen}
         title="Cancelar evento"
-        description={`Vas a cancelar "${form.title || 'este evento'}". Esta acción no se puede deshacer.`}
+        description={`Vas a cancelar "${form.title || 'este evento'}". No se eliminará el cliente, inmueble, operación ni trámite vinculado. Esta acción no se puede deshacer.`}
         confirmLabel="Cancelar evento"
         loadingLabel="Cancelando…"
         cancelLabel="Volver"
@@ -1987,6 +2116,15 @@ export default function CalendarPage() {
                               </span>
                             </>
                           )}
+                          {ev.propertyId && propertyById.get(ev.propertyId) && (
+                            <>
+                              <span className="text-gray-300">·</span>
+                              <span className="inline-flex items-center gap-0.5 text-gray-500">
+                                <Building2 className="h-2.5 w-2.5" />
+                                <span className="max-w-[120px] truncate">{propertyById.get(ev.propertyId)?.title}</span>
+                              </span>
+                            </>
+                          )}
                         </div>
                         <div className="mt-1.5 flex items-center gap-1.5">
                           {isGoogle && (
@@ -2348,7 +2486,7 @@ export default function CalendarPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">Tipo</label>
-                    <select value={form.type} onChange={(e) => { const t = e.target.value as EventType; setForm((p) => ({ ...p, type: t, duration: DEFAULT_DURATION_BY_TYPE[t] ?? p.duration })) }} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
+                    <select value={form.type} onChange={(e) => { const t = e.target.value as EventType; setForm((p) => ({ ...p, type: t, duration: p.durationTouched ? p.duration : (DEFAULT_DURATION_BY_TYPE[t] ?? p.duration) })) }} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
                       {(Object.keys(eventTypeConfig) as EventType[]).map((t) => <option key={t} value={t}>{eventTypeConfig[t].label}</option>)}
                     </select>
                   </div>
@@ -2366,15 +2504,41 @@ export default function CalendarPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">Duración</label>
-                    <select value={form.duration} onChange={(e) => setForm((p) => ({ ...p, duration: Number(e.target.value) }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
+                    <select value={form.duration} onChange={(e) => setForm((p) => ({ ...p, duration: Number(e.target.value), durationTouched: true }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
                       {[15, 30, 45, 60, 90, 120].map((duration) => <option key={duration} value={duration}>{duration} min</option>)}
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-700">Cliente</label>
-                  <input type="text" placeholder="Nombre del cliente" value={form.clientName} onChange={(e) => setForm((p) => ({ ...p, clientName: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Cliente</label>
+                    <EntitySelect value={form.clientId ?? null} onChange={pickClient} options={clientOptions} placeholder="Buscar cliente…" emptyText="Sin clientes disponibles" disabled={form.isReadOnly} />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Inmueble</label>
+                    <EntitySelect value={form.propertyId ?? null} onChange={pickProperty} options={propertyOptions} placeholder="Buscar inmueble…" emptyText="Sin inmuebles disponibles" disabled={form.isReadOnly} />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Operación</label>
+                    <EntitySelect value={form.opportunityId ?? null} onChange={pickOpportunity} options={opportunityOptions} placeholder="Buscar operación…" emptyText="Sin operaciones disponibles" disabled={form.isReadOnly} />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Trámite</label>
+                    <EntitySelect value={form.caseId ?? null} onChange={pickCase} options={caseOptions} placeholder="Buscar trámite…" emptyText="Sin trámites disponibles" disabled={form.isReadOnly} />
+                  </div>
                 </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-700">Ubicación</label>
+                  <input type="text" placeholder="Dirección de la cita (se rellena con el inmueble)" value={form.location ?? ''} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
+                </div>
+                {form.id && (form.clientId || form.propertyId || form.opportunityId) && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-[11px]">
+                    <span className="font-medium text-gray-500">Abrir ficha:</span>
+                    {form.clientId && <Link href={`/clients/${form.clientId}`} className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-700"><User className="h-3 w-3" /> Cliente</Link>}
+                    {form.propertyId && <Link href={`/opportunities/properties/${form.propertyId}`} className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-700"><Building2 className="h-3 w-3" /> Inmueble</Link>}
+                    {form.opportunityId && <Link href="/opportunities" className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-700"><FileText className="h-3 w-3" /> Operación</Link>}
+                  </div>
+                )}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-700">Notas</label>
                   <textarea rows={3} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} disabled={form.isReadOnly} placeholder="Objetivo de la llamada o siguiente paso..." className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />

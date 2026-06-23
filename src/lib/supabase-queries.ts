@@ -74,7 +74,10 @@ export type InvoicePayload = {
 }
 
 export type CalendarEventPayload = CalendarTimeInput & {
-  clientId?: string
+  clientId?: string | null
+  propertyId?: string | null
+  opportunityId?: string | null
+  caseId?: string | null
   title: string
   type?: EventType
   clientName?: string
@@ -1003,6 +1006,9 @@ export function mapSupabaseCalendarEvent(row: DataRecord): CalendarEvent {
     id: asString(row.id),
     workspaceId: asString(row.workspace_id) || undefined,
     clientId: asString(row.client_id) || undefined,
+    propertyId: asString(row.property_id) || undefined,
+    opportunityId: asString(row.opportunity_id) || undefined,
+    caseId: asString(row.case_id) || undefined,
     title: asString(row.title, 'Evento'),
     startAt: times.startAtIso,
     endAt: times.endAtIso,
@@ -1033,6 +1039,11 @@ function toCalendarEventRow(workspaceId: string, payload: CalendarEventPayload):
   return {
     workspace_id: workspaceId,
     client_id: payload.clientId || null,
+    // Vínculos CRM: solo se escriben si el payload los trae explícitamente (undefined → no se toca,
+    // para no borrar relaciones en updates parciales como el reprogramado del Asistente).
+    property_id: payload.propertyId === undefined ? undefined : (payload.propertyId || null),
+    opportunity_id: payload.opportunityId === undefined ? undefined : (payload.opportunityId || null),
+    case_id: payload.caseId === undefined ? undefined : (payload.caseId || null),
     client_name: payload.clientName?.trim() || null,
     title: payload.title.trim(),
     type: payload.type || 'meeting',
@@ -1487,7 +1498,7 @@ export async function createCalendarEvent(workspaceId: string, payload: Calendar
 
   let row = compactRow(toCalendarEventRow(workspaceId, payload))
   if (!row.start_at || !row.end_at) throw new Error('start_at y end_at son obligatorios para calendar_events')
-  const optionalColumns = ['client_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
+  const optionalColumns = ['client_id', 'property_id', 'opportunity_id', 'case_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
     const result = await supabase.from('calendar_events').insert(row).select('*').single()
@@ -1512,7 +1523,7 @@ export async function updateCalendarEvent(id: string, workspaceIdOrPayload: stri
   delete row.workspace_id
   let patch = compactRow(row)
   if (!patch.start_at || !patch.end_at) throw new Error('start_at y end_at son obligatorios para calendar_events')
-  const optionalColumns = ['client_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
+  const optionalColumns = ['client_id', 'property_id', 'opportunity_id', 'case_id', 'client_name', 'date', 'start_hour', 'start_minute', 'duration', 'location', 'notes', 'description', 'metadata']
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt += 1) {
     let query = supabase.from('calendar_events').update(patch).eq('id', id)

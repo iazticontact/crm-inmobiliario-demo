@@ -85,6 +85,9 @@ export type CalendarEvent = {
   id: string
   workspaceId?: string
   clientId?: string
+  propertyId?: string
+  opportunityId?: string
+  caseId?: string
   title: string
   startAt?: string
   endAt?: string
