@@ -80,6 +80,7 @@ export type ServiceCaseRow = {
   workspace_id: string
   client_id: string | null
   opportunity_id: string | null
+  property_id?: string | null
   case_type: string
   vertical: VerticalKey | string
   title: string

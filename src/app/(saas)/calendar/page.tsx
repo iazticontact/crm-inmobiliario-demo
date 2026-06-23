@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Badge } from '@/components/Badge'
+import { UpcomingDeadlinesPanel } from '@/components/UpcomingDeadlinesPanel'
 import { calendarEvents as initialEvents } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -41,10 +42,24 @@ type EventStyle = {
 }
 
 const eventTypeConfig: Record<EventType, EventStyle> = {
-  demo:        { label: 'Demo',         accent: 'bg-indigo-500',  bg: 'bg-indigo-50/80',  text: 'text-indigo-900',  dot: 'bg-indigo-500',  border: 'border-indigo-200' },
+  visit:       { label: 'Visita',       accent: 'bg-indigo-500',  bg: 'bg-indigo-50/80',  text: 'text-indigo-900',  dot: 'bg-indigo-500',  border: 'border-indigo-200' },
   call:        { label: 'Llamada',      accent: 'bg-emerald-500', bg: 'bg-emerald-50/80', text: 'text-emerald-900', dot: 'bg-emerald-500', border: 'border-emerald-200' },
   meeting:     { label: 'Reunión',      accent: 'bg-sky-500',     bg: 'bg-sky-50/80',     text: 'text-sky-900',     dot: 'bg-sky-500',     border: 'border-sky-200' },
   'follow-up': { label: 'Seguimiento',  accent: 'bg-amber-500',   bg: 'bg-amber-50/80',   text: 'text-amber-900',   dot: 'bg-amber-500',   border: 'border-amber-200' },
+  signing:     { label: 'Firma',        accent: 'bg-violet-500',  bg: 'bg-violet-50/80',  text: 'text-violet-900',  dot: 'bg-violet-500',  border: 'border-violet-200' },
+  valuation:   { label: 'Valoración',   accent: 'bg-teal-500',    bg: 'bg-teal-50/80',    text: 'text-teal-900',    dot: 'bg-teal-500',    border: 'border-teal-200' },
+  other:       { label: 'Otro',         accent: 'bg-gray-400',    bg: 'bg-gray-50/80',    text: 'text-gray-700',    dot: 'bg-gray-400',    border: 'border-gray-200' },
+}
+
+// Duración por defecto (min) al elegir tipo en "Nueva cita".
+const DEFAULT_DURATION_BY_TYPE: Record<EventType, number> = {
+  visit: 60, call: 15, meeting: 45, 'follow-up': 30, signing: 60, valuation: 45, other: 30,
+}
+
+// Lookup tolerante: un tipo desconocido/legacy (p. ej. "demo") no rompe el render.
+function styleForType(type: string): EventStyle {
+  if (type === 'demo') return eventTypeConfig.visit
+  return eventTypeConfig[type as EventType] ?? eventTypeConfig.other
 }
 
 const googleEventStyle: EventStyle = {
@@ -82,7 +97,7 @@ type EventForm = {
   isReadOnly?: boolean
 }
 
-const emptyEventForm: EventForm = { title: '', date: INITIAL_TODAY, type: 'meeting', startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
+const emptyEventForm: EventForm = { title: '', date: INITIAL_TODAY, type: 'visit', startHour: 10, startMinute: 0, duration: 60, clientName: '', description: '' }
 
 function toDateInput(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -253,7 +268,7 @@ function layoutOverlappingEvents(events: CalendarEvent[]): DayLayout {
 
 function getEventStyle(ev: CalendarEvent): EventStyle {
   if (ev.syncSource === 'google') return googleEventStyle
-  return eventTypeConfig[ev.type] ?? eventTypeConfig.meeting
+  return styleForType(ev.type)
 }
 
 function toForm(event: CalendarEvent): EventForm {
@@ -1280,7 +1295,9 @@ export default function CalendarPage() {
 
   const openCreateModal = (preset?: Partial<EventForm>) => {
     if (googleConnected && googleCalendars.length === 0 && !loadingCalendars) void loadGoogleCalendars()
-    setForm({ ...emptyEventForm, googleCalendarId: defaultGoogleCalendarId, date: selectedDate, ...preset })
+    // Si el preset trae tipo pero no duración, aplica la duración por defecto de ese tipo.
+    const presetDuration = preset?.type && preset.duration == null ? DEFAULT_DURATION_BY_TYPE[preset.type] : undefined
+    setForm({ ...emptyEventForm, googleCalendarId: defaultGoogleCalendarId, date: selectedDate, ...preset, ...(presetDuration != null ? { duration: presetDuration } : {}) })
     setModalOpen(true)
   }
 
@@ -1612,7 +1629,7 @@ export default function CalendarPage() {
       />
       <PageHeader
         title="Calendario"
-        description={`${weekRangeLabel(weekStart)} · Visitas, citas y disponibilidad`}
+        description={`${weekRangeLabel(weekStart)} · Visitas, llamadas, reuniones y vencimientos`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             {showGoogleStatus && (
@@ -2011,6 +2028,9 @@ export default function CalendarPage() {
               )}
             </ul>
           </div>
+
+          {/* Vencen pronto — conexión con trámites/tareas del CRM */}
+          <UpcomingDeadlinesPanel workspaceId={workspaceId} todayStr={todayStr} />
         </aside>
 
         {/* MAIN CALENDAR GRID */}
@@ -2319,7 +2339,7 @@ export default function CalendarPage() {
                 )}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-700">Título *</label>
-                  <input type="text" placeholder="Demo con cliente" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
+                  <input type="text" placeholder="Visita piso — Calle Mayor 14" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2328,11 +2348,8 @@ export default function CalendarPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-700">Tipo</label>
-                    <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value as EventType }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
-                      <option value="meeting">Reunión</option>
-                      <option value="call">Llamada</option>
-                      <option value="demo">Demo</option>
-                      <option value="follow-up">Seguimiento</option>
+                    <select value={form.type} onChange={(e) => { const t = e.target.value as EventType; setForm((p) => ({ ...p, type: t, duration: DEFAULT_DURATION_BY_TYPE[t] ?? p.duration })) }} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
+                      {(Object.keys(eventTypeConfig) as EventType[]).map((t) => <option key={t} value={t}>{eventTypeConfig[t].label}</option>)}
                     </select>
                   </div>
                 </div>

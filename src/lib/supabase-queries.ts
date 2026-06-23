@@ -370,8 +370,10 @@ function normalizeInvoiceStatus(value: unknown): InvoiceStatus {
 }
 
 function normalizeEventType(value: unknown): EventType {
-  if (value === 'call' || value === 'demo' || value === 'meeting' || value === 'follow-up') return value
-  return 'demo'
+  if (value === 'demo') return 'visit' // legacy: "demo" era una visita a inmueble
+  if (value === 'visit' || value === 'call' || value === 'meeting' || value === 'follow-up'
+    || value === 'signing' || value === 'valuation' || value === 'other') return value
+  return 'other'
 }
 
 function normalizeSentiment(value: unknown): ConversationSentiment {

@@ -153,12 +153,12 @@ export const automationEmails: AutomationEmail[] = [
 // Fechas relativas a hoy para que la agenda demo siempre muestre visitas
 // próximas de esta semana, sin importar cuándo se abra la demo.
 export const calendarEvents: CalendarEvent[] = [
-  { id: 'ev1', title: 'Visita piso Calle Mayor 14', date: demoDate(1), startHour: 18, startMinute: 0, duration: 60, type: 'demo', clientName: 'Lucía Herrera', description: 'Vivienda de 3 dormitorios' },
+  { id: 'ev1', title: 'Visita piso Calle Mayor 14', date: demoDate(1), startHour: 18, startMinute: 0, duration: 60, type: 'visit', clientName: 'Lucía Herrera', description: 'Vivienda de 3 dormitorios' },
   { id: 'ev2', title: 'Llamada de seguimiento', date: demoDate(1), startHour: 12, startMinute: 30, duration: 30, type: 'call', clientName: 'Marcos Beltrán' },
   { id: 'ev3', title: 'Reunión interna equipo comercial', date: demoDate(2), startHour: 9, startMinute: 0, duration: 90, type: 'meeting', description: 'Revisión de cartera y nuevos encargos' },
   { id: 'ev4', title: 'Seguimiento Familia Soler', date: demoDate(2), startHour: 11, startMinute: 0, duration: 45, type: 'follow-up', clientName: 'Familia Soler' },
-  { id: 'ev5', title: 'Visita ático Plaza España', date: demoDate(3), startHour: 17, startMinute: 0, duration: 60, type: 'demo', clientName: 'Roberto Díaz' },
-  { id: 'ev6', title: 'Firma de reserva — chalet Los Robles', date: demoDate(4), startHour: 10, startMinute: 0, duration: 90, type: 'meeting', clientName: 'Marta Vidal', description: 'Chalet en Urbanización Los Robles' },
+  { id: 'ev5', title: 'Visita ático Plaza España', date: demoDate(3), startHour: 17, startMinute: 0, duration: 60, type: 'visit', clientName: 'Roberto Díaz' },
+  { id: 'ev6', title: 'Firma de reserva — chalet Los Robles', date: demoDate(4), startHour: 10, startMinute: 0, duration: 90, type: 'signing', clientName: 'Marta Vidal', description: 'Chalet en Urbanización Los Robles' },
   { id: 'ev7', title: 'Revisión de propuesta de inversión', date: demoDate(5), startHour: 11, startMinute: 30, duration: 45, type: 'call', clientName: 'Inversiones Atlántico SL' },
 ]
 

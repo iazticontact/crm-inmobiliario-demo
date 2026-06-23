@@ -180,7 +180,10 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   visit: 'Visita',
   meeting: 'Reunión',
   call: 'Llamada',
-  demo: 'Evento',
+  demo: 'Visita',
+  signing: 'Firma',
+  valuation: 'Valoración',
+  other: 'Otro',
   'follow-up': 'Seguimiento',
   task: 'Tarea',
   deadline: 'Vencimiento',
@@ -310,7 +313,7 @@ export default function ClientDetailPage() {
   const [caseForm, setCaseForm] = useState({ title: '', caseType: '', status: 'open', priority: 'normal', dueDate: '', assignedTo: '', notes: '' })
   const [caseSaving, setCaseSaving] = useState(false)
   const [evFormOpen, setEvFormOpen] = useState(false)
-  const [evForm, setEvForm] = useState({ title: '', type: 'meeting', date: '', time: '10:00', duration: '60', location: '', notes: '' })
+  const [evForm, setEvForm] = useState({ title: '', type: 'visit', date: '', time: '10:00', duration: '60', location: '', notes: '' })
   const [evSaving, setEvSaving] = useState(false)
 
   // RT4.3 — edición inline (etapas/estados/reprogramación)
@@ -622,7 +625,7 @@ export default function ClientDetailPage() {
       const act = await createActivity(workspaceId, { type: 'note', description: `Evento creado: ${created.title}`, clientName: client.name }).catch(() => null)
       if (act) setActivities((prev) => [act, ...prev])
       toast.success('Evento creado')
-      setEvForm({ title: '', type: 'meeting', date: '', time: '10:00', duration: '60', location: '', notes: '' })
+      setEvForm({ title: '', type: 'visit', date: '', time: '10:00', duration: '60', location: '', notes: '' })
       setEvFormOpen(false)
     } catch (error) {
       toast.error('No se pudo crear el evento', { description: error instanceof Error ? error.message : '' })
@@ -1421,7 +1424,7 @@ export default function ClientDetailPage() {
             <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={evForm.title} onChange={(e) => setEvForm((p) => ({ ...p, title: e.target.value }))} placeholder="Ej. Visita al piso" className={taskInputCls} /></label>
-                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={evForm.type} onChange={(e) => setEvForm((p) => ({ ...p, type: e.target.value }))} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Evento</option></select></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={evForm.type} onChange={(e) => setEvForm((p) => ({ ...p, type: e.target.value }))} className={taskInputCls}><option value="visit">Visita</option><option value="call">Llamada</option><option value="meeting">Reunión</option><option value="follow-up">Seguimiento</option><option value="signing">Firma</option><option value="valuation">Valoración</option><option value="other">Otro</option></select></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={evForm.duration} onChange={(e) => setEvForm((p) => ({ ...p, duration: e.target.value }))} className={taskInputCls} /></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={evForm.date} onChange={(e) => setEvForm((p) => ({ ...p, date: e.target.value }))} className={taskInputCls} /></label>
                 <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={evForm.time} onChange={(e) => setEvForm((p) => ({ ...p, time: e.target.value }))} className={taskInputCls} /></label>
@@ -1457,7 +1460,7 @@ export default function ClientDetailPage() {
                     <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <label className="block sm:col-span-2"><span className="mb-1 block text-[11px] font-medium text-gray-600">Título *</span><input value={editEvent.title} onChange={(e) => setEditEvent((p) => p && { ...p, title: e.target.value })} className={taskInputCls} /></label>
-                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={editEvent.type} onChange={(e) => setEditEvent((p) => p && { ...p, type: e.target.value })} className={taskInputCls}><option value="meeting">Reunión</option><option value="call">Llamada</option><option value="follow-up">Seguimiento</option><option value="demo">Evento</option></select></label>
+                        <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Tipo</span><select value={editEvent.type} onChange={(e) => setEditEvent((p) => p && { ...p, type: e.target.value })} className={taskInputCls}><option value="visit">Visita</option><option value="call">Llamada</option><option value="meeting">Reunión</option><option value="follow-up">Seguimiento</option><option value="signing">Firma</option><option value="valuation">Valoración</option><option value="other">Otro</option></select></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Duración (min)</span><input type="number" value={editEvent.duration} onChange={(e) => setEditEvent((p) => p && { ...p, duration: e.target.value })} className={taskInputCls} /></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Fecha *</span><input type="date" value={editEvent.date} onChange={(e) => setEditEvent((p) => p && { ...p, date: e.target.value })} className={taskInputCls} /></label>
                         <label className="block"><span className="mb-1 block text-[11px] font-medium text-gray-600">Hora</span><input type="time" value={editEvent.time} onChange={(e) => setEditEvent((p) => p && { ...p, time: e.target.value })} className={taskInputCls} /></label>
