@@ -44,6 +44,7 @@ import {
   NewServiceCaseDrawer,
   NewPropertyDrawer,
   SERVICE_CASE_STATUS_OPTIONS,
+  serviceCaseStatusLabel,
   PROPERTY_STATUS_OPTIONS_PUBLIC,
 } from '@/components/VerticalForms'
 import {
@@ -767,7 +768,10 @@ export default function OpportunitiesPage() {
                         value={c.status}
                         onChange={(e) => void handleCaseStatus(c, e.target.value)}
                       >
-                        {SERVICE_CASE_STATUS_OPTIONS.map((s) => (
+                        {(SERVICE_CASE_STATUS_OPTIONS.some((s) => s.id === c.status)
+                          ? SERVICE_CASE_STATUS_OPTIONS
+                          : [...SERVICE_CASE_STATUS_OPTIONS, { id: c.status, label: serviceCaseStatusLabel(c.status) }]
+                        ).map((s) => (
                           <option key={s.id} value={s.id}>{s.label}</option>
                         ))}
                       </select>

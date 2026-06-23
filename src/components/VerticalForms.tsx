@@ -56,27 +56,27 @@ const OPERATION_KIND_OPTIONS = [
   { id: 'alquiler', label: 'Alquiler' },
   { id: 'captacion', label: 'Captación' },
   { id: 'compra', label: 'Compra' },
-  { id: 'inversion', label: 'Inversión' },
   { id: 'valoracion', label: 'Valoración' },
+  { id: 'inversion', label: 'Inversión' },
   { id: OTRO, label: 'Otro' },
 ]
 
 // Origen del lead/operación (columna `source`).
 const SOURCE_OPTIONS = [
   { id: 'web', label: 'Web' },
-  { id: 'whatsapp', label: 'WhatsApp' },
-  { id: 'referido', label: 'Referido' },
   { id: 'portal', label: 'Portal inmobiliario' },
-  { id: 'oficina', label: 'Oficina' },
+  { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'llamada', label: 'Llamada' },
+  { id: 'oficina', label: 'Oficina' },
+  { id: 'referido', label: 'Referido' },
   { id: OTRO, label: 'Otro' },
 ]
 
-// Tipos de trámite inmobiliario (se guarda el label en `case_type`, que es texto libre).
+// Tipos de trámite inmobiliario (se guarda el label en `case_type`, texto libre). Lista corta;
+// los casos especiales van por "Otro". Tipos antiguos en datos se siguen mostrando tal cual.
 const TRAMITE_TYPE_OPTIONS = [
-  'Nota simple', 'Contrato de arras', 'Reserva', 'Encargo de venta',
-  'Certificado energético', 'Tasación', 'Hipoteca / financiación', 'Due diligence',
-  'Escritura / notaría', 'Documentación cliente', 'Documentación inmueble',
+  'Nota simple', 'Contrato / arras', 'Reserva', 'Tasación',
+  'Certificado energético', 'Financiación / hipoteca', 'Escritura / notaría', 'Documentación',
 ]
 
 type RelProperty = { id: string; title: string; city?: string | null }
@@ -284,7 +284,7 @@ export function NewOpportunityDrawer({
           </select>
         </div>
         {sourceKind === OTRO && (
-          <Input label="Especifica el origen" placeholder="Ej: Feria inmobiliaria, colaborador…" value={customSource} onChange={(e) => setCustomSource(e.target.value)} />
+          <Input label="Especifica el origen" placeholder="Ej: Instagram, cartel, colaboración…" value={customSource} onChange={(e) => setCustomSource(e.target.value)} />
         )}
         <div className="flex flex-col gap-1.5">
           <label className={FIELD_LABEL_CLS}>Notas</label>
@@ -312,17 +312,26 @@ type NewServiceCaseDrawerProps = {
   onCreated?: (row: ServiceCaseRow) => void
 }
 
+// Estados primarios (5) — formulario de creación + edición rápida.
 const SERVICE_STATUS_OPTIONS = [
   { id: 'open', label: 'Abierto' },
   { id: 'in_review', label: 'En revisión' },
   { id: 'documentation_pending', label: 'Pendiente de documentación' },
-  { id: 'signature_pending', label: 'Pendiente de firma' },
   { id: 'blocked', label: 'Bloqueado' },
   { id: 'resolved', label: 'Completado' },
-  // Compatibilidad con datos antiguos (se muestran, no son primarios).
-  { id: 'submitted', label: 'Presentado' },
-  { id: 'closed', label: 'Cerrado' },
 ]
+
+// Compatibilidad: estados antiguos que pueda haber en datos → etiqueta legible (no se ofrecen
+// como opción primaria, pero se muestran bien donde aparezcan).
+const SERVICE_STATUS_LEGACY_LABELS: Record<string, string> = {
+  signature_pending: 'Pendiente de firma',
+  submitted: 'Presentado',
+  closed: 'Cerrado',
+}
+
+export function serviceCaseStatusLabel(id: string): string {
+  return SERVICE_STATUS_OPTIONS.find((s) => s.id === id)?.label ?? SERVICE_STATUS_LEGACY_LABELS[id] ?? id
+}
 
 const PRIORITY_OPTIONS = [
   { id: 'low', label: 'Baja' },

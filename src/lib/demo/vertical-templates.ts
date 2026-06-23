@@ -93,14 +93,15 @@ export type PipelineStage = {
 }
 
 export const REAL_ESTATE_PIPELINE: PipelineStage[] = [
-  { id: 'new',             label: 'Nuevo lead',          description: 'Entró por WhatsApp, web o portal.',          defaultProbability: 10, tone: 'bg-gray-50 text-gray-700 border-gray-100' },
-  { id: 'contacted',       label: 'Contactado',          description: 'Primer contacto realizado.',                  defaultProbability: 20, tone: 'bg-sky-50 text-sky-700 border-sky-100' },
-  { id: 'qualified',       label: 'Cualificado',         description: 'Presupuesto, necesidad y plazo confirmados.', defaultProbability: 40, tone: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
-  { id: 'visit_scheduled', label: 'Visita agendada',     description: 'Cita con cliente o propietario.',             defaultProbability: 55, tone: 'bg-violet-50 text-violet-700 border-violet-100' },
-  { id: 'offer',           label: 'Oferta/propuesta',    description: 'Propuesta enviada o reserva firmada.',        defaultProbability: 70, tone: 'bg-amber-50 text-amber-700 border-amber-100' },
-  { id: 'negotiation',     label: 'Negociación',         description: 'Cierre en curso.',                            defaultProbability: 85, tone: 'bg-orange-50 text-orange-700 border-orange-100' },
-  { id: 'won',             label: 'Cerrado ganado',      description: 'Operación cerrada con éxito.',                defaultProbability: 100, tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  { id: 'lost',            label: 'Cerrado perdido',     description: 'No avanza o eligió otra opción.',             defaultProbability: 0,  tone: 'bg-rose-50 text-rose-700 border-rose-100' },
+  { id: 'new',             label: 'Nueva',          description: 'Entró por web, WhatsApp o portal.',           defaultProbability: 10, tone: 'bg-gray-50 text-gray-700 border-gray-100' },
+  { id: 'contacted',       label: 'Contactado',     description: 'Primer contacto realizado.',                  defaultProbability: 20, tone: 'bg-sky-50 text-sky-700 border-sky-100' },
+  { id: 'qualified',       label: 'Cualificado',    description: 'Presupuesto, necesidad y plazo confirmados.', defaultProbability: 40, tone: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
+  { id: 'visit_scheduled', label: 'Visita',         description: 'Cita con cliente o propietario.',             defaultProbability: 55, tone: 'bg-violet-50 text-violet-700 border-violet-100' },
+  { id: 'offer',           label: 'Oferta',         description: 'Propuesta enviada.',                          defaultProbability: 70, tone: 'bg-amber-50 text-amber-700 border-amber-100' },
+  { id: 'negotiation',     label: 'Negociación',    description: 'Cierre en curso.',                            defaultProbability: 85, tone: 'bg-orange-50 text-orange-700 border-orange-100' },
+  { id: 'reserved',        label: 'Reserva',        description: 'Reserva o arras firmadas.',                   defaultProbability: 90, tone: 'bg-teal-50 text-teal-700 border-teal-100' },
+  { id: 'won',             label: 'Cerrada',        description: 'Operación cerrada con éxito.',                defaultProbability: 100, tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  { id: 'lost',            label: 'Perdida',        description: 'No avanza o eligió otra opción.',             defaultProbability: 0,  tone: 'bg-rose-50 text-rose-700 border-rose-100' },
 ]
 
 export const IMMIGRATION_PIPELINE: PipelineStage[] = [
