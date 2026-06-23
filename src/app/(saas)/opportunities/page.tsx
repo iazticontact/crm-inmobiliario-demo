@@ -60,11 +60,11 @@ import {
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import {
-  PROPERTY_TYPE_LABEL,
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
   propLabel,
   propNum,
+  propertyTypeText,
   isRentalProperty,
   sortPropertiesByStatus,
   ACTIVE_STATUS_RANK,
@@ -683,11 +683,14 @@ export default function OpportunitiesPage() {
               <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
               {historical && <span className="rounded-full bg-gray-900/75 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">Histórico</span>}
             </div>
-            <span className={cn('absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>{st.label}</span>
+            <span className={cn('absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', st.tone)}>
+              {(p.status === 'listed' || p.status === 'available') && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+              {st.label}
+            </span>
           </div>
           <div className="p-3">
             <p className="truncate text-sm font-semibold text-gray-900">{p.title}</p>
-            <p className="mt-0.5 truncate text-[11px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type)].filter(Boolean).join(' · ') || '—'}</p>
+            <p className="mt-0.5 truncate text-[11px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propertyTypeText(p)].filter(Boolean).join(' · ') || '—'}</p>
             {specs && <p className="mt-1 truncate text-[11px] text-gray-500">{specs}</p>}
             <p className="mt-1.5 text-base font-bold text-gray-900">{p.price ? `${formatCurrency(p.price, p.currency ?? 'EUR')}${isRent ? '/mes' : ''}` : '—'}</p>
             <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-gray-500">
@@ -1156,7 +1159,7 @@ export default function OpportunitiesPage() {
                 <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5 text-[11px] font-medium">
                   {([
                     ['active', 'Activos'],
-                    ['history', `Histórico (${soldArchivedCount})`],
+                    ['history', `Histórico · ${soldArchivedCount}`],
                     ['all', 'Todos'],
                   ] as const).map(([key, label]) => (
                     <button

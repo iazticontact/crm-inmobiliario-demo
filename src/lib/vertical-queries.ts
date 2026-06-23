@@ -558,6 +558,7 @@ export type UpdatePropertyInput = {
   ownerPhone?: string | null
   clientId?: string | null
   notes?: string | null
+  metadata?: Record<string, unknown>
 }
 
 export async function updateProperty(workspaceId: string, id: string, input: UpdatePropertyInput) {
@@ -575,6 +576,7 @@ export async function updateProperty(workspaceId: string, id: string, input: Upd
   if (input.ownerPhone !== undefined) patch.owner_phone = input.ownerPhone
   if (input.clientId !== undefined) patch.client_id = input.clientId
   if (input.notes !== undefined) patch.notes = input.notes
+  if (input.metadata !== undefined) patch.metadata = input.metadata
 
   const { data, error } = await supabase
     .from('properties')

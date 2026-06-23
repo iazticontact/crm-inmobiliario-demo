@@ -38,6 +38,7 @@ import {
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { SERVICE_CASE_STATUS_OPTIONS, serviceCaseStatusLabel, TRAMITE_TYPE_OPTIONS, estimateCommission, formatEuro } from '@/components/VerticalForms'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
+import { PROPERTY_TYPE_OPTIONS, PROPERTY_OPERATION_OPTIONS, PROPERTY_TYPE_OTHER, PROPERTY_TYPE_LABEL, propLabel } from '@/lib/property-display'
 
 // En modo demo offline no hay workspace real: las ediciones se simulan y
 // avisamos con un toast amable en vez de un error técnico de sesión.
@@ -60,19 +61,6 @@ const PRIORITY_OPTIONS = [
   { id: 'urgent', label: 'Urgente' },
 ]
 
-const PROPERTY_TYPE_OPTIONS = [
-  { id: 'apartment', label: 'Piso' },
-  { id: 'house', label: 'Casa' },
-  { id: 'villa', label: 'Villa / chalet' },
-  { id: 'commercial', label: 'Local comercial' },
-  { id: 'office', label: 'Oficina' },
-  { id: 'land', label: 'Terreno' },
-]
-
-const OPERATION_OPTIONS = [
-  { id: 'sale', label: 'Venta' },
-  { id: 'rent', label: 'Alquiler' },
-]
 
 const PROPERTY_STATUS_OPTIONS = [
   { id: 'prospecting', label: 'En preparación' },
@@ -450,9 +438,14 @@ function EditPropertyInner({
   onCoverChange,
 }: EditPropertyInnerProps) {
   const [title, setTitle] = useState(() => property.title || '')
-  const [propertyType, setPropertyType] = useState(() => property.property_type || 'apartment')
-  const [operationType, setOperationType] = useState(() => property.operation_type || 'sale')
+  const [propertyType, setPropertyType] = useState(() => property.property_type || 'piso')
+  const [customType, setCustomType] = useState(() => (typeof property.metadata?.custom_property_type === 'string' ? property.metadata.custom_property_type : ''))
+  const [operationType, setOperationType] = useState(() => property.operation_type || 'venta')
   const [status, setStatus] = useState(() => property.status || 'prospecting')
+  // Opciones de tipo: catálogo + el tipo actual si fuese uno antiguo no catalogado (no se pierde).
+  const typeOptions = PROPERTY_TYPE_OPTIONS.some((t) => t.id === property.property_type) || property.property_type === PROPERTY_TYPE_OTHER || !property.property_type
+    ? PROPERTY_TYPE_OPTIONS
+    : [{ id: property.property_type, label: propLabel(PROPERTY_TYPE_LABEL, property.property_type) }, ...PROPERTY_TYPE_OPTIONS]
   const [city, setCity] = useState(() => property.city ?? '')
   const [area, setArea] = useState(() => property.area ?? '')
   const [price, setPrice] = useState(() => (property.price != null ? String(property.price) : ''))
@@ -465,6 +458,7 @@ function EditPropertyInner({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { toast.error('Necesito al menos un título.'); return }
+    if (propertyType === PROPERTY_TYPE_OTHER && !customType.trim()) { toast.error('Especifica el tipo de inmueble.'); return }
     if (isDemoMode()) {
       toast.info('Modo demo (solo lectura)', { description: 'Acción simulada: editar propiedades estará disponible al conectar tu cuenta.' })
       onClose()
@@ -473,6 +467,9 @@ function EditPropertyInner({
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     setSaving(true)
     try {
+      const nextMeta: Record<string, unknown> = { ...(property.metadata ?? {}) }
+      if (propertyType === PROPERTY_TYPE_OTHER && customType.trim()) nextMeta.custom_property_type = customType.trim()
+      else delete nextMeta.custom_property_type
       const row = await updateProperty(workspaceId, property.id, {
         title: title.trim(),
         propertyType,
@@ -485,6 +482,7 @@ function EditPropertyInner({
         ownerPhone: ownerPhone.trim() || null,
         clientId,
         notes: notes.trim() || null,
+        metadata: nextMeta,
       })
       if (!row) { toast.error('No se pudo actualizar la propiedad.'); return }
       toast.success(`Propiedad actualizada: ${row.title}`)
@@ -527,7 +525,7 @@ function EditPropertyInner({
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Tipo</label>
             <select className={SELECT_CLS} value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
-              {PROPERTY_TYPE_OPTIONS.map((t) => (
+              {typeOptions.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
               ))}
             </select>
@@ -535,7 +533,7 @@ function EditPropertyInner({
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Operación</label>
             <select className={SELECT_CLS} value={operationType} onChange={(e) => setOperationType(e.target.value)}>
-              {OPERATION_OPTIONS.map((o) => (
+              {PROPERTY_OPERATION_OPTIONS.map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>
@@ -549,6 +547,14 @@ function EditPropertyInner({
             </select>
           </div>
         </div>
+        {propertyType === PROPERTY_TYPE_OTHER && (
+          <Input
+            label="Especifica el tipo"
+            placeholder="Ej.: trastero, garaje, nave, terreno…"
+            value={customType}
+            onChange={(e) => setCustomType(e.target.value)}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Input label="Ciudad" value={city} onChange={(e) => setCity(e.target.value)} />
           <Input label="Zona / barrio" value={area} onChange={(e) => setArea(e.target.value)} />

@@ -33,6 +33,33 @@ export function propLabel(map: Record<string, string>, value: string | null): st
   return map[value] ?? cap(value)
 }
 
+// Opciones de alta/edición. Claves en es-ES coherentes con PROPERTY_TYPE_LABEL/OPERATION_LABEL
+// (antes el alta guardaba claves en inglés tipo "apartment"/"sale" que se mostraban mal).
+export const PROPERTY_TYPE_OTHER = 'otro'
+export const PROPERTY_TYPE_OPTIONS: { id: string; label: string }[] = [
+  { id: 'piso', label: 'Piso' },
+  { id: 'atico', label: 'Ático' },
+  { id: 'chalet', label: 'Chalet' },
+  { id: 'casa', label: 'Casa' },
+  { id: 'local', label: 'Local' },
+  { id: 'oficina', label: 'Oficina' },
+  { id: 'garaje', label: 'Garaje' },
+  { id: 'terreno', label: 'Terreno' },
+  { id: PROPERTY_TYPE_OTHER, label: 'Otro' },
+]
+export const PROPERTY_OPERATION_OPTIONS: { id: string; label: string }[] = [
+  { id: 'venta', label: 'Venta' },
+  { id: 'alquiler', label: 'Alquiler' },
+]
+
+// Etiqueta de tipo para mostrar: si es "otro" (o un tipo no catalogado) y hay tipo libre en
+// metadata.custom_property_type, se muestra ese texto; si no, la etiqueta del catálogo.
+export function propertyTypeText(p: { property_type: string | null; metadata: Record<string, unknown> | null }): string {
+  const custom = typeof p?.metadata?.custom_property_type === 'string' ? p.metadata.custom_property_type.trim() : ''
+  if (custom && (p.property_type === PROPERTY_TYPE_OTHER || !p.property_type || !PROPERTY_TYPE_LABEL[p.property_type])) return custom
+  return propLabel(PROPERTY_TYPE_LABEL, p.property_type)
+}
+
 // Lee un numérico del inmueble desde columna real o, en su defecto, de metadata (datos demo).
 export function propNum(p: PropertyRow, col: 'bedrooms' | 'bathrooms' | 'area_m2', metaKey: string): number | null {
   const direct = p[col]

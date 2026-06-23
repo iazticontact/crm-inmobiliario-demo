@@ -1,15 +1,16 @@
 'use client'
 
-// Ficha de inmueble (P7.1). Vista 360 dedicada y compacta: cabecera con portada + datos + acciones,
-// galería real gestionable (PropertyPhotosManager), datos clave, operaciones y trámites vinculados,
-// y documentos del inmueble (EntityDocumentsManager). Carga por id (refresh-safe). RLS por
+// Ficha de inmueble (P7.1/P7.2). Vista 360 compacta: cabecera con portada + datos + acciones
+// DIRECTAS (modales de fotos y documentos, sin scroll), datos clave, operaciones y trámites
+// vinculados. Fotos (PropertyPhotosManager) y documentos (EntityDocumentsManager) se gestionan en
+// modales ligeros y reutilizan los mismos componentes. Carga por id (refresh-safe). RLS por
 // workspace, signed URLs, sin service_role.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Home, MapPin, Pencil, Building2, ImagePlus, FilePlus2 } from 'lucide-react'
+import { ArrowLeft, Home, MapPin, Pencil, Building2, ImagePlus, FilePlus2, X } from 'lucide-react'
 import { SectionCard } from '@/components/SectionCard'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
@@ -24,13 +25,14 @@ import {
   type PropertyRow, type OpportunityRow, type ServiceCaseRow,
 } from '@/lib/vertical-queries'
 import { getClients } from '@/lib/supabase-queries'
+import { coverUrlsForProperties } from '@/lib/entity-files'
 import { demoProperties, demoOpportunities, demoServiceCases } from '@/lib/demo/demo-real-estate'
 import { clients as demoClients } from '@/lib/mock-data'
 import { commStateLabel, COMM_STATE_TONE, commStateOf } from '@/lib/demo/vertical-templates'
 import { serviceCaseStatusLabel } from '@/components/VerticalForms'
 import {
-  PROPERTY_TYPE_LABEL, PROPERTY_OPERATION_LABEL, PROPERTY_STATUS_META,
-  propLabel, propNum, isRentalProperty, isClosedPropertyStatus, formatPropertyPrice,
+  PROPERTY_OPERATION_LABEL, PROPERTY_STATUS_META,
+  propLabel, propNum, propertyTypeText, isRentalProperty, isClosedPropertyStatus, formatPropertyPrice,
 } from '@/lib/property-display'
 
 function fmtDate(value: string | null): string {
@@ -56,6 +58,8 @@ export default function PropertyDetailPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [photosOpen, setPhotosOpen] = useState(false)
+  const [docsOpen, setDocsOpen] = useState(false)
 
   const isDemo = typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
 
@@ -86,6 +90,9 @@ export default function PropertyDetailPage() {
       setCases(srv)
       setClientNames(Object.fromEntries((clientList as { id: string; name: string }[]).map((c) => [c.id, c.name])))
       setNotFound(!p)
+      // Portada (una signed URL, no toda la galería) para la cabecera; la galería completa se carga
+      // de forma perezosa solo al abrir el modal de fotos.
+      if (p) coverUrlsForProperties(workspaceId, [p.id]).then((m) => setCoverUrl(m[p.id] ?? null)).catch(() => {})
     } catch {
       setNotFound(true)
     } finally {
@@ -98,7 +105,6 @@ export default function PropertyDetailPage() {
     queueMicrotask(() => { void load() })
   }, [userLoading, load])
 
-  // Operaciones vinculadas a este inmueble (columna property_id o metadata.property_id legacy).
   const linkedOps = useMemo(
     () => opportunities.filter((o) => o.property_id === id || (typeof o.metadata?.property_id === 'string' && o.metadata.property_id === id)),
     [opportunities, id],
@@ -130,6 +136,7 @@ export default function PropertyDetailPage() {
   const st = p ? (PROPERTY_STATUS_META[p.status] ?? { label: p.status, tone: 'bg-gray-50 text-gray-600 border-gray-100' }) : null
   const isRent = p ? isRentalProperty(p.operation_type) : false
   const historical = p ? isClosedPropertyStatus(p.status) : false
+  const published = p ? (p.status === 'listed' || p.status === 'available') : false
   const specs = p ? [
     propNum(p, 'bedrooms', 'rooms') != null ? `${propNum(p, 'bedrooms', 'rooms')} hab` : '',
     propNum(p, 'bathrooms', 'baths') != null ? `${propNum(p, 'bathrooms', 'baths')} baños` : '',
@@ -154,7 +161,7 @@ export default function PropertyDetailPage() {
         </div>
       ) : (
         <>
-          {/* Cabecera compacta: portada (columna acotada) + datos clave + acciones */}
+          {/* Cabecera compacta: portada (columna acotada) + datos clave + acciones directas */}
           <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm shadow-gray-950/[0.03]">
             <div className="grid gap-4 md:grid-cols-[minmax(0,300px)_1fr] lg:grid-cols-[minmax(0,360px)_1fr]">
               <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gradient-to-br from-gray-50 to-gray-100">
@@ -166,21 +173,24 @@ export default function PropertyDetailPage() {
                     <span className="text-xs font-medium text-gray-500">Sin fotos</span>
                   </div>
                 ) : (
-                  <a href="#fotos-inmueble" className="flex h-full w-full flex-col items-center justify-center gap-1 text-center transition-colors hover:bg-gray-50">
+                  <button type="button" onClick={() => setPhotosOpen(true)} className="flex h-full w-full flex-col items-center justify-center gap-1 text-center transition-colors hover:bg-gray-50">
                     <Home className="h-8 w-8 text-gray-300" />
                     <span className="text-xs font-medium text-gray-500">Sin fotos todavía</span>
                     <span className="text-[11px] font-semibold text-indigo-600">Subir fotos</span>
-                  </a>
+                  </button>
                 )}
               </div>
               <div className="flex min-w-0 flex-col">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
-                  <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', st.tone)}>{st.label}</span>
+                  <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', st.tone)}>
+                    {published && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                    {st.label}
+                  </span>
                   {historical && <span className="rounded-full bg-gray-900/80 px-2 py-0.5 text-[11px] font-semibold text-white">Histórico</span>}
                 </div>
                 <h1 className="mt-2 text-xl font-bold leading-tight text-gray-900">{p.title}</h1>
-                <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propLabel(PROPERTY_TYPE_LABEL, p.property_type), specs].filter(Boolean).join(' · ') || '—'}</p>
+                <p className="mt-0.5 text-[12px] text-gray-400">{[ref ? `Ref. ${ref}` : '', propertyTypeText(p), specs].filter(Boolean).join(' · ') || '—'}</p>
                 <p className="mt-1 flex items-center gap-1 text-[13px] text-gray-600">
                   <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                   {[p.address, [p.city, p.area].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'Sin ubicación'}
@@ -188,8 +198,8 @@ export default function PropertyDetailPage() {
                 <p className="mt-2 text-2xl font-bold text-gray-900">{formatPropertyPrice(p.price, p.currency, isRent)}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="primary" size="sm" onClick={() => setEditOpen(true)}><Pencil className="h-3.5 w-3.5" /> Editar</Button>
-                  {!isDemo && <a href="#fotos-inmueble" className={ACTION_BTN}><ImagePlus className="h-3.5 w-3.5" /> Subir fotos</a>}
-                  {!isDemo && <a href="#docs-inmueble" className={ACTION_BTN}><FilePlus2 className="h-3.5 w-3.5" /> Añadir documento</a>}
+                  {!isDemo && <button type="button" onClick={() => setPhotosOpen(true)} className={ACTION_BTN}><ImagePlus className="h-3.5 w-3.5" /> Subir fotos</button>}
+                  {!isDemo && <button type="button" onClick={() => setDocsOpen(true)} className={ACTION_BTN}><FilePlus2 className="h-3.5 w-3.5" /> Añadir documento</button>}
                 </div>
               </div>
             </div>
@@ -198,7 +208,7 @@ export default function PropertyDetailPage() {
           {/* Datos clave */}
           <SectionCard title="Datos del inmueble" description="Características y propietario / contacto.">
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Tipo" value={propLabel(PROPERTY_TYPE_LABEL, p.property_type) || '—'} />
+              <Field label="Tipo" value={propertyTypeText(p) || '—'} />
               <Field label="Operación" value={propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || '—'} />
               <Field label="Estado" value={st.label} />
               <Field label="Características" value={specs || '—'} />
@@ -259,33 +269,25 @@ export default function PropertyDetailPage() {
             )}
           </SectionCard>
 
-          {/* Fotos del inmueble (galería real gestionable) */}
-          <div id="fotos-inmueble" className="scroll-mt-4">
-            <SectionCard title="Fotos del inmueble" description="Portada y galería del inmueble. La portada se ve en la cartera.">
-              {isDemo ? (
-                <p className="py-1 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan fotos reales.</p>
-              ) : (
-                <PropertyPhotosManager workspaceId={workspaceId} propertyId={p.id} onCoverChange={(_, url) => setCoverUrl(url)} />
-              )}
-            </SectionCard>
-          </div>
+          {/* Modal de fotos (lazy) */}
+          {photosOpen && !isDemo && (
+            <Modal title="Fotos del inmueble" subtitle="Portada y galería. La portada se ve en la cartera." onClose={() => setPhotosOpen(false)}>
+              <PropertyPhotosManager workspaceId={workspaceId} propertyId={p.id} onCoverChange={(_, url) => setCoverUrl(url)} />
+            </Modal>
+          )}
 
-          {/* Documentos del inmueble (reales) */}
-          <div id="docs-inmueble" className="scroll-mt-4">
-            <SectionCard title="Documentos del inmueble" description="Nota simple, planos, certificado energético, escrituras o contratos.">
-              {isDemo ? (
-                <p className="py-1 text-[13px] text-gray-400">En el entorno de ejemplo no se gestionan documentos reales.</p>
-              ) : (
-                <EntityDocumentsManager
-                  workspaceId={workspaceId}
-                  entityType="property"
-                  entityId={p.id}
-                  title="Documentos del inmueble"
-                  description="Sube nota simple, planos, certificado energético o escrituras del inmueble."
-                />
-              )}
-            </SectionCard>
-          </div>
+          {/* Modal de documentos (lazy) */}
+          {docsOpen && !isDemo && (
+            <Modal title="Documentos del inmueble" subtitle="Nota simple, planos, certificado energético, escrituras o contratos." onClose={() => setDocsOpen(false)}>
+              <EntityDocumentsManager
+                workspaceId={workspaceId}
+                entityType="property"
+                entityId={p.id}
+                title="Documentos del inmueble"
+                description="Sube nota simple, planos, certificado energético o escrituras del inmueble."
+              />
+            </Modal>
+          )}
 
           <EditPropertyDrawer
             open={editOpen}
@@ -298,6 +300,24 @@ export default function PropertyDetailPage() {
         </>
       )}
     </motion.div>
+  )
+}
+
+function Modal({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="relative max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+            {subtitle && <p className="text-[12px] text-gray-500">{subtitle}</p>}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="shrink-0 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"><X className="h-4 w-4" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
   )
 }
 

@@ -19,6 +19,7 @@ import {
   type ServiceCaseRow,
   type PropertyRow,
 } from '@/lib/vertical-queries'
+import { PROPERTY_TYPE_OPTIONS, PROPERTY_OPERATION_OPTIONS, PROPERTY_TYPE_OTHER } from '@/lib/property-display'
 import {
   VERTICALS,
   COMM_STATE_OPTIONS,
@@ -533,20 +534,6 @@ type NewPropertyDrawerProps = {
   onCreated?: (row: PropertyRow) => void
 }
 
-const PROPERTY_TYPE_OPTIONS = [
-  { id: 'apartment', label: 'Piso' },
-  { id: 'house', label: 'Casa' },
-  { id: 'villa', label: 'Villa / chalet' },
-  { id: 'commercial', label: 'Local comercial' },
-  { id: 'office', label: 'Oficina' },
-  { id: 'land', label: 'Terreno' },
-]
-
-const OPERATION_OPTIONS = [
-  { id: 'sale', label: 'Venta' },
-  { id: 'rent', label: 'Alquiler' },
-]
-
 // Estado inicial al registrar un inmueble: solo estados activos (vendido/alquilado/archivado se
 // marcan después desde la cartera o la ficha; un inmueble nuevo entra en cartera activa).
 const PROPERTY_STATUS_OPTIONS = [
@@ -564,8 +551,9 @@ export function NewPropertyDrawer({
   onCreated,
 }: NewPropertyDrawerProps) {
   const [title, setTitle] = useState('')
-  const [propertyType, setPropertyType] = useState('apartment')
-  const [operationType, setOperationType] = useState('sale')
+  const [propertyType, setPropertyType] = useState('piso')
+  const [customType, setCustomType] = useState('')
+  const [operationType, setOperationType] = useState('venta')
   const [status, setStatus] = useState('prospecting')
   const [city, setCity] = useState('')
   const [area, setArea] = useState('')
@@ -577,8 +565,9 @@ export function NewPropertyDrawer({
 
   function reset() {
     setTitle('')
-    setPropertyType('apartment')
-    setOperationType('sale')
+    setPropertyType('piso')
+    setCustomType('')
+    setOperationType('venta')
     setStatus('prospecting')
     setCity('')
     setArea('')
@@ -592,6 +581,10 @@ export function NewPropertyDrawer({
     e.preventDefault()
     if (!title.trim()) {
       toast.error('Necesito al menos un título.')
+      return
+    }
+    if (propertyType === PROPERTY_TYPE_OTHER && !customType.trim()) {
+      toast.error('Especifica el tipo de inmueble.')
       return
     }
     if (isDemoMode()) {
@@ -619,6 +612,7 @@ export function NewPropertyDrawer({
         clientId: defaultClientId,
         clientName: ownerName.trim() || null,
         notes: notes.trim() || undefined,
+        metadata: propertyType === PROPERTY_TYPE_OTHER ? { custom_property_type: customType.trim() } : undefined,
       })
       if (!row) {
         toast.error('No se pudo registrar la propiedad. Revisa la sesión.')
@@ -667,7 +661,7 @@ export function NewPropertyDrawer({
           <div className="flex flex-col gap-1.5">
             <label className={FIELD_LABEL_CLS}>Operación</label>
             <select className={SELECT_CLS} value={operationType} onChange={(e) => setOperationType(e.target.value)}>
-              {OPERATION_OPTIONS.map((o) => (
+              {PROPERTY_OPERATION_OPTIONS.map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>
@@ -681,6 +675,14 @@ export function NewPropertyDrawer({
             </select>
           </div>
         </div>
+        {propertyType === PROPERTY_TYPE_OTHER && (
+          <Input
+            label="Especifica el tipo"
+            placeholder="Ej.: trastero, garaje, nave, terreno…"
+            value={customType}
+            onChange={(e) => setCustomType(e.target.value)}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Ciudad"
