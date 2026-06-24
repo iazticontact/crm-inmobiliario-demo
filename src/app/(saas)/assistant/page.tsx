@@ -1856,13 +1856,13 @@ export default function AssistantPage() {
               } else if (pa.type === 'create_operation') {
                 frontendAction = { id: paId, type: 'create_operation', title: pa.title ?? `Operación para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, stage: pa.stage, value: pa.value, probability: pa.probability, missingFields: pa.missingFields }
               } else if (pa.type === 'create_service_case') {
-                frontendAction = { id: paId, type: 'create_service_case', title: pa.title ?? `Expediente para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, caseType: pa.caseType, status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
+                frontendAction = { id: paId, type: 'create_service_case', title: pa.title ?? `Trámite para ${pa.clientName ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, caseType: pa.caseType, status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
               } else if (pa.type === 'move_operation_stage') {
                 frontendAction = { id: paId, type: 'move_operation_stage', title: pa.title ?? 'Operación', assistantMode: 'copilot', clientName: pa.clientName, opportunityId: pa.opportunityId ?? '', stage: pa.stage ?? '', currentStageLabel: pa.currentStageLabel, missingFields: pa.missingFields }
               } else if (pa.type === 'update_task') {
                 frontendAction = { id: paId, type: 'update_task', title: pa.title ?? 'Tarea', assistantMode: 'copilot', clientName: pa.clientName, taskId: pa.taskId ?? '', status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
               } else if (pa.type === 'update_service_case') {
-                frontendAction = { id: paId, type: 'update_service_case', title: pa.title ?? 'Expediente', assistantMode: 'copilot', clientName: pa.clientName, caseId: pa.caseId ?? '', status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
+                frontendAction = { id: paId, type: 'update_service_case', title: pa.title ?? 'Trámite', assistantMode: 'copilot', clientName: pa.clientName, caseId: pa.caseId ?? '', status: pa.status, priority: pa.priority, missingFields: pa.missingFields }
               } else {
                 frontendAction = { id: paId, type: 'task', title: `Tarea: ${pa.taskTitle ?? pa.description ?? ''}`, assistantMode: 'copilot', clientId: pa.clientId, clientName: pa.clientName, taskTitle: pa.taskTitle, description: pa.description, dueDate: pa.dueDate, missingFields: pa.missingFields }
               }
@@ -2081,7 +2081,7 @@ export default function AssistantPage() {
           return
         }
         if (preparedAction.type === 'update_service_case' && !preparedAction.caseId) {
-          toast.warning('No tengo el expediente exacto', { description: 'Especifica el expediente y vuelve a intentarlo.' })
+          toast.warning('No tengo el trámite exacto', { description: 'Especifica el trámite y vuelve a intentarlo.' })
           return
         }
         if (!workspaceId) throw new Error('Workspace real no resuelto.')
@@ -3589,12 +3589,6 @@ export default function AssistantPage() {
                                 <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
                                   <span className="block text-[10px] font-semibold uppercase text-gray-400">Valor</span>
                                   {preparedAction.value.toLocaleString('es-ES')} EUR
-                                </div>
-                              )}
-                              {preparedAction.probability != null && (
-                                <div className="rounded-lg bg-white/75 p-2 ring-1 ring-white">
-                                  <span className="block text-[10px] font-semibold uppercase text-gray-400">Probabilidad</span>
-                                  {preparedAction.probability}%
                                 </div>
                               )}
                             </>

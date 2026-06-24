@@ -271,7 +271,7 @@ function preRoute(message: string): PreRoute {
   if (/\b(cancel[ae](?:r|[sm]|me|la|las)?|elimina[r]?|borra[r]?|quita[r]?|suprime[r]?|borra?la|quitala|cancelala|cancelamela)\b/.test(t)) return null
   if (/\b(me\s+he\s+equivocado|ya\s+no\s+hace\s+falta|no\s+puedo\s+ir|cancela(?:me)?la|borra?la|quitala)\b/.test(t)) return null
   if (/\b(todas\s+ellas|cancela\s+todas|borra\s+todas|deja\s+solo\s+una|las\s+repetidas|las\s+duplicadas)\b/.test(t)) return null
-  if (/\b(prepara|crea|agenda|pon|ponme|crear|preparar|haz|hazme|abre|abrir|registra|registrar|añade|añadir|sube|subir)\b.*\b(cita|reunion|tarea|factura|oportunidad|expediente|propiedad|lead)\b/.test(t)) return null
+  if (/\b(prepara|crea|agenda|pon|ponme|crear|preparar|haz|hazme|abre|abrir|registra|registrar|añade|añadir|sube|subir)\b.*\b(cita|reunion|tarea|factura|oportunidad|operacion|expediente|tramite|propiedad|inmueble|lead)\b/.test(t)) return null
   if (/\b(cita|reunion)\b.*\b(con|para)\b/.test(t) && /\b(manana|hoy|lunes|martes|miercoles|jueves|viernes|sabado|domingo|pasado)\b/.test(t)) return null
   if (/\b(mueve|muevela|cambia|cambiala|reprograma|pasa|pasala)\b/.test(t)) return null
 
@@ -367,13 +367,13 @@ const TOOLS = [
   {
     type: 'function',
     name: 'hot_leads',
-    description: 'Leads con lead_score ≥ 70, orden descendente. Para: "cliente con más potencial", "mejor lead", "más prometedor", "mayor score", "top lead".',
+    description: 'Clientes con mayor potencial comercial (priorización interna), orden descendente. Para: "cliente con más potencial", "mejor cliente", "más prometedor", "cliente prioritario". (La puntuación es interna: NUNCA la muestres al usuario.)',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     type: 'function',
     name: 'get_client_context',
-    description: 'Perfil COMPLETO de un cliente: contacto (email, teléfono), estado, notas, y sus operaciones, expedientes, tareas, citas y actividad reciente. Úsala para "datos/ficha/perfil de X", "email/teléfono de X", "qué operaciones/expedientes/tareas/citas tiene X". Usa client_id si lo tienes; si no, client_name. También para "sus datos", "ese cliente" si hay contexto.',
+    description: 'Perfil COMPLETO de un cliente: contacto (email, teléfono), estado, notas, y sus operaciones, trámites, tareas, citas y actividad reciente. Úsala para "datos/ficha/perfil de X", "email/teléfono de X", "qué operaciones/trámites/tareas/citas tiene X", "resumen de X". Usa client_id si lo tienes; si no, client_name. También para "sus datos", "ese cliente" si hay contexto.',
     parameters: {
       type: 'object',
       properties: {
@@ -429,13 +429,13 @@ const TOOLS = [
   {
     type: 'function',
     name: 'workspace_overview',
-    description: 'Resumen ejecutivo cross-vertical del workspace: clientes + oportunidades + expedientes + propiedades + facturas + citas + tareas + inbox abierto, todo en una sola lectura paralela. Preferir esto a crm_overview cuando el usuario pregunte "cómo va todo", "resumen general", "estado del negocio", "qué tengo en marcha", "panorama del workspace".',
+    description: 'Resumen ejecutivo del workspace: clientes + operaciones + trámites + inmuebles + citas + tareas + inbox abierto, todo en una sola lectura paralela. Preferir esto a crm_overview cuando el usuario pregunte "cómo va todo", "resumen general", "estado del negocio", "qué tengo en marcha", "panorama del workspace".',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     type: 'function',
     name: 'list_pending_items',
-    description: 'Consolida TODO lo pendiente que requiere atención: facturas vencidas + facturas pendientes + tareas + próximas citas + expedientes abiertos (con fuera de plazo) + conversaciones de Inbox abiertas. Para: "qué tengo pendiente", "qué tengo abierto", "qué hay urgente", "qué necesita atención", "muéstrame lo urgente".',
+    description: 'Consolida TODO lo pendiente que requiere atención: tareas + próximas citas + trámites abiertos (con fuera de plazo / que vencen) + conversaciones de Inbox abiertas. Para: "qué tengo pendiente", "qué tengo abierto", "qué hay urgente", "qué necesita atención", "qué trámites vencen", "muéstrame lo urgente".',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -493,7 +493,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'recommended_actions',
-    description: 'Acciones comerciales prioritarias del día: facturas vencidas, leads calientes, próximas citas. Para: "qué debería hacer hoy", "plan del día".',
+    description: 'Acciones prioritarias del día: trámites que vencen, clientes a seguir, próximas citas. Para: "qué debería hacer hoy", "plan del día".',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -673,7 +673,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'list_opportunities',
-    description: 'Lista oportunidades del pipeline comercial. Filtros opcionales: vertical (real_estate / immigration / professional_services / general) y stage (new / contacted / qualified / visit_scheduled / offer / negotiation / won / lost / documentation / in_review / submitted / in_follow_up / resolved / closed). Para: "qué oportunidades tengo", "leads abiertos", "pipeline de inmobiliaria", "leads fríos en negociación".',
+    description: 'Lista OPERACIONES (ventas y alquileres en seguimiento). Estados comerciales visibles: Nueva, En gestión, Reserva, Vendida/Alquilada (cerrada) y Perdida. Filtros opcionales: vertical (real_estate / immigration / professional_services / general) y stage (new / contacted / qualified / visit_scheduled / offer / negotiation / won / lost / documentation / in_review / submitted / in_follow_up / resolved / closed). Para: "qué operaciones tengo", "operaciones abiertas", "operaciones en gestión", "qué hay en reserva", "operaciones vendidas o alquiladas".',
     parameters: {
       type: 'object',
       properties: {
@@ -687,7 +687,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'list_service_cases',
-    description: 'Lista expedientes / casos de servicio (extranjería, asesoría). Filtros opcionales: vertical y status (open / documentation_pending / in_review / submitted / resolved / closed). Para: "qué expedientes están pendientes de documentación", "casos de NIE abiertos".',
+    description: 'Lista TRÁMITES (gestiones y documentación de operaciones/inmuebles/clientes: nota simple, tasación, contrato/arras, financiación; o casos de servicio en otras verticales). Filtros opcionales: vertical y status (open / documentation_pending / in_review / submitted / resolved / closed). Para: "qué trámites están pendientes de documentación", "qué trámites vencen", "trámites abiertos".',
     parameters: {
       type: 'object',
       properties: {
@@ -701,7 +701,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'list_properties',
-    description: 'Lista propiedades del vertical inmobiliario. Filtros opcionales: status (prospecting / listed / under_contract / sold / archived) y city. Para: "propiedades en captación", "qué tenemos en Marbella", "inmuebles en venta".',
+    description: 'Lista INMUEBLES de la cartera. Estado ACTIVO (prospecting=En preparación / listed=Publicado / under_contract=Reservado) o HISTÓRICO (sold=Vendido / rented=Alquilado / archived=Archivado; salen de la cartera activa, no se borran). Filtros opcionales: status y city. Para: "qué inmuebles tengo activos", "inmuebles publicados", "qué se ha vendido o alquilado", "inmuebles en Marbella". Si preguntan si un inmueble está vendido o activo, míralo por su estado.',
     parameters: {
       type: 'object',
       properties: {
@@ -715,17 +715,17 @@ const TOOLS = [
   {
     type: 'function',
     name: 'create_opportunity',
-    description: 'CREA UNA OPORTUNIDAD REAL en el pipeline. ANTES de llamar esta tool DEBES haber descrito la oportunidad al usuario y haber recibido confirmación natural ("sí, créala" / "ok" / "adelante"). NUNCA llames esta tool en la primera mención — primero pregunta. Para: "crea un lead inmobiliario para Ana", "abre una oportunidad de venta de chalet", "registra este lead".',
+    description: 'CREA UNA OPERACIÓN REAL (venta o alquiler en seguimiento). ANTES de llamar esta tool DEBES haber descrito la operación al usuario y haber recibido confirmación natural ("sí, créala" / "ok" / "adelante"). NUNCA llames esta tool en la primera mención — primero pregunta. Para: "abre una operación de venta de chalet para Ana", "registra un alquiler de local para Juan".',
     parameters: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Título corto y descriptivo de la oportunidad. Ej: "Venta piso 3 hab en Málaga centro - Ana Pérez".' },
+        title: { type: 'string', description: 'Título corto y descriptivo de la operación. Ej: "Venta piso 3 hab en Málaga centro - Ana Pérez".' },
         vertical: { type: 'string', description: 'Vertical: real_estate, immigration, professional_services o general.' },
         stage: { type: 'string', description: 'Etapa inicial (opcional, default new). Ej: new, contacted, qualified.' },
         client_id: { type: 'string', description: 'UUID del cliente si ya está vinculado (obtenido de search_clients).' },
         client_name: { type: 'string', description: 'Nombre visible del cliente (string libre).' },
         value: { type: 'number', description: 'Valor estimado en euros (opcional).' },
-        source: { type: 'string', description: 'Origen del lead: whatsapp, instagram, web, referencia, etc. (opcional).' },
+        source: { type: 'string', description: 'Origen del contacto: whatsapp, instagram, web, referencia, etc. (opcional).' },
         expected_close_date: { type: 'string', description: 'Fecha estimada de cierre YYYY-MM-DD (opcional).' },
         notes: { type: 'string', description: 'Notas adicionales (opcional).' },
       },
@@ -735,11 +735,11 @@ const TOOLS = [
   {
     type: 'function',
     name: 'update_opportunity_stage',
-    description: 'Actualiza la ETAPA de una oportunidad existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_opportunities primero para identificarla.',
+    description: 'Actualiza el ESTADO de una operación existente (p. ej. pasar a En gestión, Reserva, Vendida/Alquilada o Perdida). Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_opportunities primero para identificarla.',
     parameters: {
       type: 'object',
       properties: {
-        opportunity_id: { type: 'string', description: 'UUID exacto de la oportunidad.' },
+        opportunity_id: { type: 'string', description: 'UUID exacto de la operación.' },
         stage: { type: 'string', description: 'Nueva etapa: new, contacted, qualified, visit_scheduled, offer, negotiation, won, lost, documentation, in_review, submitted, in_follow_up, resolved, closed.' },
       },
       required: ['opportunity_id', 'stage'],
@@ -748,18 +748,18 @@ const TOOLS = [
   {
     type: 'function',
     name: 'create_service_case',
-    description: 'CREA UN EXPEDIENTE de servicio (extranjería / asesoría). Confirma con el usuario antes. Para: "abre expediente de renovación NIE para Ana", "registra arraigo social", "prepara expediente de reagrupación familiar".',
+    description: 'CREA UN TRÁMITE (gestión/documentación de una operación, inmueble o cliente). Confirma con el usuario antes. Para: "abre un trámite de financiación para la venta de X", "registra la tasación del piso de Ana", "prepara el trámite de nota simple". (También sirve para casos de servicio de otras verticales.)',
     parameters: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Título del expediente. Ej: "Renovación NIE - Ana Pérez".' },
-        case_type: { type: 'string', description: 'Tipo: nie_renewal, arraigo_social, family_reunification, student_residence, asesoria_fiscal, etc.' },
-        vertical: { type: 'string', description: 'Vertical (default immigration).' },
+        title: { type: 'string', description: 'Título del trámite. Ej: "Tasación - Piso Calle Mayor 14".' },
+        case_type: { type: 'string', description: 'Tipo: nota_simple, tasacion, contrato, arras, financiacion, documentacion (inmobiliaria); o nie_renewal, asesoria_fiscal, etc. (otras verticales).' },
+        vertical: { type: 'string', description: 'Vertical (default real_estate).' },
         status: { type: 'string', description: 'Estado inicial: open (default), documentation_pending, in_review.' },
         priority: { type: 'string', description: 'Prioridad: low, normal (default), high, urgent.' },
         client_id: { type: 'string', description: 'UUID del cliente si está vinculado.' },
         client_name: { type: 'string', description: 'Nombre visible del cliente.' },
-        opportunity_id: { type: 'string', description: 'UUID de la oportunidad relacionada (opcional).' },
+        opportunity_id: { type: 'string', description: 'UUID de la operación relacionada (opcional).' },
         due_date: { type: 'string', description: 'Fecha límite YYYY-MM-DD (opcional).' },
         notes: { type: 'string', description: 'Notas (opcional).' },
       },
@@ -769,14 +769,14 @@ const TOOLS = [
   {
     type: 'function',
     name: 'create_property',
-    description: 'CREA UNA PROPIEDAD en cartera inmobiliaria. Confirma con el usuario antes. Para: "registra captación de piso en Marbella", "añade propiedad de Juan en alquiler", "abre captación nueva".',
+    description: 'CREA UN INMUEBLE en la cartera. Confirma con el usuario antes. Para: "registra una captación de piso en Marbella", "añade el inmueble de Juan en alquiler", "da de alta una vivienda nueva".',
     parameters: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Título visible. Ej: "Piso 3 hab - Marbella Centro".' },
-        property_type: { type: 'string', description: 'Tipo: apartment (default), house, villa, commercial, land, office.' },
-        operation_type: { type: 'string', description: 'Operación: sale (default) o rent.' },
-        status: { type: 'string', description: 'Estado: prospecting (default), listed, under_contract, sold, archived.' },
+        property_type: { type: 'string', description: 'Tipo: piso (default), atico, chalet, casa, local, oficina, garaje, terreno, otro.' },
+        operation_type: { type: 'string', description: 'Operación: venta (default) o alquiler.' },
+        status: { type: 'string', description: 'Estado inicial: prospecting (En preparación, default), listed (Publicado), under_contract (Reservado).' },
         city: { type: 'string', description: 'Ciudad (opcional).' },
         area: { type: 'string', description: 'Zona/barrio (opcional).' },
         price: { type: 'number', description: 'Precio en euros (opcional).' },
@@ -792,11 +792,11 @@ const TOOLS = [
   {
     type: 'function',
     name: 'update_service_case_status',
-    description: 'Actualiza el ESTADO de un expediente existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_service_cases primero. Para: "pasa el expediente de Ana a documentación pendiente", "márcalo como submitted", "cierra este expediente".',
+    description: 'Actualiza el ESTADO de un trámite existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_service_cases primero. Para: "pasa el trámite de Ana a documentación pendiente", "márcalo como en revisión", "cierra este trámite".',
     parameters: {
       type: 'object',
       properties: {
-        case_id: { type: 'string', description: 'UUID exacto del expediente.' },
+        case_id: { type: 'string', description: 'UUID exacto del trámite.' },
         status: { type: 'string', description: 'Nuevo estado: open, documentation_pending, in_review, submitted, resolved, closed.' },
       },
       required: ['case_id', 'status'],
@@ -805,7 +805,7 @@ const TOOLS = [
   {
     type: 'function',
     name: 'update_property_status',
-    description: 'Actualiza el ESTADO de una propiedad existente. Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_properties primero. Para: "pasa la propiedad de Marbella a listed", "márcala como sold", "archívala".',
+    description: 'Actualiza el ESTADO de un inmueble existente (Publicado, Reservado, Vendido, Alquilado, Archivado…). Confirma con el usuario antes de llamar. Necesita el UUID exacto — si no lo tienes, llama list_properties primero. Para: "publica el inmueble de Marbella", "márcalo como vendido", "archívalo".',
     parameters: {
       type: 'object',
       properties: {
@@ -820,7 +820,7 @@ const TOOLS = [
 // --- System prompt base ---
 
 const SYSTEM_PROMPT_BASE = `IDENTIDAD:
-Eres el Asistente IA, el asistente interno del CRM. Trabajas dentro del CRM, junto al equipo de la asesoría/inmobiliaria que lo usa. Tu trabajo es ayudar al equipo a operar el negocio: clientes, calendario, tareas, facturación, conversaciones, oportunidades, expedientes y propiedades. No eres un chatbot de soporte ni un asistente genérico — eres parte del equipo y conoces los datos reales del workspace cuando los pides con tools.
+Eres el Asistente IA, el asistente interno del CRM. Trabajas dentro del CRM, junto al equipo de la inmobiliaria que lo usa. Tu trabajo es ayudar al equipo a operar el negocio: clientes, inmuebles (cartera), operaciones, trámites, comisiones, calendario, tareas, conversaciones y actividad. No eres un chatbot de soporte ni un asistente genérico — eres parte del equipo y conoces los datos reales del workspace cuando los pides con tools.
 
 PERSONALIDAD Y TONO:
 - Español natural de España. Profesional pero majo y cercano, directo, seguro y resolutivo. Tono de compañero del equipo que ya conoce el CRM y se alegra de echar una mano.
@@ -828,7 +828,7 @@ PERSONALIDAD Y TONO:
 - Sin "¿en qué puedo ayudarte?" suelto. Si el usuario pide algo, dale el dato o el contexto útil directo. NO propongas acciones que no te ha pedido (ver JUICIO CONVERSACIONAL).
 - Sin frases tipo "estoy aquí para ti", "no dudes en preguntar", "espero haberte ayudado".
 - No sonar a IA de soporte. Emojis casi nunca (por defecto ninguno; solo si el usuario es muy informal y aporta de verdad). Foco operativo, sin discursos ni relleno.
-- Cuando interpretas datos, dices qué priorizarías: un lead muy caliente es para actuar hoy, un cobro vencido es urgente, un expediente fuera de plazo se señala. (Internamente puedes usar el lead score para priorizar, pero NUNCA lo menciones ni lo muestres al usuario.) Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
+- Cuando interpretas datos, dices qué priorizarías: un cliente potencial muy interesado es para actuar hoy, un trámite fuera de plazo se señala, una comisión por cobrar conviene seguirla. (Internamente puedes usar el lead score para priorizar, pero NUNCA lo menciones ni lo muestres al usuario.) Si no hay datos, lo dices claro y propones cómo conseguirlos. Nunca inventas.
 - Eres un EMPLEADO del CRM, no una plantilla: varía cómo respondes y cómo cierras. Adapta la longitud a la pregunta — directo y al grano si piden un dato concreto (p. ej. solo el email), completo y por secciones si piden una ficha o un resumen. No termines siempre igual ni con "¿algo más?"/"¿hay algo en lo que pueda ayudarte?" en cada turno: sugiere un siguiente paso SOLO cuando aporte de verdad.
 
 JUICIO CONVERSACIONAL (MÁXIMA PRIORIDAD — por encima de cualquier impulso de ayudar). Antes de responder, identifica QUÉ hace el usuario en ESTE turno y responde SOLO a eso:
@@ -843,15 +843,15 @@ REGLAS DURAS de comportamiento:
 - NO sobre-ayudes: no ofrezcas ni propongas acciones que el usuario NO ha pedido. Si solo agradece o pide un momento, no propongas nada.
 - NO listes tus capacidades salvo que pregunte EXPLÍCITAMENTE "qué puedes hacer / en qué me ayudas / cómo funcionas".
 - NUNCA digas que puedes "preparar / emitir / crear / generar la factura" (no hay módulo de facturación activo). Como mucho: "te paso los datos fiscales/contacto (DNI/NIF, dirección, email, teléfono) para que la prepares".
-- No cambies de tema (no metas oportunidades/citas si el usuario hablaba de otra cosa). No insistas. No te defiendas. No cierres con frases rotas.
+- No cambies de tema (no metas operaciones/citas si el usuario hablaba de otra cosa). No insistas. No te defiendas. No cierres con frases rotas.
 
 ALCANCE (CRM del negocio):
-- Tu ámbito es el CRM: clientes, operaciones, expedientes, propiedades, tareas, calendario, actividad y próximas acciones. Para eso, tira de tools y responde con datos reales.
+- Tu ámbito es el CRM: clientes, inmuebles (cartera), operaciones, trámites, comisiones, tareas, calendario, actividad y próximas acciones. Para eso, tira de tools y responde con datos reales.
 - Charla casual (saludos, "¿qué tal?", "gracias", "dame un segundo"): respóndele HUMANO, natural y BREVE, sin reconducir ni proponer nada. Si te da las gracias o pide un momento: "Perfecto, te espero." y poco más. NO empujes ("¿miramos algo?") si el usuario no lo pide.
 - Off-topic real (recetas, cultura general, programar…): NO llames tools; una frase amable y reconduce al CRM. No te enrolles en charla larga ajena al negocio.
 
 PUEDES MIRAR FICHAS (cuando lo pidan):
-- Si preguntan si puedes ver clientes/fichas: SÍ. Explica que puedes buscar un cliente y mostrar su ficha (contacto, operaciones, expedientes, tareas, citas y actividad). NUNCA digas "no tengo acceso directo".
+- Si preguntan si puedes ver clientes/fichas: SÍ. Explica que puedes buscar un cliente y mostrar su ficha (contacto, operaciones, trámites, tareas, citas y actividad). NUNCA digas "no tengo acceso directo".
 - Si falta el nombre, ofrece: "Dime el nombre o tomo uno de ejemplo de tu CRM".
 - Si piden "coge un cliente al azar/cualquiera", "te estoy testeando", "enséñame una ficha": ELIGE un cliente REAL (usa list_clients y toma uno activo, p. ej. el más reciente) y di que es un ejemplo real ("He cogido a X, que está en tu CRM"). NUNCA digas primero "no he encontrado…" si lo acabas de elegir tú.
 
@@ -859,34 +859,46 @@ FICHA COMPLETA DE CLIENTE (para "dame sus datos / ficha completa / qué sabes de
 - Combina get_client_context con list_opportunities y list_service_cases de ese cliente y preséntalo por secciones, claro y ordenado:
   1) Identificación: nombre, empresa/perfil, estado, email, teléfono, NIF/CIF, dirección.
   2) Interés comercial: tipo/interés, presupuesto, zona, notas.
-  3) Operaciones. 4) Expedientes. 5) Tareas (pendientes/vencidas). 6) Próximas citas. 7) Actividad reciente. 8) Datos por completar.
+  3) Operaciones. 4) Trámites. 5) Tareas (pendientes/vencidas). 6) Próximas citas. 7) Actividad reciente. 8) Datos por completar.
 - Si un dato NO existe, escribe "No registrado" / "Sin completar" (nunca un escueto "no tengo").
 
 NUNCA muestres puntuación / "Lead Score" / "score" numérico al usuario: es un dato INTERNO. Si hablas de prioridad, hazlo en cualitativo (alta/media/baja) como "prioridad comercial", sin el número.
 
 RITMO DE CONVERSACIÓN (empleado IA, no bot):
 - NO termines cada respuesta con una pregunta de relleno. PROHIBIDAS como cierre: "¿quieres revisar algo?", "¿Hay algo específico en lo que te pueda ayudar hoy?", "¿En qué puedo ayudarte hoy?", "¿Te gustaría que…?". Responde, aporta y para; pregunta SOLO cuando de verdad necesites un dato para avanzar. Para cerrar usa una frase natural útil ("Cuando quieras seguimos con clientes, operaciones o calendario", "Lo dejamos ahí por ahora 😊"), no una pregunta comercial. Y NUNCA "estoy operativo".
-- "¿Cómo funcionas? / ¿qué hay detrás de ti?": explícalo claro y honesto, SIN tecnicismos ni secretos: "Soy un copiloto conectado a tu CRM: cuando preguntas, busco la información en los datos reales del workspace (clientes, operaciones, expedientes, tareas, calendario y actividad) y te respondo con lo que encuentro. Si hay que crear o cambiar algo, preparo la acción y te pido confirmación antes de guardar, para evitar cambios accidentales 😊". NUNCA digas "no tengo detalles técnicos que compartir".
-- "¿Qué puedes hacer?": responde con capacidades concretas + 1-2 ejemplos (resumir un cliente, revisar operaciones abiertas, ver tareas pendientes, consultar citas, preparar expedientes/citas con confirmación; p. ej. "dame el resumen de Lucía Herrera" o "qué necesita atención hoy"). No te limites a un "no tengo acceso".
+- "¿Cómo funcionas? / ¿qué hay detrás de ti?": explícalo claro y honesto, SIN tecnicismos ni secretos: "Soy un copiloto conectado a tu CRM: cuando preguntas, busco la información en los datos reales del workspace (clientes, inmuebles, operaciones, trámites, comisiones, tareas, calendario y actividad) y te respondo con lo que encuentro. Si hay que crear o cambiar algo, preparo la acción y te pido confirmación antes de guardar, para evitar cambios accidentales 😊". NUNCA digas "no tengo detalles técnicos que compartir".
+- "¿Qué puedes hacer?": responde con capacidades concretas + 1-2 ejemplos (resumir un cliente, revisar operaciones abiertas, ver inmuebles activos, consultar trámites que vencen o comisiones pendientes, preparar trámites/citas con confirmación; p. ej. "dame el resumen de Lucía Herrera" o "qué necesita atención hoy"). No te limites a un "no tengo acceso".
 
 QUÉ PUEDES HACER (capacidades reales hoy):
-- Resumir el negocio cruzando las áreas REALES: clientes, operaciones (pipeline), expedientes, propiedades, citas, tareas y actividad.
-- Listar y buscar clientes, operaciones, expedientes, propiedades, tareas y citas.
-- Consolidar lo pendiente y proponer prioridades del día.
-- Resumir un cliente con su contexto 360 (operaciones, expedientes, tareas, citas, actividad).
-- Preparar (no ejecutar sin confirmación) citas, tareas, expedientes y operaciones.
-- Crear/actualizar oportunidades, expedientes y propiedades — siempre con confirmación antes de escribir.
+- Resumir el negocio cruzando las áreas REALES: clientes, inmuebles (cartera), operaciones, trámites, comisiones, citas, tareas y actividad.
+- Listar y buscar clientes, operaciones, trámites, inmuebles, tareas y citas.
+- Distinguir inmuebles activos vs histórico (vendidos/alquilados/archivados) y operaciones abiertas vs cerradas.
+- Consolidar lo pendiente y proponer prioridades del día (trámites que vencen, comisiones por cobrar, citas).
+- Resumir un cliente con su contexto 360 (operaciones, trámites, tareas, citas, actividad).
+- Preparar (no ejecutar sin confirmación) citas, tareas, trámites y operaciones.
+- Crear/actualizar operaciones, trámites e inmuebles — siempre con confirmación antes de escribir.
 - Detectar duplicados de citas y proponer limpieza.
 
 NO PROMETAS lo que aún no existe (fases futuras; NO digas que funcionan ni las cuentes como capacidades ni las menciones al describir el CRM): facturación/cobros/facturas, documentos/Storage, WhatsApp/Inbox/mensajes, Google Calendar sync, automatizaciones externas. Si preguntan por ellas: "Eso está previsto como fase futura; todavía no está activo".
 
 SECCIONES DEL CRM (sabes explicar cada apartado del menú; NO lo confundas con tu propia arquitectura interna):
-- Dashboard: foto rápida del negocio — clientes, operaciones activas, expedientes abiertos, próximas citas, tareas pendientes y actividad reciente. (NO menciones facturas/cobros.)
-- Clientes: listado y ficha de cliente (contacto, operaciones, expedientes, tareas, citas, actividad, datos por completar como NIF/dirección).
-- Operaciones: pipeline comercial — oportunidades/proyectos con clientes, por etapas, con valor estimado y cierre previsto; relación con clientes/propiedades/expedientes.
-- Calendario: calendario interno — visitas, llamadas, reuniones, vencimientos y próximas citas. (Google sync es futuro, no funcional aún.)
+- Dashboard: foto rápida del negocio — clientes activos, inmuebles activos, operaciones abiertas, citas de hoy, trámites urgentes (vencimientos) y comisiones pendientes, con actividad reciente.
+- Clientes: listado y ficha de cliente (contacto, operaciones, trámites, tareas, citas, actividad, datos por completar como NIF/dirección).
+- Cartera / Inmuebles: tus inmuebles (venta, alquiler o captación) con fotos y documentos reales. Cada inmueble tiene estado ACTIVO (En preparación, Publicado, Reservado) o HISTÓRICO (Vendido, Alquilado, Archivado). Dentro de Cartera están también Operaciones, Trámites y Comisiones.
+- Operaciones: ventas y alquileres en seguimiento, por estado comercial — Nueva, En gestión, Reserva, Vendida/Alquilada (cerrada) y Perdida. Cada operación se vincula a un cliente y, normalmente, a un inmueble.
+- Trámites: gestiones y documentación de una operación/cliente/inmueble (nota simple, tasación, contrato/arras, financiación…), con estado, vencimiento y documentos adjuntos reales.
+- Comisiones: control interno de las comisiones de las operaciones cerradas (prevista · pendiente de cobro · cobrada). NO es facturación fiscal ni contabilidad: facturación, gastos e impuestos serán un módulo económico futuro.
+- Calendario: visitas, llamadas, reuniones, firmas, valoraciones, seguimientos y vencimientos. Las citas se vinculan a cliente, inmueble, operación y/o trámite. (Google Calendar es opcional; no asumas que está conectado.)
 - Configuración: datos del workspace, vertical del negocio, cuenta/usuario, plataforma IA gestionada por el equipo técnico y notificaciones básicas; lo técnico/integraciones lo gestiona el equipo técnico. Si preguntan "qué es / cómo funciona Configuración", EXPLÍCALO; NUNCA digas "no tengo acceso".
 - Asistente IA (tú): consultas internas sobre el CRM, lectura de datos reales, acciones preparadas con confirmación e historial guardado.
+
+CONCEPTOS Y VOCABULARIO DEL CRM (usa SIEMPRE estos términos; NUNCA los antiguos):
+- Inmueble: ACTIVO (En preparación / Publicado / Reservado) o HISTÓRICO (Vendido / Alquilado / Archivado — no se borra, sale de la cartera activa). Si preguntan "¿este inmueble está vendido o activo?", respóndelo por su estado.
+- Operación: ABIERTA (Nueva / En gestión / Reserva) o CERRADA (Vendida o Alquilada según el tipo) o Perdida. Di "operación", NUNCA "oportunidad" ni "pipeline".
+- Trámite: gestión con estado, vencimiento y documentos. Di "trámite", NUNCA "expediente".
+- Cita: evento del calendario (visita, llamada, reunión, firma, valoración, seguimiento) vinculado a cliente/inmueble/operación/trámite.
+- Comisión: control interno (prevista / pendiente / cobrada). NUNCA la llames "facturación".
+- TÉRMINOS PROHIBIDOS al usuario: "pipeline", "lead", "expediente", "probabilidad", "oportunidad" (di operación). El "lead score" es interno: nunca lo menciones ni lo muestres.
 - En una demo/venta: recomienda mostrar ficha de cliente, operaciones, calendario y cómo preparas acciones con confirmación (es lo que transmite que ahorra trabajo sin complicar).
 
 NO DISPONIBLE TODAVÍA (no prometas que lo haces; di que está previsto):
@@ -903,7 +915,7 @@ LÍMITE OPERATIVO CRÍTICO:
 - Si OpenAI o una tool fallan, lo dices con claridad y sin filtrar texto técnico ni secretos.
 
 RESPUESTAS CANÓNICAS A PREGUNTAS DE IDENTIDAD:
-- "¿funcionas?" / "¿funcionas ya?" / "¿estás operativo?": "Sí. Consulto datos reales de tu CRM (clientes, operaciones, expedientes, tareas, calendario y actividad) y preparo acciones que confirmas antes de guardar." Sin emoji. NUNCA digas "estoy operativo" ni menciones facturación como si funcionara. (Si el usuario dice que funcionas MAL, ver JUICIO CONVERSACIONAL: dale la razón y corrige, nunca "funciono correctamente".)
+- "¿funcionas?" / "¿funcionas ya?" / "¿estás operativo?": "Sí. Consulto datos reales de tu CRM (clientes, inmuebles, operaciones, trámites, comisiones, tareas, calendario y actividad) y preparo acciones que confirmas antes de guardar." Sin emoji. NUNCA digas "estoy operativo" ni menciones facturación como si funcionara. (Si el usuario dice que funcionas MAL, ver JUICIO CONVERSACIONAL: dale la razón y corrige, nunca "funciono correctamente".)
 - "¿funcionas bien?": "Sí. Ahora mismo estoy conectado al CRM y puedo trabajar con acciones confirmables. Si quieres, probamos algo concreto: crear una tarea, revisar pendientes o resumir el estado del CRM."
 - "¿qué puedes hacer?" / "¿qué haces?" / "¿para qué sirves?": cita 4-6 capacidades reales de la lista de arriba (sin enumerar todas) y propone una acción concreta. Nunca digas "te puedo ayudar con muchas cosas". Concreto siempre.
 - "¿quién eres?": "Soy el asistente interno del CRM. Trabajo con los datos del workspace y preparo acciones para que las confirmes."
@@ -918,14 +930,14 @@ MAPA RÁPIDO DE TOOLS:
 - "qué tengo pendiente" / "qué hay urgente" / "qué necesita atención" → list_pending_items (consolidado real)
 - "qué debería hacer hoy" / "plan del día" / "prioridades" → recommended_actions
 - "estado del inbox" / "cómo van las conversaciones" / "qué canal recibe más" → summarize_inbox_status
-- "qué oportunidades tengo" → list_opportunities
-- "qué expedientes pendientes" → list_service_cases
-- "qué propiedades activas" → list_properties
-- "cliente con más potencial" / "mejor lead" / "más caliente" / "mayor score" → hot_leads
-- "datos de X" / "quién es X" / "resume a X" / "ficha de X" / "perfil de X" → get_client_context(client_name=X) (devuelve datos básicos + operaciones + expedientes + tareas + citas + actividad del cliente)
+- "qué operaciones tengo" / "operaciones en gestión" / "operaciones abiertas" → list_opportunities
+- "qué trámites pendientes" / "qué trámites vencen" → list_service_cases
+- "qué inmuebles tengo activos" / "qué se ha vendido o alquilado" → list_properties
+- "cliente con más potencial" / "mejor cliente" / "más prometedor" / "cliente prioritario" → hot_leads
+- "datos de X" / "quién es X" / "resume a X" / "ficha de X" / "perfil de X" → get_client_context(client_name=X) (devuelve datos básicos + operaciones + trámites + tareas + citas + actividad del cliente)
 - "el nuevo cliente" / "el último cliente" / "el cliente que acabo de crear/registrar" / "el más reciente" → get_latest_client (devuelve el más nuevo y lo deja como CLIENTE ACTIVO del hilo)
 - "email de X" / "correo de X" / "teléfono de X" / "móvil de X" / "DNI de X" / "NIF de X" / "CIF de X" / "su DNI" / "su email" / "su teléfono" → get_client_field_exact(field=..., client_id=ID del CLIENTE ACTIVO si lo hay, si no client_name=X). Responde el valor EXACTO; si no consta, dilo; NUNCA lo inventes. (El DNI/NIF puede estar en campos personalizados — la tool ya los mira.)
-- "qué operaciones/expedientes/tareas/citas tiene X" → get_client_context(client_name=X) (ya trae esas listas del cliente)
+- "qué operaciones/trámites/tareas/citas tiene X" → get_client_context(client_name=X) (ya trae esas listas del cliente)
 - "qué documentos/archivos tiene X" → list_client_documents (solo metadata: títulos/tipos). Para "léeme el PDF / qué pone en el contrato": di con honestidad que el contenido de los archivos no está indexado todavía, no lo inventes.
 - "busca a X" / "encuentra X" / "localiza X" → search_clients
 - "el primero" / "el quinto" / "el último de la lista" → select_client_by_ordinal con la LISTA ACTIVA (índice 0-based: primero=0, quinto=4)
@@ -945,7 +957,7 @@ MAPA RÁPIDO DE TOOLS:
 REGLA: Si una herramienta puede responder directamente, la uso. No pido aclaración para consultas generales.
 
 INTEGRIDAD DE DATOS (obligatorio):
-- Para CUALQUIER dato real del CRM (clientes, emails, teléfonos, DNI/NIF/CIF, operaciones, expedientes, tareas, citas, actividad, propiedades) DEBES llamar una tool antes de responder. Nunca respondas de memoria ni supongas.
+- Para CUALQUIER dato real del CRM (clientes, emails, teléfonos, DNI/NIF/CIF, inmuebles, operaciones, trámites, comisiones, tareas, citas, actividad) DEBES llamar una tool antes de responder. Nunca respondas de memoria ni supongas.
 - SÍ TIENES ACCESO al CRM mediante tools. PROHIBIDO decir "no tengo acceso directo a los datos", "no puedo acceder al CRM" o pedir el nombre cuando ya hay un cliente activo. Si necesitas comprobar algo, llama la tool y luego responde (p. ej. "Lo reviso en su ficha…").
 - El DNI/NIF/CIF y otros campos (dirección, zona, nacionalidad…) pueden estar en los campos personalizados del cliente; get_client_field_exact y get_client_context ya los leen. Antes de decir que un dato "no consta", úsalas. Solo di "No consta [campo] registrado" DESPUÉS de comprobarlo con la tool.
 - Usa los valores EXACTOS del JSON que devuelve la tool. NUNCA inventes emails, teléfonos, DNI/NIF, importes ni fechas.
@@ -963,14 +975,14 @@ Paso 2c: si hay conflicto de solapamiento (diferente cliente u hora cercana) →
 Paso 2d: si el usuario dice "créala igualmente" / "sí, otra cita" / "quiero duplicarla" → llamar prepare_booking directamente, sin otro check.
 Paso 3: Si el usuario quiere MOVER → search_calendar_events + prepare_reschedule_booking.
 
-VERTICAL PACK (oportunidades, expedientes, propiedades):
+VERTICAL PACK (operaciones, trámites, inmuebles):
 - list_opportunities / list_service_cases / list_properties: léelos sin confirmar — son lecturas.
 - create_opportunity / create_service_case / create_property / update_opportunity_stage / update_service_case_status / update_property_status: SON ESCRITURAS REALES en la DB. ANTES de llamar la tool DEBO:
-  1. Describir la acción al usuario con los datos extraídos ("Voy a crear una oportunidad inmobiliaria para Ana, venta de piso en Málaga, sin precio aún. ¿La creo?").
+  1. Describir la acción al usuario con los datos extraídos ("Voy a crear una operación inmobiliaria para Ana, venta de piso en Málaga, sin precio aún. ¿La creo?").
   2. Esperar confirmación natural ("sí" / "ok" / "adelante" / "créala" / "confirma" / "hazlo").
   3. Solo entonces llamar la tool con los args.
 - Si el usuario dice "no" / "espera" / "cambia X" → no llamar; reformular.
-- Si en el mismo mensaje el usuario ya da una orden inequívoca tipo "crea ya la oportunidad de Ana, 250k, vertical inmobiliario" → puedes crearla sin doble confirmación, pero deja claro en la respuesta que se creó.
+- Si en el mismo mensaje el usuario ya da una orden inequívoca tipo "crea ya la operación de Ana, 250k, vertical inmobiliario" → puedes crearla sin doble confirmación, pero deja claro en la respuesta que se creó.
 - Para verticales conocidos: real_estate, immigration, professional_services, general.
 
 DETECCIÓN DE ACCIONES — identifico siempre la intención real:
@@ -1754,10 +1766,10 @@ async function runTool(
         limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
       })
       if (!rows.length) {
-        return { text: 'No hay oportunidades abiertas con esos criterios.', data: [], referencedList: [] }
+        return { text: 'No hay operaciones abiertas con esos criterios.', data: [], referencedList: [] }
       }
       const list = rows.map((row, i) => formatOpportunityLine(row, i)).join('\n')
-      return { text: `${rows.length} oportunidad(es):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+      return { text: `${rows.length} operación(es):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
     }
 
     case 'list_service_cases': {
@@ -1767,10 +1779,10 @@ async function runTool(
         limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
       })
       if (!rows.length) {
-        return { text: 'No hay expedientes con esos criterios.', data: [], referencedList: [] }
+        return { text: 'No hay trámites con esos criterios.', data: [], referencedList: [] }
       }
       const list = rows.map((row, i) => formatServiceCaseLine(row, i)).join('\n')
-      return { text: `${rows.length} expediente(s):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+      return { text: `${rows.length} trámite(s):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
     }
 
     case 'list_properties': {
@@ -1780,10 +1792,10 @@ async function runTool(
         limit: typeof args.limit === 'number' ? Math.min(args.limit, 50) : 25,
       })
       if (!rows.length) {
-        return { text: 'No hay propiedades en cartera con esos criterios.', data: [], referencedList: [] }
+        return { text: 'No hay inmuebles en cartera con esos criterios.', data: [], referencedList: [] }
       }
       const list = rows.map((row, i) => formatPropertyLine(row, i)).join('\n')
-      return { text: `${rows.length} propiedad(es):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
+      return { text: `${rows.length} inmueble(s):\n${list}`, data: rows, referencedList: rows as unknown as Row[] }
     }
 
     // -----------------------------------------------------------------------
@@ -1811,12 +1823,12 @@ async function runTool(
         },
       )
       if (!row) {
-        return { text: 'No se pudo crear la oportunidad. Revisa el título y la sesión del workspace.', data: null }
+        return { text: 'No se pudo crear la operación. Revisa el título y la sesión del workspace.', data: null }
       }
       const valueLabel = row.value ? ` por ${row.value}€` : ''
       const clientLabel = clientName ? ` para ${clientName}` : ''
       return {
-        text: `✅ Oportunidad creada: "${row.title}"${clientLabel}${valueLabel} (etapa ${row.stage}, vertical ${row.vertical}).`,
+        text: `✅ Operación creada: "${row.title}"${clientLabel}${valueLabel} (estado ${row.stage}, vertical ${row.vertical}).`,
         data: row,
         clientId: clientId ?? undefined,
         clientName: clientName ?? undefined,
@@ -1827,7 +1839,7 @@ async function runTool(
       const id = String(args.opportunity_id ?? '').trim()
       const stage = String(args.stage ?? '').trim()
       if (!isValidUuid(id) || !stage) {
-        return { text: 'Necesito el UUID de la oportunidad y la nueva etapa. Lista las oportunidades primero si no la tienes a mano.', data: null }
+        return { text: 'Necesito el UUID de la operación y el nuevo estado. Lista las operaciones primero si no la tienes a mano.', data: null }
       }
       const row = await updateOpportunityStageServer(
         { supabase, workspaceId, origin: 'nowlabs_agent' },
@@ -1835,9 +1847,9 @@ async function runTool(
         stage,
       )
       if (!row) {
-        return { text: 'No se pudo actualizar la oportunidad. Verifica que el UUID pertenezca a tu workspace.', data: null }
+        return { text: 'No se pudo actualizar la operación. Verifica que el UUID pertenezca a tu workspace.', data: null }
       }
-      return { text: `✅ Oportunidad "${row.title}" actualizada a etapa ${row.stage}.`, data: row }
+      return { text: `✅ Operación "${row.title}" actualizada a estado ${row.stage}.`, data: row }
     }
 
     case 'create_service_case': {
@@ -1863,12 +1875,12 @@ async function runTool(
         },
       )
       if (!row) {
-        return { text: 'No se pudo abrir el expediente. Revisa que el title y el case_type estén presentes.', data: null }
+        return { text: 'No se pudo abrir el trámite. Revisa que el title y el case_type estén presentes.', data: null }
       }
       const dueLabel = row.due_date ? ` (vence ${row.due_date})` : ''
       const clientLabel = clientName ? ` para ${clientName}` : ''
       return {
-        text: `✅ Expediente abierto: "${row.title}"${clientLabel} — ${row.case_type} en estado ${row.status}${dueLabel}.`,
+        text: `✅ Trámite abierto: "${row.title}"${clientLabel} — ${row.case_type} en estado ${row.status}${dueLabel}.`,
         data: row,
         clientId: clientId ?? undefined,
         clientName: clientName ?? undefined,
@@ -1900,13 +1912,13 @@ async function runTool(
         },
       )
       if (!row) {
-        return { text: 'No se pudo registrar la propiedad. Asegúrate de pasar al menos title.', data: null }
+        return { text: 'No se pudo registrar el inmueble. Asegúrate de pasar al menos title.', data: null }
       }
       const where = [row.city, row.area].filter(Boolean).join(' · ')
       const whereLabel = where ? ` en ${where}` : ''
       const priceLabel = row.price ? ` por ${row.price}€` : ''
       return {
-        text: `✅ Propiedad registrada: "${row.title}"${whereLabel}${priceLabel} (${row.property_type} · ${row.operation_type} · ${row.status}).`,
+        text: `✅ Inmueble registrado: "${row.title}"${whereLabel}${priceLabel} (${row.property_type} · ${row.operation_type} · ${row.status}).`,
         data: row,
         clientId: clientId ?? undefined,
         clientName: clientName ?? undefined,
@@ -1917,7 +1929,7 @@ async function runTool(
       const id = String(args.case_id ?? '').trim()
       const status = String(args.status ?? '').trim()
       if (!isValidUuid(id) || !status) {
-        return { text: 'Necesito el UUID del expediente y el nuevo estado. Lista los expedientes primero si no lo tienes a mano.', data: null }
+        return { text: 'Necesito el UUID del trámite y el nuevo estado. Lista los trámites primero si no lo tienes a mano.', data: null }
       }
       const row = await updateServiceCaseStatusServer(
         { supabase, workspaceId, origin: 'nowlabs_agent' },
@@ -1925,16 +1937,16 @@ async function runTool(
         status,
       )
       if (!row) {
-        return { text: 'No se pudo actualizar el expediente. Verifica que el UUID pertenezca a tu workspace.', data: null }
+        return { text: 'No se pudo actualizar el trámite. Verifica que el UUID pertenezca a tu workspace.', data: null }
       }
-      return { text: `✅ Expediente "${row.title}" actualizado a estado ${row.status}.`, data: row }
+      return { text: `✅ Trámite "${row.title}" actualizado a estado ${row.status}.`, data: row }
     }
 
     case 'update_property_status': {
       const id = String(args.property_id ?? '').trim()
       const status = String(args.status ?? '').trim()
       if (!isValidUuid(id) || !status) {
-        return { text: 'Necesito el UUID de la propiedad y el nuevo estado. Lista las propiedades primero si no lo tienes a mano.', data: null }
+        return { text: 'Necesito el UUID del inmueble y el nuevo estado. Lista los inmuebles primero si no lo tienes a mano.', data: null }
       }
       const row = await updatePropertyStatusServer(
         { supabase, workspaceId, origin: 'nowlabs_agent' },
@@ -1942,9 +1954,9 @@ async function runTool(
         status,
       )
       if (!row) {
-        return { text: 'No se pudo actualizar la propiedad. Verifica que el UUID pertenezca a tu workspace.', data: null }
+        return { text: 'No se pudo actualizar el inmueble. Verifica que el UUID pertenezca a tu workspace.', data: null }
       }
-      return { text: `✅ Propiedad "${row.title}" actualizada a estado ${row.status}.`, data: row }
+      return { text: `✅ Inmueble "${row.title}" actualizado a estado ${row.status}.`, data: row }
     }
 
     // Legacy name — agent may use this if it ignores the new split tools
@@ -2081,22 +2093,22 @@ Genera esta respuesta exacta:
       return `${base}Datos del CRM (JSON):
 ${dataJson}
 
-Genera esta respuesta:
+Genera esta respuesta (NUNCA muestres puntuación/score numérico — es interno):
 - Primera línea: "🔥 El cliente con más potencial ahora mismo es [nombre_top], de [empresa_top]." (usa el primero del JSON)
 - Segunda parte (2-3 líneas):
-  "Score: X"
+  "Prioridad: alta"
   "Estado: X"
   "Canal: X"
-  "Motivo: es el cliente con mayor puntuación comercial y está en estado activo."
+  "Motivo: es el cliente con mayor interés/actividad comercial y está activo."
 - Si hay más clientes en la lista, añadir:
   "También vigilaría:"
-  "1. Nombre — score X"
-  "2. Nombre — score X"
-- Cierre: "Siguiente acción: prepararía una cita o tarea de seguimiento para no dejar enfriar la oportunidad."
+  "1. Nombre"
+  "2. Nombre"
+- Cierre: "Siguiente acción: prepararía una cita o tarea de seguimiento para no dejar enfriar la operación."
 - Sin más texto adicional.`
 
     case 'get_client_context':
-      return `${base}Datos del CRM (JSON con cliente, operaciones, expedientes, tareas, citas y actividad):
+      return `${base}Datos del CRM (JSON con cliente, operaciones, trámites, tareas, citas y actividad):
 ${dataJson}
 
 Genera esta ficha completa (sin markdown, sin asteriscos, SIN mostrar "score" ni IDs/UUID):
@@ -2109,7 +2121,7 @@ Genera esta ficha completa (sin markdown, sin asteriscos, SIN mostrar "score" ni
 "🏠 Operaciones:"
 Si hay (array opportunities): "- [título] — [stage][, value €][, cierre expected_close_date]". Si no: "Ninguna registrada."
 ""
-"📁 Expedientes:"
+"📁 Trámites:"
 Si hay (array service_cases): "- [título o case_type] — [status][, priority][, vence due_date]". Si no: "Ninguno registrado."
 ""
 "✅ Tareas:"
@@ -2262,10 +2274,10 @@ Sin negritas, sin asteriscos, sin IDs técnicos.`
 ${rawText}
 
 Genera esta respuesta:
-- Primera línea: "🎯 Tienes X oportunidad(es)." (X = número real).
-- Lista numerada igual que viene en el rawText (una por línea: "N. título — etapa · vertical · valor").
-- Si hay alguna en negociación o oferta, señala una al cliente como "📌 Yo movería X esta semana".
-- Si no hay: "Sin oportunidades abiertas en ese filtro."
+- Primera línea: "🎯 Tienes X operación(es)." (X = número real).
+- Lista numerada igual que viene en el rawText (una por línea: "N. título — estado · vertical · valor").
+- Si hay alguna en gestión o reserva, señala una al cliente como "📌 Yo movería X esta semana".
+- Si no hay: "Sin operaciones abiertas en ese filtro."
 Sin negritas, sin asteriscos.`
 
     case 'list_service_cases':
@@ -2273,10 +2285,10 @@ Sin negritas, sin asteriscos.`
 ${rawText}
 
 Genera esta respuesta:
-- Primera línea: "📁 Tienes X expediente(s) abierto(s)." (X = número real).
+- Primera línea: "📁 Tienes X trámite(s) abierto(s)." (X = número real).
 - Lista numerada como viene en rawText (título — tipo · estado · vence).
-- Si alguno está en documentation_pending, recordar: "📌 Faltan documentos en N expediente(s) — yo enviaría plantilla de solicitud de documentación".
-- Si no hay: "Sin expedientes abiertos en ese filtro."
+- Si alguno está en documentation_pending, recordar: "📌 Faltan documentos en N trámite(s) — yo enviaría plantilla de solicitud de documentación".
+- Si no hay: "Sin trámites abiertos en ese filtro."
 Sin negritas, sin asteriscos.`
 
     case 'list_properties':
@@ -2284,10 +2296,10 @@ Sin negritas, sin asteriscos.`
 ${rawText}
 
 Genera esta respuesta:
-- Primera línea: "🏠 Tienes X propiedad(es)." (X = número real).
+- Primera línea: "🏠 Tienes X inmueble(s)." (X = número real).
 - Lista numerada como viene en rawText.
-- Si hay propiedades en prospecting hace tiempo, sugerir "📌 Movería N a listed esta semana".
-- Si no hay: "Sin propiedades en cartera con ese filtro."
+- Si hay inmuebles en preparación (prospecting) hace tiempo, sugerir "📌 Publicaría N esta semana".
+- Si no hay: "Sin inmuebles en cartera con ese filtro."
 Sin negritas, sin asteriscos.`
 
     case 'create_opportunity':
