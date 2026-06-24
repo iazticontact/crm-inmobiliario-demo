@@ -89,7 +89,8 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
   const overdue = useMemo(() => items.filter((i) => daysFromToday(i.due, todayStr) < 0).length, [items, todayStr])
-  const shown = items.slice(0, 6)
+  const shown = items.slice(0, 5)
+  const more = items.length - shown.length
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
@@ -98,13 +99,13 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
           <CalendarClock className="h-3.5 w-3.5 text-gray-400" />
           <h3 className="text-sm font-semibold text-gray-900">Vencen pronto</h3>
         </div>
-        {overdue > 0 && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">{overdue} vencido{overdue === 1 ? '' : 's'}</span>}
+        {overdue > 0 && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">{overdue} vencido{overdue === 1 ? '' : 's'}</span>}
       </div>
       <div className="p-3">
         {loading ? (
           <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100/70" />)}</div>
         ) : shown.length === 0 ? (
-          <p className="px-1 py-3 text-center text-[11px] text-gray-400">Sin trámites ni tareas con vencimiento próximo.</p>
+          <p className="px-1 py-3 text-center text-[11px] text-gray-400">Sin vencimientos próximos.</p>
         ) : (
           <ul className="space-y-1.5">
             {shown.map((it) => {
@@ -133,6 +134,9 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
                 ? <li key={it.id}><Link href={it.href} className="group block">{inner}</Link></li>
                 : <li key={it.id} className="group">{inner}</li>
             })}
+            {more > 0 && (
+              <li className="px-1 pt-1 text-center text-[10px] font-medium text-gray-400">y {more} {more === 1 ? 'más' : 'más'}</li>
+            )}
           </ul>
         )}
       </div>

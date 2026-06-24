@@ -1538,11 +1538,11 @@ export default function CalendarPage() {
               if (original) await updateCalendarEvent(form.id, workspaceId, payloadFromCalendarEvent(original))
               throw new Error(googleSyncFailureMessage(sync.reason))
             }
-            toast.success(`Evento actualizado: ${payload.title}`, { description: 'Cambios aplicados en Google Calendar.' })
+            toast.success(`Cita actualizada: ${payload.title}`, { description: 'Cambios aplicados en Google Calendar.' })
           } else {
-            toast.success(`Evento actualizado: ${payload.title}`, { description: 'Cambios guardados en el CRM.' })
+            toast.success(`Cita actualizada: ${payload.title}`, { description: 'Cambios guardados en el CRM.' })
           }
-          void createActivity(workspaceId, { type: 'call', description: `Evento actualizado: ${payload.title}`, clientName: payload.clientName }).catch(() => undefined)
+          void createActivity(workspaceId, { type: 'call', description: `Cita actualizada: ${payload.title}`, clientName: payload.clientName }).catch(() => undefined)
         } else {
           if (googleConnected && googleNeedsCalendarSelection) {
             throw new Error('Selecciona calendarios de Google antes de crear citas sincronizadas.')
@@ -1561,7 +1561,7 @@ export default function CalendarPage() {
           } else {
             toast.success(`Cita creada en CRM: ${payload.title}`)
           }
-          void createActivity(workspaceId, { type: 'call', description: `Evento creado: ${payload.title}`, clientName: payload.clientName }).catch(() => undefined)
+          void createActivity(workspaceId, { type: 'call', description: `Cita creada: ${payload.title}`, clientName: payload.clientName }).catch(() => undefined)
           void triggerN8nWebhook('calendar_event_created', { workspace_id: workspaceId, mode: 'real', calendar_event: { ...payload, id: created.id } }).catch(() => undefined)
         }
         await loadEvents()
@@ -1584,7 +1584,7 @@ export default function CalendarPage() {
           description: payload.description || undefined,
         }
         setEvents((prev) => form.id ? prev.map((event) => event.id === form.id ? localEvent : event) : [...prev, localEvent])
-        toast.success(form.id ? `Evento actualizado: ${payload.title}` : `Evento creado en demo: ${payload.title}`)
+        toast.success(form.id ? `Cita actualizada: ${payload.title}` : `Cita creada en demo: ${payload.title}`)
       }
       setSelectedDate(form.date)
       setModalOpen(false)
@@ -1746,9 +1746,9 @@ export default function CalendarPage() {
     >
       <ConfirmDialog
         open={cancelDialogOpen}
-        title="Cancelar evento"
-        description={`Vas a cancelar "${form.title || 'este evento'}". No se eliminará el cliente, inmueble, operación ni trámite vinculado. Esta acción no se puede deshacer.`}
-        confirmLabel="Cancelar evento"
+        title="Cancelar cita"
+        description={`Vas a cancelar "${form.title || 'esta cita'}". No se eliminará el cliente, inmueble, operación ni trámite vinculado. Esta acción no se puede deshacer.`}
+        confirmLabel="Cancelar cita"
         loadingLabel="Cancelando…"
         cancelLabel="Volver"
         destructive
@@ -2079,7 +2079,7 @@ export default function CalendarPage() {
 
           <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm shadow-gray-950/[0.035]">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-              <h3 className="text-sm font-semibold text-gray-900">Próximos eventos</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Próximas citas</h3>
               {upcomingEvents.length > 0 && <span className="text-[10px] font-medium text-gray-400">{upcomingEvents.length}</span>}
             </div>
             <ul className="flex-1 space-y-2 overflow-y-auto p-3">
@@ -2421,29 +2421,34 @@ export default function CalendarPage() {
         {/* MODAL EDIT EVENT */}
         {modalOpen && (
           <div ref={overlayRef} onClick={(e) => { if (e.target === overlayRef.current) setModalOpen(false) }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-gray-900">{form.id ? (form.isReadOnly ? 'Ver evento' : 'Editar evento') : 'Nuevo evento'}</h2>
-                  {form.googleEventId && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                      <CalendarDays className="h-3 w-3" />
-                      Vinculado a Google
-                    </span>
-                  )}
-                  {form.isReadOnly && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                      <Lock className="h-3 w-3" />
-                      Solo lectura
-                    </span>
+            <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex shrink-0 items-start justify-between border-b border-gray-100 px-6 py-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-gray-900">{form.id ? (form.isReadOnly ? 'Ver cita' : 'Editar cita') : 'Nueva cita'}</h2>
+                    {form.googleEventId && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                        <CalendarDays className="h-3 w-3" />
+                        Vinculado a Google
+                      </span>
+                    )}
+                    {form.isReadOnly && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                        <Lock className="h-3 w-3" />
+                        Solo lectura
+                      </span>
+                    )}
+                  </div>
+                  {!form.id && !form.isReadOnly && (
+                    <p className="mt-0.5 text-[11px] text-gray-500">Programa una visita, llamada, firma o seguimiento.</p>
                   )}
                 </div>
-                <button onClick={() => setModalOpen(false)} aria-label="Cerrar" className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
+                <button onClick={() => setModalOpen(false)} aria-label="Cerrar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="space-y-4 px-6 py-5">
+              <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
                 {form.isReadOnly && (
                   <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
                     <Lock className="mt-0.5 h-3 w-3 shrink-0" />
@@ -2497,7 +2502,7 @@ export default function CalendarPage() {
                     <select value={form.startHour} onChange={(e) => setForm((p) => ({ ...p, startHour: Number(e.target.value) }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">{HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}</select>
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Min</label>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Minuto</label>
                     <select value={form.startMinute} onChange={(e) => setForm((p) => ({ ...p, startMinute: Number(e.target.value) }))} disabled={form.isReadOnly} className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
                       {[0, 15, 30, 45].map((min) => <option key={min} value={min}>:{String(min).padStart(2, '0')}</option>)}
                     </select>
@@ -2562,17 +2567,17 @@ export default function CalendarPage() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+              <div className="flex shrink-0 items-center justify-between border-t border-gray-100 px-6 py-4">
                 {form.id && !form.isReadOnly ? (
                   <Button variant="danger" size="sm" loading={deleting} onClick={requestDelete}>
                     <Trash2 className="h-3.5 w-3.5" />
-                    Cancelar evento
+                    Cancelar cita
                   </Button>
                 ) : <span />}
                 <div className="flex items-center gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => setModalOpen(false)}>{form.isReadOnly ? 'Cerrar' : 'Cerrar'}</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setModalOpen(false)}>Cerrar</Button>
                   {!form.isReadOnly && (
-                    <Button size="sm" loading={saving} onClick={handleSave}>{form.id ? 'Guardar cambios' : 'Crear evento'}</Button>
+                    <Button size="sm" loading={saving} onClick={handleSave}>{form.id ? 'Guardar cambios' : 'Crear cita'}</Button>
                   )}
                 </div>
               </div>
