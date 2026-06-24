@@ -21,9 +21,11 @@ import {
   Clock,
   ListChecks,
   PieChart,
-  Target,
   CheckCircle2,
   RefreshCw,
+  Building2,
+  Coins,
+  Home,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
@@ -54,6 +56,7 @@ import {
 } from '@/lib/mock-data'
 import { demoOpportunities, demoServiceCases, demoProperties, demoTasks } from '@/lib/demo/demo-real-estate'
 import { commStateOf, commStateLabel, type CommState } from '@/lib/demo/vertical-templates'
+import { buildDashboardSnapshot, type SnapshotInput, type DashboardSnapshot } from '@/lib/dashboard-snapshot'
 
 type RealStats = {
   totalClients: number
@@ -81,7 +84,6 @@ type PipelineStage = { stage: string; label: string; count: number; value: numbe
 type WeekDay = { label: string; dayNum: number; events: number; tasks: number; tooltip: string }
 type UrgentTask = { id: string; title: string; dueDate?: string; clientName?: string; priority: string }
 type ReviewOp = { id: string; title: string; stage: string; value: number | null }
-type PriorityRow = { key: string; label: string; count: number; href?: string; hint?: string; icon: React.ReactNode }
 
 // Embudo por ESTADO COMERCIAL abierto (coherente con Cartera: 5 estados). Solo abiertos:
 // Nueva · En gestión · Reserva (Vendida/Alquilada y Perdida quedan fuera del embudo).
@@ -372,6 +374,8 @@ export default function DashboardPage() {
   const [weekActivity, setWeekActivity] = useState<WeekDay[]>([])
   const [urgentTask, setUrgentTask] = useState<UrgentTask | null>(null)
   const [reviewOp, setReviewOp] = useState<ReviewOp | null>(null)
+  // Datos crudos ya cargados → snapshot derivado (cartera/comisiones/vencimientos) sin re-fetch.
+  const [raw, setRaw] = useState<Omit<SnapshotInput, 'todayStr'> | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
   // Freshness: el dashboard carga datos frescos en cada montaje/navegación (las
@@ -430,6 +434,14 @@ export default function DashboardPage() {
         setWeekActivity(buildNext7Days(demoCalendarEvents, openTasks))
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
+        setRaw({
+          properties: demoProperties as SnapshotInput['properties'],
+          opportunities: demoOpportunities as SnapshotInput['opportunities'],
+          cases: demoServiceCases as SnapshotInput['cases'],
+          tasks: demoTasks as SnapshotInput['tasks'],
+          events: demoCalendarEvents as SnapshotInput['events'],
+          clients: demoClients.map((c) => ({ id: c.id, name: c.name })),
+        })
         setLoading(false)
         setRefreshing(false)
         return
@@ -447,6 +459,7 @@ export default function DashboardPage() {
           setWeekActivity([])
           setUrgentTask(null)
           setReviewOp(null)
+          setRaw(null)
           setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
           return
         }
@@ -513,6 +526,14 @@ export default function DashboardPage() {
         setWeekActivity(buildNext7Days(events, openTasks))
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
+        setRaw({
+          properties: properties as SnapshotInput['properties'],
+          opportunities: opps as SnapshotInput['opportunities'],
+          cases: cases as SnapshotInput['cases'],
+          tasks: tasks as SnapshotInput['tasks'],
+          events: events as SnapshotInput['events'],
+          clients: clients.map((c) => ({ id: c.id, name: c.name })),
+        })
       } catch {
         if (cancelled) return
         setStats(null)
@@ -522,6 +543,7 @@ export default function DashboardPage() {
         setWeekActivity([])
         setUrgentTask(null)
         setReviewOp(null)
+        setRaw(null)
         setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
       } finally {
         if (!cancelled) {
@@ -543,6 +565,14 @@ export default function DashboardPage() {
     return 'Buenas noches'
   }, [])
 
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+
+  // Snapshot derivado (cartera/operaciones por estado/comisiones/vencimientos/citas de hoy).
+  const snap: DashboardSnapshot | null = useMemo(() => (raw ? buildDashboardSnapshot({ ...raw, todayStr }) : null), [raw, todayStr])
+
   const isEmpty = !!stats && stats.totalClients === 0 && stats.upcomingEvents === 0 && stats.pendingInvoices === 0 && stats.opportunitiesOpen === 0 && stats.casesActive === 0 && stats.propertiesActive === 0
 
   const handleNewClient = () => {
@@ -558,14 +588,6 @@ export default function DashboardPage() {
   const weekHasData = weekActivity.some((d) => d.events + d.tasks > 0)
   const weekTotals = weekActivity.reduce((acc, d) => ({ events: acc.events + d.events, tasks: acc.tasks + d.tasks }), { events: 0, tasks: 0 })
   const todayLabel = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
-  const priorities: PriorityRow[] = stats
-    ? [
-        { key: 'ops', label: 'Operaciones abiertas', count: stats.opportunitiesOpen, href: '/opportunities', icon: <FileText className="h-4 w-4" /> },
-        { key: 'tasks', label: 'Tareas pendientes', count: stats.tasksOpen, hint: stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : undefined, icon: <ListChecks className="h-4 w-4" /> },
-        { key: 'docs', label: 'Trámites esperando documentación', count: stats.casesDocsPending, href: '/opportunities', icon: <Clock className="h-4 w-4" /> },
-        { key: 'events', label: 'Citas próximas', count: stats.upcomingEvents, href: '/calendar', icon: <CalendarIcon className="h-4 w-4" /> },
-      ].filter((p) => p.count > 0)
-    : []
 
   return (
     <motion.div
@@ -631,37 +653,54 @@ export default function DashboardPage() {
       )}
 
       {/* KPIs principales — datos reales, sin tendencias fabricadas */}
-      <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
         <MetricTile
           label="Clientes activos"
           value={stats ? String(stats.activeClients) : loading ? '…' : '0'}
-          detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.totalClients} en total · ${stats.leads} leads`) : undefined}
+          detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.totalClients} en total`) : undefined}
           icon={<Users className="h-5 w-5" />}
           href="/clients"
           tone="indigo"
         />
         <MetricTile
+          label="Inmuebles activos"
+          value={snap ? String(snap.cartera.active) : loading ? '…' : '0'}
+          detail={snap ? (snap.cartera.history > 0 ? `${snap.cartera.history} en histórico` : snap.cartera.active ? 'En cartera' : 'Sin inmuebles') : undefined}
+          icon={<Building2 className="h-5 w-5" />}
+          href="/opportunities"
+          tone="sky"
+        />
+        <MetricTile
           label="Operaciones abiertas"
           value={stats ? String(stats.opportunitiesOpen) : loading ? '…' : '0'}
-          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones abiertas' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} valor potencial` : 'En seguimiento') : undefined}
+          detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones' : stats.pipelineValue > 0 ? `${formatEuro(stats.pipelineValue)} potencial` : 'En seguimiento') : undefined}
           icon={<FileText className="h-5 w-5" />}
           href="/opportunities"
           tone="violet"
         />
         <MetricTile
-          label="Tareas pendientes"
-          value={stats ? String(stats.tasksOpen) : loading ? '…' : '0'}
-          detail={stats ? (stats.tasksOpen === 0 ? 'Todo al día' : stats.tasksOverdue > 0 ? `${stats.tasksOverdue} vencida${stats.tasksOverdue === 1 ? '' : 's'}` : 'Pendientes de completar') : undefined}
-          icon={<ListChecks className="h-5 w-5" />}
+          label="Citas de hoy"
+          value={snap ? String(snap.todayEvents.length) : loading ? '…' : '0'}
+          detail={snap ? (snap.todayEvents.length === 0 ? (nextEvent ? `Próxima: ${formatDateShort(nextEvent.startAt)}` : 'Agenda libre') : 'Programadas para hoy') : undefined}
+          icon={<CalendarIcon className="h-5 w-5" />}
+          href="/calendar"
+          tone="emerald"
+        />
+        <MetricTile
+          label="Trámites urgentes"
+          value={snap ? String(snap.deadlines.filter((d) => d.kind === 'case').length) : loading ? '…' : '0'}
+          detail={snap ? ((() => { const o = snap.deadlines.filter((d) => d.kind === 'case' && d.days < 0).length; return o > 0 ? `${o} vencido${o === 1 ? '' : 's'}` : 'Sin vencimientos próximos' })()) : undefined}
+          icon={<Clock className="h-5 w-5" />}
+          href="/opportunities"
           tone="amber"
         />
         <MetricTile
-          label="Próximas citas"
-          value={stats ? String(stats.upcomingEvents) : loading ? '…' : '0'}
-          detail={stats ? (stats.upcomingEvents === 0 ? 'Agenda libre' : nextEvent ? `Próxima: ${[formatDateShort(nextEvent.startAt), nextEvent.type].filter(Boolean).join(' · ') || nextEvent.title}` : 'Programadas') : undefined}
-          icon={<CalendarIcon className="h-5 w-5" />}
-          href="/calendar"
-          tone="sky"
+          label="Comisiones pendientes"
+          value={snap ? (snap.commissions.pendiente > 0 ? formatEuro(snap.commissions.pendiente) : '—') : loading ? '…' : '—'}
+          detail={snap ? (snap.commissions.prevista > 0 ? `de ${formatEuro(snap.commissions.prevista)} prevista` : 'Control interno') : undefined}
+          icon={<Coins className="h-5 w-5" />}
+          href="/opportunities"
+          tone="amber"
         />
       </div>
 
@@ -733,7 +772,83 @@ export default function DashboardPage() {
             </SectionCard>
           </div>
 
-          {/* Banda operativa — Hoy · Prioridades · Actividad reciente */}
+          {/* Banda de cartera y comisiones */}
+          {snap && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SectionCard
+                title="Cartera inmobiliaria"
+                description="Inmuebles activos por estado · histórico aparte"
+                action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver inmuebles</Link>}
+                bodyClassName="p-4"
+              >
+                {snap.cartera.active + snap.cartera.history > 0 ? (
+                  <div className="space-y-2.5">
+                    {[
+                      { label: 'Publicado', count: snap.cartera.published, color: 'bg-emerald-500' },
+                      { label: 'Reservado', count: snap.cartera.reserved, color: 'bg-amber-500' },
+                      { label: 'En preparación', count: snap.cartera.prep, color: 'bg-indigo-500' },
+                    ].map((s) => {
+                      const pct = snap.cartera.active > 0 ? Math.round((s.count / snap.cartera.active) * 100) : 0
+                      return (
+                        <div key={s.label} className="flex items-center gap-2.5">
+                          <span className="w-24 shrink-0 text-[11px] font-medium text-gray-600">{s.label}</span>
+                          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                            <div className={cn('absolute inset-y-0 left-0 rounded-full transition-[width] duration-500', s.color)} style={{ width: `${s.count > 0 ? Math.max(6, pct) : 0}%` }} />
+                          </div>
+                          <span className="w-5 text-right text-xs font-bold tabular-nums text-gray-800">{s.count}</span>
+                        </div>
+                      )
+                    })}
+                    <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-[11px]">
+                      <span className="text-gray-500"><span className="font-semibold text-gray-800">{snap.cartera.active}</span> activos · {snap.cartera.history} en histórico</span>
+                      <span className="font-semibold text-gray-700">{formatEuro(snap.cartera.activeValue)} en cartera activa</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-7 text-center">
+                    <Home className="mb-2 h-6 w-6 text-gray-300" />
+                    <p className="text-sm font-medium text-gray-700">Sin inmuebles en cartera</p>
+                    <p className="mt-1 text-xs text-gray-500">Registra tu primer inmueble para empezar a gestionar tu cartera.</p>
+                  </div>
+                )}
+              </SectionCard>
+
+              <SectionCard
+                title="Comisiones"
+                description="Control interno · operaciones cerradas"
+                action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver comisiones</Link>}
+                bodyClassName="p-4"
+              >
+                {snap.commissions.closedWithCommission > 0 ? (
+                  <div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'Prevista', value: snap.commissions.prevista, tone: 'border-teal-100 bg-teal-50/50 text-teal-700' },
+                        { label: 'Pendiente', value: snap.commissions.pendiente, tone: 'border-amber-100 bg-amber-50/50 text-amber-700' },
+                        { label: 'Cobrada', value: snap.commissions.cobrada, tone: 'border-emerald-100 bg-emerald-50/50 text-emerald-700' },
+                      ].map((c) => (
+                        <div key={c.label} className={cn('rounded-xl border px-2.5 py-2', c.tone)}>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{c.label}</p>
+                          <p className="mt-0.5 text-sm font-bold text-gray-900">{c.value > 0 ? formatEuro(c.value) : '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2.5 text-[10px] leading-snug text-gray-400">
+                      {snap.commissions.closedWithCommission} operación{snap.commissions.closedWithCommission === 1 ? '' : 'es'} cerrada{snap.commissions.closedWithCommission === 1 ? '' : 's'} con comisión. La facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-7 text-center">
+                    <Coins className="mb-2 h-6 w-6 text-gray-300" />
+                    <p className="text-sm font-medium text-gray-700">Sin comisiones cerradas</p>
+                    <p className="mt-1 text-xs text-gray-500">Cuando cierres una venta o alquiler con comisión pactada, aparecerá aquí.</p>
+                  </div>
+                )}
+              </SectionCard>
+            </div>
+          )}
+
+          {/* Banda operativa — Hoy · Vencimientos críticos · Actividad reciente */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <SectionCard title="Hoy" description="Lo más inmediato" bodyClassName="p-4">
               {hasTodayItems ? (
@@ -798,33 +913,43 @@ export default function DashboardPage() {
               )}
             </SectionCard>
 
-            <SectionCard title="Prioridades" description="Lo que necesita tu atención" bodyClassName="p-4">
-              {priorities.length > 0 ? (
-                <ul className="space-y-1">
-                  {priorities.map((p) => {
-                    const row = (
-                      <div className="group flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3 py-2 transition-colors hover:border-indigo-100 hover:bg-indigo-50/40">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 ring-1 ring-gray-100">{p.icon}</span>
+            <SectionCard
+              title="Vencimientos críticos"
+              description="Trámites y tareas por vencer o vencidos"
+              action={snap && snap.deadlinesOverdue > 0 ? <Badge variant="warning" dot>{snap.deadlinesOverdue} vencido{snap.deadlinesOverdue === 1 ? '' : 's'}</Badge> : undefined}
+              bodyClassName="p-4"
+            >
+              {snap && snap.deadlines.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {snap.deadlines.slice(0, 5).map((d) => {
+                    const overdue = d.days < 0
+                    const dueLabel = overdue ? (d.days === -1 ? 'venció ayer' : `venció hace ${-d.days} días`) : d.days === 0 ? 'vence hoy' : d.days === 1 ? 'vence mañana' : `vence en ${d.days} días`
+                    const inner = (
+                      <div className="group flex items-start gap-2.5 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-gray-200 hover:bg-gray-50/60">
+                        <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', d.kind === 'case' ? 'bg-violet-50 text-violet-600' : 'bg-indigo-50 text-indigo-600')}>
+                          {d.kind === 'case' ? <FileText className="h-3.5 w-3.5" /> : <ListChecks className="h-3.5 w-3.5" />}
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-gray-800">{p.label}</p>
-                          {p.hint && <p className="text-[11px] font-medium text-amber-600">{p.hint}</p>}
+                          <p className="truncate text-xs font-semibold text-gray-900">{d.title}</p>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px]">
+                            <span className={cn('font-medium', overdue ? 'text-rose-600' : d.days <= 1 ? 'text-amber-600' : 'text-gray-500')}>{dueLabel}</span>
+                            {d.subtitle && <><span className="text-gray-300">·</span><span className="max-w-[150px] truncate text-gray-500">{d.subtitle}</span></>}
+                          </div>
                         </div>
-                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-700">{p.count}</span>
-                        {p.href && <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />}
+                        {d.href && <ArrowRight className="mt-1 h-3 w-3 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />}
                       </div>
                     )
-                    return <li key={p.key}>{p.href ? <Link href={p.href} className="block">{row}</Link> : row}</li>
+                    return d.href
+                      ? <li key={d.id}><Link href={d.href} className="group block">{inner}</Link></li>
+                      : <li key={d.id} className="group">{inner}</li>
                   })}
+                  {snap.deadlines.length > 5 && <li className="px-1 pt-0.5 text-center text-[10px] font-medium text-gray-400">y {snap.deadlines.length - 5} más</li>}
                 </ul>
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
-                  <Target className="mb-2 h-6 w-6 text-indigo-400" />
-                  <p className="text-sm font-medium text-gray-700">No hay prioridades pendientes</p>
-                  <p className="mt-1 text-xs text-gray-500">Todo está al día. Aprovecha para añadir un cliente o planificar una cita.</p>
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                    <Button size="sm" variant="secondary" onClick={handleNewClient}><Plus className="h-3.5 w-3.5" />Nuevo cliente</Button>
-                    <Button size="sm" variant="secondary" onClick={() => router.push('/calendar')}><CalendarIcon className="h-3.5 w-3.5" />Planificar cita</Button>
-                  </div>
+                  <CheckCircle2 className="mb-2 h-6 w-6 text-emerald-500" />
+                  <p className="text-sm font-medium text-gray-700">Sin vencimientos próximos</p>
+                  <p className="mt-1 text-xs text-gray-500">No hay trámites ni tareas por vencer en los próximos días.</p>
                 </div>
               )}
             </SectionCard>
