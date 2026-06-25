@@ -105,4 +105,47 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'factura'],
     notes: 'Si no hay datos reales, decir que no consta / no hay comisiones pendientes. NUNCA inventar cifras.',
   },
+  // --- Comportamiento / personalidad / coste (P12.2) ---
+  {
+    question: 'Hola buenas',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'dime que quieres mirar del crm', 'estoy operativo'],
+    notes: 'Saludo humano y corto (p. ej. "¡Buenas! 👋 ¿Qué tal?"). NO "Dime qué quieres mirar del CRM". Sin tools.',
+  },
+  {
+    question: 'Qué tal todo?',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Cortesía breve y natural. Sin tools, sin parrafada, sin capability spam.',
+  },
+  {
+    question: 'Ya estoy de vuelta',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Reapertura = inicio fresco: "Perfecto, bienvenido de vuelta. ¿Seguimos con el CRM?". Sin arrastrar tema previo.',
+  },
+  {
+    question: 'Estoy leyendo Padre rico padre pobre',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Off-topic 1ª vez: 1 línea sobre el libro + reconducción suave al CRM. Sin tools, sin ranking largo.',
+  },
+  {
+    question: 'Hazme un ranking de 10 libros de finanzas (3er turno off-topic)',
+    expectedTool: 'none',
+    mustMention: ['CRM'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Off-topic persistente: límite amable y foco CRM ("…soy el Asistente IA del CRM y estoy pensado para…"). NO listar 10 libros.',
+  },
+  {
+    question: '(repetición) cualquier consulta CRM seguida de otra',
+    expectedTool: 'varía',
+    mustMention: [],
+    mustNotMention: ['¿quieres mirar algo del CRM?'],
+    notes: 'No cerrar SIEMPRE con la misma coletilla ("¿quieres mirar algo del CRM?"). Varía los cierres.',
+  },
 ]

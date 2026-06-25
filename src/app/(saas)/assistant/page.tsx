@@ -3976,7 +3976,7 @@ export default function AssistantPage() {
                   <span key={c} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{c}</span>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] leading-4 text-gray-400">Conectado a los datos reales de tu workspace.</p>
+              <p className="mt-2 text-[10px] leading-4 text-gray-400">Especializado en tu CRM: respondo saludos y dudas rápidas, pero mi foco son tus datos y acciones.</p>
             </div>
           </div>
         </aside>
