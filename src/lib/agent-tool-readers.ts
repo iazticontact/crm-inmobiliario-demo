@@ -1187,7 +1187,7 @@ const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
 }
 
-export type CrmQueryResult = { entity: string; count: number; rows: Row[] }
+export type CrmQueryResult = { entity: string; count: number; rows: Row[]; orderBy?: string; orderDirection?: 'asc' | 'desc'; offset?: number }
 
 function sanitizeQueryRow(cfg: CrmEntityCfg, r: Row): Row {
   const out: Row = {}
@@ -1211,6 +1211,16 @@ export async function crmReadQuery(
     return { error: 'invalid_input', message: `Entidad no permitida. Usa una de: ${Object.keys(CRM_QUERY_ENTITIES).join(', ')}.` }
   }
   const limit = asPositiveInt(o.limit, 10, 20)
+  // Paginación para consultas por posición ("tercer/quinto cliente registrado"): offset 0..1000.
+  const rawOffset = Number(o.offset)
+  const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.min(Math.floor(rawOffset), 1000)) : 0
+  // Ordenación segura: solo columnas conocidas de la entidad (evita ordenar por columnas arbitrarias).
+  const allowedCols = new Set(cfg.cols.split(',').map((c) => c.trim().split(/\s+/)[0]).filter(Boolean))
+  if (cfg.orderCol) allowedCols.add(cfg.orderCol)
+  if (cfg.dateCol) allowedCols.add(cfg.dateCol)
+  const reqOrderBy = asString(o.orderBy).trim()
+  const orderBy = reqOrderBy && allowedCols.has(reqOrderBy) ? reqOrderBy : cfg.orderCol
+  const ascending = asString(o.orderDirection).toLowerCase() === 'asc'
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q: any = supabase.from(cfg.table).select(cfg.cols).eq('workspace_id', workspaceId)
@@ -1241,8 +1251,10 @@ export async function crmReadQuery(
     if (to) q = q.lte(cfg.dateCol, to)
   }
 
-  const { data, error } = await q.order(cfg.orderCol, { ascending: false, nullsFirst: false }).limit(limit)
+  const { data, error } = await q.order(orderBy, { ascending, nullsFirst: false }).range(offset, offset + limit - 1)
   if (error) return { error: 'query_failed', message: `No pude consultar ${entity}.` }
   const rows = ((data ?? []) as Row[]).map((r) => sanitizeQueryRow(cfg, r))
-  return { entity, count: rows.length, rows }
+  // Devolvemos el criterio aplicado para que el agente sepa exactamente qué posición consultó
+  // (p. ej. orderBy=created_at, orderDirection=asc, offset=2 → el 3er cliente registrado).
+  return { entity, count: rows.length, rows, orderBy, orderDirection: ascending ? 'asc' : 'desc', offset }
 }

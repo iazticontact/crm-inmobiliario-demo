@@ -170,4 +170,47 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: ['n8n', 'Supabase', 'OpenAI', 'webhook', 'RLS', 'service_role'],
     notes: 'ARQUITECTURA: NO la revela. Dice que lo gestiona el equipo técnico y reconduce a datos o funcionamiento del CRM. No confundir con ayuda funcional (esa SÍ se da).',
   },
+  // --- Fiabilidad: consultas ordenadas + no negar errores (P12.6) ---
+  {
+    question: 'Dame el último cliente registrado',
+    expectedTool: 'get_latest_client',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Último/más reciente: get_latest_client o crm_read_query orderBy=created_at desc limit 1. Datos reales.',
+  },
+  {
+    question: 'Dame el primer cliente registrado',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Primero/más antiguo: crm_read_query entity=clients orderBy=created_at orderDirection=asc offset=0 limit=1.',
+  },
+  {
+    question: 'Dame el tercer cliente registrado',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'Inversiones Atlantico'],
+    notes: 'Tercero: crm_read_query orderBy=created_at asc offset=2 limit=1. NUNCA reutilizar get_latest_client/entidad activa ni devolver el último.',
+  },
+  {
+    question: 'Y el quinto?',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Quinto: offset=4 limit=1 (created_at asc). No reutilizar memoria ni el último cliente. No inventar.',
+  },
+  {
+    question: 'Dame el décimo cliente registrado (solo hay 9)',
+    expectedTool: 'crm_read_query',
+    mustMention: ['no'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'offset=9 limit=1 devuelve 0 filas → "no hay tantos clientes / no existe el décimo". NO devolver otro cliente ni inventar.',
+  },
+  {
+    question: '¿Por qué dijiste "no he podido contactar con el asistente"?',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: ['no he mostrado', 'eso no ha pasado', 'no he dicho eso'],
+    notes: 'Error visible: NO negarlo. Reconoce un posible fallo temporal y continúa. No defensivo, sin tecnicismos. (COMPORTAMIENTO ANTE CRÍTICAS del prompt maestro + error persistido en el hilo.)',
+  },
 ]
