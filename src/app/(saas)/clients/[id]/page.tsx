@@ -508,7 +508,8 @@ export default function ClientDetailPage() {
       return
     }
     if (!workspaceId || !client) { toast.error('Sin workspace activo.'); return }
-    const nextStatus = closed ? 'pending' : 'completed'
+    // La BD solo admite 'pending' | 'done' (tasks_status_check); nunca 'completed'.
+    const nextStatus = closed ? 'pending' : 'done'
     setTaskBusyId(t.id)
     try {
       const updated = await updateTask(workspaceId, t.id, { status: nextStatus })

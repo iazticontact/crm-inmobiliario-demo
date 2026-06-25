@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
-export type DonutSegment = { key: string; label: string; value: number; color: string }
+export type DonutSegment = { key: string; label: string; value: number; color: string; hint?: string }
 
 export function DonutChart({
   segments,
@@ -52,7 +52,9 @@ export function DonutChart({
                 style={{ opacity: active && active !== s.key ? 0.35 : 1 }}
                 onMouseEnter={() => setActive(s.key)}
                 onMouseLeave={() => setActive(null)}
-              />
+              >
+                {s.hint && <title>{s.hint}</title>}
+              </circle>
             )
             offset += dash
             return node
@@ -69,9 +71,10 @@ export function DonutChart({
           return (
             <li
               key={s.key}
+              title={s.hint}
               onMouseEnter={() => setActive(s.key)}
               onMouseLeave={() => setActive(null)}
-              className={cn('flex items-center justify-between gap-2 rounded-md px-1.5 py-1 transition-colors', active === s.key && 'bg-gray-50')}
+              className={cn('flex items-center justify-between gap-2 rounded-md px-1.5 py-1 transition-colors', s.hint && 'cursor-help', active === s.key && 'bg-gray-50')}
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />

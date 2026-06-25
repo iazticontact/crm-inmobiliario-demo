@@ -21,6 +21,8 @@ import {
   Clock,
   ListChecks,
   CheckCircle2,
+  Check,
+  Loader2,
   RefreshCw,
   Building2,
   Coins,
@@ -44,6 +46,7 @@ import {
   getInvoices,
   getWorkspaceContext,
   listTasks,
+  updateTask,
 } from '@/lib/supabase-queries'
 import { listOpportunities, listServiceCases, listProperties } from '@/lib/vertical-queries'
 import {
@@ -58,6 +61,7 @@ import { commStateLabel, COMM_STATE_OPTIONS } from '@/lib/demo/vertical-template
 import { buildDashboardSnapshot, PERIOD_OPTIONS, type SnapshotInput, type DashboardSnapshot, type PeriodKey } from '@/lib/dashboard-snapshot'
 import { DonutChart } from '@/components/charts/DonutChart'
 import { MiniBarChart } from '@/components/charts/MiniBarChart'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 type RealStats = {
   totalClients: number
@@ -179,12 +183,67 @@ function formatDateShort(iso?: string | null) {
   return date.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+// Humaniza el texto técnico de actividades antiguas (logs internos) para que el feed parezca premium:
+// nada de "stage", "listed", "won/lost", inglés ni porcentajes de probabilidad legacy. Si no podemos
+// reconstruirlo de forma fiable, lo compactamos a una etiqueta clara ("Operación actualizada"…).
+const PROP_STATUS_ES: Record<string, string> = {
+  listed: 'Publicado', available: 'Disponible', prospecting: 'En preparación',
+  under_contract: 'Reservado', reserved: 'Reservado', sold: 'Vendido', rented: 'Alquilado', archived: 'Archivado',
+}
+const STAGE_ES: Record<string, string> = {
+  new: 'Nueva', contacted: 'En gestión', qualified: 'En gestión', visit_scheduled: 'En gestión',
+  negotiation: 'En gestión', proposal: 'En gestión', reserved: 'Reserva', won: 'Vendida', lost: 'Perdida',
+}
+const CASE_STATUS_ES: Record<string, string> = {
+  open: 'Abierto', documentation_pending: 'Pendiente de documentación', in_review: 'En revisión',
+  closed: 'Completado', resolved: 'Resuelto', cancelled: 'Cancelado',
+}
+function humanizeActivity(desc?: string | null): string {
+  let s = (desc ?? '').trim()
+  if (!s) return 'Actividad registrada'
+  // Patrón legacy de edición de operación: "Stage won · 390000€ · 10%"
+  const opEdit = s.match(/^stage\s+\w+\s*·\s*([\d.,]+)\s*€/i)
+  if (opEdit) {
+    const amt = Number(opEdit[1].replace(/[.,]/g, ''))
+    return Number.isFinite(amt) && amt > 0 ? `Operación actualizada · ${formatEuro(amt)}` : 'Operación actualizada'
+  }
+  // Patrón legacy de edición de inmueble: "piso · venta · Valencia · listed"
+  if (s.includes('·') && /(listed|available|prospecting|under_contract|reserved|sold|rented|archived)\s*\.?$/i.test(s)) {
+    return 'Inmueble actualizado'
+  }
+  // Reemplazos de tokens sueltos dentro de frases ("… pasa a etapa won." / "… pasa a archived.").
+  s = s.replace(/\betapa\s+(\w+)/gi, (_m, w: string) => STAGE_ES[w.toLowerCase()] ?? w)
+  s = s.replace(/\b(listed|available|prospecting|under_contract|reserved|sold|rented|archived)\b/gi, (w) => PROP_STATUS_ES[w.toLowerCase()] ?? w)
+  s = s.replace(/\b(documentation_pending|in_review|resolved|cancelled|closed|open)\b/gi, (w) => CASE_STATUS_ES[w.toLowerCase()] ?? w)
+  s = s.replace(/\b(won|lost|negotiation|contacted|qualified|proposal|visit_scheduled)\b/gi, (w) => STAGE_ES[w.toLowerCase()] ?? w)
+  // Quita "· NN%" (probabilidad legacy) y "Stage " sobrante.
+  s = s.replace(/\s*·\s*\d{1,3}\s*%/g, '').replace(/\bstage\s+/gi, '')
+  return s
+}
+
+// Textos de tooltips (control interno; sin facturación fiscal). Centralizados para mantener copy coherente.
+const PERIOD_HINTS: Record<PeriodKey, string> = {
+  month: 'Métricas cobradas y cerradas del mes actual.',
+  quarter: 'Acumulado del trimestre actual.',
+  semester: 'Acumulado del semestre actual.',
+  year: 'Acumulado del año actual.',
+  all: 'Histórico completo desde el inicio. La comisión cobrada es el total acumulado; cartera, pendiente y potencial reflejan el estado actual.',
+}
+const COMM_STATE_HINTS: Record<string, string> = {
+  new: 'Operación recién creada, sin gestión todavía.',
+  managing: 'Operación en gestión: contacto, visitas o negociación en curso.',
+  reserved: 'Operación con reserva en firme, pendiente de cierre.',
+  won: 'Operación cerrada: vendida o alquilada.',
+  lost: 'Operación perdida o descartada.',
+}
+
 type MetricTileProps = {
   label: string
   value: string
   detail?: string
   icon: React.ReactNode
   href?: string
+  hint?: string
   tone?: 'indigo' | 'emerald' | 'amber' | 'sky' | 'violet' | 'slate'
 }
 
@@ -208,9 +267,9 @@ const TONE_BAR: Record<NonNullable<MetricTileProps['tone']>, string> = {
   slate: 'from-gray-300 to-gray-400',
 }
 
-function MetricTile({ label, value, detail, icon, href, tone = 'indigo' }: MetricTileProps) {
+function MetricTile({ label, value, detail, icon, href, hint, tone = 'indigo' }: MetricTileProps) {
   const inner = (
-    <div className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white px-4 py-3.5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
+    <div title={hint} className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white px-4 py-3.5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
       <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-80', TONE_BAR[tone])} aria-hidden />
       <div className="flex items-start justify-between">
         <div className="min-w-0">
@@ -323,6 +382,9 @@ export default function DashboardPage() {
   // Datos crudos ya cargados → snapshot derivado (cartera/comisiones/vencimientos) sin re-fetch.
   const [raw, setRaw] = useState<Omit<SnapshotInput, 'todayStr'> | null>(null)
   const [period, setPeriod] = useState<PeriodKey>('month')
+  // Workspace activo (solo modo real) y tarea que se está completando desde "Vencimientos críticos".
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [completingId, setCompletingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
   // Freshness: el dashboard carga datos frescos en cada montaje/navegación (las
@@ -380,6 +442,7 @@ export default function DashboardPage() {
         setWeekActivity(buildNext7Days(demoCalendarEvents, openTasks))
         setUrgentTask(pickUrgentTask(openTasks))
         setReviewOp(pickReviewOp(openOpps))
+        setWorkspaceId(null) // modo demo: las acciones de completar se bloquean (no persiste)
         setRaw({
           properties: demoProperties as SnapshotInput['properties'],
           opportunities: demoOpportunities as SnapshotInput['opportunities'],
@@ -405,9 +468,11 @@ export default function DashboardPage() {
           setUrgentTask(null)
           setReviewOp(null)
           setRaw(null)
+          setWorkspaceId(null)
           setLoadError('Tu cuenta aún no tiene workspace asignado. Contacta con el responsable interno.')
           return
         }
+        setWorkspaceId(workspaceId)
 
         const [clients, invoices, events, conversations, activities, opps, cases, properties, tasks] = await Promise.all([
           getClients(workspaceId),
@@ -487,6 +552,7 @@ export default function DashboardPage() {
         setUrgentTask(null)
         setReviewOp(null)
         setRaw(null)
+        setWorkspaceId(null)
         setLoadError('No se pudo cargar el resumen del workspace. Vuelve a intentarlo en unos segundos.')
       } finally {
         if (!cancelled) {
@@ -521,6 +587,33 @@ export default function DashboardPage() {
   const handleNewClient = () => {
     router.push('/clients')
     toast.info('Crea el nuevo cliente desde la sección de Clientes.')
+  }
+
+  // Completar una tarea vencida/próxima directamente desde "Vencimientos críticos".
+  // Optimista: marcamos la tarea como 'done' en los datos crudos (el snapshot recalcula y la quita
+  // de la lista y del contador) y, si falla, revertimos y mostramos la causa real. Solo modo real.
+  const handleCompleteDeadlineTask = async (rawId: string) => {
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (no se guarda)')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    const prevRaw = raw
+    const prevUrgent = urgentTask
+    setCompletingId(rawId)
+    setRaw((r) => (r ? { ...r, tasks: r.tasks.map((t) => (t.id === rawId ? { ...t, status: 'done' } : t)) } : r))
+    setUrgentTask((u) => (u && u.id === rawId ? null : u))
+    try {
+      const updated = await updateTask(workspaceId, rawId, { status: 'done' })
+      if (!updated) throw new Error('No se pudo guardar el cambio.')
+      toast.success('Tarea completada')
+    } catch (error) {
+      setRaw(prevRaw) // rollback
+      setUrgentTask(prevUrgent)
+      toast.error('No se pudo completar la tarea', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setCompletingId(null)
+    }
   }
 
   // Derivados de presentación (sin queries): qué enseñar en "Hoy", la actividad de
@@ -586,21 +679,32 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="relative mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100/80 pt-2.5">
-          <span className="text-[11px] font-medium text-gray-400">Vista:</span>
+          <span className="flex items-center gap-1 text-[11px] font-medium text-gray-400">
+            Vista:
+            <InfoTooltip
+              align="left"
+              text="Filtra las métricas temporales (comisión cobrada, cerradas, variación). La cartera, el pendiente y el potencial siempre reflejan el estado actual. 'Todo' = histórico completo."
+            />
+          </span>
           <div className="inline-flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white/70 p-0.5 text-[11px] font-medium">
             {PERIOD_OPTIONS.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => setPeriod(p.id)}
+                title={PERIOD_HINTS[p.id]}
                 className={cn('rounded-md px-2.5 py-1 transition-colors', period === p.id ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700')}
               >
                 {p.label}
               </button>
             ))}
           </div>
-          {snap && period !== 'all' && (
-            <span className="text-[11px] text-gray-400">· Comisión cobrada {snap.economics.periodLabel.toLowerCase()}: <span className="font-semibold text-gray-700">{formatEuro(snap.economics.cobradaPeriodo)}</span></span>
+          {snap && (
+            <span className="text-[11px] text-gray-400">
+              {period === 'all'
+                ? <>· Comisión cobrada <span className="font-medium text-gray-400">histórica</span>: <span className="font-semibold text-gray-700">{formatEuro(snap.economics.cobradaPeriodo)}</span></>
+                : <>· Comisión cobrada {snap.economics.periodLabel.toLowerCase()}: <span className="font-semibold text-gray-700">{formatEuro(snap.economics.cobradaPeriodo)}</span></>}
+            </span>
           )}
         </div>
       </div>
@@ -620,6 +724,7 @@ export default function DashboardPage() {
           detail={stats ? (stats.totalClients === 0 ? 'Sin clientes todavía' : `${stats.totalClients} en total`) : undefined}
           icon={<Users className="h-5 w-5" />}
           href="/clients"
+          hint="Clientes con estado activo en tu cartera (total actual, no depende del periodo)."
           tone="indigo"
         />
         <MetricTile
@@ -628,6 +733,7 @@ export default function DashboardPage() {
           detail={snap ? (snap.cartera.history > 0 ? `${snap.cartera.history} en histórico` : snap.cartera.active ? 'En cartera' : 'Sin inmuebles') : undefined}
           icon={<Building2 className="h-5 w-5" />}
           href="/opportunities"
+          hint="Inmuebles gestionables ahora mismo: en preparación, publicados o reservados. El histórico (vendidos/alquilados/archivados) no cuenta."
           tone="sky"
         />
         <MetricTile
@@ -636,6 +742,7 @@ export default function DashboardPage() {
           detail={stats ? (stats.opportunitiesOpen === 0 ? 'Sin operaciones' : stats.openOppsValue > 0 ? `${formatEuro(stats.openOppsValue)} potencial` : 'En seguimiento') : undefined}
           icon={<FileText className="h-5 w-5" />}
           href="/opportunities"
+          hint="Operaciones comerciales todavía no vendidas/alquiladas ni perdidas (estado actual)."
           tone="violet"
         />
         <MetricTile
@@ -644,6 +751,7 @@ export default function DashboardPage() {
           detail={snap ? (snap.todayEvents.length === 0 ? (nextEvent ? `Próxima: ${formatDateShort(nextEvent.startAt)}` : 'Agenda libre') : 'Programadas para hoy') : undefined}
           icon={<CalendarIcon className="h-5 w-5" />}
           href="/calendar"
+          hint="Citas programadas para hoy (no canceladas)."
           tone="emerald"
         />
         <MetricTile
@@ -652,14 +760,16 @@ export default function DashboardPage() {
           detail={snap ? ((() => { const o = snap.deadlines.filter((d) => d.kind === 'case' && d.days < 0).length; return o > 0 ? `${o} vencido${o === 1 ? '' : 's'}` : 'Sin vencimientos próximos' })()) : undefined}
           icon={<Clock className="h-5 w-5" />}
           href="/opportunities"
+          hint="Trámites próximos a vencer o ya vencidos que requieren acción. Resuélvelos en 'Vencimientos críticos'."
           tone="amber"
         />
         <MetricTile
           label="Comisión cobrada"
           value={snap ? (snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—') : loading ? '…' : '—'}
-          detail={snap ? `${snap.economics.periodLabel} · control interno` : undefined}
+          detail={snap ? (period === 'all' ? 'Histórico · control interno' : `${snap.economics.periodLabel} · control interno`) : undefined}
           icon={<Coins className="h-5 w-5" />}
           href="/opportunities"
+          hint="Comisiones marcadas como cobradas en el periodo seleccionado. Control interno, no es facturación fiscal."
           tone="amber"
         />
       </div>
@@ -693,7 +803,9 @@ export default function DashboardPage() {
           {snap && (
             <SectionCard
               title="Rendimiento económico"
-              description={`Comisiones · ${snap.economics.periodLabel} · control interno (no es facturación fiscal)`}
+              description={period === 'all'
+                ? 'Comisiones · histórico desde el inicio · control interno (no es facturación fiscal)'
+                : `Comisiones · ${snap.economics.periodLabel} · control interno (no es facturación fiscal)`}
               action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver comisiones</Link>}
               bodyClassName="p-4"
             >
@@ -701,9 +813,9 @@ export default function DashboardPage() {
                 <div className="grid gap-5 lg:grid-cols-[minmax(0,310px)_1fr]">
                   <DonutChart
                     segments={[
-                      { key: 'cobrada', label: 'Cobrada', value: snap.economics.donut.cobrada, color: '#10b981' },
-                      { key: 'pendiente', label: 'Pendiente de cobro', value: snap.economics.donut.pendiente, color: '#f59e0b' },
-                      { key: 'potencial', label: 'Potencial abierto', value: snap.economics.donut.potencial, color: '#6366f1' },
+                      { key: 'cobrada', label: 'Cobrada', value: snap.economics.donut.cobrada, color: '#10b981', hint: 'Comisiones ya marcadas como cobradas.' },
+                      { key: 'pendiente', label: 'Pendiente de cobro', value: snap.economics.donut.pendiente, color: '#f59e0b', hint: 'Operaciones cerradas con comisión pendiente de cobro.' },
+                      { key: 'potencial', label: 'Potencial abierto', value: snap.economics.donut.potencial, color: '#6366f1', hint: 'Comisión estimada de operaciones abiertas (aún no cerradas).' },
                     ]}
                     centerValue={compactEuro(snap.economics.donut.cobrada + snap.economics.donut.pendiente + snap.economics.donut.potencial)}
                     centerLabel="total comisión"
@@ -711,20 +823,32 @@ export default function DashboardPage() {
                   />
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <EcoStat label={`Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} tone="emerald" />
+                      <EcoStat label={period === 'all' ? 'Cobrada · histórico' : `Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} tone="emerald" />
                       <EcoStat label="Pendiente de cobro" value={snap.economics.pendiente > 0 ? formatEuro(snap.economics.pendiente) : '—'} tone="amber" />
                       <EcoStat label="Potencial abierto" value={snap.economics.potencialAbierto > 0 ? formatEuro(snap.economics.potencialAbierto) : '—'} tone="indigo" />
                       <EcoStat label="Ticket medio" value={snap.economics.ticketMedio != null ? formatEuro(snap.economics.ticketMedio) : '—'} tone="gray" />
                     </div>
                     {snap.economics.buckets.some((b) => b.value > 0) ? (
                       <div className="rounded-xl border border-gray-100 bg-gray-50/40 p-3">
-                        <p className="mb-1.5 text-[11px] font-medium text-gray-500">Comisión cobrada por {snap.economics.bucketGranularity === 'week' ? 'semana' : 'mes'}</p>
-                        <MiniBarChart data={snap.economics.buckets} formatValue={compactEuro} color="bg-emerald-500" highlightLast />
+                        <p className="mb-1.5 text-[11px] font-medium text-gray-500">Comisión cobrada por {snap.economics.bucketGranularity === 'week' ? 'semana' : 'mes'} · control interno</p>
+                        <MiniBarChart
+                          data={snap.economics.buckets.map((b) => ({
+                            label: b.label,
+                            value: b.value,
+                            hint: `${b.label}: ${b.value > 0 ? formatEuro(b.value) : 'sin cobros'}${b.count > 0 ? ` · ${b.count} cobro${b.count === 1 ? '' : 's'}` : ''}`,
+                          }))}
+                          formatValue={compactEuro}
+                          color="bg-emerald-500"
+                          highlightLast
+                        />
                       </div>
                     ) : (
-                      <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">Sin cobros registrados en {snap.economics.periodLabel.toLowerCase()}.</p>
+                      <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">Sin cobros registrados en {period === 'all' ? 'el histórico' : snap.economics.periodLabel.toLowerCase()}.</p>
                     )}
-                    <p className="text-[10px] leading-snug text-gray-400">{snap.economics.closedWithCommission} operación{snap.economics.closedWithCommission === 1 ? '' : 'es'} cerrada{snap.economics.closedWithCommission === 1 ? '' : 's'} con comisión. Las comisiones son un control interno; la facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.</p>
+                    <p className="text-[10px] leading-snug text-gray-400">
+                      {snap.economics.closedWithCommission} operación{snap.economics.closedWithCommission === 1 ? '' : 'es'} cerrada{snap.economics.closedWithCommission === 1 ? '' : 's'} con comisión.
+                      {period === 'all' ? ' En vista histórica, la comisión cobrada es el total acumulado; pendiente y potencial reflejan el estado actual.' : ''} Las comisiones son un control interno; la facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.
+                    </p>
                   </div>
                 </div>
               ) : (
@@ -751,17 +875,17 @@ export default function DashboardPage() {
                     <DonutChart
                       size={130}
                       segments={[
-                        { key: 'published', label: 'Publicado', value: snap.cartera.published, color: '#10b981' },
-                        { key: 'reserved', label: 'Reservado', value: snap.cartera.reserved, color: '#f59e0b' },
-                        { key: 'prep', label: 'En preparación', value: snap.cartera.prep, color: '#6366f1' },
-                        { key: 'history', label: 'Histórico', value: snap.cartera.history, color: '#cbd5e1' },
+                        { key: 'published', label: 'Publicado', value: snap.cartera.published, color: '#10b981', hint: 'Inmuebles publicados, visibles para clientes.' },
+                        { key: 'reserved', label: 'Reservado', value: snap.cartera.reserved, color: '#f59e0b', hint: 'Inmuebles reservados, con operación en curso.' },
+                        { key: 'prep', label: 'En preparación', value: snap.cartera.prep, color: '#6366f1', hint: 'Inmuebles en preparación, aún no publicados.' },
+                        { key: 'history', label: 'Histórico', value: snap.cartera.history, color: '#cbd5e1', hint: 'Vendidos, alquilados o archivados; no se eliminan.' },
                       ]}
                       centerValue={String(snap.cartera.active)}
                       centerLabel="activos"
                     />
                     <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-[11px]">
-                      <span className="text-gray-500">{snap.cartera.history} en histórico</span>
-                      <span className="font-semibold text-gray-700">{formatEuro(snap.cartera.activeValue)} en cartera activa</span>
+                      <span className="text-gray-500" title="Vendidos, alquilados o archivados; no se eliminan.">{snap.cartera.history} en histórico</span>
+                      <span className="font-semibold text-gray-700" title="Inmuebles actualmente gestionables: en preparación, publicados o reservados.">{formatEuro(snap.cartera.activeValue)} en cartera activa</span>
                     </div>
                   </div>
                 ) : (
@@ -787,7 +911,7 @@ export default function DashboardPage() {
                       const pct = totalOps > 0 ? Math.round((count / totalOps) * 100) : 0
                       const barColor = s.id === 'won' ? 'bg-sky-500' : s.id === 'reserved' ? 'bg-amber-500' : s.id === 'lost' ? 'bg-rose-400' : s.id === 'new' ? 'bg-gray-400' : 'bg-indigo-500'
                       return (
-                        <Link key={s.id} href="/opportunities" className="group flex items-center gap-2.5">
+                        <Link key={s.id} href="/opportunities" title={COMM_STATE_HINTS[s.id]} className="group flex items-center gap-2.5">
                           <span className="w-28 shrink-0 truncate text-[11px] font-medium text-gray-600">{s.label}</span>
                           <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100">
                             <div className={cn('absolute inset-y-0 left-0 rounded-full transition-[width] duration-500', barColor)} style={{ width: `${count > 0 ? Math.max(5, pct) : 0}%` }} />
@@ -898,7 +1022,7 @@ export default function DashboardPage() {
 
             <SectionCard
               title="Vencimientos críticos"
-              description="Trámites y tareas por vencer o vencidos"
+              description="Trámites y tareas por vencer o vencidos · complétalos aquí mismo"
               action={snap && snap.deadlinesOverdue > 0 ? <Badge variant="warning" dot>{snap.deadlinesOverdue} vencido{snap.deadlinesOverdue === 1 ? '' : 's'}</Badge> : undefined}
               bodyClassName="p-4"
             >
@@ -907,24 +1031,48 @@ export default function DashboardPage() {
                   {snap.deadlines.slice(0, 5).map((d) => {
                     const overdue = d.days < 0
                     const dueLabel = overdue ? (d.days === -1 ? 'venció ayer' : `venció hace ${-d.days} días`) : d.days === 0 ? 'vence hoy' : d.days === 1 ? 'vence mañana' : `vence en ${d.days} días`
-                    const inner = (
-                      <div className="group flex items-start gap-2.5 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-gray-200 hover:bg-gray-50/60">
-                        <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', d.kind === 'case' ? 'bg-violet-50 text-violet-600' : 'bg-indigo-50 text-indigo-600')}>
+                    const busy = completingId === d.rawId
+                    const text = (
+                      <>
+                        <p className="truncate text-xs font-semibold text-gray-900">{d.title}</p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px]">
+                          <span className={cn('font-medium', overdue ? 'text-rose-600' : d.days <= 1 ? 'text-amber-600' : 'text-gray-500')}>{dueLabel}</span>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-gray-400">{d.kind === 'case' ? 'Trámite' : 'Tarea'}</span>
+                          {d.subtitle && <><span className="text-gray-300">·</span><span className="max-w-[120px] truncate text-gray-500">{d.subtitle}</span></>}
+                        </div>
+                      </>
+                    )
+                    return (
+                      <li key={d.id} className="group flex items-center gap-2.5 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-gray-200 hover:bg-gray-50/60">
+                        <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', d.kind === 'case' ? 'bg-violet-50 text-violet-600' : 'bg-indigo-50 text-indigo-600')}>
                           {d.kind === 'case' ? <FileText className="h-3.5 w-3.5" /> : <ListChecks className="h-3.5 w-3.5" />}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold text-gray-900">{d.title}</p>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px]">
-                            <span className={cn('font-medium', overdue ? 'text-rose-600' : d.days <= 1 ? 'text-amber-600' : 'text-gray-500')}>{dueLabel}</span>
-                            {d.subtitle && <><span className="text-gray-300">·</span><span className="max-w-[150px] truncate text-gray-500">{d.subtitle}</span></>}
-                          </div>
-                        </div>
-                        {d.href && <ArrowRight className="mt-1 h-3 w-3 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />}
-                      </div>
+                        {d.href
+                          ? <Link href={d.href} className="min-w-0 flex-1">{text}</Link>
+                          : <div className="min-w-0 flex-1">{text}</div>}
+                        {d.kind === 'task' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteDeadlineTask(d.rawId)}
+                            disabled={busy}
+                            title="Marcar tarea como completada"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                            Completar
+                          </button>
+                        ) : d.href ? (
+                          <Link
+                            href={d.href}
+                            title="Abrir trámite"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-semibold text-gray-600 transition-colors hover:bg-gray-50"
+                          >
+                            Ver <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        ) : null}
+                      </li>
                     )
-                    return d.href
-                      ? <li key={d.id}><Link href={d.href} className="group block">{inner}</Link></li>
-                      : <li key={d.id} className="group">{inner}</li>
                   })}
                   {snap.deadlines.length > 5 && <li className="px-1 pt-0.5 text-center text-[10px] font-medium text-gray-400">y {snap.deadlines.length - 5} más</li>}
                 </ul>
@@ -952,7 +1100,7 @@ export default function DashboardPage() {
                         {activityIcons[item.type]}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs text-gray-700">{item.description}</p>
+                        <p className="truncate text-xs text-gray-700" title={humanizeActivity(item.description)}>{humanizeActivity(item.description)}</p>
                         {item.clientName && <p className="truncate text-[10px] text-gray-400">{item.clientName}</p>}
                       </div>
                       <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-400">{item.timestamp}</span>

@@ -7,13 +7,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CalendarClock, FileText, ListChecks, AlertTriangle, ArrowRight } from 'lucide-react'
+import { toast } from 'sonner'
+import { CalendarClock, FileText, ListChecks, AlertTriangle, ArrowRight, Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { listTasks, getClients } from '@/lib/supabase-queries'
+import { DEMO_MODE_KEY } from '@/lib/current-user'
+import { listTasks, getClients, updateTask } from '@/lib/supabase-queries'
 import { listServiceCases, listProperties, type ServiceCaseRow } from '@/lib/vertical-queries'
 
 type Item = {
   id: string
+  rawId: string
   kind: 'task' | 'case'
   title: string
   subtitle: string
@@ -43,6 +46,7 @@ type TaskLike = { id: string; title: string; due_date?: string; status: string; 
 export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId: string | null; todayStr: string }) {
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
+  const [completingId, setCompletingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!workspaceId) { setItems([]); setLoading(false); return }
@@ -61,7 +65,7 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
         if (!t.due_date || !isOpenTask(t.status)) continue
         if (daysFromToday(t.due_date, todayStr) > WINDOW_DAYS) continue
         out.push({
-          id: `task-${t.id}`, kind: 'task', title: t.title || 'Tarea', due: t.due_date,
+          id: `task-${t.id}`, rawId: t.id, kind: 'task', title: t.title || 'Tarea', due: t.due_date,
           subtitle: (t.client_id ? clientName.get(t.client_id) : '') || t.client_name || '',
           href: t.client_id ? `/clients/${t.client_id}` : undefined,
         })
@@ -72,7 +76,7 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
         const prop = c.property_id ? propTitle.get(c.property_id) : ''
         const cli = c.client_id ? clientName.get(c.client_id) : ''
         out.push({
-          id: `case-${c.id}`, kind: 'case', title: c.title || 'Trámite', due: c.due_date,
+          id: `case-${c.id}`, rawId: c.id, kind: 'case', title: c.title || 'Trámite', due: c.due_date,
           subtitle: [prop, cli].filter(Boolean).join(' · '),
           href: c.property_id ? `/opportunities/properties/${c.property_id}` : c.client_id ? `/clients/${c.client_id}` : '/opportunities',
         })
@@ -87,6 +91,29 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
   }, [workspaceId, todayStr])
 
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
+
+  // Completar una tarea vencida/próxima sin salir del calendario. Optimista: la quitamos de la lista
+  // y, si falla, recargamos para restaurar y mostramos la causa real. Solo modo real.
+  const handleCompleteTask = async (rawId: string) => {
+    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
+      toast.info('Modo demo (no se guarda)')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); return }
+    setCompletingId(rawId)
+    const prev = items
+    setItems((list) => list.filter((i) => i.rawId !== rawId || i.kind !== 'task'))
+    try {
+      const updated = await updateTask(workspaceId, rawId, { status: 'done' })
+      if (!updated) throw new Error('No se pudo guardar el cambio.')
+      toast.success('Tarea completada')
+    } catch (error) {
+      setItems(prev) // rollback
+      toast.error('No se pudo completar la tarea', { description: error instanceof Error ? error.message : '' })
+    } finally {
+      setCompletingId(null)
+    }
+  }
 
   const overdue = useMemo(() => items.filter((i) => daysFromToday(i.due, todayStr) < 0).length, [items, todayStr])
   const shown = items.slice(0, 5)
@@ -112,27 +139,47 @@ export function UpcomingDeadlinesPanel({ workspaceId, todayStr }: { workspaceId:
               const d = daysFromToday(it.due, todayStr)
               const overdueItem = d < 0
               const Icon = it.kind === 'case' ? FileText : ListChecks
-              const inner = (
-                <div className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors group-hover:border-gray-200 group-hover:bg-gray-50/60">
-                  <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', it.kind === 'case' ? 'bg-violet-50 text-violet-600' : 'bg-indigo-50 text-indigo-600')}>
+              const busy = completingId === it.rawId
+              const text = (
+                <>
+                  <p className="truncate text-xs font-semibold text-gray-900">{it.title}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px]">
+                    <span className={cn('inline-flex items-center gap-0.5 font-medium', overdueItem ? 'text-rose-600' : d <= 1 ? 'text-amber-600' : 'text-gray-500')}>
+                      {overdueItem && <AlertTriangle className="h-2.5 w-2.5" />}
+                      {dueLabel(d)}
+                    </span>
+                    <span className="text-gray-300">·</span>
+                    <span className="text-gray-400">{it.kind === 'case' ? 'Trámite' : 'Tarea'}</span>
+                    {it.subtitle && <><span className="text-gray-300">·</span><span className="max-w-[120px] truncate text-gray-500">{it.subtitle}</span></>}
+                  </div>
+                </>
+              )
+              return (
+                <li key={it.id} className="group flex items-center gap-2.5 rounded-xl border border-gray-100 bg-white p-2.5 transition-colors hover:border-gray-200 hover:bg-gray-50/60">
+                  <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', it.kind === 'case' ? 'bg-violet-50 text-violet-600' : 'bg-indigo-50 text-indigo-600')}>
                     <Icon className="h-3.5 w-3.5" />
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-gray-900">{it.title}</p>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px]">
-                      <span className={cn('inline-flex items-center gap-0.5 font-medium', overdueItem ? 'text-rose-600' : d <= 1 ? 'text-amber-600' : 'text-gray-500')}>
-                        {overdueItem && <AlertTriangle className="h-2.5 w-2.5" />}
-                        {dueLabel(d)}
-                      </span>
-                      {it.subtitle && <><span className="text-gray-300">·</span><span className="max-w-[150px] truncate text-gray-500">{it.subtitle}</span></>}
-                    </div>
-                  </div>
-                  {it.href && <ArrowRight className="mt-1 h-3 w-3 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5" />}
-                </div>
+                  {it.href
+                    ? <Link href={it.href} className="min-w-0 flex-1">{text}</Link>
+                    : <div className="min-w-0 flex-1">{text}</div>}
+                  {it.kind === 'task' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteTask(it.rawId)}
+                      disabled={busy}
+                      title="Marcar tarea como completada"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      Completar
+                    </button>
+                  ) : it.href ? (
+                    <Link href={it.href} title="Abrir trámite" className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-semibold text-gray-600 transition-colors hover:bg-gray-50">
+                      Ver <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  ) : null}
+                </li>
               )
-              return it.href
-                ? <li key={it.id}><Link href={it.href} className="group block">{inner}</Link></li>
-                : <li key={it.id} className="group">{inner}</li>
             })}
             {more > 0 && (
               <li className="px-1 pt-1 text-center text-[10px] font-medium text-gray-400">y {more} {more === 1 ? 'más' : 'más'}</li>

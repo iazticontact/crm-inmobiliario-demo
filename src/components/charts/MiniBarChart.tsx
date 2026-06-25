@@ -12,7 +12,7 @@ export function MiniBarChart({
   height = 96,
   highlightLast = false,
 }: {
-  data: { label: string; value: number }[]
+  data: { label: string; value: number; hint?: string }[]
   formatValue?: (n: number) => string
   color?: string
   height?: number
@@ -30,7 +30,7 @@ export function MiniBarChart({
           <div
             key={`${d.label}-${i}`}
             className="group flex flex-1 flex-col items-center justify-end gap-1"
-            title={`${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}
+            title={d.hint ?? `${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}
           >
             <span className="h-3 text-[9px] font-semibold tabular-nums leading-none text-gray-500 opacity-0 transition-opacity group-hover:opacity-100">
               {d.value > 0 ? (formatValue ? formatValue(d.value) : String(d.value)) : ''}

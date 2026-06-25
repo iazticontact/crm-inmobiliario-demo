@@ -53,7 +53,7 @@ export type SnapshotInput = {
 }
 
 export type Deadline = {
-  id: string; kind: 'case' | 'task'; title: string; subtitle: string
+  id: string; rawId: string; kind: 'case' | 'task'; title: string; subtitle: string
   due: string; days: number; href?: string
 }
 
@@ -70,7 +70,7 @@ export type Economics = {
   ticketMedio: number | null   // comisión media por operación cerrada con comisión
   opsClosedInPeriod: number     // operaciones cerradas en el periodo
   donut: { cobrada: number; pendiente: number; potencial: number }
-  buckets: { label: string; value: number }[]
+  buckets: { label: string; value: number; count: number }[]
   bucketGranularity: 'week' | 'month'
 }
 
@@ -177,33 +177,45 @@ function buildEconomics(
     }
   }
 
-  // Buckets: semanas si el periodo es "este mes"; meses en el resto.
-  let buckets: { label: string; value: number }[]
+  // Buckets: semanas si el periodo es "este mes"; meses en el resto. Cada bucket lleva además el
+  // nº de cobros (operaciones cobradas) para el tooltip. En "Todo" mostramos los últimos 12 meses
+  // (rolling) hasta el mes actual, para no recortar el histórico a un solo año natural.
+  let buckets: { label: string; value: number; count: number }[]
   let bucketGranularity: 'week' | 'month'
   if (period === 'month') {
     bucketGranularity = 'week'
-    const weeks = [0, 0, 0, 0, 0]
+    const weeks = Array.from({ length: 5 }, () => ({ value: 0, count: 0 }))
     for (const p of payments) {
       if (!inRange(p.d, b.start, b.end)) continue
       const day = Number(p.d.slice(8, 10))
-      weeks[Math.min(4, Math.floor((day - 1) / 7))] += p.amt
+      const w = weeks[Math.min(4, Math.floor((day - 1) / 7))]
+      w.value += p.amt; w.count += 1
     }
-    buckets = weeks.map((v, i) => ({ label: `S${i + 1}`, value: v }))
+    buckets = weeks.map((w, i) => ({ label: `S${i + 1}`, value: w.value, count: w.count }))
   } else {
     bucketGranularity = 'month'
-    const startMonth = b.start ? Number(b.start.slice(5, 7)) - 1 : 0
-    const startYear = b.start ? Number(b.start.slice(0, 4)) : Number(todayStr.slice(0, 4))
-    const count = period === 'quarter' ? 3 : period === 'semester' ? 6 : 12
+    let startMonth: number, startYear: number, count: number
+    if (period === 'all') {
+      const ty = Number(todayStr.slice(0, 4)); const tm = Number(todayStr.slice(5, 7)) - 1
+      count = 12
+      const anchor = tm - 11 // 12 meses terminando en el mes actual
+      startMonth = ((anchor % 12) + 12) % 12
+      startYear = ty + Math.floor(anchor / 12)
+    } else {
+      startMonth = b.start ? Number(b.start.slice(5, 7)) - 1 : 0
+      startYear = b.start ? Number(b.start.slice(0, 4)) : Number(todayStr.slice(0, 4))
+      count = period === 'quarter' ? 3 : period === 'semester' ? 6 : 12
+    }
     const arr = Array.from({ length: count }, (_, i) => {
       const mi = startMonth + i
-      return { m: ((mi % 12) + 12) % 12, y: startYear + Math.floor(mi / 12), value: 0 }
+      return { m: ((mi % 12) + 12) % 12, y: startYear + Math.floor(mi / 12), value: 0, count: 0 }
     })
     for (const p of payments) {
       const py = Number(p.d.slice(0, 4)); const pm = Number(p.d.slice(5, 7)) - 1
       const cell = arr.find((a) => a.m === pm && a.y === py)
-      if (cell) cell.value += p.amt
+      if (cell) { cell.value += p.amt; cell.count += 1 }
     }
-    buckets = arr.map((a) => ({ label: MONTHS_ES[a.m], value: a.value }))
+    buckets = arr.map((a) => ({ label: MONTHS_ES[a.m], value: a.value, count: a.count }))
   }
 
   return {
@@ -273,7 +285,7 @@ export function buildDashboardSnapshot(input: SnapshotInput): DashboardSnapshot 
     const prop = c.property_id ? propById.get(c.property_id) : undefined
     const cli = c.client_id ? clientName.get(c.client_id) : ''
     deadlines.push({
-      id: `case-${c.id}`, kind: 'case', title: c.title || 'Trámite', due: c.due_date, days,
+      id: `case-${c.id}`, rawId: c.id, kind: 'case', title: c.title || 'Trámite', due: c.due_date, days,
       subtitle: [prop?.title, cli].filter(Boolean).join(' · '),
       href: c.property_id ? `/opportunities/properties/${c.property_id}` : c.client_id ? `/clients/${c.client_id}` : '/opportunities',
     })
@@ -283,7 +295,7 @@ export function buildDashboardSnapshot(input: SnapshotInput): DashboardSnapshot 
     const days = daysFromToday(t.due_date, todayStr)
     if (days > DEADLINE_WINDOW_DAYS) continue
     deadlines.push({
-      id: `task-${t.id}`, kind: 'task', title: t.title || 'Tarea', due: t.due_date, days,
+      id: `task-${t.id}`, rawId: t.id, kind: 'task', title: t.title || 'Tarea', due: t.due_date, days,
       subtitle: (t.client_id ? clientName.get(t.client_id) : '') || t.client_name || '',
       href: t.client_id ? `/clients/${t.client_id}` : undefined,
     })

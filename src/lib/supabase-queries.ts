@@ -2614,13 +2614,23 @@ export type UpdateTaskInput = {
   assignedTo?: string | null
 }
 
+// La columna tasks.status solo admite 'pending' | 'done' (constraint tasks_status_check).
+// Normalizamos sinonimos habituales de "completada"/"pendiente" para que un 'completed'
+// (u otra variante) no rompa el guardado con un error de constraint poco util.
+export function normalizeTaskStatus(status: string): string {
+  const s = status.trim().toLowerCase()
+  if (['done', 'completed', 'complete', 'closed', 'finished', 'completada', 'finalizada', 'hecha'].includes(s)) return 'done'
+  if (['pending', 'open', 'todo', 'pendiente', 'abierta'].includes(s)) return 'pending'
+  return status
+}
+
 export async function updateTask(workspaceId: string, id: string, input: UpdateTaskInput) {
   const supabase = getSupabaseBrowserClient()
   if (!supabase || !workspaceId || !id) return null
   const patch: Record<string, unknown> = {}
   if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim()
   if (input.description !== undefined) patch.description = input.description
-  if (input.status) patch.status = input.status
+  if (input.status) patch.status = normalizeTaskStatus(input.status)
   if (input.priority) patch.priority = input.priority
   if (input.dueDate !== undefined) patch.due_date = input.dueDate
   if (input.assignedTo !== undefined) patch.assigned_to = input.assignedTo
@@ -2631,10 +2641,9 @@ export async function updateTask(workspaceId: string, id: string, input: UpdateT
     .eq('workspace_id', workspaceId)
     .select('*')
     .single()
-  if (error) {
-    if (process.env.NODE_ENV === 'development') console.warn('[updateTask]', error.message)
-    return null
-  }
+  // Antes se tragaba el error y se devolvia null -> el toast no podia explicar la causa.
+  // Ahora propagamos un Error normalizado para que la UI muestre el motivo real.
+  if (error) throwNormalized(error)
   return mapSupabaseTask(data as DataRecord)
 }
 
