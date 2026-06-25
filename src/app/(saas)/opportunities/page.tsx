@@ -178,6 +178,8 @@ export default function OpportunitiesPage() {
   const [blockedOppTarget, setBlockedOppTarget] = useState<OpportunityRow | null>(null)
   const [highlightOpId, setHighlightOpId] = useState<string | null>(null)
   const [closeOpp, setCloseOpp] = useState<OpportunityRow | null>(null)
+  // Reabrir una operación cerrada (Vendida/Alquilada) → confirmación guiada (reactiva el inmueble).
+  const [reopenOpp, setReopenOpp] = useState<{ opp: OpportunityRow; nextStage: string } | null>(null)
   // Inmuebles: vista de cartera (activos / histórico / todos). Por defecto, solo activos.
   const [propView, setPropView] = useState<'active' | 'history' | 'all'>('active')
   // Cambio de estado de un inmueble que lo pasa a histórico (vendido/alquilado/archivado) → confirma.
@@ -414,6 +416,12 @@ export default function OpportunitiesPage() {
     // El selector trabaja por estado comercial: si el bucket no cambia (p. ej. una etapa
     // legacy que ya mapea a «En gestión»), no reescribimos la etapa ni avisamos.
     if (commStateOf(nextStage) === commStateOf(opp.stage)) return
+    // Reabrir una operación cerrada (Vendida/Alquilada) → confirmación guiada (reactiva el inmueble
+    // si estaba marcado como vendido/alquilado; conserva comisiones registradas).
+    if (commStateOf(opp.stage) === 'won' && commStateOf(nextStage) !== 'won') {
+      setReopenOpp({ opp, nextStage })
+      return
+    }
     // Cerrar con inmueble vinculado → confirmación guiada (también marca el inmueble como
     // vendido/alquilado, sin eliminar nada).
     if (nextStage === 'won' && opp.property_id && propertiesById[opp.property_id]) {
@@ -421,6 +429,28 @@ export default function OpportunitiesPage() {
       return
     }
     await applyOpportunityStage(opp, nextStage)
+  }
+
+  // Confirmar reapertura: la operación deja de estar cerrada y, si su inmueble estaba marcado como
+  // vendido/alquilado, lo devolvemos a la cartera activa (Reservado si la operación pasa a Reserva,
+  // Publicado en el resto). No se borra nada; las comisiones registradas se conservan y el snapshot
+  // las recalcula por el estado actual (dejan de contar como cerradas mientras la operación esté abierta).
+  async function confirmReopenOpp() {
+    const data = reopenOpp
+    if (!data) { setReopenOpp(null); return }
+    const { opp, nextStage } = data
+    setReopenOpp(null)
+    const pid = opp.property_id
+    const prop = pid ? propertiesById[pid] : undefined
+    const reactivate = Boolean(pid && prop && (prop.status === 'sold' || prop.status === 'rented'))
+    const nextPropStatus = commStateOf(nextStage) === 'reserved' ? 'reserved' : 'listed'
+    if (reactivate && pid) {
+      setProperties((prev) => prev.map((p) => (p.id === pid ? { ...p, status: nextPropStatus } : p)))
+    }
+    await applyOpportunityStage(opp, nextStage)
+    if (reactivate && pid && !isDemo() && workspaceId) {
+      await updatePropertyStatus(workspaceId, pid, nextPropStatus).catch(() => {})
+    }
   }
 
   async function applyOpportunityStage(opp: OpportunityRow, nextStage: string) {
@@ -1295,7 +1325,7 @@ export default function OpportunitiesPage() {
             </ul>
           )}
           <p className="mt-3 text-[11px] leading-snug text-gray-400">
-            Las comisiones son un control interno. La facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.
+            Control interno de comisiones. Las facturas, gastos e impuestos se gestionarán en el módulo económico.
           </p>
         </SectionCard>
       )}
@@ -1407,6 +1437,23 @@ export default function OpportunitiesPage() {
         cancelLabel="Cancelar"
         onConfirm={() => void confirmCloseOpp()}
         onCancel={() => setCloseOpp(null)}
+      />
+
+      {/* Reabrir operación cerrada (Vendida/Alquilada) → confirma, reactiva el inmueble, no borra nada */}
+      <ConfirmDialog
+        open={!!reopenOpp}
+        title="¿Reabrir esta operación?"
+        description={reopenOpp
+          ? (() => {
+              const prop = reopenOpp.opp.property_id ? propertiesById[reopenOpp.opp.property_id] : undefined
+              const willReactivate = prop && (prop.status === 'sold' || prop.status === 'rented')
+              return `La operación dejará de estar cerrada y volverá a aparecer como activa.${willReactivate ? ` El inmueble${prop?.title ? ` «${prop.title}»` : ''} saldrá del histórico y volverá a la cartera activa.` : ''} No se elimina nada: las comisiones registradas se conservan (déjalas en pendiente o cobrada según corresponda).`
+            })()
+          : ''}
+        confirmLabel="Reabrir operación"
+        cancelLabel="Cancelar"
+        onConfirm={() => void confirmReopenOpp()}
+        onCancel={() => setReopenOpp(null)}
       />
 
       {/* Inmueble → histórico (vendido/alquilado/archivado) desde la card: confirma, no borra nada */}

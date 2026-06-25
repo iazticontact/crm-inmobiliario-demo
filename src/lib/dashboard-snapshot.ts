@@ -67,7 +67,6 @@ export type Economics = {
   potencialAbierto: number     // comisión prevista de operaciones abiertas
   totalPotencial: number       // pendiente + potencial abierto
   closedWithCommission: number // nº de operaciones cerradas con comisión
-  ticketMedio: number | null   // comisión media por operación cerrada con comisión
   opsClosedInPeriod: number     // operaciones cerradas en el periodo
   donut: { cobrada: number; pendiente: number; potencial: number }
   buckets: { label: string; value: number; count: number }[]
@@ -157,14 +156,14 @@ function buildEconomics(
   }
 
   let cobradaPeriodo = 0, cobradaPrev = 0, pendiente = 0, potencialAbierto = 0
-  let closedWithCommission = 0, previstaTotal = 0, opsClosedInPeriod = 0
+  let closedWithCommission = 0, opsClosedInPeriod = 0
   const payments: { d: string; amt: number }[] = []
 
   for (const o of opportunities) {
     const st = commStateOf(o.stage)
     const est = commissionForOp(o, propById)
     if (st === 'won') {
-      if (est != null) { closedWithCommission += 1; previstaTotal += est }
+      if (est != null) closedWithCommission += 1
       if (o.commission_status === 'cobrada') {
         const amt = o.commission_paid_amount ?? est ?? 0
         if (o.commission_paid_at) payments.push({ d: o.commission_paid_at.slice(0, 10), amt })
@@ -231,7 +230,6 @@ function buildEconomics(
     potencialAbierto,
     totalPotencial: pendiente + potencialAbierto,
     closedWithCommission,
-    ticketMedio: closedWithCommission > 0 ? Math.round(previstaTotal / closedWithCommission) : null,
     opsClosedInPeriod,
     donut: { cobrada: cobradaPeriodo, pendiente, potencial: potencialAbierto },
     buckets,

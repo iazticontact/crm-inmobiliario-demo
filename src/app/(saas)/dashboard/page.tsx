@@ -303,8 +303,8 @@ function compactEuro(value: number) {
   return `€${Math.round(value)}`
 }
 
-// Tile económico compacto con variación opcional (↑/↓ vs periodo anterior).
-function EcoStat({ label, value, variation, tone = 'gray' }: { label: string; value: string; variation?: number | null; tone?: 'emerald' | 'amber' | 'indigo' | 'gray' }) {
+// Tile económico compacto con variación opcional (↑/↓ vs periodo anterior) y tooltip de fórmula.
+function EcoStat({ label, value, variation, hint, tone = 'gray' }: { label: string; value: string; variation?: number | null; hint?: string; tone?: 'emerald' | 'amber' | 'indigo' | 'gray' }) {
   const tones: Record<string, string> = {
     emerald: 'border-emerald-100 bg-emerald-50/50',
     amber: 'border-amber-100 bg-amber-50/50',
@@ -312,7 +312,7 @@ function EcoStat({ label, value, variation, tone = 'gray' }: { label: string; va
     gray: 'border-gray-100 bg-gray-50/50',
   }
   return (
-    <div className={cn('rounded-xl border px-2.5 py-2', tones[tone])}>
+    <div className={cn('rounded-xl border px-2.5 py-2', tones[tone], hint && 'cursor-help')} title={hint}>
       <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
       <p className="mt-0.5 text-sm font-bold tabular-nums text-gray-900">{value}</p>
       {variation != null && (
@@ -807,8 +807,8 @@ export default function DashboardPage() {
             <SectionCard
               title="Rendimiento comercial"
               description={period === 'all'
-                ? 'Comisiones vendidas/alquiladas y potencial · histórico desde el inicio'
-                : 'Comisiones de operaciones vendidas/alquiladas y potencial abierto'}
+                ? 'Comisiones y cobros registrados en el CRM · histórico desde el inicio'
+                : 'Comisiones y cobros registrados en el CRM'}
               action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver comisiones</Link>}
               bodyClassName="p-4"
             >
@@ -818,7 +818,7 @@ export default function DashboardPage() {
                     segments={[
                       { key: 'cobrada', label: 'Cobrada', value: snap.economics.donut.cobrada, color: '#10b981', hint: 'Comisiones ya marcadas como cobradas.' },
                       { key: 'pendiente', label: 'Pendiente de cobro', value: snap.economics.donut.pendiente, color: '#f59e0b', hint: 'Operaciones cerradas con comisión pendiente de cobro.' },
-                      { key: 'potencial', label: 'Potencial abierto', value: snap.economics.donut.potencial, color: '#6366f1', hint: 'Comisión estimada de operaciones abiertas (aún no cerradas).' },
+                      { key: 'potencial', label: 'Potencial abierto', value: snap.economics.donut.potencial, color: '#6366f1', hint: 'Comisión prevista de operaciones abiertas con comisión pactada (orientativo).' },
                     ]}
                     centerValue={compactEuro(snap.economics.donut.cobrada + snap.economics.donut.pendiente + snap.economics.donut.potencial)}
                     centerLabel="total comisión"
@@ -826,10 +826,10 @@ export default function DashboardPage() {
                   />
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <EcoStat label={period === 'all' ? 'Cobrada · histórico' : `Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} tone="emerald" />
-                      <EcoStat label="Pendiente de cobro" value={snap.economics.pendiente > 0 ? formatEuro(snap.economics.pendiente) : '—'} tone="amber" />
-                      <EcoStat label="Potencial abierto" value={snap.economics.potencialAbierto > 0 ? formatEuro(snap.economics.potencialAbierto) : '—'} tone="indigo" />
-                      <EcoStat label="Comisión media" value={snap.economics.ticketMedio != null ? formatEuro(snap.economics.ticketMedio) : '—'} tone="gray" />
+                      <EcoStat label={period === 'all' ? 'Cobrada · histórico' : `Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} hint="Comisiones marcadas como cobradas (cobros registrados a mano) en el periodo seleccionado." tone="emerald" />
+                      <EcoStat label="Pendiente de cobro" value={snap.economics.pendiente > 0 ? formatEuro(snap.economics.pendiente) : '—'} hint="Comisión de operaciones vendidas/alquiladas con comisión pactada, todavía no cobrada. Estado actual." tone="amber" />
+                      <EcoStat label="Potencial abierto" value={snap.economics.potencialAbierto > 0 ? formatEuro(snap.economics.potencialAbierto) : '—'} hint="Comisión prevista de operaciones abiertas, calculada solo sobre las que tienen comisión pactada. Orientativo, estado actual." tone="indigo" />
+                      <EcoStat label="Operaciones cerradas" value={String(snap.economics.closedWithCommission)} hint="Operaciones vendidas/alquiladas con comisión pactada (sobre las que se calcula la comisión)." tone="gray" />
                     </div>
                     {snap.economics.buckets.some((b) => b.value > 0) ? (
                       <div className="rounded-xl border border-gray-100 bg-gray-50/40 p-3">
@@ -868,31 +868,42 @@ export default function DashboardPage() {
           {snap && (
             <div className="grid gap-4 lg:grid-cols-3">
               <SectionCard
-                title="Cartera inmobiliaria"
-                description="Estado actual de tus inmuebles"
+                title="Cartera activa"
+                description="Inmuebles actualmente gestionables"
                 action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver inmuebles</Link>}
                 bodyClassName="p-4"
               >
                 {snap.cartera.active + snap.cartera.history > 0 ? (
                   <div className="space-y-3">
+                    {/* Donut SOLO de cartera activa: vendidos/alquilados y archivados no entran (no distorsionan). */}
                     <DonutChart
                       size={130}
                       segments={[
                         { key: 'published', label: 'Publicados', value: snap.cartera.published, color: '#10b981', hint: 'Inmuebles publicados, visibles para clientes.' },
                         { key: 'reserved', label: 'Reservados', value: snap.cartera.reserved, color: '#f59e0b', hint: 'Inmuebles reservados, con operación en curso.' },
                         { key: 'prep', label: 'En preparación', value: snap.cartera.prep, color: '#6366f1', hint: 'Inmuebles en preparación, aún no publicados.' },
-                        { key: 'closed', label: 'Vendidos/alquilados', value: snap.cartera.closed, color: '#0ea5e9', hint: 'Operaciones cerradas: inmuebles vendidos o alquilados.' },
                       ]}
                       centerValue={String(snap.cartera.active)}
                       centerLabel="activos"
                     />
-                    <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-[11px]">
-                      <span className="text-gray-500" title="Inmuebles vendidos o alquilados (operaciones cerradas).">{snap.cartera.closed} vendidos/alquilados</span>
-                      <span className="font-semibold text-gray-700" title="Inmuebles actualmente gestionables: en preparación, publicados o reservados.">{formatEuro(snap.cartera.activeValue)} en cartera activa</span>
+                    {/* Resultado comercial y dato de gestión, como contexto secundario (no como porción del donut). */}
+                    <div className="space-y-1.5 border-t border-gray-100 pt-2.5 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500" title="Inmuebles vendidos o alquilados (operaciones cerradas). Resultado comercial.">Vendidos/alquilados</span>
+                        <span className="font-semibold text-gray-700 tabular-nums">{snap.cartera.closed}</span>
+                      </div>
+                      {snap.cartera.archived > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400" title="Archivados: retirados de la cartera; no se eliminan y no cuentan como vendidos/alquilados.">Archivados</span>
+                          <span className="font-medium text-gray-500 tabular-nums">{snap.cartera.archived}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500" title="Suma del precio de los inmuebles en cartera activa.">Valor activo</span>
+                        <span className="font-semibold text-gray-700 tabular-nums">{formatEuro(snap.cartera.activeValue)}</span>
+                      </div>
                     </div>
-                    {snap.cartera.archived > 0 && (
-                      <p className="text-[10px] text-gray-400" title="Archivados: retirados de la cartera; no se eliminan y no cuentan como vendidos/alquilados.">+{snap.cartera.archived} archivado{snap.cartera.archived === 1 ? '' : 's'}</p>
-                    )}
+                    <p className="text-[10px] leading-snug text-gray-400">Vendidos/alquilados se conservan como histórico, pero no cuentan en la cartera activa.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-7 text-center">

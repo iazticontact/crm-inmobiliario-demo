@@ -162,12 +162,111 @@ Commit `polish(dashboard): cartera vendidos/alquilados + rendimiento comercial (
 - "Histórico" permanece, a propósito, como etiqueta del **filtro temporal "Todo"** (significado de
   tiempo, no de cartera).
 
+---
+
+# AMPLIACIÓN CRÍTICA P11.2 — Regla de oro: solo datos reales, sin humo, reversión de ventas/alquileres
+
+> Sobre el feedback de staging: el donut con "Histórico"/"Vendidos-alquilados" **dentro** seguía sin
+> convencer (a largo plazo distorsiona), y se pide **solo datos reales** + poder **revertir** una venta/
+> alquiler marcada por error. Integrado en P11.2 (mismo trabajo).
+
+## A1. Diagnóstico ampliado
+
+- **Comisión inventada (regla de oro):** auditado `commissionForOp` (snapshot) y `commissionOf`
+  (Operaciones). **Ninguno inventa 3%**: el modelo `percent` devuelve `null` si la operación **no
+  tiene `commission_rate`** (idem `one_month`/`fixed` sin su dato). El 3% del ejemplo viene **solo del
+  seed** (`20260623_p610_seed_example_commission_rate.sql`), correcto para showcase; en un workspace
+  real vacío **no aparece comisión**.
+- **"Ticket medio"** era ambiguo (¿media de qué?). → **humo → eliminado**.
+- **Reabrir una venta/alquiler:** el cambio de estado de operación cerrada → activa **no** reactivaba
+  el inmueble (quedaba `sold/rented`) **ni** confirmaba. Estados incoherentes posibles.
+
+## A2. Qué métricas eran humo/confusas → decisión
+
+| Métrica | Decisión |
+|---|---|
+| **Ticket medio / Comisión media** | **Eliminada** del Dashboard y del snapshot (`ticketMedio` + `previstaTotal` borrados). |
+| **Potencial abierto / Comisión prevista** | **Se mantienen** (son reales: solo suman operaciones **con comisión pactada**), con tooltip de fórmula: *"Comisión prevista de operaciones abiertas con comisión pactada (orientativo)"*. |
+| **Vendidos/alquilados en el donut** | **Fuera del donut** (ver A3). |
+
+## A3. Cómo queda Cartera en el Dashboard (cambio final)
+
+- **Donut = SOLO cartera activa:** Publicados · Reservados · En preparación. Centro **"N activos"**.
+- **Vendidos/alquilados**, **Archivados** (si > 0) y **Valor activo** → **lista secundaria** bajo el
+  donut (no porciones que distorsionen).
+- Copy: título **"Cartera activa"** · subcopy **"Inmuebles actualmente gestionables"** · nota
+  *"Vendidos/alquilados se conservan como histórico, pero no cuentan en la cartera activa."*
+- Así, aunque la inmobiliaria venda 500 inmuebles, el donut **no se distorsiona**: siempre muestra el
+  estado actual del negocio.
+
+## A4. Rendimiento comercial (final)
+
+- Subcopy **"Comisiones y cobros registrados en el CRM"**; tiles con **tooltip de fórmula** (Cobrada /
+  Pendiente de cobro / Potencial abierto / **Operaciones cerradas** = nº vendidas/alquiladas con
+  comisión, sustituye a "Comisión media"). Nota única de control interno (sin repetir "facturación
+  fiscal").
+
+## A5. Comisiones (módulo)
+
+Ya cumplía el criterio (KPIs: Comisión prevista / Pendiente de cobro / Cobrada / Operaciones cerradas;
+lista con cliente·inmueble·tipo·% pactado·€ previsto·estado; acciones **Registrar cobro** / **Marcar
+pendiente**). Solo se **alineó la nota** a *"Control interno de comisiones. Las facturas, gastos e
+impuestos se gestionarán en el módulo económico."*
+
+## A6. Reversión de vendido/alquilado (nuevo)
+
+En **Operaciones**, al pasar una operación **cerrada (Vendida/Alquilada) → activa** (o Perdida):
+- **Confirmación guiada** (`ConfirmDialog`): *"¿Reabrir esta operación? La operación dejará de estar
+  cerrada y volverá a aparecer como activa. El inmueble «…» saldrá del histórico y volverá a la cartera
+  activa. No se elimina nada: las comisiones registradas se conservan…"*.
+- Al confirmar: la operación vuelve al estado activo **y**, si su inmueble estaba `sold/rented`, se
+  **reactiva** (`reserved` si la operación pasa a Reserva, `listed`/Publicado en el resto).
+- **No borra nada:** ni comisión cobrada, ni documentos, ni operación, ni inmueble, ni cliente.
+- **Recalcado por estado actual:** mientras la operación esté abierta deja de contar como cerrada/
+  pendiente en Dashboard y Comisiones; si se vuelve a cerrar, vuelve a contar. `commission_status`
+  ('cobrada'/'pendiente') se **conserva** como histórico interno (no se altera automáticamente).
+- Verificado por MCP: el ejemplo tiene 3 operaciones won ligadas a inmuebles `sold` (1 cobrada, 2
+  pendientes) + 1 won sin inmueble → ambas ramas (con y sin reactivación) son reales.
+
+## A7. Real vs demo/mock (reconfirmado)
+
+`commissionForOp`/`commissionOf` no inventan tasas. Dashboard: todo `demo*`/`mock` gateado por
+`localStorage[nowlabs_demo_mode]` (líneas ~411-452); el branch real solo lee Supabase con fallback
+`[]`. **0 valores hardcodeados de comisión** (los únicos "3" del scan son aritmética de trimestre
+`m/3*3` y una opacidad de sombra Tailwind).
+
+## A8. Archivos (ampliación)
+
+| Archivo | Cambio |
+|---|---|
+| `src/lib/dashboard-snapshot.ts` | elimina `ticketMedio`/`previstaTotal` (humo) |
+| `src/app/(saas)/dashboard/page.tsx` | donut Cartera **solo activos** + secundarios; tiles económicos (quita "Comisión media", añade "Operaciones cerradas" + tooltips de fórmula); subcopy "Comisiones y cobros registrados en el CRM" |
+| `src/app/(saas)/opportunities/page.tsx` | **reversión** de operación cerrada (estado + reactivación de inmueble + confirmación), nota de comisiones alineada |
+
+## A9. Validaciones (ampliación)
+
+`tsc` ✅ · `lint --max-warnings=0` ✅ · `build` ✅. Scans: comisión inventada/hardcodeada **0** ·
+ticket medio **0** · mock en real **0** · pipeline/expediente/probabilidad/stage/listed/won/lost
+visibles **0** · service_role **0** · UUID **0** · botón muerto **0**.
+
+## A10. Pendientes honestos (ampliación)
+
+- **Reactivación de inmueble desde la pestaña Cartera** (select directo histórico→activo) se aplica
+  con toast (no destructivo, no borra nada) pero **sin** modal de confirmación dedicado; la reversión
+  guiada se ofrece desde **Operaciones** (que es donde nace el cierre). Modal de "Reactivar inmueble"
+  en Cartera = micro-ajuste futuro.
+- La reversión reactiva el inmueble a `listed`/`reserved` (estado activo razonable), no necesariamente
+  al estado exacto previo al cierre (no se guarda histórico de estado del inmueble). Documentado.
+- `closedValue` sigue calculado y reservado para el módulo económico futuro.
+
 ## Veredicto
 
-**P11.2 COMPLETADO — DASHBOARD BUSINESS FINAL.** La cartera muestra la situación comercial útil
-(activos + vendidos/alquilados, con archivados como nota discreta) sin que el histórico distorsione; el
-dinero se entiende como "Rendimiento comercial" con copy realista y una sola nota de control interno;
-auditoría confirma **cero mocks en modo real** (todo deriva de Supabase real y se actualiza de forma
-coherente al recargar tras cambios de operaciones/cobros/tareas). Sin tocar n8n/Agent V2/API/RLS/
-Storage/Auth ni migraciones. `tsc`/`lint`/`build` en verde, scans limpios, datos del workspace de
-ejemplo verificados por MCP. **Requiere redeploy del front.** Listo para pasar al Asistente.
+**P11.2 COMPLETADO — DASHBOARD SIN HUMO Y COMISIONES REALISTAS.** La cartera del Dashboard muestra
+**solo el estado actual** (donut de activos; vendidos/alquilados y archivados como contexto
+secundario), sin que el histórico distorsione aunque crezca; se eliminó "Ticket medio" (humo) y se
+etiquetaron con fórmula las métricas orientativas (potencial/previsto), que **solo existen sobre
+operaciones con comisión pactada real** — **nunca se inventa un 3%**; y una operación marcada como
+vendida/alquilada por error **se puede reabrir de forma segura y guiada**, reactivando el inmueble sin
+borrar nada y recalculando comisiones por el estado actual. **Cero mocks en modo real.** Sin tocar
+n8n/Agent V2/API/RLS/Storage/Auth ni migraciones. `tsc`/`lint`/`build` en verde, scans limpios, datos
+del workspace de ejemplo verificados por MCP. **Requiere redeploy del front.** Listo para el Asistente.
