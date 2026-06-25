@@ -170,20 +170,15 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Resumen CRM', prompt: 'Dame el resumen del CRM: clientes activos, facturas pendientes y próximas citas.', intent: 'crm_summary', sender: 'agent' },
   ],
   copilot: [
-    { label: 'Cómo va todo', prompt: '¿Cómo va todo? Dame un resumen general del workspace.', intent: 'workspace_overview', sender: 'agent' },
-    { label: 'Qué tengo pendiente', prompt: '¿Qué tengo pendiente ahora mismo? Consolida todo lo urgente.', intent: 'pending_items', sender: 'agent' },
-    { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo? Resúmelas por etapa.', intent: 'list_opportunities', sender: 'agent' },
+    { label: 'Resumen del día', prompt: 'Dame el resumen del día: prioridades de clientes, operaciones, citas y vencimientos.', intent: 'daily_plan', sender: 'agent' },
+    { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo? Resúmelas por estado.', intent: 'list_opportunities', sender: 'agent' },
+    { label: 'Inmuebles activos', prompt: '¿Qué inmuebles activos tengo en cartera?', intent: 'property_search', sender: 'agent' },
+    { label: 'Vencimientos', prompt: '¿Qué vencimientos tengo esta semana? Trámites y tareas.', intent: 'pending_items', sender: 'agent' },
+    { label: 'Comisiones', prompt: '¿Qué comisiones tengo pendientes de cobro?', intent: 'pending_items', sender: 'agent' },
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
-    { label: 'Resumen cliente', prompt: 'Resume este cliente y dime la siguiente acción comercial recomendada.', intent: 'resumen', sender: 'agent' },
-    { label: 'Citas de la semana', prompt: '¿Qué citas tengo esta semana?', intent: 'calendar_week', sender: 'agent' },
-    { label: 'Buscar inmueble', prompt: 'Busca inmuebles por zona, tipo o estado.', intent: 'property_search', sender: 'agent' },
-    { label: 'Trámites abiertos', prompt: '¿Qué trámites abiertos hay? Resúmelos.', intent: 'list_service_cases', sender: 'agent' },
-    { label: 'Plan del día', prompt: 'Dime qué debería hacer hoy: prioridades de clientes, operaciones y citas.', intent: 'daily_plan', sender: 'agent' },
   ],
 }
 
-const capabilities = ['Clientes', 'Inmuebles', 'Operaciones', 'Trámites', 'Tareas', 'Citas', 'Próximas acciones', 'Plan del día']
-const inboxCapabilities = ['Mensajes cliente/lead', 'Intención', 'Sentimiento', 'Reservas desde conversación', 'WhatsApp Business próximo']
 const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string; sender?: MessageSender }> = [
   { label: 'Estado conexion', prompt: 'Estado de conexion Inbox Assistant', intent: 'manual_status', sender: 'agent' },
   { label: 'Modo manual', prompt: 'Modo manual Inbox Assistant', intent: 'manual_mode', sender: 'agent' },
@@ -192,13 +187,12 @@ const inboxManualPrompts: Array<{ label: string; prompt: string; intent: string;
 const INBOX_MANUAL_RESPONSE = 'Inbox Assistant está preparado para conectar WhatsApp Business (Meta Cloud API). De momento la respuesta automática está desactivada; puedes seguir usando esta bandeja en modo manual.'
 
 const capabilityExamples = [
-  'Resume este cliente',
-  'Prepara una cita',
-  'Crea una operación',
-  'Abre un trámite',
-  'Dime la próxima acción',
-  'Busca un cliente',
-  'Mueve una operación de etapa',
+  '¿Qué comisiones tengo pendientes?',
+  'Resume la cartera activa',
+  '¿Qué vencimientos tengo esta semana?',
+  'Busca el inmueble de Calle Mayor',
+  'Prepara una cita con Roberto Díaz',
+  '¿Qué operaciones están en gestión?',
 ]
 
 const assistantModes: Array<{
@@ -217,9 +211,9 @@ const assistantModes: Array<{
   },
   {
     id: 'copilot',
-    title: 'Copiloto del CRM',
+    title: 'Asistente IA',
     eyebrow: 'Asistente interno',
-    description: 'Opera el CRM para buscar clientes, preparar citas, facturas, propuestas y documentos.',
+    description: 'Consulta clientes, inmuebles, operaciones, trámites, citas y comisiones, y prepara acciones con tu confirmación.',
     badge: 'Listo',
   },
 ]
@@ -227,7 +221,7 @@ const assistantModes: Array<{
 const OP_STAGE_LABEL: Record<string, string> = {
   new: 'Nuevo', contacted: 'Contactado', qualified: 'Cualificado',
   visit_scheduled: 'Visita programada', offer: 'Oferta', negotiation: 'Negociación',
-  won: 'Ganada', lost: 'Perdida',
+  won: 'Vendida/Alquilada', lost: 'Perdida',
 }
 
 type PreparedAction =
@@ -1438,12 +1432,12 @@ export default function AssistantPage() {
   const score = selected ? leadScores[selected.id] ?? (selected.sentiment === 'positive' ? 84 : selected.sentiment === 'negative' ? 42 : 68) : 70
   const isOfflineMode = OFFLINE_FORCE_DEV
   const assistantN8nActive = assistantMode === 'copilot' && !isOfflineMode && isRealMode && Boolean(assistantWebhookUrl)
-  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : isRealMode ? 'Copiloto activo' : 'Demo'
+  const assistantSourceLabel = assistantMode === 'inbox' ? 'Manual' : isOfflineMode ? 'Offline local' : isRealMode ? 'Conectado' : 'Demo'
   const assistantSourceDetail = assistantMode === 'inbox' ? 'Meta API pendiente' : isOfflineMode ? 'backend bloqueado por red' : isRealMode ? 'Datos reales del workspace' : 'modo muestra'
 
   const assistantStats = [
     { label: assistantMode === 'inbox' ? 'Conversaciones Inbox' : 'Consultas al Asistente IA', value: String(modeConversations.length), detail: isRealMode ? 'persistentes' : 'pruebas', icon: <MessageSquare className="h-4 w-4" />, tone: 'text-indigo-600 bg-indigo-50' },
-    { label: 'IA en modo', value: assistantSourceLabel, detail: assistantSourceDetail, icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
+    { label: 'Estado', value: assistantSourceLabel, detail: assistantSourceDetail, icon: <Bot className="h-4 w-4" />, tone: assistantN8nActive ? 'text-emerald-600 bg-emerald-50' : 'text-violet-600 bg-violet-50' },
     { label: assistantMode === 'inbox' ? 'Lead score medio' : 'Acciones preparadas', value: assistantMode === 'inbox' ? String(averageLeadScore) : (preparedAction ? '1' : '0'), detail: assistantMode === 'inbox' ? 'estimado' : 'requieren confirmación', icon: <Target className="h-4 w-4" />, tone: 'text-emerald-600 bg-emerald-50' },
   ]
 
@@ -3191,7 +3185,7 @@ export default function AssistantPage() {
       />
       <PageHeader
         title="Asistente IA"
-        description="Copiloto interno del CRM: consulta clientes, inmuebles, operaciones, trámites, tareas y calendario, y prepara acciones con confirmación."
+        description="Consulta datos del CRM y prepara acciones con confirmación."
         action={
           <div className="flex items-center gap-2">
             <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
@@ -3225,7 +3219,7 @@ export default function AssistantPage() {
 
       <div className="grid gap-3 lg:grid-cols-2">
         {/* El modo Inbox/Conversaciones (WhatsApp) no tiene backend real todavía;
-            solo visible para operadores internos. El cliente usa el Copiloto. */}
+            solo visible para operadores internos. El cliente usa el Asistente IA. */}
         {assistantModes.filter((m) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || m.id === 'copilot').map((mode) => {
           const isActive = assistantMode === mode.id
           return (
@@ -3292,7 +3286,7 @@ export default function AssistantPage() {
       </div>
 
       <div className="flex gap-0 overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-lg shadow-gray-950/[0.045]" style={{ minHeight: 560, height: 'clamp(560px, calc(100vh - 12.75rem), 720px)' }}>
-        <aside className="flex w-80 shrink-0 flex-col border-r border-gray-100">
+        <aside className="hidden w-80 shrink-0 flex-col border-r border-gray-100 lg:flex">
           <div className="border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/70 p-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
@@ -3824,7 +3818,7 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Escribe a tu copiloto: clientes, operaciones, tareas, citas…'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pregunta por clientes, inmuebles, citas, comisiones…'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
@@ -3846,7 +3840,7 @@ export default function AssistantPage() {
                   <Bot className="h-5 w-5" />
                 </div>
                 <p className="text-sm font-semibold text-gray-900">
-                  {assistantMode === 'inbox' ? 'No hay conversaciones todavía' : 'Tu copiloto del CRM, listo cuando quieras 👋'}
+                  {assistantMode === 'inbox' ? 'No hay conversaciones todavía' : 'Tu Asistente IA, listo cuando quieras 👋'}
                 </p>
                 <p className="mt-1 max-w-sm text-xs leading-5 text-gray-400">
                   {assistantMode === 'inbox'
@@ -3864,7 +3858,7 @@ export default function AssistantPage() {
           )}
         </div>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-indigo-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_44%,#f5f3ff_100%)]">
+        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-indigo-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_44%,#f5f3ff_100%)] xl:block">
           <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-700 px-4 py-3.5 text-white shadow-sm shadow-indigo-950/10">
             <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-indigo-100" /><h3 className="text-sm font-semibold">{assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}</h3></div>
           </div>
@@ -3948,45 +3942,40 @@ export default function AssistantPage() {
               </div>
             )}
 
+            {/* Qué puedes pedir — acciones reales (clic = consulta al Asistente IA, sin botones muertos). */}
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">{assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(assistantMode === 'copilot' ? capabilities : inboxCapabilities.map((_, index) => ['Conversaciones', 'Meta API próximo', 'Modo manual'][index]).filter(Boolean)).map((capability) => (
-                  <span key={capability} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{capability}</span>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Qué puedes pedir</p>
+              <div className="space-y-1.5">
+                {activeQuickPrompts.slice(0, 6).map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => void handleQuickAction(item.label)}
+                    disabled={isTyping}
+                    className="group flex w-full items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-left text-[11px] font-medium text-gray-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <span className="truncate">{item.label}</span>
+                    <ArrowRight className="h-3 w-3 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-400" />
+                  </button>
                 ))}
               </div>
-              {assistantMode === 'copilot' ? (
-                <div className="mt-3 space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase text-gray-400">Puedes pedirme</p>
-                  {capabilityExamples.map((example) => (
-                    <p key={example} className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-[11px] font-medium text-gray-700">{example}</p>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                  Inbox Assistant es la capa para conversaciones de clientes. Ahora trabaja sobre mensajes persistentes; cuando conectes WhatsApp Business, los mensajes entrantes caerán aquí.
-                </p>
-              )}
-              <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium leading-5 text-amber-800">
-                Las acciones importantes requieren confirmación antes de guardarse.
-              </p>
-              <p className="mt-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                WhatsApp Business (Meta Cloud API) es la siguiente fase: recibirás mensajes reales y los convertirás en clientes, citas o seguimientos dentro del CRM.
-              </p>
             </div>
 
+            {/* Acciones seguras */}
+            <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase text-amber-700">Acciones seguras</p>
+              <p className="text-[11px] leading-5 text-amber-800">Las acciones que modifican datos se preparan y requieren tu confirmación antes de guardarse.</p>
+            </div>
+
+            {/* Contexto disponible */}
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Recomendación IA</p>
-              <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3">
-                <p className="text-xs leading-relaxed text-indigo-800">
-                  {assistantMode === 'inbox'
-                    ? selected ? selected.sentiment === 'positive' ? 'Cliente con buena intención. Propón siguiente paso y prepara cita o seguimiento.' : selected.sentiment === 'negative' ? 'Prioriza tono empático y escala la conversación antes de automatizar.' : 'Responde con contexto y pide el dato mínimo para avanzar.' : 'Crea una conversación para simular mensajes entrantes de clientes.'
-                    : selected ? 'Usa el Asistente IA para consultar datos reales, preparar acciones y confirmar antes de escribir en el CRM.' : 'Crea una consulta para operar clientes, facturas, calendario y cobros desde el CRM.'}
-                </p>
-                <button className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700" onClick={() => selected ? void handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Próxima acción') : toast.info('Crea una conversación primero')}>
-                  Aplicar <ArrowRight className="h-3 w-3" />
-                </button>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Contexto disponible</p>
+              <div className="flex flex-wrap gap-1.5">
+                {['Clientes', 'Inmuebles', 'Operaciones', 'Trámites', 'Citas', 'Comisiones'].map((c) => (
+                  <span key={c} className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">{c}</span>
+                ))}
               </div>
+              <p className="mt-2 text-[10px] leading-4 text-gray-400">Conectado a los datos reales de tu workspace.</p>
             </div>
           </div>
         </aside>

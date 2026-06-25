@@ -668,7 +668,7 @@ export default function DashboardPage() {
             {featureFlags.assistant && (
               <Button variant="secondary" size="sm" onClick={() => router.push('/assistant')}>
                 <Bot className="h-3.5 w-3.5" />
-                Copiloto
+                Asistente IA
               </Button>
             )}
             <Button variant="secondary" size="sm" onClick={() => router.push('/calendar')}>
@@ -1203,7 +1203,7 @@ export default function DashboardPage() {
                 </span>
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-                    4. Pregunta al copiloto
+                    4. Pregunta al Asistente IA
                     <ArrowRight className="h-3 w-3 text-gray-300 transition-transform group-hover:translate-x-0.5" />
                   </span>
                   <span className="mt-0.5 block text-[11px] text-gray-500">Consulta el estado de tu CRM en lenguaje natural.</span>

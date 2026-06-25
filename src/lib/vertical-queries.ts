@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import type { VerticalKey } from '@/lib/demo/vertical-templates'
+import { deleteEntityFilesFor } from '@/lib/entity-files'
 
 async function logActivity(
   supabase: SupabaseClient,
@@ -665,6 +666,23 @@ export async function deleteServiceCase(workspaceId: string, id: string): Promis
   const { error } = await supabase.from('service_cases').delete().eq('workspace_id', workspaceId).eq('id', id)
   if (error) {
     if (process.env.NODE_ENV === 'development') console.warn('[deleteServiceCase]', error.message)
+    return false
+  }
+  return true
+}
+
+// Borrado seguro de inmueble. DELETE real protegido por RLS (is_workspace_admin). Las FKs de
+// opportunities/service_cases/tasks/calendar_events.property_id son ON DELETE SET NULL → no se
+// destruyen operaciones/trámites/tareas/citas, solo se desvincula el inmueble. El bloqueo por
+// "inmueble con operaciones" se gestiona en la UI (regla de negocio). Antes del DELETE borramos
+// fotos/documentos (entity_files es polimórfico, sin FK → quedarían huérfanos). No toca clientes.
+export async function deleteProperty(workspaceId: string, id: string): Promise<boolean> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !workspaceId || !id) return false
+  await deleteEntityFilesFor(workspaceId, 'property', id).catch(() => {})
+  const { error } = await supabase.from('properties').delete().eq('workspace_id', workspaceId).eq('id', id)
+  if (error) {
+    if (process.env.NODE_ENV === 'development') console.warn('[deleteProperty]', error.message)
     return false
   }
   return true

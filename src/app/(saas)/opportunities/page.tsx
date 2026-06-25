@@ -102,6 +102,7 @@ import {
   updateOpportunity,
   deleteOpportunity,
   deleteServiceCase,
+  deleteProperty,
   type OpportunityRow,
   type ServiceCaseRow,
   type PropertyRow,
@@ -184,6 +185,10 @@ export default function OpportunitiesPage() {
   const [propView, setPropView] = useState<'active' | 'history' | 'all'>('active')
   // Cambio de estado de un inmueble que lo pasa a histórico (vendido/alquilado/archivado) → confirma.
   const [propStatusChange, setPropStatusChange] = useState<{ property: PropertyRow; nextStatus: string } | null>(null)
+  // Borrado seguro de inmueble: bloqueo si tiene operaciones; confirmación fuerte si no.
+  const [propToDelete, setPropToDelete] = useState<PropertyRow | null>(null)
+  const [propDeleteBlocked, setPropDeleteBlocked] = useState<{ property: PropertyRow; opsCount: number } | null>(null)
+  const [deletingProp, setDeletingProp] = useState(false)
   // Comisiones: por defecto solo operaciones cerradas (vendidas/alquiladas) con comisión.
   const [showOpenCommissions, setShowOpenCommissions] = useState(false)
   // Registrar cobro de comisión (fecha + importe real opcional + nota opcional).
@@ -526,6 +531,33 @@ export default function OpportunitiesPage() {
     toast.success('Inmueble actualizado')
   }
 
+  // Borrado seguro de inmueble. Si tiene operaciones vinculadas → bloqueo guiado (no se borra nada;
+  // mejor archivar). Si no → confirmación fuerte (se eliminan también fotos/documentos). Nunca borra
+  // clientes ni operaciones; las FKs son SET NULL pero la regla de negocio bloquea antes.
+  function requestDeleteProperty(row: PropertyRow, opsCount: number) {
+    if (opsCount > 0) { setPropDeleteBlocked({ property: row, opsCount }); return }
+    setPropToDelete(row)
+  }
+
+  async function confirmDeleteProperty() {
+    const row = propToDelete
+    if (!row) return
+    if (isDemo()) {
+      setProperties((prev) => prev.filter((p) => p.id !== row.id))
+      setPropToDelete(null)
+      toast.info('Modo demo: eliminado en pantalla (no se guarda).')
+      return
+    }
+    if (!workspaceId) { toast.error('Sin workspace activo.'); setPropToDelete(null); return }
+    setDeletingProp(true)
+    const ok = await deleteProperty(workspaceId, row.id)
+    setDeletingProp(false)
+    if (!ok) { toast.error('No se pudo eliminar el inmueble. Vuelve a intentarlo.'); return }
+    setProperties((prev) => prev.filter((p) => p.id !== row.id))
+    setPropToDelete(null)
+    toast.success('Inmueble eliminado')
+  }
+
   // Portada de un inmueble cambiada desde el gestor de fotos → actualiza la card SIN recargar.
   // Memoizado (estable) para no recrear el efecto de carga del PropertyPhotosManager.
   const handleCoverChange = useCallback((pid: string, url: string | null) => {
@@ -738,6 +770,9 @@ export default function OpportunitiesPage() {
           </Link>
           <button type="button" onClick={() => setEditProp(p)} title="Editar inmueble" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700">
             <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" onClick={() => requestDeleteProperty(p, ops)} title="Eliminar inmueble" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </li>
@@ -1471,6 +1506,35 @@ export default function OpportunitiesPage() {
         cancelLabel="Cancelar"
         onConfirm={() => { if (propStatusChange) { void handlePropertyStatus(propStatusChange.property, propStatusChange.nextStatus); setPropStatusChange(null) } }}
         onCancel={() => setPropStatusChange(null)}
+      />
+
+      {/* Borrado de inmueble BLOQUEADO: tiene operaciones vinculadas → mejor archivar. No borra nada. */}
+      <ConfirmDialog
+        open={!!propDeleteBlocked}
+        title="No puedes eliminar este inmueble"
+        description={propDeleteBlocked
+          ? `«${propDeleteBlocked.property.title}» tiene ${propDeleteBlocked.opsCount} ${propDeleteBlocked.opsCount === 1 ? 'operación vinculada' : 'operaciones vinculadas'}. Para conservar el histórico, archívalo; o revisa sus operaciones antes de eliminarlo. No se ha borrado nada.`
+          : ''}
+        confirmLabel="Ver operaciones"
+        cancelLabel="Cancelar"
+        onConfirm={() => { setSubtab('pipeline'); setPropDeleteBlocked(null) }}
+        onCancel={() => setPropDeleteBlocked(null)}
+      />
+
+      {/* Borrado de inmueble SIN operaciones: confirmación fuerte (borra también fotos/documentos). */}
+      <ConfirmDialog
+        open={!!propToDelete}
+        destructive
+        loading={deletingProp}
+        loadingLabel="Eliminando…"
+        title="¿Eliminar inmueble?"
+        description={propToDelete
+          ? `Se eliminará «${propToDelete.title}» y sus fotos y documentos asociados. Esta acción no se puede deshacer. No se elimina ningún cliente. Para conservar el histórico, normalmente es mejor archivar.`
+          : ''}
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        onConfirm={() => void confirmDeleteProperty()}
+        onCancel={() => { if (!deletingProp) setPropToDelete(null) }}
       />
 
       {/* Borrado seguro (P6.8/P6.9) */}

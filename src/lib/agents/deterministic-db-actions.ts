@@ -53,7 +53,9 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   done: 'Completada', closed: 'Cerrada', cancelled: 'Cancelada', open: 'Pendiente',
 }
 function detectTaskStatus(t: string): string | undefined {
-  if (/\b(completad[oa]|hecha|hecho|terminad[oa]|finalizad[oa])\b/.test(t)) return 'completed'
+  // La columna tasks.status solo admite 'pending' | 'done' (constraint tasks_status_check).
+  // "completada/hecha/terminada/finalizada" → 'done' (nunca 'completed', que rompería el UPDATE).
+  if (/\b(completad[oa]|hecha|hecho|terminad[oa]|finalizad[oa])\b/.test(t)) return 'done'
   if (/\b(en\s+curso|en\s+progreso|empezad[oa])\b/.test(t)) return 'in_progress'
   if (/\bcancelad[oa]\b/.test(t)) return 'cancelled'
   if (/\b(pendiente|reabr|reabrir)\b/.test(t)) return 'pending'

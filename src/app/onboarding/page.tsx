@@ -150,7 +150,7 @@ export default function OnboardingPage() {
           <ul className="mt-8 space-y-2.5 border-t border-gray-100 pt-6">
             {[
               'Sin datos de ejemplo: empiezas de cero, solo lo tuyo.',
-              'Copiloto IA incluido desde el primer día.',
+              'Asistente IA incluido desde el primer día.',
               'Tus clientes, operaciones y calendario en un único lugar.',
             ].map((text) => (
               <li key={text} className="flex items-start gap-2.5 text-sm text-gray-600">

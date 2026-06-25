@@ -86,7 +86,7 @@ const integrations: IntegrationCard[] = [
 const architectureCards = [
   { title: 'Base de datos', label: 'Datos del workspace', detail: supabaseStatus.configured ? 'Conectada' : 'Pendiente', icon: <Database className="h-5 w-5" />, tone: supabaseStatus.configured ? 'border-emerald-100 bg-gradient-to-br from-emerald-50 to-white text-emerald-700' : 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
   { title: 'Automatizaciones', label: 'Flujos internos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
-  { title: 'Asistente IA', label: 'Copiloto del CRM', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
+  { title: 'Asistente IA', label: 'Asistente del CRM', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
   { title: 'Canales', label: 'WhatsApp, Email y pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
@@ -113,8 +113,8 @@ const supabaseReadiness = [
 ]
 
 const productStatusCards = [
-  { label: 'Core CRM',          value: 'Operativo',     detail: 'Auth, clientes, calendario y expedientes activos.',           tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  { label: 'Asistente IA',      value: 'Activo',        detail: 'Copiloto interno disponible en /assistant.',                 tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
+  { label: 'Core CRM',          value: 'Operativo',     detail: 'Auth, clientes, calendario y trámites activos.',              tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+  { label: 'Asistente IA',      value: 'Activo',        detail: 'Asistente interno disponible en /assistant.',                tone: 'border-indigo-100 bg-indigo-50 text-indigo-700' },
   { label: 'Documentos',        value: 'Activo',        detail: 'PDFs de informes y facturas generados.',                     tone: 'border-blue-100 bg-blue-50 text-blue-700' },
   { label: 'Automatizaciones',  value: 'Preparado',     detail: 'Flujos internos preparados, sin envíos reales aún.',         tone: 'border-violet-100 bg-violet-50 text-violet-700' },
   { label: 'Canales externos',  value: 'Próxima fase',  detail: 'WhatsApp, Email y Google Calendar por conectar.',            tone: 'border-amber-100 bg-amber-50 text-amber-700' },
@@ -1103,7 +1103,7 @@ export default function SettingsPage() {
           )}
 
           <SectionCard
-            title="Copiloto IA"
+            title="Asistente IA"
             description="Tu asistente del CRM, incluido y listo para usar."
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
@@ -1112,7 +1112,7 @@ export default function SettingsPage() {
                   <Zap className="h-4 w-4 text-indigo-700" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-indigo-900">Copiloto IA incluido</p>
+                  <p className="text-sm font-semibold text-indigo-900">Asistente IA incluido</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
                     El asistente está configurado y listo para ayudarte con clientes, operaciones, tareas y calendario. No necesitas configurar nada.
                   </p>

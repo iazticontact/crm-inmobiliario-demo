@@ -737,7 +737,14 @@ export async function POST(req: NextRequest) {
     const taskId = asString(action.taskId)
     if (!isUuid(taskId)) return NextResponse.json({ ok: false, error: 'task_id_required' }, { status: 422 })
     const patch: Record<string, unknown> = {}
-    if (action.status) patch.status = asString(action.status)
+    if (action.status) {
+      // tasks.status solo admite 'pending' | 'done' (constraint tasks_status_check).
+      // Normaliza sinónimos de "completada" → 'done' para que un 'completed' no rompa el UPDATE.
+      const s = asString(action.status).toLowerCase()
+      patch.status = ['completed', 'complete', 'closed', 'finished', 'done'].includes(s) ? 'done'
+        : ['pending', 'open', 'todo'].includes(s) ? 'pending'
+        : asString(action.status)
+    }
     if (action.priority) patch.priority = asString(action.priority)
     if (action.assignedTo !== undefined) patch.assigned_to = isUuid(action.assignedTo) ? action.assignedTo : null
     if (action.dueDate !== undefined && action.dueDate !== null && action.dueDate !== '') {

@@ -993,9 +993,9 @@ export default function ClientDetailPage() {
               <Button
                 size="sm"
                 onClick={() => router.push('/assistant')}
-                title={`Abre el copiloto para preguntar sobre ${client.name}`}
+                title={`Abre el Asistente IA para preguntar sobre ${client.name}`}
               >
-                <Bot className="h-3.5 w-3.5" /> Copiloto
+                <Bot className="h-3.5 w-3.5" /> Asistente IA
               </Button>
             )}
           </div>

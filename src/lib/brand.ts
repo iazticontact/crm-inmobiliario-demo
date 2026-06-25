@@ -11,7 +11,7 @@ export const BRAND = {
   /** Visible product name — titles, sidebar, login, topbar fallback. */
   appName: 'CRM Inmobiliario',
   /** Short tagline / HTML meta description. */
-  appDescription: 'CRM para inmobiliarias: clientes, operaciones, agenda y copiloto IA',
+  appDescription: 'CRM para inmobiliarias: clientes, operaciones, agenda y Asistente IA',
   /** Neutral fallback label shown for a REAL workspace before its name resolves
    *  (never "Demo" — this is a real product). */
   workspaceName: 'Tu inmobiliaria',
@@ -23,7 +23,7 @@ export const BRAND = {
   /** Visible name of the in-app AI assistant (chat, titles, timeline). */
   assistantName: 'Asistente IA',
   /** One-line description of the assistant (headers, empty states). */
-  assistantDescription: 'Copiloto del CRM para tu inmobiliaria',
+  assistantDescription: 'Asistente IA del CRM para tu inmobiliaria',
   /**
    * Optional "powered by" / signature line. Empty string = hidden.
    * Kept neutral on purpose (no commercial brand yet).
