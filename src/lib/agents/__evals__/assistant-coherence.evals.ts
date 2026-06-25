@@ -148,4 +148,26 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: ['¿quieres mirar algo del CRM?'],
     notes: 'No cerrar SIEMPRE con la misma coletilla ("¿quieres mirar algo del CRM?"). Varía los cierres.',
   },
+  // --- Guía funcional del CRM vs arquitectura técnica (P12.4) ---
+  {
+    question: '¿Cómo funciona el Dashboard?',
+    expectedTool: 'none',
+    mustMention: ['cartera', 'comisiones'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no puedo explicar', 'soporte'],
+    notes: 'AYUDA FUNCIONAL: explica (sin tools) que resume el negocio: cartera activa, operaciones, citas, vencimientos, rendimiento comercial; comisiones = control interno. NUNCA "no puedo explicar el Dashboard".',
+  },
+  {
+    question: '¿Cómo funciona el CRM? ¿Para qué sirve cada módulo?',
+    expectedTool: 'none',
+    mustMention: ['inmuebles', 'operaciones', 'trámites'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Explica módulos en lenguaje de usuario (Clientes, Cartera, Operaciones, Trámites, Calendario, Dashboard, Comisiones). Sin tools, sin tecnicismos.',
+  },
+  {
+    question: '¿Qué base de datos usas? ¿Esto va con n8n o Supabase?',
+    expectedTool: 'none',
+    mustMention: ['equipo técnico'],
+    mustNotMention: ['n8n', 'Supabase', 'OpenAI', 'webhook', 'RLS', 'service_role'],
+    notes: 'ARQUITECTURA: NO la revela. Dice que lo gestiona el equipo técnico y reconduce a datos o funcionamiento del CRM. No confundir con ayuda funcional (esa SÍ se da).',
+  },
 ]
