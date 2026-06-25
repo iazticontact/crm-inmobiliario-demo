@@ -207,9 +207,12 @@ function humanizeActivity(desc?: string | null): string {
     const amt = Number(opEdit[1].replace(/[.,]/g, ''))
     return Number.isFinite(amt) && amt > 0 ? `Operación actualizada · ${formatEuro(amt)}` : 'Operación actualizada'
   }
-  // Patrón legacy de edición de inmueble: "piso · venta · Valencia · listed"
+  // Patrón legacy de edición de inmueble: "piso · venta · Valencia · listed" → conservamos el
+  // contexto útil (tipo · operación · zona) y quitamos el estado técnico final en inglés.
   if (s.includes('·') && /(listed|available|prospecting|under_contract|reserved|sold|rented|archived)\s*\.?$/i.test(s)) {
-    return 'Inmueble actualizado'
+    const parts = s.split('·').map((x) => x.trim()).filter(Boolean)
+    const kept = parts.slice(0, -1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' · ')
+    return kept ? `Inmueble actualizado: ${kept}` : 'Inmueble actualizado'
   }
   // Reemplazos de tokens sueltos dentro de frases ("… pasa a etapa won." / "… pasa a archived.").
   s = s.replace(/\betapa\s+(\w+)/gi, (_m, w: string) => STAGE_ES[w.toLowerCase()] ?? w)
@@ -730,10 +733,10 @@ export default function DashboardPage() {
         <MetricTile
           label="Inmuebles activos"
           value={snap ? String(snap.cartera.active) : loading ? '…' : '0'}
-          detail={snap ? (snap.cartera.history > 0 ? `${snap.cartera.history} en histórico` : snap.cartera.active ? 'En cartera' : 'Sin inmuebles') : undefined}
+          detail={snap ? (snap.cartera.closed > 0 ? `${snap.cartera.closed} vendidos/alquilados` : snap.cartera.active ? 'En cartera' : 'Sin inmuebles') : undefined}
           icon={<Building2 className="h-5 w-5" />}
           href="/opportunities"
-          hint="Inmuebles gestionables ahora mismo: en preparación, publicados o reservados. El histórico (vendidos/alquilados/archivados) no cuenta."
+          hint={snap ? `Inmuebles gestionables ahora: en preparación, publicados o reservados. Total gestionados: ${snap.cartera.active + snap.cartera.history} (incluye vendidos/alquilados y archivados, que no cuentan en cartera activa).` : undefined}
           tone="sky"
         />
         <MetricTile
@@ -769,7 +772,7 @@ export default function DashboardPage() {
           detail={snap ? (period === 'all' ? 'Histórico · control interno' : `${snap.economics.periodLabel} · control interno`) : undefined}
           icon={<Coins className="h-5 w-5" />}
           href="/opportunities"
-          hint="Comisiones marcadas como cobradas en el periodo seleccionado. Control interno, no es facturación fiscal."
+          hint="Comisiones marcadas como cobradas en el periodo seleccionado. Control interno."
           tone="amber"
         />
       </div>
@@ -799,13 +802,13 @@ export default function DashboardPage() {
       {/* Centro operativo — solo con datos (demo o real). Vacío → onboarding. */}
       {!loadError && stats && !isEmpty && (
         <>
-          {/* Rendimiento económico — comisiones (control interno) por periodo */}
+          {/* Rendimiento comercial — comisiones (control interno) por periodo */}
           {snap && (
             <SectionCard
-              title="Rendimiento económico"
+              title="Rendimiento comercial"
               description={period === 'all'
-                ? 'Comisiones · histórico desde el inicio · control interno (no es facturación fiscal)'
-                : `Comisiones · ${snap.economics.periodLabel} · control interno (no es facturación fiscal)`}
+                ? 'Comisiones vendidas/alquiladas y potencial · histórico desde el inicio'
+                : 'Comisiones de operaciones vendidas/alquiladas y potencial abierto'}
               action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver comisiones</Link>}
               bodyClassName="p-4"
             >
@@ -826,11 +829,11 @@ export default function DashboardPage() {
                       <EcoStat label={period === 'all' ? 'Cobrada · histórico' : `Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} tone="emerald" />
                       <EcoStat label="Pendiente de cobro" value={snap.economics.pendiente > 0 ? formatEuro(snap.economics.pendiente) : '—'} tone="amber" />
                       <EcoStat label="Potencial abierto" value={snap.economics.potencialAbierto > 0 ? formatEuro(snap.economics.potencialAbierto) : '—'} tone="indigo" />
-                      <EcoStat label="Ticket medio" value={snap.economics.ticketMedio != null ? formatEuro(snap.economics.ticketMedio) : '—'} tone="gray" />
+                      <EcoStat label="Comisión media" value={snap.economics.ticketMedio != null ? formatEuro(snap.economics.ticketMedio) : '—'} tone="gray" />
                     </div>
                     {snap.economics.buckets.some((b) => b.value > 0) ? (
                       <div className="rounded-xl border border-gray-100 bg-gray-50/40 p-3">
-                        <p className="mb-1.5 text-[11px] font-medium text-gray-500">Comisión cobrada por {snap.economics.bucketGranularity === 'week' ? 'semana' : 'mes'} · control interno</p>
+                        <p className="mb-1.5 text-[11px] font-medium text-gray-500">Comisión cobrada por {snap.economics.bucketGranularity === 'week' ? 'semana' : 'mes'}</p>
                         <MiniBarChart
                           data={snap.economics.buckets.map((b) => ({
                             label: b.label,
@@ -846,8 +849,8 @@ export default function DashboardPage() {
                       <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-[11px] text-gray-400">Sin cobros registrados en {period === 'all' ? 'el histórico' : snap.economics.periodLabel.toLowerCase()}.</p>
                     )}
                     <p className="text-[10px] leading-snug text-gray-400">
-                      {snap.economics.closedWithCommission} operación{snap.economics.closedWithCommission === 1 ? '' : 'es'} cerrada{snap.economics.closedWithCommission === 1 ? '' : 's'} con comisión.
-                      {period === 'all' ? ' En vista histórica, la comisión cobrada es el total acumulado; pendiente y potencial reflejan el estado actual.' : ''} Las comisiones son un control interno; la facturación fiscal, gastos e impuestos se gestionarán en el módulo económico.
+                      {snap.economics.closedWithCommission} operación{snap.economics.closedWithCommission === 1 ? '' : 'es'} vendida{snap.economics.closedWithCommission === 1 ? '' : 's'}/alquilada{snap.economics.closedWithCommission === 1 ? '' : 's'} con comisión.
+                      {period === 'all' ? ' En histórico, los cobros son el total acumulado; pendiente y potencial reflejan el estado actual.' : ''} Control interno · las facturas, gastos e impuestos se gestionarán en el módulo económico.
                     </p>
                   </div>
                 </div>
@@ -855,7 +858,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
                   <Coins className="mb-2 h-6 w-6 text-gray-300" />
                   <p className="text-sm font-medium text-gray-700">Todavía no hay comisiones registradas</p>
-                  <p className="mt-1 text-xs text-gray-500">Cuando cierres operaciones o registres cobros, verás aquí el rendimiento económico (cobrada, pendiente y potencial).</p>
+                  <p className="mt-1 text-xs text-gray-500">Cuando vendas/alquiles operaciones o registres cobros, verás aquí el rendimiento comercial (cobrada, pendiente y potencial).</p>
                 </div>
               )}
             </SectionCard>
@@ -866,7 +869,7 @@ export default function DashboardPage() {
             <div className="grid gap-4 lg:grid-cols-3">
               <SectionCard
                 title="Cartera inmobiliaria"
-                description="Inmuebles por estado"
+                description="Estado actual de tus inmuebles"
                 action={<Link href="/opportunities" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Ver inmuebles</Link>}
                 bodyClassName="p-4"
               >
@@ -875,18 +878,21 @@ export default function DashboardPage() {
                     <DonutChart
                       size={130}
                       segments={[
-                        { key: 'published', label: 'Publicado', value: snap.cartera.published, color: '#10b981', hint: 'Inmuebles publicados, visibles para clientes.' },
-                        { key: 'reserved', label: 'Reservado', value: snap.cartera.reserved, color: '#f59e0b', hint: 'Inmuebles reservados, con operación en curso.' },
+                        { key: 'published', label: 'Publicados', value: snap.cartera.published, color: '#10b981', hint: 'Inmuebles publicados, visibles para clientes.' },
+                        { key: 'reserved', label: 'Reservados', value: snap.cartera.reserved, color: '#f59e0b', hint: 'Inmuebles reservados, con operación en curso.' },
                         { key: 'prep', label: 'En preparación', value: snap.cartera.prep, color: '#6366f1', hint: 'Inmuebles en preparación, aún no publicados.' },
-                        { key: 'history', label: 'Histórico', value: snap.cartera.history, color: '#cbd5e1', hint: 'Vendidos, alquilados o archivados; no se eliminan.' },
+                        { key: 'closed', label: 'Vendidos/alquilados', value: snap.cartera.closed, color: '#0ea5e9', hint: 'Operaciones cerradas: inmuebles vendidos o alquilados.' },
                       ]}
                       centerValue={String(snap.cartera.active)}
                       centerLabel="activos"
                     />
                     <div className="flex items-center justify-between border-t border-gray-100 pt-2.5 text-[11px]">
-                      <span className="text-gray-500" title="Vendidos, alquilados o archivados; no se eliminan.">{snap.cartera.history} en histórico</span>
+                      <span className="text-gray-500" title="Inmuebles vendidos o alquilados (operaciones cerradas).">{snap.cartera.closed} vendidos/alquilados</span>
                       <span className="font-semibold text-gray-700" title="Inmuebles actualmente gestionables: en preparación, publicados o reservados.">{formatEuro(snap.cartera.activeValue)} en cartera activa</span>
                     </div>
+                    {snap.cartera.archived > 0 && (
+                      <p className="text-[10px] text-gray-400" title="Archivados: retirados de la cartera; no se eliminan y no cuentan como vendidos/alquilados.">+{snap.cartera.archived} archivado{snap.cartera.archived === 1 ? '' : 's'}</p>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-4 py-7 text-center">

@@ -75,7 +75,10 @@ export type Economics = {
 }
 
 export type DashboardSnapshot = {
-  cartera: { active: number; history: number; prep: number; published: number; reserved: number; activeValue: number }
+  cartera: {
+    active: number; history: number; closed: number; archived: number
+    prep: number; published: number; reserved: number; activeValue: number; closedValue: number
+  }
   opsByState: Record<CommState, number>
   opsValueByState: Record<CommState, number>
   commissions: { prevista: number; pendiente: number; cobrada: number; closedWithCommission: number }
@@ -242,15 +245,21 @@ export function buildDashboardSnapshot(input: SnapshotInput): DashboardSnapshot 
   const propById = new Map(properties.map((p) => [p.id, p]))
   const clientName = new Map(clients.map((c) => [c.id, c.name]))
 
-  // Cartera por estado (activos vs histórico).
+  // Cartera por estado. Para el Dashboard separamos "cerrados" (vendidos/alquilados = negocio hecho)
+  // de "archivados" (retirados, no se eliminan) en vez de mezclarlos en un "histórico" gris genérico.
   const active = properties.filter((p) => !isClosedPropertyStatus(p.status))
+  const closedProps = properties.filter((p) => p.status === 'sold' || p.status === 'rented')
+  const archivedProps = properties.filter((p) => p.status === 'archived')
   const cartera = {
     active: active.length,
-    history: properties.length - active.length,
+    history: properties.length - active.length, // cerrados + archivados (todo lo que ya no está en cartera activa)
+    closed: closedProps.length,                 // vendidos/alquilados
+    archived: archivedProps.length,             // archivados (dato secundario, fuera del donut)
     prep: active.filter((p) => p.status === 'prospecting').length,
     published: active.filter((p) => p.status === 'listed' || p.status === 'available').length,
     reserved: active.filter((p) => p.status === 'under_contract' || p.status === 'reserved').length,
     activeValue: active.reduce((s, p) => s + (p.price ?? 0), 0),
+    closedValue: closedProps.reduce((s, p) => s + (p.price ?? 0), 0),
   }
 
   // Operaciones por estado comercial (nº y valor).
