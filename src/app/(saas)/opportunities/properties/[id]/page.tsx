@@ -8,12 +8,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Home, MapPin, Pencil, Building2, ImagePlus, FilePlus2, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { ArrowLeft, Home, MapPin, Pencil, Building2, ImagePlus, FilePlus2, Trash2, X } from 'lucide-react'
 import { SectionCard } from '@/components/SectionCard'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState } from '@/components/EmptyState'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
@@ -22,7 +24,7 @@ import { EditPropertyDrawer } from '@/components/VerticalEditForms'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import { cn } from '@/lib/utils'
 import {
-  listProperties, listOpportunities, listServiceCases,
+  listProperties, listOpportunities, listServiceCases, deleteProperty,
   type PropertyRow, type OpportunityRow, type ServiceCaseRow,
 } from '@/lib/vertical-queries'
 import { getClients } from '@/lib/supabase-queries'
@@ -47,6 +49,7 @@ const ACTION_BTN = 'inline-flex h-9 items-center gap-1.5 rounded-lg border borde
 
 export default function PropertyDetailPage() {
   const params = useParams<{ id: string }>()
+  const router = useRouter()
   const id = Array.isArray(params.id) ? params.id[0] : params.id
   const { currentUser, isLoading: userLoading } = useCurrentUser()
   const workspaceId = currentUser?.workspaceId ?? null
@@ -61,6 +64,10 @@ export default function PropertyDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [photosOpen, setPhotosOpen] = useState(false)
   const [docsOpen, setDocsOpen] = useState(false)
+  // Borrado seguro desde la ficha (mismo criterio que en Cartera).
+  const [askDelete, setAskDelete] = useState(false)
+  const [deleteBlocked, setDeleteBlocked] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const isDemo = typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true'
 
@@ -117,6 +124,23 @@ export default function PropertyDetailPage() {
   )
 
   const clientNameOf = (cid: string | null) => (cid ? clientNames[cid] ?? '' : '')
+
+  // Borrado seguro: bloqueo si hay operaciones vinculadas; si no, confirmación fuerte (borra
+  // también fotos/documentos vía deleteProperty). No borra clientes ni operaciones.
+  const requestDelete = () => {
+    if (linkedOps.length > 0) { setDeleteBlocked(true); return }
+    setAskDelete(true)
+  }
+  const confirmDelete = async () => {
+    if (isDemo) { toast.info('Modo demo: no se elimina.'); setAskDelete(false); return }
+    if (!workspaceId || !id) { toast.error('Sin workspace activo.'); setAskDelete(false); return }
+    setDeleting(true)
+    const ok = await deleteProperty(workspaceId, id)
+    setDeleting(false)
+    if (!ok) { toast.error('No se pudo eliminar el inmueble. Vuelve a intentarlo.'); return }
+    toast.success('Inmueble eliminado')
+    router.push('/opportunities')
+  }
 
   if (!loading && (notFound || !property)) {
     return (
@@ -197,6 +221,7 @@ export default function PropertyDetailPage() {
                   <Button variant="primary" size="sm" onClick={() => setEditOpen(true)}><Pencil className="h-3.5 w-3.5" /> Editar</Button>
                   {!isDemo && <button type="button" onClick={() => setPhotosOpen(true)} className={ACTION_BTN}><ImagePlus className="h-3.5 w-3.5" /> Subir fotos</button>}
                   {!isDemo && <button type="button" onClick={() => setDocsOpen(true)} className={ACTION_BTN}><FilePlus2 className="h-3.5 w-3.5" /> Añadir documento</button>}
+                  <button type="button" onClick={requestDelete} title="Eliminar inmueble" className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-500 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>
                 </div>
               </div>
             </div>
@@ -293,6 +318,31 @@ export default function PropertyDetailPage() {
             property={p}
             onUpdated={(row) => setProperty(row)}
             onCoverChange={(_, url) => setCoverUrl(url)}
+          />
+
+          {/* Borrado BLOQUEADO: el inmueble tiene operaciones vinculadas → mejor archivar. */}
+          <ConfirmDialog
+            open={deleteBlocked}
+            title="No puedes eliminar este inmueble"
+            description={`«${p.title}» tiene ${linkedOps.length} ${linkedOps.length === 1 ? 'operación vinculada' : 'operaciones vinculadas'}. Para conservar el histórico, archívalo (cambia su estado a Vendido/Alquilado); o revisa sus operaciones antes de eliminarlo. No se ha borrado nada.`}
+            confirmLabel="Entendido"
+            cancelLabel="Cancelar"
+            onConfirm={() => setDeleteBlocked(false)}
+            onCancel={() => setDeleteBlocked(false)}
+          />
+
+          {/* Borrado SIN operaciones: confirmación fuerte (borra también fotos/documentos). */}
+          <ConfirmDialog
+            open={askDelete}
+            destructive
+            loading={deleting}
+            loadingLabel="Eliminando…"
+            title="¿Eliminar inmueble?"
+            description={`Se eliminará «${p.title}» y sus fotos y documentos asociados. Esta acción no se puede deshacer. No se elimina ningún cliente. Para conservar el histórico, normalmente es mejor archivar.`}
+            confirmLabel="Eliminar"
+            cancelLabel="Cancelar"
+            onConfirm={() => void confirmDelete()}
+            onCancel={() => { if (!deleting) setAskDelete(false) }}
           />
         </>
       )}

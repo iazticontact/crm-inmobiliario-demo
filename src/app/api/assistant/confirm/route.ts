@@ -697,11 +697,11 @@ export async function POST(req: NextRequest) {
     void supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'note',
-      description: `Expediente creado desde el Asistente IA: ${data.title}`,
+      description: `Trámite creado desde el Asistente IA: ${data.title}`,
       client_id: clientId,
       client_name: clientName,
     }).then(() => undefined, () => undefined)
-    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Expediente creado: "${data.title}"${clientName ? ` para ${clientName}` : ''}.` })
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Trámite creado: "${data.title}"${clientName ? ` para ${clientName}` : ''}.` })
   }
 
   // -------------------- UPDATE SERVICE CASE --------------------
@@ -726,10 +726,10 @@ export async function POST(req: NextRequest) {
     void supabase.from('activities').insert({
       workspace_id: workspaceId,
       type: 'note',
-      description: `Expediente actualizado desde el Asistente IA: ${data.title}`,
+      description: `Trámite actualizado desde el Asistente IA: ${data.title}`,
       client_id: data.client_id ?? null,
     }).then(() => undefined, () => undefined)
-    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Expediente "${data.title}" actualizado.` })
+    return NextResponse.json({ ok: true, type, entityId: String(data.id), message: `Trámite "${data.title}" actualizado.` })
   }
 
   // -------------------- UPDATE TASK --------------------

@@ -170,11 +170,12 @@ const quickPromptsByMode: Record<AssistantMode, Array<{ label: string; prompt: s
     { label: 'Resumen CRM', prompt: 'Dame el resumen del CRM: clientes activos, facturas pendientes y próximas citas.', intent: 'crm_summary', sender: 'agent' },
   ],
   copilot: [
-    { label: 'Resumen del día', prompt: 'Dame el resumen del día: prioridades de clientes, operaciones, citas y vencimientos.', intent: 'daily_plan', sender: 'agent' },
-    { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo? Resúmelas por estado.', intent: 'list_opportunities', sender: 'agent' },
-    { label: 'Inmuebles activos', prompt: '¿Qué inmuebles activos tengo en cartera?', intent: 'property_search', sender: 'agent' },
-    { label: 'Vencimientos', prompt: '¿Qué vencimientos tengo esta semana? Trámites y tareas.', intent: 'pending_items', sender: 'agent' },
-    { label: 'Comisiones', prompt: '¿Qué comisiones tengo pendientes de cobro?', intent: 'pending_items', sender: 'agent' },
+    { label: 'Resumen del día', prompt: 'Dame un resumen del día con citas, vencimientos y operaciones importantes.', intent: 'daily_plan', sender: 'agent' },
+    { label: 'Inmuebles activos', prompt: '¿Qué inmuebles activos tengo ahora en cartera?', intent: 'property_search', sender: 'agent' },
+    { label: 'Operaciones abiertas', prompt: '¿Qué operaciones abiertas tengo y cuáles son prioritarias?', intent: 'list_opportunities', sender: 'agent' },
+    { label: 'Comisiones pendientes', prompt: '¿Qué comisiones tengo pendientes de cobro?', intent: 'pending_items', sender: 'agent' },
+    { label: 'Vencimientos', prompt: '¿Qué vencimientos tengo próximos o vencidos? Trámites y tareas.', intent: 'pending_items', sender: 'agent' },
+    { label: 'Próximas citas', prompt: '¿Qué citas tengo esta semana?', intent: 'calendar_week', sender: 'agent' },
     { label: 'Buscar cliente', prompt: 'Ayúdame a localizar un cliente por nombre, email o empresa.', intent: 'client_search', sender: 'agent' },
   ],
 }
@@ -500,7 +501,7 @@ function internalAssistantIntro(mode: AssistantMode = 'copilot') {
     return 'Soy el Asistente IA del Inbox. Puedo ayudarte a responder a clientes, detectar intención, resumir mensajes y preparar citas o facturas con confirmación. La conexión con WhatsApp Business llegará en la siguiente fase.'
   }
 
-  return 'Soy el Asistente IA del CRM. Puedo ayudarte a buscar clientes, preparar citas en el calendario, crear facturas con confirmación, revisar cobros y proponerte la siguiente acción comercial. Por ejemplo: "Reserva a Ana mañana a las 10 para una visita" o "Crea una factura a Ana de 299 € por gestión de NIE".'
+  return 'Soy el Asistente IA del CRM. Puedo consultar tus clientes, inmuebles y operaciones, revisar trámites, citas, comisiones y vencimientos, y preparar acciones (citas, trámites, tareas) con tu confirmación. Por ejemplo: "¿Qué inmuebles activos tengo?" o "Prepara una visita con Ana mañana a las 10".'
 }
 
 function pricingGuidance() {
@@ -3946,7 +3947,7 @@ export default function AssistantPage() {
             <div className="rounded-2xl border border-indigo-100 bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.035] ring-1 ring-indigo-100/50">
               <p className="mb-2 text-[10px] font-semibold uppercase text-gray-400">Qué puedes pedir</p>
               <div className="space-y-1.5">
-                {activeQuickPrompts.slice(0, 6).map((item) => (
+                {activeQuickPrompts.slice(0, 7).map((item) => (
                   <button
                     key={item.label}
                     type="button"

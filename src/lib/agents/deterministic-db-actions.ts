@@ -1,6 +1,6 @@
 // RT5.1b-2 — Resolución determinista CON acceso a Supabase para acciones de
 // edición que necesitan el ID real de la entidad (mover etapa de operación,
-// actualizar estado/prioridad de tarea o expediente).
+// actualizar estado/prioridad de tarea o trámite).
 //
 // Vive aparte del fallback de solo-texto (deterministic-fallback.ts) porque
 // aquí SÍ consultamos Supabase (cliente cookie-bound del route v2, RLS). Nunca
@@ -29,20 +29,26 @@ function extractClientName(message: string): string | undefined {
   return candidate
 }
 
+// Etiquetas visibles de estado de operación (es-ES, modelo comercial). El usuario ve el estado
+// comercial; las etapas granulares de la BD se mapean a un lenguaje humano coherente con el resto del CRM.
 const STAGE_LABEL: Record<string, string> = {
-  new: 'Nuevo', contacted: 'Contactado', qualified: 'Cualificado',
-  visit_scheduled: 'Visita programada', offer: 'Oferta', negotiation: 'Negociación',
-  won: 'Ganada', lost: 'Perdida',
+  new: 'Nueva', contacted: 'En gestión', qualified: 'En gestión',
+  visit_scheduled: 'En gestión', offer: 'En gestión', negotiation: 'En gestión',
+  reserved: 'Reserva', won: 'Vendida/Alquilada', lost: 'Perdida',
 }
 
 function detectStage(t: string): string | undefined {
+  // Estados comerciales (lo que dice el usuario) → etapa interna representativa.
+  if (/\b(vendid|alquilad|cerrad)/.test(t)) return 'won'
+  if (/\bganad[oa]\b/.test(t)) return 'won'
+  if (/\bperdid[oa]\b/.test(t)) return 'lost'
+  if (/\breserv/.test(t)) return 'reserved'
   if (/\bvisita\s+programada\b/.test(t)) return 'visit_scheduled'
   if (/\bnegociaci(o|ó)n\b/.test(t)) return 'negotiation'
   if (/\boferta\b/.test(t)) return 'offer'
   if (/\bcualificad[oa]\b/.test(t)) return 'qualified'
   if (/\bcontactad[oa]\b/.test(t)) return 'contacted'
-  if (/\bganad[oa]\b/.test(t)) return 'won'
-  if (/\bperdid[oa]\b/.test(t)) return 'lost'
+  if (/\b(en\s+gesti(o|ó)n|gesti(o|ó)n)\b/.test(t)) return 'contacted'
   if (/\bnuev[oa]\b/.test(t)) return 'new'
   if (/\bvisita\b/.test(t)) return 'visit_scheduled'
   return undefined
@@ -130,7 +136,7 @@ export async function resolveDbAction(
   if (/\b(operaci(o|ó)n|pipeline)\b/.test(t) && MOVE_VERB.test(t)) {
     const stage = detectStage(t)
     if (!stage) {
-      return { answer: 'No tengo clara la etapa. Dime a qué etapa muevo la operación: nuevo, contactado, cualificado, visita programada, oferta, negociación, ganada o perdida.' }
+      return { answer: 'No tengo claro el estado. Dime a qué estado muevo la operación: Nueva, En gestión, Reserva, Vendida/Alquilada o Perdida.' }
     }
     const clientName = extractClientName(raw)
     const client = await resolveClient(supabase, workspaceId, clientName)
@@ -169,16 +175,16 @@ export async function resolveDbAction(
   }
 
   // -------------------- UPDATE SERVICE CASE (estado/prioridad) --------------------
-  if (/\b(expediente|caso)\b/.test(t) && UPDATE_VERB.test(t)) {
+  if (/\b(trámite|caso)\b/.test(t) && UPDATE_VERB.test(t)) {
     const status = detectCaseStatus(t)
     const priority = detectPriority(t)
     if (!status && !priority) {
-      return { answer: 'Dime qué cambio en el expediente: estado (resuelto, cerrado, en revisión, en seguimiento…) o prioridad (alta, normal, baja).' }
+      return { answer: 'Dime qué cambio en el trámite: estado (resuelto, cerrado, en revisión, en seguimiento…) o prioridad (alta, normal, baja).' }
     }
     const clientName = extractClientName(raw)
     const client = await resolveClient(supabase, workspaceId, clientName)
     if (client.kind === 'none') {
-      return { answer: clientName ? `No encuentro a "${clientName}" en datos reales.` : 'Dime de qué cliente es el expediente.' }
+      return { answer: clientName ? `No encuentro a "${clientName}" en datos reales.` : 'Dime de qué cliente es el trámite.' }
     }
     if (client.kind === 'many') return { answer: namesAnswer(client.candidates) }
     const { data } = await supabase
@@ -190,9 +196,9 @@ export async function resolveDbAction(
       .order('updated_at', { ascending: false })
       .limit(10)
     const cases = ((data ?? []) as Array<Record<string, unknown>>).map((c) => ({ id: String(c.id ?? ''), title: String(c.title ?? ''), status: String(c.status ?? ''), priority: String(c.priority ?? '') }))
-    if (cases.length === 0) return { answer: `No encuentro expedientes abiertos para ${client.client.name} en datos reales.` }
+    if (cases.length === 0) return { answer: `No encuentro trámites abiertos para ${client.client.name} en datos reales.` }
     if (cases.length > 1) {
-      return { answer: `${client.client.name} tiene varios expedientes: ${cases.map((c) => `"${c.title}"`).join(', ')}. ¿Cuál actualizo? Dime el título.` }
+      return { answer: `${client.client.name} tiene varios trámites: ${cases.map((c) => `"${c.title}"`).join(', ')}. ¿Cuál actualizo? Dime el título.` }
     }
     const c = cases[0]
     const changes = [status ? `estado ${CASE_STATUS_LABEL[status] ?? status}` : null, priority ? `prioridad ${PRIORITY_LABEL[priority] ?? priority}` : null].filter(Boolean).join(' · ')
@@ -205,7 +211,7 @@ export async function resolveDbAction(
       priority,
       missingFields: [],
     }
-    return { answer: `Voy a actualizar el expediente "${c.title}" (${changes}) de ${client.client.name}. Revísalo y pulsa Confirmar.`, preparedAction: action }
+    return { answer: `Voy a actualizar el trámite "${c.title}" (${changes}) de ${client.client.name}. Revísalo y pulsa Confirmar.`, preparedAction: action }
   }
 
   // -------------------- UPDATE TASK (estado/prioridad) --------------------

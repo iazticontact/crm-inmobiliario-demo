@@ -1,9 +1,9 @@
-// Evals de coherencia del Asistente con el CRM final (P10).
+// Evals de coherencia del Asistente con el CRM final (P10 + ampliado en P12.1).
 //
 // El repo NO tiene runner de evals (sin jest/vitest, y ejecutar el LLM real sería costoso y
 // flaky). Este fichero es la FUENTE DE VERDAD de las expectativas: cada caso documenta qué tool
 // debería usar el agente y qué vocabulario DEBE / NO DEBE aparecer en la respuesta visible.
-// Sirve para QA manual y para enchufar un runner en el futuro sin reinventar los casos.
+// Sirve para QA manual (staging) y para enchufar un runner en el futuro sin reinventar los casos.
 
 export type AssistantEval = {
   /** Pregunta del usuario. */
@@ -68,5 +68,41 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustMention: ['operaciones', 'trámites', 'citas'],
     mustNotMention: FORBIDDEN_GLOBAL,
     notes: 'Ficha 360: contacto + operaciones + trámites + tareas + citas + actividad. Nunca mostrar lead score.',
+  },
+  // --- Añadidos en P12.1 ---
+  {
+    question: 'Hola',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'estoy operativo'],
+    notes: 'Saludo natural y breve; NO soltar parrafada ni lista de capacidades sin que la pidan.',
+  },
+  {
+    question: 'Dame un resumen del día',
+    expectedTool: 'recommended_actions',
+    mustMention: ['citas', 'vencimientos', 'operaciones'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Cruza citas de hoy, trámites/tareas que vencen y operaciones importantes. Alternativa: workspace_overview.',
+  },
+  {
+    question: 'Completa la tarea de llamar a Lucía',
+    expectedTool: 'update_task',
+    mustMention: ['confirm'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'completed'],
+    notes: 'Prepara la acción y pide CONFIRMACIÓN. Al confirmar, escribe status="done" (NUNCA "completed"; viola tasks_status_check).',
+  },
+  {
+    question: 'Crea una operación de venta para Roberto Díaz',
+    expectedTool: 'create_opportunity',
+    mustMention: ['confirm'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'won', 'lost'],
+    notes: 'Prepara la acción con confirmación; no escribe directo. Estado comercial en humano (Nueva/En gestión/Reserva/Vendida-Alquilada).',
+  },
+  {
+    question: '¿Qué comisiones tengo pendientes? (workspace sin datos)',
+    expectedTool: 'workspace_overview',
+    mustMention: ['no'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'factura'],
+    notes: 'Si no hay datos reales, decir que no consta / no hay comisiones pendientes. NUNCA inventar cifras.',
   },
 ]
