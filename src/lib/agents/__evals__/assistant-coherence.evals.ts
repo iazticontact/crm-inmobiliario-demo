@@ -213,4 +213,40 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: ['no he mostrado', 'eso no ha pasado', 'no he dicho eso'],
     notes: 'Error visible: NO negarlo. Reconoce un posible fallo temporal y continúa. No defensivo, sin tecnicismos. (COMPORTAMIENTO ANTE CRÍTICAS del prompt maestro + error persistido en el hilo.)',
   },
+  // --- Determinismo + cero humo (P12.7) ---
+  {
+    question: 'Primer cliente registrado (repetir 3 veces en la misma conversación)',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'DETERMINISTA: crm_read_query orderBy=created_at asc + desempate id asc (.order(id)). Las 3 veces y en conversación nueva debe devolver EL MISMO cliente. Nunca alternar (Familia Soler / Inversiones Atlántico).',
+  },
+  {
+    question: '¿A qué hora exacta se registró ese cliente?',
+    expectedTool: 'crm_read_query',
+    mustMention: ['No consta'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Si no consta hora exacta de registro, "No consta la hora exacta". No inventar hora.',
+  },
+  {
+    question: 'Crea una cita visita mañana a las 10:00 "examen de programación II" → "sí, créala"',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: ['ha quedado creada', 'ya está creada', 'la he creado', 'lo he guardado', 'creada en el calendario'],
+    notes: 'CERO HUMO: el Agent V2 es read-only (sin write tools). Tras confirmar, NO decir "creada"; explicar que no puede crearla automáticamente y dejar los datos preparados para crearla desde Calendario.',
+  },
+  {
+    question: 'Completa la tarea de enviar la ficha a Marcos → "confirmo"',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'la he completado', 'ya está completada', 'lo he guardado'],
+    notes: 'CERO HUMO: sin write tool real, NO afirmar que está completada. Dejar preparada o guiar al usuario a marcarla en Tareas.',
+  },
+  {
+    question: 'Crea un cliente / mueve la operación / borra el inmueble / envía un WhatsApp',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: ['lo he creado', 'lo he movido', 'lo he borrado', 'lo he enviado', 'ya está hecho'],
+    notes: 'CERO HUMO genérico: ninguna escritura se ejecuta desde el agente; nunca afirmar ejecución. La confirmación del usuario NO equivale a ejecución.',
+  },
 ]

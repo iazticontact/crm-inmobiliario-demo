@@ -1251,7 +1251,14 @@ export async function crmReadQuery(
     if (to) q = q.lte(cfg.dateCol, to)
   }
 
-  const { data, error } = await q.order(orderBy, { ascending, nullsFirst: false }).range(offset, offset + limit - 1)
+  // Orden ESTABLE/determinista: el orden principal puede empatar (p. ej. varios seeds con el mismo
+  // created_at). Añadimos `id` como desempate en la misma dirección → "primer/tercer/quinto/último"
+  // devuelve SIEMPRE el mismo registro para los mismos datos. (id es UUID: estable, no semánticamente
+  // perfecto, pero determinista. Si la tabla tuviera un nº de registro real, sería preferible.)
+  const { data, error } = await q
+    .order(orderBy, { ascending, nullsFirst: false })
+    .order('id', { ascending })
+    .range(offset, offset + limit - 1)
   if (error) return { error: 'query_failed', message: `No pude consultar ${entity}.` }
   const rows = ((data ?? []) as Row[]).map((r) => sanitizeQueryRow(cfg, r))
   // Devolvemos el criterio aplicado para que el agente sepa exactamente qué posición consultó
