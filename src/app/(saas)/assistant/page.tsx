@@ -3189,25 +3189,15 @@ export default function AssistantPage() {
         description="Consulta datos del CRM y prepara acciones con confirmación."
         action={
           <div className="flex items-center gap-2">
-            <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'warning'} dot>{assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Asistente IA activo' : 'Asistente IA en pruebas'}</Badge>
+            {/* Estado consolidado: un solo badge claro (sin "Asistente IA activo" + "Workspace real" redundantes). */}
+            <Badge variant={assistantMode === 'inbox' ? 'warning' : isRealMode ? 'success' : 'indigo'} dot>
+              {assistantMode === 'inbox' ? 'Inbox manual' : isRealMode ? 'Conectado a datos reales' : 'Modo demo'}
+            </Badge>
+            {assistantMode !== 'inbox' && <Badge variant="indigo" dot>Acciones con confirmación</Badge>}
+            {/* Detalle de runtime (n8n / respaldo / local) solo para operadores internos. */}
             {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && lastAgentMode && assistantMode !== 'inbox' && (
               <Badge variant={lastAgentMode === 'n8n' ? 'success' : lastAgentMode === 'hybrid_fallback' ? 'warning' : 'default'} dot>
                 {lastAgentMode === 'n8n' ? 'Agente n8n' : lastAgentMode === 'hybrid_fallback' ? 'Modo respaldo' : 'Agente local'}
-              </Badge>
-            )}
-            <Badge variant={isRealMode ? 'success' : 'indigo'} dot>{isRealMode ? 'Workspace real' : 'Modo demo'}</Badge>
-            <Badge variant="indigo" dot>{assistantMode === 'inbox' ? 'Sin automatizacion falsa' : 'Acciones con confirmación'}</Badge>
-            {/* WhatsApp es módulo dormido (sin Meta real): solo se muestra a
-                operadores internos para no prometer un canal inexistente. */}
-            {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
-              <Badge variant={assistantMode === 'inbox' && !waConnected ? 'warning' : 'indigo'} dot>
-                {assistantMode === 'inbox'
-                  ? (waConnected
-                      ? 'WhatsApp conectado'
-                      : waStatus === 'webhook_pending' || waStatus === 'pending' || waStatus === 'prepared'
-                        ? 'WhatsApp preparado · pendiente verificacion'
-                        : 'WhatsApp pendiente')
-                  : 'WhatsApp siguiente fase'}
               </Badge>
             )}
             <Button size="sm" onClick={createDemoConversation}>
@@ -3218,9 +3208,11 @@ export default function AssistantPage() {
         }
       />
 
+      {/* Selector de modo + KPIs: en producción el cliente solo usa el Asistente IA, así que estos
+          bloques son ruido — se reservan para operadores internos. El chat queda como protagonista. */}
+      {process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' && (
+      <>
       <div className="grid gap-3 lg:grid-cols-2">
-        {/* El modo Inbox/Conversaciones (WhatsApp) no tiene backend real todavía;
-            solo visible para operadores internos. El cliente usa el Asistente IA. */}
         {assistantModes.filter((m) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || m.id === 'copilot').map((mode) => {
           const isActive = assistantMode === mode.id
           return (
@@ -3285,6 +3277,8 @@ export default function AssistantPage() {
           </div>
         ))}
       </div>
+      </>
+      )}
 
       <div className="flex gap-0 overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-lg shadow-gray-950/[0.045]" style={{ minHeight: 560, height: 'clamp(560px, calc(100vh - 12.75rem), 720px)' }}>
         <aside className="hidden w-80 shrink-0 flex-col border-r border-gray-100 lg:flex">
@@ -3965,7 +3959,7 @@ export default function AssistantPage() {
             {/* Acciones seguras */}
             <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
               <p className="mb-1 text-[10px] font-semibold uppercase text-amber-700">Acciones seguras</p>
-              <p className="text-[11px] leading-5 text-amber-800">Las acciones que modifican datos se preparan y requieren tu confirmación antes de guardarse.</p>
+              <p className="text-[11px] leading-5 text-amber-800">Prepararé los cambios y te pediré confirmación antes de guardarlos.</p>
             </div>
 
             {/* Contexto disponible */}

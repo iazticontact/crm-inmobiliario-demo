@@ -739,7 +739,7 @@ export default function OpportunitiesPage() {
           {/* Portada real (Storage privado + signed URL) o placeholder elegante. */}
           <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
             {coverUrls[p.id]
-              ? <img src={coverUrls[p.id]} alt={p.title} className={cn('absolute inset-0 h-full w-full object-cover', historical && 'opacity-90')} />
+              ? <img src={coverUrls[p.id]} alt={p.title} loading="lazy" decoding="async" className={cn('absolute inset-0 h-full w-full object-cover', historical && 'opacity-90')} />
               : <Home className="h-9 w-9 text-gray-300" />}
             <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
               <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/[0.04]">{propLabel(PROPERTY_OPERATION_LABEL, p.operation_type) || 'Operación'}</span>
