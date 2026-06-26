@@ -6,6 +6,7 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
+import { checkAssistantInput, checkRateLimit, truncateHistory, ASSISTANT_BLOCK_MESSAGES } from '@/lib/assistant-guard'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -255,6 +256,19 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
+  // ----------------------------------------------- Control de coste / anti-abuso
+  // Barrera DURA antes de tocar n8n/OpenAI: rate limit + longitud + megaprompt. Si bloquea, respondemos
+  // con un mensaje humano y NO gastamos tokens. (ok:true → la UI lo muestra como respuesta normal.)
+  if (!checkRateLimit(`${user.id}:${workspaceId ?? 'nows'}`)) {
+    console.warn('[assistant/v2] rate_limited', { user: user.id, ws: workspaceId, len: message.length })
+    return NextResponse.json({ ok: true, answer: ASSISTANT_BLOCK_MESSAGES.rate_limited, errorCode: null, debugSource: 'guard_rate_limited', preparedAction: null })
+  }
+  const guard = checkAssistantInput(message, { hard: true })
+  if (!guard.ok) {
+    console.warn('[assistant/v2] blocked', { reason: guard.reason, user: user.id, ws: workspaceId, len: message.length })
+    return NextResponse.json({ ok: true, answer: guard.message, errorCode: null, debugSource: `guard_${guard.reason}`, preparedAction: null })
+  }
+
   // ------------------------------------------------------------------ Provider
   // n8n Agent V2 is the DEFAULT brain of the CRM assistant. The legacy V1
   // (runNowLabsAgent + deterministic fallbacks) is reachable ONLY when an
@@ -310,15 +324,15 @@ export async function POST(req: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(12)
       if (Array.isArray(rows)) {
-        recentMessages = rows
+        const ordered = rows
           .map((r) => ({
             role: String((r as { role?: unknown }).role ?? 'user'),
             content: String((r as { content?: unknown }).content ?? ''),
           }))
           .filter((m) => m.content && m.content !== message)
           .reverse()
-          .slice(-8)
-          .map((m) => ({ role: m.role, content: m.content.slice(0, 600) }))
+        // Control de payload/tokens: pocos mensajes, recortados, omitiendo basura gigante/bloqueada.
+        recentMessages = truncateHistory(ordered)
       }
     }
 

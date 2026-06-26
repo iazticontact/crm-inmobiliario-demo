@@ -8,6 +8,7 @@ import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
+import { checkAssistantInput, ASSISTANT_LIMITS } from '@/lib/assistant-guard'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
 import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -435,6 +436,35 @@ const initialDiagnostics: PersistenceDiagnostics = {
 
 function nowTime() {
   return new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Hora corta humana "14:33" a partir de un ISO. Si el valor ya viene corto (mensajes locales), se
+// deja igual. Nunca devuelve ISO ni "+00:00".
+function humanTimeShort(value?: string | null) {
+  if (!value) return ''
+  if (/^\d{1,2}:\d{2}/.test(value)) return value
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Fecha relativa humana para la lista de conversaciones: hoy → "14:33", ayer → "Ayer",
+// esta semana → "Mié", más antiguo → "25 jun". Sin ISO, sin códigos, sin "+00:00".
+function humanRelativeDate(value?: string | null) {
+  if (!value) return ''
+  if (/^\d{1,2}:\d{2}/.test(value)) return value
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000)
+  if (diffDays <= 0) return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 1) return 'Ayer'
+  if (diffDays < 7) {
+    const wd = d.toLocaleDateString('es', { weekday: 'short' }).replace('.', '')
+    return wd.charAt(0).toUpperCase() + wd.slice(1)
+  }
+  return d.toLocaleDateString('es', { day: 'numeric', month: 'short' }).replace('.', '')
 }
 
 function isUuid(value?: string | null) {
@@ -982,8 +1012,24 @@ function isGenericCopilotTitle(title: string) {
   return GENERIC_COPILOT_TITLES.has(title.toLowerCase().trim())
 }
 
+// Saludo o relleno sin intención real → no sirve como título.
+const GREETING_ONLY = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|holi|saludos|que tal|como estas|test|prueba|\?|gracias|ok)[\s!.,¡¿?]*$/i
+
+// Convierte un texto libre en un título limpio (sin saltos de línea, sin código, longitud acotada).
+function cleanTitleFromText(raw: string, max = 45): string {
+  const flat = raw.replace(/```[\s\S]*?```/g, ' ').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!flat) return ''
+  if (flat.length <= max) return flat
+  // Corta por palabra, no a mitad, y añade puntos suspensivos.
+  const cut = flat.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut).trim()}…`
+}
+
 function generateAutoTitle(message: string, referencedClientName?: string): string {
   const t = normalizeInput(message)
+
+  if (GREETING_ONLY.test(message.trim())) return 'Nueva consulta'
 
   if (/\b(ultimo|ultima) cliente\b/.test(t)) return 'Último cliente registrado'
   if (/\b(informe|resumen)\b/.test(t) && referencedClientName) return `Informe de ${referencedClientName}`
@@ -997,10 +1043,7 @@ function generateAutoTitle(message: string, referencedClientName?: string): stri
   if (/\b(cuantos clientes|numero de clientes)\b/.test(t)) return 'Total de clientes'
   if (/\b(buscar|busca|encuentra)\b/.test(t) && /\bcliente\b/.test(t)) return 'Búsqueda de cliente'
 
-  const trimmed = message.trim()
-  if (trimmed.length <= 40) return trimmed
-  const firstWords = trimmed.split(/\s+/).slice(0, 6).join(' ')
-  return firstWords.length < trimmed.length ? `${firstWords}…` : firstWords
+  return cleanTitleFromText(message) || 'Nueva consulta'
 }
 
 function safeErrorMessage(error: unknown) {
@@ -1566,6 +1609,12 @@ export default function AssistantPage() {
   const sendMessage = async (overrideContent?: string, options: { sender?: MessageSender } = {}) => {
     const content = (overrideContent ?? input).trim()
     if (!content || isTyping) return
+    // Control de coste: bloquea megaprompts / mensajes enormes ANTES de tocar el agente (0 tokens).
+    const guard = checkAssistantInput(content)
+    if (!guard.ok) {
+      toast.warning('Mensaje no enviado al asistente', { description: guard.message })
+      return
+    }
     const activeConversation = isRealMode ? await ensureRealConversation() : selected
     if (!activeConversation) return
     const conversationId = activeConversation.id
@@ -2633,13 +2682,21 @@ export default function AssistantPage() {
     setEditingTitle(true)
   }
 
+  // Renombrar desde la lista (doble clic): selecciona la conversación y abre el editor del cabecero,
+  // que ya está sincronizado con la lista. Evita un segundo estado de edición duplicado.
+  const startEditingTitleFor = (conv: Conversation) => {
+    setSelectedIds((prev) => ({ ...prev, [assistantMode]: conv.id }))
+    setTitleDraft(conv.clientName)
+    setEditingTitle(true)
+  }
+
   const cancelEditingTitle = () => {
     setEditingTitle(false)
     setTitleDraft('')
   }
 
   const saveTitle = async () => {
-    const trimmed = titleDraft.trim() || 'Consulta Asistente IA'
+    const trimmed = (titleDraft.trim() || 'Consulta Asistente IA').slice(0, 60)
     setEditingTitle(false)
     setTitleDraft('')
     if (!selected || trimmed === selected.clientName) return
@@ -3294,7 +3351,7 @@ export default function AssistantPage() {
               const isActive = conv.id === activeSelectedId
               return (
                 <li key={conv.id}>
-                  <button onClick={() => setSelectedIds((prev) => ({ ...prev, [assistantMode]: conv.id }))} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50/80' : 'hover:bg-gray-50')}>
+                  <button onClick={() => setSelectedIds((prev) => ({ ...prev, [assistantMode]: conv.id }))} onDoubleClick={(e) => { if (assistantMode === 'copilot') { e.preventDefault(); startEditingTitleFor(conv) } }} title={assistantMode === 'copilot' ? 'Doble clic para renombrar' : undefined} className={cn('flex w-full items-start gap-3 border-b border-gray-50 p-3.5 text-left transition-colors', isActive ? 'bg-indigo-50/80' : 'hover:bg-gray-50')}>
                     <div className="relative shrink-0">
                       <div className={cn('flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold', isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
                         {conv.clientAvatar || getInitials(conv.clientName)}
@@ -3303,15 +3360,19 @@ export default function AssistantPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
-                        <span className={cn('truncate text-xs font-semibold', isActive ? 'text-indigo-700' : 'text-gray-900')}>{conv.clientName}</span>
-                        <span className="shrink-0 text-[10px] text-gray-400">{conv.timestamp}</span>
+                        <span className={cn('truncate text-sm font-semibold', isActive ? 'text-indigo-700' : 'text-gray-900')}>{conv.clientName}</span>
+                        <span className="shrink-0 text-[10px] text-gray-400">{humanRelativeDate(conv.timestamp)}</span>
                       </div>
-                      <p className="mt-0.5 truncate text-[11px] text-gray-500">{conv.lastMessage}</p>
-                      <div className="mt-1 flex items-center gap-1">
-                        <Badge variant={channelVariant[conv.channel]} className="px-1.5 py-0 text-[10px]">{conv.channel}</Badge>
-                        <Badge variant={sentimentConfig[conv.sentiment].variant} className="px-1.5 py-0 text-[10px]">{sentimentConfig[conv.sentiment].label}</Badge>
-                        <Badge variant={conv.assistantMode === 'copilot' ? 'indigo' : 'warning'} className="px-1.5 py-0 text-[10px]">{conv.assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox'}</Badge>
-                      </div>
+                      {conv.lastMessage && conv.lastMessage !== conv.clientName ? (
+                        <p className="mt-0.5 truncate text-[11px] text-gray-500">{conv.lastMessage}</p>
+                      ) : assistantMode === 'inbox' ? (
+                        <div className="mt-1 flex items-center gap-1">
+                          <Badge variant={channelVariant[conv.channel]} className="px-1.5 py-0 text-[10px]">{conv.channel}</Badge>
+                          <Badge variant={sentimentConfig[conv.sentiment].variant} className="px-1.5 py-0 text-[10px]">{sentimentConfig[conv.sentiment].label}</Badge>
+                        </div>
+                      ) : (
+                        <p className="mt-0.5 truncate text-[11px] text-gray-400">Consulta del CRM</p>
+                      )}
                     </div>
                   </button>
                 </li>
@@ -3352,10 +3413,11 @@ export default function AssistantPage() {
                         <input
                           autoFocus
                           value={titleDraft}
+                          maxLength={60}
                           onChange={(e) => setTitleDraft(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Escape') cancelEditingTitle() }}
                           className="h-7 rounded-lg border border-indigo-300 bg-white px-2 text-sm font-semibold text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          style={{ width: Math.max(160, titleDraft.length * 8) }}
+                          style={{ width: Math.max(160, Math.min(360, titleDraft.length * 8)) }}
                         />
                         <button type="submit" className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50">Guardar</button>
                         <button type="button" onClick={cancelEditingTitle} className="rounded px-1.5 py-0.5 text-[11px] text-gray-400 hover:bg-gray-50">Cancelar</button>
@@ -3370,15 +3432,25 @@ export default function AssistantPage() {
                         )}
                       </div>
                     )}
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <Badge variant={channelVariant[selected.channel]} className="text-[10px]">{selected.channel}</Badge>
-                      {selected.intent && <span className="text-[10px] text-gray-400">· {selected.intent}</span>}
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-gray-400">
+                      {assistantMode === 'copilot' ? (
+                        <span>Asistente IA · datos reales del CRM</span>
+                      ) : (
+                        <>
+                          <Badge variant={channelVariant[selected.channel]} className="text-[10px]">{selected.channel}</Badge>
+                          {selected.intent && <span>· {selected.intent}</span>}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction(assistantMode === 'inbox' ? 'Preparar cita' : 'Crear cita')} aria-label="Preparar cita"><Phone className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleQuickAction(assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Preparar propuesta')} aria-label={assistantMode === 'inbox' ? 'Siguiente respuesta' : 'Preparar propuesta'}><Mail className="h-3.5 w-3.5" /></Button>
+                  {assistantMode === 'inbox' && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Preparar cita')} aria-label="Preparar cita"><Phone className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleQuickAction('Siguiente respuesta')} aria-label="Siguiente respuesta"><Mail className="h-3.5 w-3.5" /></Button>
+                    </>
+                  )}
                   <Button variant="secondary" size="sm" onClick={resolveConversation}>
                     <CheckCircle className="h-3.5 w-3.5" />
                     Resolver
@@ -3410,7 +3482,7 @@ export default function AssistantPage() {
                         )}>
                           {msg.content}
                         </div>
-                        <p className={cn('mt-1 text-[9px] text-gray-400', isUser ? 'text-right' : 'text-left')}>{msg.timestamp}</p>
+                        <p className={cn('mt-1 text-[9px] text-gray-400', isUser ? 'text-right' : 'text-left')}>{humanTimeShort(msg.timestamp)}</p>
                       </div>
                     </div>
                   )
@@ -3813,11 +3885,16 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pregunta por clientes, inmuebles, citas, comisiones…'} rows={1} className="max-h-28 flex-1 resize-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
-                  <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim()} loading={isTyping} aria-label="Enviar mensaje">
+                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pregunta por clientes, inmuebles, citas o comisiones…'} rows={1} className={cn('max-h-28 flex-1 resize-none rounded-xl border bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:bg-white focus:outline-none focus:ring-2', input.length > ASSISTANT_LIMITS.maxInputChars ? 'border-rose-300 focus:ring-rose-400' : 'border-gray-200 focus:border-transparent focus:ring-indigo-500')} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim() || input.length > ASSISTANT_LIMITS.maxInputChars} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
+                {input.length >= ASSISTANT_LIMITS.warnAtChars && (
+                  <p className={cn('mt-1 text-right text-[10px] tabular-nums', input.length > ASSISTANT_LIMITS.maxInputChars ? 'font-semibold text-rose-600' : 'text-gray-400')}>
+                    {input.length} / {ASSISTANT_LIMITS.maxInputChars}{input.length > ASSISTANT_LIMITS.maxInputChars ? ' · demasiado largo, resume la consulta' : ''}
+                  </p>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="text-[10px] text-gray-400">Acciones rápidas:</span>
                   {activeQuickPrompts.map(({ label }) => (
@@ -3863,7 +3940,7 @@ export default function AssistantPage() {
                 <div className="rounded-2xl border border-white bg-white/85 p-3 shadow-sm shadow-indigo-950/[0.04] ring-1 ring-indigo-100/60">
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-sm font-bold text-white shadow-sm shadow-indigo-600/20">{selected.clientAvatar || getInitials(selected.clientName)}</div>
-                    <div><p className="text-sm font-semibold text-gray-950">{selected.clientName}</p><p className="text-[10px] text-gray-500">{selected.channel} · {selected.intent ?? 'Conversación activa'}</p></div>
+                    <div><p className="text-sm font-semibold text-gray-950">{selected.clientName}</p><p className="text-[10px] text-gray-500">{assistantMode === 'copilot' ? 'Asistente IA · datos reales del CRM' : `${selected.channel} · ${selected.intent ?? 'Conversación activa'}`}</p></div>
                   </div>
                 </div>
 
