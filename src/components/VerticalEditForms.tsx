@@ -11,13 +11,16 @@
 // satisfy `react-hooks/set-state-in-effect` — switching to a different entity
 // remounts the inner form via the parent's `key` prop and resets cleanly.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Archive } from 'lucide-react'
 import { SideDrawer } from '@/components/SideDrawer'
 import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
+import { LocationAutocomplete } from '@/components/LocationAutocomplete'
+import { searchCities, searchAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
+import { normalizeLocationText, normalizeLocationForSave } from '@/lib/locations/normalize-location'
 import { ClientPicker } from '@/components/ClientPicker'
 import {
   updateOpportunity,
@@ -448,6 +451,7 @@ function EditPropertyInner({
     : [{ id: property.property_type, label: propLabel(PROPERTY_TYPE_LABEL, property.property_type) }, ...PROPERTY_TYPE_OPTIONS]
   const [city, setCity] = useState(() => property.city ?? '')
   const [area, setArea] = useState(() => property.area ?? '')
+  const areaInputRef = useRef<HTMLInputElement>(null)
   const [price, setPrice] = useState(() => (property.price != null ? String(property.price) : ''))
   const [ownerName, setOwnerName] = useState(() => property.owner_name ?? '')
   const [ownerPhone, setOwnerPhone] = useState(() => property.owner_phone ?? '')
@@ -475,8 +479,8 @@ function EditPropertyInner({
         propertyType,
         operationType,
         status,
-        city: city.trim() || null,
-        area: area.trim() || null,
+        city: normalizeLocationForSave(city) || null,
+        area: normalizeLocationForSave(area) || null,
         price: price === '' ? null : Number(price) || null,
         ownerName: ownerName.trim() || null,
         ownerPhone: ownerPhone.trim() || null,
@@ -556,8 +560,29 @@ function EditPropertyInner({
           />
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Ciudad" value={city} onChange={(e) => setCity(e.target.value)} />
-          <Input label="Zona / barrio" value={area} onChange={(e) => setArea(e.target.value)} />
+          <LocationAutocomplete
+            label="Ciudad"
+            placeholder="Bilbao, Madrid, Marbella…"
+            value={city}
+            onChange={setCity}
+            suggestions={searchCities(city)}
+            onCommit={(v) => { if (v && findCity(v)) areaInputRef.current?.focus() }}
+          />
+          <LocationAutocomplete
+            label="Zona / barrio"
+            placeholder={findCity(city) ? 'Deusto, Abando…' : 'Centro, La Cala…'}
+            value={area}
+            onChange={setArea}
+            inputRef={areaInputRef}
+            suggestions={searchAreas(city, area).map((a) => ({ value: a }))}
+            helperText={
+              !city.trim()
+                ? 'Escribe primero la ciudad para ver barrios sugeridos.'
+                : area.trim() && findCity(city) && !isKnownArea(city, area)
+                  ? `“${normalizeLocationText(area)}” no figura en ${normalizeLocationText(city)}; se guardará como zona personalizada.`
+                  : undefined
+            }
+          />
         </div>
         <Input label="Precio (€)" type="number" min="0" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">

@@ -6,11 +6,14 @@
 // every UI entry point. El Asistente IA hits the parallel helpers in
 // vertical-server.ts; both paths converge on the same Supabase tables.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { SideDrawer } from '@/components/SideDrawer'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
+import { LocationAutocomplete } from '@/components/LocationAutocomplete'
+import { searchCities, searchAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
+import { normalizeLocationText, normalizeLocationForSave } from '@/lib/locations/normalize-location'
 import {
   createOpportunity,
   createServiceCase,
@@ -557,6 +560,7 @@ export function NewPropertyDrawer({
   const [status, setStatus] = useState('prospecting')
   const [city, setCity] = useState('')
   const [area, setArea] = useState('')
+  const areaInputRef = useRef<HTMLInputElement>(null)
   const [price, setPrice] = useState('')
   const [ownerName, setOwnerName] = useState(defaultClientName ?? '')
   const [ownerPhone, setOwnerPhone] = useState('')
@@ -604,8 +608,8 @@ export function NewPropertyDrawer({
         propertyType,
         operationType,
         status,
-        city: city.trim() || undefined,
-        area: area.trim() || undefined,
+        city: normalizeLocationForSave(city) || undefined,
+        area: normalizeLocationForSave(area) || undefined,
         price: price ? Number(price) || null : null,
         ownerName: ownerName.trim() || undefined,
         ownerPhone: ownerPhone.trim() || undefined,
@@ -684,17 +688,28 @@ export function NewPropertyDrawer({
           />
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Input
+          <LocationAutocomplete
             label="Ciudad"
-            placeholder="Málaga, Marbella, Madrid…"
+            placeholder="Bilbao, Madrid, Marbella…"
             value={city}
-            onChange={(e) => setCity(e.target.value)}
+            onChange={setCity}
+            suggestions={searchCities(city)}
+            onCommit={(v) => { if (v && findCity(v)) areaInputRef.current?.focus() }}
           />
-          <Input
+          <LocationAutocomplete
             label="Zona / barrio"
-            placeholder="Centro, La Cala…"
+            placeholder={findCity(city) ? 'Deusto, Abando…' : 'Centro, La Cala…'}
             value={area}
-            onChange={(e) => setArea(e.target.value)}
+            onChange={setArea}
+            inputRef={areaInputRef}
+            suggestions={searchAreas(city, area).map((a) => ({ value: a }))}
+            helperText={
+              !city.trim()
+                ? 'Escribe primero la ciudad para ver barrios sugeridos.'
+                : area.trim() && findCity(city) && !isKnownArea(city, area)
+                  ? `“${normalizeLocationText(area)}” no figura en ${normalizeLocationText(city)}; se guardará como zona personalizada.`
+                  : undefined
+            }
           />
         </div>
         <Input
