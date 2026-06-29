@@ -1,26 +1,48 @@
-MICROPARCHE P16 — Configuración sin roadmap (reemplaza el bloque P14 en el Agent V2 live)
+MICROPARCHE P16 — Configuración sin roadmap (actualiza el bloque P14 en el Agent V2 live)
 =========================================================================================
 
 POR QUÉ
 -------
 En P16 se rediseñó Configuración: fuera "Próximamente" y la sección de Notificaciones; ahora hay
 Perfil (solo lectura), Workspace / Empresa (EDITABLE: nombre, descripción, tipo) y Equipo (invitar
-miembros). El bloque de Configuración que se insertó en producción en P14 (con "Notificaciones
-PRÓXIMAMENTE") quedó DESALINEADO con la UI real. Hay que actualizarlo.
+miembros). El bloque insertado en producción en P14 quedó DESALINEADO. Hay que actualizarlo.
 
-QUÉ HACER (INSERT quirúrgico, estilo P12.7/P14, con autorización previa)
-------------------------------------------------------------------------
-En el systemMessage VIVO del nodo "CRM Agent" (param options.systemMessage), localizar la línea que
-empieza por "- Configuración:" (la que se insertó en P14) y SUSTITUIRLA ENTERA por la LÍNEA NUEVA de
-abajo. No tocar nada más: ni el prefijo "=", ni las expresiones {{ ... }}, ni credenciales, conexiones,
-memory, webhook ni tools. PUT por REST API (sin exportar/importar). No imprimir secretos.
+QUÉ HACER (INSERT/REPLACE quirúrgico, estilo P12.7/P14, con autorización previa)
+--------------------------------------------------------------------------------
+En el systemMessage VIVO del nodo "CRM Agent" (param options.systemMessage) hay DOS sitios que vienen
+de P14. Sustituir exactamente:
 
-LÍNEA NUEVA (sustituye a la "- Configuración:" actual)
-------------------------------------------------------
-- Configuración: pantalla de ajustes del CRM. RAZONA por bloques según su estado real; no memorices una respuesta fija ni inventes opciones. Bloques actuales: Perfil (SOLO LECTURA: tu nombre, email, rol, idioma y estado de la cuenta; informativo); Workspace / Empresa (EDITABLE: nombre comercial, descripción y tipo de workspace de la inmobiliaria; se guardan de verdad y dan contexto al CRM y a ti); Equipo (ACTIVO: invitar a miembros del equipo —comerciales, administradores, gestores— por email con un rol; la invitación envía un enlace seguro para fijar la contraseña; NO es para clientes finales); Asistente IA (ACTIVO: acceso al asistente, ya en el menú lateral). NO hay sección de Notificaciones en Configuración: si preguntan por notificaciones/avisos automáticos/resumen diario, di con naturalidad que ahora mismo el CRM no tiene notificaciones automáticas activas (no digas "Próximamente" salvo que pregunten explícitamente por una función no disponible). NO inventes zonas, plantillas, permisos avanzados, tipos de inmueble configurables ni estados que no consten; si no tienes certeza, explica lo visible y ofrece guiar por la pantalla. Si preguntan "qué es / cómo funciona Configuración", EXPLÍCALO como guía de producto; NUNCA digas "no tengo acceso". Si la pantalla cambia, razona por el estado real, no por esta lista.
+(1) La línea de la lista de módulos que empieza por "* Configuración:".
+(2) Los 5 bullets de la sección "CONFIGURACIÓN / AJUSTES DEL CRM:" (Mi cuenta / Tipo de workspace /
+    Equipo / Asistente IA / Notificaciones).
+
+No tocar nada más: ni el prefijo "=", ni las expresiones {{ ... }}, ni la cabecera de la sección, ni
+las "Reglas de Configuración", ni credenciales/conexiones/memory/webhook/tools. PUT por REST API. No
+imprimir secretos.
+
+(1) LÍNEA DE LISTA — sustituir
+------------------------------
+ANTES:
+* Configuración: ajustes del CRM (Mi cuenta, Tipo de workspace, Equipo, Asistente IA y Notificaciones); explícala por su estado real.
+DESPUÉS:
+* Configuración: ajustes del CRM (Perfil, Workspace/Empresa, Equipo y Asistente IA); explícala por su estado real.
+
+(2) LOS 5 BULLETS DE LA SECCIÓN — sustituir el bloque contiguo
+-------------------------------------------------------------
+ANTES (5 líneas):
+* Mi cuenta: solo lectura (nombre del workspace, administrador y estado; informativo, no se edita ahí).
+* Tipo de workspace: configurable (Inmobiliaria, Extranjería, Servicios, Mixto o General); se guarda y da contexto al CRM y a ti.
+* Equipo: activo; se ven los usuarios y se invita por email con un rol, enviando un enlace seguro para que definan su contraseña.
+* Asistente IA: activo; consulta datos reales, explica módulos y prepara acciones con confirmación, y protege el coste bloqueando prompts largos o técnicos.
+* Notificaciones: previstas, todavía no activas; el CRM aún no envía avisos automáticos ni resúmenes por email.
+DESPUÉS (5 líneas):
+* Perfil: solo lectura (tu nombre, email, rol, idioma y estado de la cuenta; informativo).
+* Workspace / Empresa: editable; nombre comercial, descripción y tipo de workspace de la inmobiliaria, se guardan de verdad y dan contexto al CRM y a ti.
+* Equipo: activo; invita a miembros del equipo (comerciales, administradores, gestores) por email con un rol, con enlace seguro para fijar la contraseña. No es para clientes finales.
+* Asistente IA: activo; acceso al asistente, ya en el menú lateral.
+* No hay sección de Notificaciones: si preguntan por avisos automáticos o resumen diario, di con naturalidad que ahora mismo el CRM no tiene notificaciones automáticas activas (no digas "Próximamente" salvo que pregunten explícitamente por una función no disponible).
 
 MANTENIMIENTO
 -------------
-Alineado 1:1 con `src/lib/product-capabilities.ts` y con el bloque del fallback local
-(`src/lib/agents/nowlabs-main-agent.ts`, sección "SECCIONES DEL CRM → Configuración"). Si cambia el
-estado real de un bloque, actualizar los tres a la vez.
+Alineado con `src/lib/product-capabilities.ts` y el fallback local
+(`src/lib/agents/nowlabs-main-agent.ts`). Si cambia el estado real de un bloque, actualizar los tres.
