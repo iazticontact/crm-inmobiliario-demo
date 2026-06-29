@@ -26,12 +26,12 @@ import {
 
 type PersistenceState = 'local' | 'workspace' | 'unknown'
 
-const OPTIONS: Array<{ id: WorkspaceVertical; label: string; description: string; tone: string }> = [
-  { id: 'general',                label: 'General',         description: 'Pipeline genérico sin opinión por defecto.',                         tone: 'border-slate-100 bg-slate-50' },
-  { id: 'real_estate',            label: 'Inmobiliaria',    description: 'Captaciones, visitas y operaciones de venta o alquiler.',           tone: 'border-sky-100 bg-sky-50' },
-  { id: 'immigration',            label: 'Extranjería',     description: 'Trámites NIE, arraigo, reagrupación, etc. con checklist.',          tone: 'border-violet-100 bg-violet-50' },
-  { id: 'professional_services',  label: 'Servicios',       description: 'Asesorías, consultoras y servicios profesionales recurrentes.',     tone: 'border-emerald-100 bg-emerald-50' },
-  { id: 'mixed',                  label: 'Mixto',           description: 'El workspace opera varios verticales a la vez.',                     tone: 'border-amber-100 bg-amber-50' },
+const OPTIONS: Array<{ id: WorkspaceVertical; label: string; description: string; tone: string; recommended?: boolean }> = [
+  { id: 'general',                label: 'General',         description: 'Uso genérico del CRM, sin un sector concreto.',                      tone: 'border-slate-100 bg-slate-50' },
+  { id: 'real_estate',            label: 'Inmobiliaria',    description: 'Clientes, inmuebles, visitas, operaciones, trámites y comisiones.',  tone: 'border-sky-100 bg-sky-50', recommended: true },
+  { id: 'immigration',            label: 'Extranjería',     description: 'Documentación, trámites, citas y vencimientos.',                     tone: 'border-violet-100 bg-violet-50' },
+  { id: 'professional_services',  label: 'Servicios',       description: 'Clientes, tareas, servicios recurrentes y seguimiento.',             tone: 'border-emerald-100 bg-emerald-50' },
+  { id: 'mixed',                  label: 'Mixto',           description: 'Varias líneas de negocio en un mismo workspace.',                    tone: 'border-amber-100 bg-amber-50' },
 ]
 
 export function VerticalPreferenceCard() {
@@ -93,7 +93,7 @@ export function VerticalPreferenceCard() {
       setSaved(selected)
       setPersistence('local')
       if (workspaceId) {
-        toast.warning('Guardado solo localmente', { description: 'No se pudo escribir en workspace_settings — revisa RLS o conectividad.' })
+        toast.warning('Guardado solo en este navegador', { description: 'No se pudo guardar en el workspace. Revisa tu conexión e inténtalo de nuevo.' })
       } else {
         toast.info('Guardado solo en este navegador', { description: 'Inicia sesión real para persistir entre dispositivos.' })
       }
@@ -111,8 +111,8 @@ export function VerticalPreferenceCard() {
 
   return (
     <SectionCard
-      title="Vertical del workspace"
-      description="Indica qué tipo de operación domina en este workspace. El Asistente IA y la sección Negocio lo usarán como contexto por defecto."
+      title="Tipo de workspace"
+      description="Indica qué tipo de operación domina en este workspace. Adapta el contexto del CRM, las sugerencias y el Asistente IA."
       action={
         <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium', statusBadge.tone)}>
           {statusBadge.icon}
@@ -141,6 +141,11 @@ export function VerticalPreferenceCard() {
                 {active && <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />}
               </div>
               <p className="mt-2 text-[11px] leading-snug text-gray-500">{opt.description}</p>
+              {opt.recommended && !active && (
+                <span className="mt-2 inline-flex w-fit items-center rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 ring-1 ring-indigo-100">
+                  Recomendado para este CRM
+                </span>
+              )}
             </button>
           )
         })}
@@ -151,11 +156,11 @@ export function VerticalPreferenceCard() {
           {saved
             ? <>Guardado como <span className="font-semibold text-gray-700">{OPTIONS.find((o) => o.id === saved)?.label}</span>{' '}
                 {persistence === 'workspace'
-                  ? <>en <code className="rounded bg-white px-1">workspace_settings</code> (multi-dispositivo).</>
+                  ? <>y aplicado en todos los dispositivos del workspace.</>
                   : <>en este navegador (sin workspace conectado).</>}
               </>
             : workspaceId
-              ? <>Se guardará en <code className="rounded bg-white px-1">workspace_settings</code> y se aplicará en todos los dispositivos del workspace.</>
+              ? <>Se guardará y se aplicará en todos los dispositivos del workspace.</>
               : <>Sin sesión real: se guardará solo en este navegador.</>}
         </p>
         <Button variant="primary" size="sm" onClick={save} disabled={loading || saving || selected === saved}>

@@ -249,4 +249,33 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: ['lo he creado', 'lo he movido', 'lo he borrado', 'lo he enviado', 'ya está hecho'],
     notes: 'CERO HUMO genérico: ninguna escritura se ejecuta desde el agente; nunca afirmar ejecución. La confirmación del usuario NO equivale a ejecución.',
   },
+  // --- Razonamiento funcional de Configuración (P14) — sin respuesta memorizada, sin inventar ---
+  {
+    question: '¿Qué hay en Configuración? / ¿para qué sirve la pantalla de Configuración?',
+    expectedTool: 'none',
+    mustMention: ['workspace', 'equipo'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'zonas', 'plantillas', 'permisos avanzados', 'tipos de inmueble'],
+    notes: 'RAZONA por bloques reales (Mi cuenta, Tipo de workspace, Equipo, Asistente IA, Notificaciones). NUNCA inventar zonas/plantillas/permisos avanzados/tipos de inmueble configurables. Alineado con product-capabilities.ts.',
+  },
+  {
+    question: '¿Qué hace "Invitar usuario"?',
+    expectedTool: 'none',
+    mustMention: ['email'],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Equipo está ACTIVO: invitar por email con rol envía un enlace seguro para fijar contraseña. Explicarlo como activo (no como próximo) porque /api/team/users lo implementa de verdad.',
+  },
+  {
+    question: '¿Me llegan notificaciones o un resumen diario por email?',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'te llegará un email', 'recibirás un resumen', 'ya está activado', 'se envían automáticamente'],
+    notes: 'Notificaciones = PRÓXIMAMENTE. NO afirmar que se envían avisos/emails/resúmenes. Decir que aún no hay envíos automáticos, de forma honesta.',
+  },
+  {
+    question: '¿Puedo cambiar el nombre del workspace o crear permisos avanzados en Configuración?',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'permisos avanzados', 'puedes editar el nombre del workspace'],
+    notes: 'Mi cuenta es SOLO LECTURA; no hay permisos avanzados. No prometer edición ni funciones inexistentes; explicar lo visible y ofrecer guiar.',
+  },
 ]

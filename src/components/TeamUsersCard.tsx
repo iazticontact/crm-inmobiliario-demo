@@ -94,12 +94,15 @@ export function TeamUsersCard({
   return (
     <SectionCard
       title="Equipo"
-      description="Usuarios con acceso al workspace."
+      description="Usuarios con acceso al workspace. Invita por email con un rol; recibirán un enlace seguro para definir su contraseña."
       action={
-        <Button size="sm" onClick={() => setInviteOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          Invitar usuario
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant="success" dot>Activo</Badge>
+          <Button size="sm" onClick={() => setInviteOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Invitar usuario
+          </Button>
+        </div>
       }
     >
       {/* Un fallo de carga del equipo no se le enseña al cliente como una alerta

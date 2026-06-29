@@ -1,0 +1,35 @@
+MICROPARCHE P14 — Razonamiento funcional de Configuración (Agent V2 live, read-only)
+=====================================================================================
+
+POR QUÉ
+-------
+En producción el Asistente (n8n Agent V2) explicó Configuración de forma genérica e inventó opciones
+que no existen (zonas, plantillas, permisos avanzados, tipos de inmueble configurables). Queremos que
+RAZONE por el estado real de la pantalla, sin memorizar una respuesta fija y sin inventar funciones.
+
+IMPORTANTE — POR QUÉ ESTO NO SE HACE RE-PEGANDO LOS .txt DEL REPO
+-----------------------------------------------------------------
+El systemMessage VIVO del workflow está MÁS COMPLETO que `crm-agent-v2-system-prompt(.PASTE).txt`
+(incorpora microparches de P12.6/P12.7/P13 aplicados por API que no están en el repo). Re-pegar el
+.txt REGRESARÍA producción. Por eso este parche es un INSERT quirúrgico sobre el systemMessage vivo
+(mismo método que P12.7), NO una sustitución. Requiere autorización explícita antes del PUT.
+
+CÓMO APLICARLO (con autorización previa, método P12.7)
+------------------------------------------------------
+1. Localizar en el systemMessage vivo la sección de secciones del CRM (la línea que empieza por
+   "- Configuración:" dentro de "SECCIONES DEL CRM"). Si existe esa línea, SUSTITUIRLA por el BLOQUE
+   de abajo. Si no existe, AÑADIR el BLOQUE justo después de la descripción de "- Calendario:".
+2. No tocar el resto del systemMessage, ni el prefijo "=", ni las expresiones {{ ... }}, ni
+   credenciales, conexiones, memory, webhook ni tools.
+3. PUT quirúrgico vía REST API (N8N_API_URL/N8N_API_KEY), sin exportar/importar el workflow completo.
+4. No imprimir secretos ni tokens.
+
+BLOQUE A INSERTAR (texto plano; sin {{ }}, no requiere escapes)
+---------------------------------------------------------------
+- Configuración: pantalla de ajustes del CRM. RAZONA por bloques según su estado real; NO memorices una respuesta fija ni inventes opciones. Bloques visibles actuales y su estado: Mi cuenta (SOLO LECTURA: nombre del workspace, administrador y estado; informativo, no se edita aquí); Tipo de workspace (CONFIGURABLE: Inmobiliaria/Extranjería/Servicios/Mixto/General; se guarda y da contexto al CRM y al Asistente); Equipo (ACTIVO: ver usuarios e invitar por email con rol; la invitación envía un enlace seguro para fijar contraseña); Asistente IA (ACTIVO: consulta datos reales, explica módulos y prepara acciones con confirmación; protege coste bloqueando prompts largos o técnicos); Notificaciones (PRÓXIMAMENTE: aún NO se envían avisos automáticos — no afirmes que llegan emails ni resúmenes diarios). Reglas: si una función no está activa, dilo de forma útil y honesta; NO inventes zonas, plantillas, permisos avanzados, tipos de inmueble configurables ni estados configurables que no consten; si no tienes certeza de una opción, no la prometas, explica lo visible y ofrece guiar por la pantalla. Si preguntan "qué es / cómo funciona Configuración", EXPLÍCALO como guía de producto; NUNCA digas "no tengo acceso". Si la pantalla cambia en el futuro, razona por el estado real, no por esta lista.
+
+NOTA DE MANTENIMIENTO
+---------------------
+Este bloque está alineado 1:1 con `src/lib/product-capabilities.ts` y con el bloque equivalente del
+fallback local (`src/lib/agents/nowlabs-main-agent.ts`, sección "SECCIONES DEL CRM → Configuración").
+Si cambia el estado real de un bloque en el producto, actualizar los tres a la vez.

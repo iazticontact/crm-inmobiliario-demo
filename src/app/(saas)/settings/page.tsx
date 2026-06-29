@@ -35,6 +35,7 @@ import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead,
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import { getErrorMessage } from '@/lib/error-utils'
+import { getCapability, CAPABILITY_STATE_LABEL, CAPABILITY_STATE_VARIANT } from '@/lib/product-capabilities'
 import {
   createActivity,
   disconnectGoogleCalendar,
@@ -80,7 +81,7 @@ const integrations: IntegrationCard[] = [
   { id: 'email', name: 'Email', description: 'Emails transaccionales y secuencias con dominio propio.', status: 'pending', icon: <Mail className="h-5 w-5" />, category: 'Email' },
   { id: 'storage', name: 'Documentos y PDFs', description: 'Almacenamiento de propuestas, facturas y adjuntos del CRM.', status: 'pending_config', icon: <Database className="h-5 w-5" />, category: 'Storage' },
   { id: 'stripe', name: 'Cobros y pagos', description: 'Cobros y eventos de pago, fase posterior.', status: 'pending', icon: <Shield className="h-5 w-5" />, category: 'Pagos' },
-  { id: 'slack', name: 'Slack', description: 'Alertas internas de leads y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
+  { id: 'slack', name: 'Slack', description: 'Alertas internas de clientes y conversaciones urgentes.', status: 'disconnected', icon: <Bell className="h-5 w-5" />, category: 'Equipo' },
 ]
 
 const architectureCards = [
@@ -90,11 +91,13 @@ const architectureCards = [
   { title: 'Canales', label: 'WhatsApp, Email y pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
 ]
 
+// Notificaciones: TODAVÍA no hay backend real (sin cron, sin email, sin tabla de preferencias). Se
+// muestran como "Próximamente" — nunca como toggles activos que no hacen nada (cero humo, P14).
 const notifDefaults = [
-  { key: 'leads', label: 'Nuevos leads', description: 'Cuando se registra un nuevo cliente o lead en el CRM', enabled: true },
-  { key: 'invoices', label: 'Facturas vencidas', description: 'Alertas de pagos pendientes y recordatorios IA', enabled: true },
-  { key: 'dailyReport', label: 'Resumen diario IA', description: 'Briefing diario con tareas, citas y siguientes acciones', enabled: true },
-  { key: 'urgent', label: 'Conversaciones urgentes', description: 'Cuando la IA detecta sentimiento negativo o alta intencion', enabled: false },
+  { key: 'clients', label: 'Nuevos clientes', description: 'Aviso cuando se registra un nuevo cliente en el CRM.' },
+  { key: 'invoices', label: 'Facturas vencidas', description: 'Recordatorios de pagos pendientes.' },
+  { key: 'dailyReport', label: 'Resumen diario del CRM', description: 'Briefing diario con tareas, citas y siguientes acciones.' },
+  { key: 'urgent', label: 'Conversaciones urgentes', description: 'Aviso cuando una conversación requiere atención prioritaria.' },
 ]
 
 const supabaseReadiness = [
@@ -160,9 +163,6 @@ function splitWebhookUrl(value: string) {
 
 export default function SettingsPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
-  const [notifications, setNotifications] = useState<Record<string, boolean>>(
-    Object.fromEntries(notifDefaults.map((n) => [n.key, n.enabled]))
-  )
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatus>>(
     Object.fromEntries(integrations.map((intg) => [intg.id, intg.status]))
   )
@@ -211,7 +211,7 @@ export default function SettingsPage() {
     { label: 'Nombre del workspace', value: 'Cargando...', icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: 'Cargando...', icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: 'Cargando', icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
   ] : currentUser.isDemo ? [
     { label: 'Nombre del workspace', value: 'Workspace de prueba', icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: 'admin@inmobiliaria-demo.example', icon: <Mail className="h-4 w-4" /> },
@@ -221,7 +221,7 @@ export default function SettingsPage() {
     { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
     { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
     { label: 'Estado', value: currentUser.trialLabel, icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Espanol', icon: <User className="h-4 w-4" /> },
+    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
   ]
 
   const composeFlowUrl = useCallback((event: string) => {
@@ -413,13 +413,6 @@ export default function SettingsPage() {
     }
   }, [])
 
-  const toggleNotif = (key: string) => {
-    const next = !notifications[key]
-    setNotifications((prev) => ({ ...prev, [key]: next }))
-    const label = notifDefaults.find((n) => n.key === key)?.label ?? key
-    toast.success(`Notificacion ${next ? 'activada' : 'desactivada'}`, { description: label })
-  }
-
   const handleSimulateWA = async () => {
     setSimulatingWA(true)
     const wid = workspaceId || currentUser.workspaceId || undefined
@@ -446,7 +439,7 @@ export default function SettingsPage() {
           description: `${result.lead.phone} — "${result.lead.message.slice(0, 60)}..."`,
         })
       } else {
-        toast.success(`Lead simulado: ${result.lead.name}`, {
+        toast.success(`Mensaje simulado: ${result.lead.name}`, {
           description: `${result.lead.phone} · "${result.lead.message.slice(0, 60)}..."`,
         })
       }
@@ -461,7 +454,7 @@ export default function SettingsPage() {
       ].filter(Boolean).join(' - ')
 
       if (isDev || result.step || result.message || result.error) {
-        toast.error('Error al simular lead', {
+        toast.error('Error al simular mensaje', {
           description: isDev
             ? devDescription
             : 'No se pudo guardar el mensaje entrante. Revisa la sesion y la configuracion del workspace.',
@@ -469,7 +462,7 @@ export default function SettingsPage() {
         return
       }
 
-      toast.error('Error al simular lead', {
+      toast.error('Error al simular mensaje', {
         description: 'Revisa la configuración de Supabase o las políticas RLS.',
       })
     }
@@ -862,7 +855,11 @@ export default function SettingsPage() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <VerticalPreferenceCard />
-          <SectionCard title="Mi cuenta" description="Identidad y estado de tu workspace.">
+          <SectionCard
+            title="Mi cuenta"
+            description="Identidad y estado de tu workspace. Datos informativos del administrador."
+            action={<Badge variant={CAPABILITY_STATE_VARIANT.readonly}>{CAPABILITY_STATE_LABEL.readonly}</Badge>}
+          >
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
@@ -1105,6 +1102,7 @@ export default function SettingsPage() {
           <SectionCard
             title="Asistente IA"
             description="Tu asistente del CRM, incluido y listo para usar."
+            action={<Badge variant={CAPABILITY_STATE_VARIANT.active} dot>{CAPABILITY_STATE_LABEL.active}</Badge>}
           >
             <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="flex items-start gap-3">
@@ -1114,15 +1112,23 @@ export default function SettingsPage() {
                 <div>
                   <p className="text-sm font-semibold text-indigo-900">Asistente IA incluido</p>
                   <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    El asistente está configurado y listo para ayudarte con clientes, operaciones, tareas y calendario. No necesitas configurar nada.
+                    Consulta datos reales del CRM, explica cómo usar los módulos y prepara acciones de forma segura. Las acciones no conectadas se dejan preparadas para realizarlas desde la interfaz. También bloquea prompts largos o técnicos para proteger el coste y el rendimiento.
                   </p>
+                  <a
+                    href="/assistant"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-600/20 transition-colors hover:bg-indigo-700"
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    Abrir Asistente IA
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </a>
                 </div>
               </div>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {[
-                { label: 'Asistente IA', detail: 'Activo', desc: 'Consulta y resume datos del CRM al instante' },
-                { label: 'Soporte y actualizaciones', detail: 'Incluidos', desc: 'Mantenimiento del producto sin coste extra' },
+                { label: 'Consulta de datos', detail: 'Activo', desc: 'Lee clientes, inmuebles, operaciones, trámites y calendario reales.' },
+                { label: 'Acciones', detail: 'Con confirmación', desc: 'Prepara la acción y tú la confirmas; no escribe nada por su cuenta.' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
                   <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
@@ -1377,7 +1383,7 @@ export default function SettingsPage() {
           <SectionCard
             title={SHOW_INTERNAL_TECH ? 'WhatsApp Business' : 'WhatsApp'}
             description={SHOW_INTERNAL_TECH
-              ? 'Conectar número verificado via Meta Business API para recibir leads entrantes y activar Inbox Assistant'
+              ? 'Conectar número verificado via Meta Business API para recibir mensajes entrantes y activar Inbox Assistant'
               : 'Conexión de WhatsApp gestionada por el equipo técnico.'}
             action={
               SHOW_INTERNAL_TECH && waConnection && String(waConnection.status ?? '') !== 'disconnected'
@@ -1520,7 +1526,7 @@ export default function SettingsPage() {
                       </Button>
                       <Button size="sm" variant="secondary" loading={simulatingWA} onClick={handleSimulateWA}>
                         <Play className="h-3.5 w-3.5" />
-                        {simulatingWA ? 'Simulando...' : 'Simular lead'}
+                        {simulatingWA ? 'Simulando...' : 'Simular mensaje'}
                       </Button>
                     </div>
                     <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
@@ -1730,7 +1736,15 @@ export default function SettingsPage() {
           </SectionCard>
           )}
 
-          <SectionCard title="Notificaciones" description="Alertas del workspace">
+          <SectionCard
+            title="Notificaciones"
+            description="Avisos automáticos del workspace."
+            action={<Badge variant={CAPABILITY_STATE_VARIANT.upcoming} dot>{CAPABILITY_STATE_LABEL.upcoming}</Badge>}
+          >
+            <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-800">
+              <Bell className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{getCapability('settings.notifications')?.userExplanation ?? 'Las notificaciones automáticas estarán disponibles en una fase posterior. Ahora mismo no se envían avisos automáticos.'}</span>
+            </div>
             <div className="space-y-3">
               {notifDefaults.filter((n) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['invoices', 'urgent'].includes(n.key)).map(({ key, label, description }) => (
                 <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
@@ -1738,15 +1752,7 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium text-gray-900">{label}</p>
                     <p className="mt-0.5 text-xs leading-5 text-gray-500">{description}</p>
                   </div>
-                  <button
-                    onClick={() => toggleNotif(key)}
-                    className={cn(
-                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-                      notifications[key] ? 'bg-indigo-600' : 'bg-gray-200'
-                    )}
-                  >
-                    <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform', notifications[key] ? 'translate-x-4' : 'translate-x-0')} />
-                  </button>
+                  <Badge variant={CAPABILITY_STATE_VARIANT.upcoming} className="shrink-0">{CAPABILITY_STATE_LABEL.upcoming}</Badge>
                 </div>
               ))}
             </div>
