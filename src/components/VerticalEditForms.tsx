@@ -11,7 +11,7 @@
 // satisfy `react-hooks/set-state-in-effect` — switching to a different entity
 // remounts the inner form via the parent's `key` prop and resets cleanly.
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Archive } from 'lucide-react'
 import { SideDrawer } from '@/components/SideDrawer'
@@ -19,9 +19,7 @@ import { PropertyPhotosManager } from '@/components/PropertyPhotosManager'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
 import { LocationAutocomplete } from '@/components/LocationAutocomplete'
-import { suggestCities, suggestAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
-import { getWorkspaceLocations, workspaceAreasFor, type WorkspaceLocations } from '@/lib/locations/workspace-locations'
-import { normalizeLocationText, normalizeLocationForSave, sameLocation } from '@/lib/locations/normalize-location'
+import { normalizeLocationForSave } from '@/lib/locations/normalize-location'
 import { ClientPicker } from '@/components/ClientPicker'
 import {
   updateOpportunity,
@@ -453,31 +451,12 @@ function EditPropertyInner({
   const [city, setCity] = useState(() => property.city ?? '')
   const [area, setArea] = useState(() => property.area ?? '')
   const areaInputRef = useRef<HTMLInputElement>(null)
-  const [wsLoc, setWsLoc] = useState<WorkspaceLocations>({ cities: [], areasByCity: {}, allAreas: [] })
-  const [wsLocLoading, setWsLocLoading] = useState(false)
   const [price, setPrice] = useState(() => (property.price != null ? String(property.price) : ''))
   const [ownerName, setOwnerName] = useState(() => property.owner_name ?? '')
   const [ownerPhone, setOwnerPhone] = useState(() => property.owner_phone ?? '')
   const [clientId, setClientId] = useState<string | null>(() => property.client_id ?? null)
   const [notes, setNotes] = useState(() => property.notes ?? '')
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!workspaceId) return
-    let cancelled = false
-    queueMicrotask(() => {
-      setWsLocLoading(true)
-      void getWorkspaceLocations(workspaceId)
-        .then((loc) => { if (!cancelled) setWsLoc(loc) })
-        .finally(() => { if (!cancelled) setWsLocLoading(false) })
-    })
-    return () => { cancelled = true }
-  }, [workspaceId])
-
-  const cityS = suggestCities(city, wsLoc.cities)
-  const areaWsValues = workspaceAreasFor(wsLoc, city)
-  const areaS = suggestAreas(city, area, areaWsValues)
-  const areaRecognized = isKnownArea(city, area) || areaWsValues.some((a) => sameLocation(a, area))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -581,31 +560,22 @@ function EditPropertyInner({
         )}
         <div className="grid grid-cols-2 gap-3">
           <LocationAutocomplete
-            label="Ciudad"
-            placeholder="Bilbao, Madrid, Marbella…"
+            label="Localidad / municipio"
+            placeholder="Bilbao, Getxo, Madrid…"
             value={city}
             onChange={setCity}
-            suggestions={cityS.items}
-            capped={cityS.capped}
-            loading={wsLocLoading}
-            onCommit={(v) => { if (v && findCity(v)) areaInputRef.current?.focus() }}
+            type="locality"
+            onCommit={(v) => { if (v) areaInputRef.current?.focus() }}
           />
           <LocationAutocomplete
             label="Zona / barrio"
-            placeholder={findCity(city) ? 'Deusto, Abando…' : 'Centro, La Cala…'}
+            placeholder="Deusto, Abando, Centro…"
             value={area}
             onChange={setArea}
+            type="area"
+            locality={city}
             inputRef={areaInputRef}
-            suggestions={areaS.items}
-            capped={areaS.capped}
-            loading={wsLocLoading}
-            helperText={
-              !city.trim()
-                ? 'Escribe primero la ciudad para ver barrios sugeridos.'
-                : area.trim() && !areaRecognized
-                  ? `“${normalizeLocationText(area)}” no figura en ${normalizeLocationText(city)}; se guardará como zona personalizada.`
-                  : undefined
-            }
+            helperText={!city.trim() ? 'Escribe primero la localidad para ver barrios sugeridos.' : undefined}
           />
         </div>
         <Input label="Precio (€)" type="number" min="0" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value)} />

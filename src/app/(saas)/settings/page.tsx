@@ -18,7 +18,6 @@ import {
   Play,
   RefreshCw,
   Shield,
-  User,
   Wifi,
   Zap,
 } from 'lucide-react'
@@ -27,6 +26,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
+import { ProfileCard } from '@/components/ProfileCard'
 import { WorkspaceProfileCard } from '@/components/WorkspaceProfileCard'
 import { TeamUsersCard } from '@/components/TeamUsersCard'
 import { TeamCalendarStatusCard } from '@/components/TeamCalendarStatusCard'
@@ -774,8 +774,8 @@ export default function SettingsPage() {
   const settingsBadge = userLoading
     ? { label: 'Cargando', variant: 'default' as const }
     : currentUser.isDemo
-      ? { label: 'Modo demo', variant: 'indigo' as const }
-      : { label: 'Workspace activo', variant: 'success' as const }
+      ? { label: 'Cuenta de ejemplo', variant: 'indigo' as const }
+      : { label: 'Cuenta activa', variant: 'success' as const }
 
   return (
     <motion.div
@@ -826,43 +826,7 @@ export default function SettingsPage() {
 
       <div className={cn('grid gap-5', SHOW_INTERNAL_TECH && 'xl:grid-cols-[minmax(0,1fr)_360px]')}>
         <div className="space-y-5">
-          <SectionCard
-            title="Perfil"
-            description="Tu identidad dentro del CRM."
-            action={<Badge variant="default">Solo lectura</Badge>}
-          >
-            <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
-                  {userLoading ? '..' : currentUser.initials}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{userLoading ? 'Cargando…' : (currentUser.name || currentUser.email)}</p>
-                  <p className="text-xs text-gray-500">{userLoading ? '' : currentUser.email}</p>
-                </div>
-              </div>
-              <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'}>{userLoading ? 'Cargando' : currentUser.trialLabel}</Badge>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                { label: 'Email', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
-                { label: 'Rol', value: currentUser.role === 'client_admin' ? 'Administrador' : currentUser.role === 'nowlabs_admin' ? 'Operador interno' : 'Usuario', icon: <Shield className="h-4 w-4" /> },
-                { label: 'Idioma', value: 'Español', icon: <Globe className="h-4 w-4" /> },
-                { label: 'Estado de la cuenta', value: currentUser.trialLabel, icon: <User className="h-4 w-4" /> },
-              ].map(({ label, value, icon }) => (
-                <div key={label} className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-gray-400">{icon}</span>
-                    <div>
-                      <p className="text-xs text-gray-500">{label}</p>
-                      <p className="text-sm font-medium text-gray-900">{userLoading ? '…' : value}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
+          <ProfileCard />
 
           <WorkspaceProfileCard />
 

@@ -94,13 +94,13 @@ export function TeamUsersCard({
   return (
     <SectionCard
       title="Equipo"
-      description="Usuarios con acceso al workspace. Invita por email con un rol; recibirán un enlace seguro para definir su contraseña."
+      description="Invita a tu equipo para trabajar sobre los mismos clientes, inmuebles, operaciones y tareas."
       action={
         <div className="flex items-center gap-2">
           <Badge variant="success" dot>Activo</Badge>
           <Button size="sm" onClick={() => setInviteOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
-            Invitar usuario
+            Invitar miembro
           </Button>
         </div>
       }
@@ -123,7 +123,7 @@ export function TeamUsersCard({
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-200">
             <UserIcon className="h-4 w-4" />
           </div>
-          <p className="text-sm font-medium text-gray-700">Aún no hay otros usuarios en este workspace</p>
+          <p className="text-sm font-medium text-gray-700">Aún no hay otros miembros en esta cuenta</p>
           <p className="mt-1 text-xs text-gray-500">Invita a tu equipo para trabajar juntos en el CRM.</p>
         </div>
       ) : (
@@ -325,7 +325,7 @@ function InviteUserModal({
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || `Error ${res.status}`)
       if (body?.alreadyExisted) {
-        toast.info('Usuario ya existía', { description: `${body.user?.email ?? email} ya tenía acceso al workspace.` })
+        toast.info('Usuario ya existía', { description: `${body.user?.email ?? email} ya tenía acceso a esta cuenta.` })
       } else {
         toast.success('Invitación enviada', { description: `Hemos enviado el enlace de acceso a ${email}.` })
       }
@@ -349,8 +349,8 @@ function InviteUserModal({
               <UserIcon className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-gray-950">Invitar usuario</h3>
-              <p className="text-[11px] text-gray-500">El usuario recibirá acceso al workspace de {BRAND.workspaceName}.</p>
+              <h3 className="text-sm font-semibold text-gray-950">Invitar miembro</h3>
+              <p className="text-[11px] text-gray-500">El miembro recibirá acceso a la cuenta de {BRAND.workspaceName}.</p>
             </div>
           </div>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
@@ -361,7 +361,7 @@ function InviteUserModal({
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <p className="rounded-lg bg-indigo-50/60 px-3 py-2 text-[11px] leading-5 text-indigo-700 ring-1 ring-indigo-100">
             Invita a miembros de tu equipo (comerciales, administradores, gestores) para que accedan a
-            este workspace y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. No es
+            esta cuenta y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. No es
             para clientes finales.
           </p>
           <label className="block">

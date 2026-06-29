@@ -274,9 +274,9 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
   {
     question: '¿Puedo cambiar el nombre o la descripción de mi inmobiliaria en Configuración?',
     expectedTool: 'none',
-    mustMention: ['Workspace'],
-    mustNotMention: FORBIDDEN_GLOBAL,
-    notes: 'P16: Workspace/Empresa es EDITABLE (nombre comercial, descripción y tipo de workspace se guardan de verdad). Explicarlo como editable y guiar.',
+    mustMention: ['Empresa'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'workspace'],
+    notes: 'P17: la sección Empresa es EDITABLE (nombre comercial, descripción, teléfono, web y email se guardan de verdad). Explicarlo como editable y guiar. Nunca decir "workspace".',
   },
   {
     question: '¿Puedo crear permisos avanzados o subir foto de perfil en Configuración?',

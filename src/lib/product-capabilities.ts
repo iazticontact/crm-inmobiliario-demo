@@ -47,19 +47,20 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
   {
     id: 'settings.profile',
     module: 'Configuración · Perfil',
-    state: 'readonly',
+    state: 'configurable',
     userExplanation:
-      'Muestra tu identidad en el CRM: nombre, email, rol, idioma y estado de la cuenta. Es informativo.',
-    cannotDo: ['Editar el nombre o el email desde aquí', 'Subir foto de perfil (todavía)'],
+      'Tu identidad en el CRM. El nombre visible es editable y se guarda; email, rol, idioma y estado de la cuenta son informativos.',
+    canDo: ['Editar el nombre visible y guardarlo'],
+    cannotDo: ['Cambiar el email o el rol desde aquí', 'Subir foto de perfil (todavía)'],
     assistantCanExplain: true,
   },
   {
-    id: 'settings.workspace',
-    module: 'Configuración · Workspace / Empresa',
+    id: 'settings.company',
+    module: 'Configuración · Empresa',
     state: 'configurable',
     userExplanation:
-      'Nombre comercial, descripción y tipo de workspace de tu inmobiliaria. Se guardan de verdad y dan contexto al CRM y al Asistente IA.',
-    canDo: ['Editar el nombre comercial', 'Editar la descripción', 'Elegir el tipo de workspace', 'Guardar los cambios'],
+      'Datos de tu inmobiliaria: nombre comercial, descripción, teléfono, web y email de contacto. Son editables, se guardan y dan contexto al CRM y al Asistente IA. La actividad principal es Inmobiliaria.',
+    canDo: ['Editar el nombre comercial', 'Editar la descripción', 'Editar teléfono, web y email de contacto', 'Guardar los cambios'],
     assistantCanExplain: true,
   },
   {

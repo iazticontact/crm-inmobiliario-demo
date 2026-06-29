@@ -1,0 +1,38 @@
+MICROPARCHE P17 — Configuración: "Empresa" sin "workspace" (actualiza el bloque P16 en Agent V2 live)
+=====================================================================================================
+
+POR QUÉ
+-------
+En P17 Configuración se renombra: "Workspace / Empresa" → "Empresa" (sin la palabra "workspace"
+visible), la Empresa pasa a editar nombre/descripción/teléfono/web/email (no "tipo de workspace"), el
+Perfil permite editar el nombre visible, y la actividad principal es fija "Inmobiliaria". El bloque P16
+del prompt vivo queda desalineado.
+
+QUÉ HACER (REPLACE quirúrgico, estilo P12.7/P14/P16, con autorización previa)
+-----------------------------------------------------------------------------
+En el systemMessage VIVO del nodo "CRM Agent" (param options.systemMessage), sustituir EXACTAMENTE las
+tres líneas siguientes. No tocar nada más (ni "=", ni {{ }}, ni el resto del bloque, ni
+credenciales/conexiones/memory/webhook/tools). PUT por REST API. No imprimir secretos.
+
+(1) LÍNEA DE LISTA
+ANTES:
+* Configuración: ajustes del CRM (Perfil, Workspace/Empresa, Equipo y Asistente IA); explícala por su estado real.
+DESPUÉS:
+* Configuración: ajustes del CRM (Perfil, Empresa y Equipo); explícala por su estado real.
+
+(2) BULLET PERFIL
+ANTES:
+* Perfil: solo lectura (tu nombre, email, rol, idioma y estado de la cuenta; informativo).
+DESPUÉS:
+* Perfil: el nombre visible es editable y se guarda; email, rol, idioma y estado de la cuenta son informativos; aún no hay foto de perfil.
+
+(3) BULLET EMPRESA
+ANTES:
+* Workspace / Empresa: editable; nombre comercial, descripción y tipo de workspace de la inmobiliaria, se guardan de verdad y dan contexto al CRM y a ti.
+DESPUÉS:
+* Empresa: editable; nombre comercial, descripción, teléfono, web y email de contacto de la inmobiliaria, se guardan de verdad y dan contexto al CRM y a ti. La actividad principal es Inmobiliaria.
+
+MANTENIMIENTO
+-------------
+Alineado con `src/lib/product-capabilities.ts` y el fallback local
+(`src/lib/agents/nowlabs-main-agent.ts`). El Asistente habla de "empresa/cuenta", nunca "workspace".

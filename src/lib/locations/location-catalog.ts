@@ -3,9 +3,9 @@
 // nomenclátor nacional completo: es un punto de partida mantenible. Los valores que un usuario escriba
 // y no estén aquí se admiten igualmente como "personalizados" (no se bloquea al comercial).
 //
-// P16 — sugerencias en capas: catálogo local + valores reales del workspace (ver workspace-locations.ts)
-// + proveedor externo opcional (ver location-provider.ts, apagado por defecto). Aquí vive el catálogo y
-// el ranking de mezcla catálogo↔workspace.
+// P17 — el autocompletado real vive en /api/locations/suggest (empresa + proveedor externo opcional +
+// este catálogo local como fallback). Aquí están el catálogo y las funciones de búsqueda/mezcla que
+// usa la ruta en servidor (searchCities/searchAreas) y los evals (suggestCities/suggestAreas).
 
 import { foldAccents, normalizeLocationText } from './normalize-location'
 
