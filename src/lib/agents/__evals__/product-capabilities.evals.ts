@@ -10,12 +10,12 @@ import {
 } from '@/lib/product-capabilities'
 
 // Estado esperado de cada bloque visible de Configuración (alineado con la UI y el prompt del Asistente).
+// P16: sin "Notificaciones" ni roadmap; Perfil (solo lectura) + Workspace/Empresa (editable) + Equipo.
 export const EXPECTED_STATES: Record<string, CapabilityState> = {
-  'settings.account': 'readonly',
-  'settings.workspaceType': 'configurable',
+  'settings.profile': 'readonly',
+  'settings.workspace': 'configurable',
   'settings.team': 'active',
   'settings.assistant': 'active',
-  'settings.notifications': 'upcoming',
 }
 
 // Términos que NUNCA deben aparecer en explicaciones de cara al usuario.
@@ -32,22 +32,27 @@ export function runProductCapabilitiesEvals(): string[] {
     if (cap.state !== expected) failures.push(`${id}: estado ${cap.state}, esperado ${expected}`)
   }
 
-  // Notificaciones no debe prometer envíos (no canDo) y debe declarar lo que NO hace.
-  const notif = getCapability('settings.notifications')
-  if (notif?.canDo && notif.canDo.length) failures.push('settings.notifications no debería tener canDo (es upcoming)')
-  if (!notif?.cannotDo?.length) failures.push('settings.notifications debería declarar cannotDo')
+  // P16: ya NO existe una sección de Notificaciones en Configuración (no roadmap visible).
+  if (getCapability('settings.notifications')) failures.push('no debería existir settings.notifications (P16: notificaciones fuera)')
+
+  // Workspace/Empresa es editable de verdad.
+  const ws = getCapability('settings.workspace')
+  if (!ws?.canDo?.some((a) => /descripci[oó]n/i.test(a))) failures.push('settings.workspace debería permitir editar la descripción')
 
   // Equipo SÍ es activo y permite invitar.
   const team = getCapability('settings.team')
   if (!team?.canDo?.some((a) => /invitar/i.test(a))) failures.push('settings.team debería permitir invitar')
 
-  // El resumen para el Asistente: sin términos prohibidos ni funciones inventadas.
+  // El resumen para el Asistente: sin términos prohibidos, sin funciones inventadas y sin "próximamente".
   const summary = configCapabilitiesSummary().toLowerCase()
   for (const t of FORBIDDEN_TERMS) {
     if (summary.includes(t)) failures.push(`resumen contiene término prohibido: "${t}"`)
   }
   for (const t of INVENTED_TERMS) {
     if (summary.includes(t)) failures.push(`resumen contiene función inventada: "${t}"`)
+  }
+  if (summary.includes('próximamente') || summary.includes('proximamente')) {
+    failures.push('resumen no debería contener "Próximamente" (P16)')
   }
 
   // Todas las capabilities marcadas explicables deben tener explicación de usuario.

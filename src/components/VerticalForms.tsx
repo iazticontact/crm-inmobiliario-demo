@@ -6,14 +6,15 @@
 // every UI entry point. El Asistente IA hits the parallel helpers in
 // vertical-server.ts; both paths converge on the same Supabase tables.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { SideDrawer } from '@/components/SideDrawer'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
 import { LocationAutocomplete } from '@/components/LocationAutocomplete'
-import { searchCities, searchAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
-import { normalizeLocationText, normalizeLocationForSave } from '@/lib/locations/normalize-location'
+import { suggestCities, suggestAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
+import { getWorkspaceLocations, workspaceAreasFor, type WorkspaceLocations } from '@/lib/locations/workspace-locations'
+import { normalizeLocationText, normalizeLocationForSave, sameLocation } from '@/lib/locations/normalize-location'
 import {
   createOpportunity,
   createServiceCase,
@@ -561,11 +562,31 @@ export function NewPropertyDrawer({
   const [city, setCity] = useState('')
   const [area, setArea] = useState('')
   const areaInputRef = useRef<HTMLInputElement>(null)
+  // Sugerencias de ubicación con valores reales del workspace (cargadas una vez al abrir el drawer).
+  const [wsLoc, setWsLoc] = useState<WorkspaceLocations>({ cities: [], areasByCity: {}, allAreas: [] })
+  const [wsLocLoading, setWsLocLoading] = useState(false)
   const [price, setPrice] = useState('')
   const [ownerName, setOwnerName] = useState(defaultClientName ?? '')
   const [ownerPhone, setOwnerPhone] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open || !workspaceId) return
+    let cancelled = false
+    queueMicrotask(() => {
+      setWsLocLoading(true)
+      void getWorkspaceLocations(workspaceId)
+        .then((loc) => { if (!cancelled) setWsLoc(loc) })
+        .finally(() => { if (!cancelled) setWsLocLoading(false) })
+    })
+    return () => { cancelled = true }
+  }, [open, workspaceId])
+
+  const cityS = suggestCities(city, wsLoc.cities)
+  const areaWsValues = workspaceAreasFor(wsLoc, city)
+  const areaS = suggestAreas(city, area, areaWsValues)
+  const areaRecognized = isKnownArea(city, area) || areaWsValues.some((a) => sameLocation(a, area))
 
   function reset() {
     setTitle('')
@@ -693,7 +714,9 @@ export function NewPropertyDrawer({
             placeholder="Bilbao, Madrid, Marbella…"
             value={city}
             onChange={setCity}
-            suggestions={searchCities(city)}
+            suggestions={cityS.items}
+            capped={cityS.capped}
+            loading={wsLocLoading}
             onCommit={(v) => { if (v && findCity(v)) areaInputRef.current?.focus() }}
           />
           <LocationAutocomplete
@@ -702,11 +725,13 @@ export function NewPropertyDrawer({
             value={area}
             onChange={setArea}
             inputRef={areaInputRef}
-            suggestions={searchAreas(city, area).map((a) => ({ value: a }))}
+            suggestions={areaS.items}
+            capped={areaS.capped}
+            loading={wsLocLoading}
             helperText={
               !city.trim()
                 ? 'Escribe primero la ciudad para ver barrios sugeridos.'
-                : area.trim() && findCity(city) && !isKnownArea(city, area)
+                : area.trim() && !areaRecognized
                   ? `“${normalizeLocationText(area)}” no figura en ${normalizeLocationText(city)}; se guardará como zona personalizada.`
                   : undefined
             }

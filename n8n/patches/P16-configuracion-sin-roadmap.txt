@@ -1,0 +1,26 @@
+MICROPARCHE P16 — Configuración sin roadmap (reemplaza el bloque P14 en el Agent V2 live)
+=========================================================================================
+
+POR QUÉ
+-------
+En P16 se rediseñó Configuración: fuera "Próximamente" y la sección de Notificaciones; ahora hay
+Perfil (solo lectura), Workspace / Empresa (EDITABLE: nombre, descripción, tipo) y Equipo (invitar
+miembros). El bloque de Configuración que se insertó en producción en P14 (con "Notificaciones
+PRÓXIMAMENTE") quedó DESALINEADO con la UI real. Hay que actualizarlo.
+
+QUÉ HACER (INSERT quirúrgico, estilo P12.7/P14, con autorización previa)
+------------------------------------------------------------------------
+En el systemMessage VIVO del nodo "CRM Agent" (param options.systemMessage), localizar la línea que
+empieza por "- Configuración:" (la que se insertó en P14) y SUSTITUIRLA ENTERA por la LÍNEA NUEVA de
+abajo. No tocar nada más: ni el prefijo "=", ni las expresiones {{ ... }}, ni credenciales, conexiones,
+memory, webhook ni tools. PUT por REST API (sin exportar/importar). No imprimir secretos.
+
+LÍNEA NUEVA (sustituye a la "- Configuración:" actual)
+------------------------------------------------------
+- Configuración: pantalla de ajustes del CRM. RAZONA por bloques según su estado real; no memorices una respuesta fija ni inventes opciones. Bloques actuales: Perfil (SOLO LECTURA: tu nombre, email, rol, idioma y estado de la cuenta; informativo); Workspace / Empresa (EDITABLE: nombre comercial, descripción y tipo de workspace de la inmobiliaria; se guardan de verdad y dan contexto al CRM y a ti); Equipo (ACTIVO: invitar a miembros del equipo —comerciales, administradores, gestores— por email con un rol; la invitación envía un enlace seguro para fijar la contraseña; NO es para clientes finales); Asistente IA (ACTIVO: acceso al asistente, ya en el menú lateral). NO hay sección de Notificaciones en Configuración: si preguntan por notificaciones/avisos automáticos/resumen diario, di con naturalidad que ahora mismo el CRM no tiene notificaciones automáticas activas (no digas "Próximamente" salvo que pregunten explícitamente por una función no disponible). NO inventes zonas, plantillas, permisos avanzados, tipos de inmueble configurables ni estados que no consten; si no tienes certeza, explica lo visible y ofrece guiar por la pantalla. Si preguntan "qué es / cómo funciona Configuración", EXPLÍCALO como guía de producto; NUNCA digas "no tengo acceso". Si la pantalla cambia, razona por el estado real, no por esta lista.
+
+MANTENIMIENTO
+-------------
+Alineado 1:1 con `src/lib/product-capabilities.ts` y con el bloque del fallback local
+(`src/lib/agents/nowlabs-main-agent.ts`, sección "SECCIONES DEL CRM → Configuración"). Si cambia el
+estado real de un bloque, actualizar los tres a la vez.

@@ -1,15 +1,16 @@
 'use client'
 
-// Autocompletado de ubicación (P15) — ciudad o zona/barrio. Free-text con sugerencias del catálogo
-// local: el usuario escribe, ve opciones, navega con teclado y puede usar un valor personalizado si no
-// figura. Sin dependencias externas. Normaliza al confirmar (capitalización limpia, sin espacios
-// dobles). Pensado para no ensuciar datos pero sin bloquear al comercial.
+// Autocompletado de ubicación (P15, ampliado en P16) — ciudad o zona/barrio. Free-text con sugerencias
+// en capas: valores reales del workspace + catálogo local (+ proveedor externo opcional, apagado). El
+// usuario escribe, ve opciones ordenadas, navega con teclado y puede usar un valor personalizado si no
+// figura. Sin dependencias externas. Normaliza al confirmar. Pensado para no ensuciar datos pero sin
+// bloquear al comercial.
 
-import { useId, useMemo, useRef, useState } from 'react'
-import { MapPin } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
+import { Loader2, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { foldAccents, normalizeLocationText } from '@/lib/locations/normalize-location'
-import type { CitySuggestion } from '@/lib/locations/location-catalog'
+import type { LocationSuggestion } from '@/lib/locations/location-catalog'
 
 const INPUT_CLS =
   'h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
@@ -36,6 +37,8 @@ export function LocationAutocomplete({
   value,
   onChange,
   suggestions,
+  loading = false,
+  capped = false,
   placeholder,
   helperText,
   error,
@@ -49,8 +52,12 @@ export function LocationAutocomplete({
   label?: string
   value: string
   onChange: (value: string) => void
-  /** Sugerencias del catálogo (value + pista opcional, p. ej. provincia). */
-  suggestions: CitySuggestion[]
+  /** Sugerencias ya ordenadas (workspace + catálogo). */
+  suggestions: LocationSuggestion[]
+  /** Cargando valores del workspace (muestra un spinner discreto en el dropdown). */
+  loading?: boolean
+  /** Había más resultados de los mostrados → invita a seguir escribiendo. */
+  capped?: boolean
   placeholder?: string
   helperText?: string
   error?: string
@@ -74,11 +81,13 @@ export function LocationAutocomplete({
     && /\p{L}/u.test(trimmed)
     && !suggestions.some((s) => foldAccents(s.value) === foldAccents(trimmed))
 
-  // Filas navegables: sugerencias + (opcional) fila de valor personalizado.
-  const rows = useMemo(() => {
-    const base = suggestions.map((s) => ({ kind: 'suggestion' as const, value: s.value, hint: s.hint }))
-    return showCustom ? [...base, { kind: 'custom' as const, value: trimmed, hint: undefined }] : base
-  }, [suggestions, showCustom, trimmed])
+  type Row =
+    | { kind: 'suggestion'; value: string; hint?: string; source: LocationSuggestion['source'] }
+    | { kind: 'custom'; value: string }
+  const rows: Row[] = [
+    ...suggestions.map((s) => ({ kind: 'suggestion' as const, value: s.value, hint: s.hint, source: s.source })),
+    ...(showCustom ? [{ kind: 'custom' as const, value: trimmed }] : []),
+  ]
 
   function commit(raw: string) {
     const normalized = normalizeLocationText(raw)
@@ -110,6 +119,8 @@ export function LocationAutocomplete({
     }
   }
 
+  const showDropdown = open && (rows.length > 0 || loading)
+
   return (
     <div className="flex flex-col gap-1.5">
       {label && <label className="text-sm font-medium text-gray-700">{label}</label>}
@@ -133,12 +144,17 @@ export function LocationAutocomplete({
           onKeyDown={onKeyDown}
           className={cn(INPUT_CLS, error && 'border-red-500 focus:ring-red-500')}
         />
-        {open && rows.length > 0 && (
+        {showDropdown && (
           <ul
             id={listId}
             role="listbox"
-            className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            className="absolute z-40 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl shadow-gray-950/10"
           >
+            {loading && rows.length === 0 && (
+              <li className="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-400">
+                <Loader2 className="h-3 w-3 animate-spin" /> Buscando ubicaciones…
+              </li>
+            )}
             {rows.map((row, i) => (
               <li key={`${row.kind}-${row.value}`} role="option" aria-selected={i === highlighted}>
                 <button
@@ -151,16 +167,26 @@ export function LocationAutocomplete({
                   )}
                 >
                   {row.kind === 'custom' ? (
-                    <span className="truncate text-xs text-gray-600">{customLabel(row.value)}</span>
+                    <>
+                      <span className="truncate text-xs text-gray-600">{customLabel(row.value)}</span>
+                      <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 ring-1 ring-amber-100">Personalizado</span>
+                    </>
                   ) : (
                     <>
                       <span className="truncate text-xs font-medium text-gray-900">{highlight(row.value, value)}</span>
-                      {row.hint && <span className="shrink-0 text-[10px] text-gray-400">{row.hint}</span>}
+                      {row.source === 'workspace' ? (
+                        <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-600 ring-1 ring-indigo-100">En este workspace</span>
+                      ) : row.hint ? (
+                        <span className="shrink-0 text-[10px] text-gray-400">{row.hint}</span>
+                      ) : null}
                     </>
                   )}
                 </button>
               </li>
             ))}
+            {capped && (
+              <li className="px-3 py-1.5 text-[10px] text-gray-400">Sigue escribiendo para afinar…</li>
+            )}
           </ul>
         )}
       </div>

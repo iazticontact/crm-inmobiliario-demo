@@ -359,6 +359,11 @@ function InviteUserModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+          <p className="rounded-lg bg-indigo-50/60 px-3 py-2 text-[11px] leading-5 text-indigo-700 ring-1 ring-indigo-100">
+            Invita a miembros de tu equipo (comerciales, administradores, gestores) para que accedan a
+            este workspace y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. No es
+            para clientes finales.
+          </p>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-gray-700">Nombre completo</span>
             <input

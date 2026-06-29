@@ -5,7 +5,6 @@ import { motion } from 'framer-motion'
 import {
   AlertCircle,
   Bell,
-  Building2,
   Calendar,
   CheckCircle,
   ChevronRight,
@@ -28,14 +27,13 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
-import { VerticalPreferenceCard } from '@/components/VerticalPreferenceCard'
+import { WorkspaceProfileCard } from '@/components/WorkspaceProfileCard'
 import { TeamUsersCard } from '@/components/TeamUsersCard'
 import { TeamCalendarStatusCard } from '@/components/TeamCalendarStatusCard'
 import { getAssistantAgentFlow, n8nWebhookConfigs, simulateWhatsAppIncomingLead, supabaseStatus, triggerN8nWebhook, type WebhookConfig } from '@/lib/integrations'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import { getErrorMessage } from '@/lib/error-utils'
-import { getCapability, CAPABILITY_STATE_LABEL, CAPABILITY_STATE_VARIANT } from '@/lib/product-capabilities'
 import {
   createActivity,
   disconnectGoogleCalendar,
@@ -89,15 +87,6 @@ const architectureCards = [
   { title: 'Automatizaciones', label: 'Flujos internos', detail: 'Preparado', icon: <Zap className="h-5 w-5" />, tone: 'border-indigo-100 bg-gradient-to-br from-indigo-50 to-white text-indigo-700' },
   { title: 'Asistente IA', label: 'Asistente del CRM', detail: 'Activo', icon: <Zap className="h-5 w-5" />, tone: 'border-violet-100 bg-gradient-to-br from-violet-50 to-white text-violet-700' },
   { title: 'Canales', label: 'WhatsApp, Email y pagos', detail: 'Pendiente', icon: <Globe className="h-5 w-5" />, tone: 'border-amber-100 bg-gradient-to-br from-amber-50 to-white text-amber-700' },
-]
-
-// Notificaciones: TODAVÍA no hay backend real (sin cron, sin email, sin tabla de preferencias). Se
-// muestran como "Próximamente" — nunca como toggles activos que no hacen nada (cero humo, P14).
-const notifDefaults = [
-  { key: 'clients', label: 'Nuevos clientes', description: 'Aviso cuando se registra un nuevo cliente en el CRM.' },
-  { key: 'invoices', label: 'Facturas vencidas', description: 'Recordatorios de pagos pendientes.' },
-  { key: 'dailyReport', label: 'Resumen diario del CRM', description: 'Briefing diario con tareas, citas y siguientes acciones.' },
-  { key: 'urgent', label: 'Conversaciones urgentes', description: 'Aviso cuando una conversación requiere atención prioritaria.' },
 ]
 
 const supabaseReadiness = [
@@ -206,23 +195,6 @@ export default function SettingsPage() {
   })
 
   const flowConfigByEvent = useMemo(() => new Map<string, WebhookConfig>(n8nWebhookConfigs.map((flow) => [flow.event, flow])), [])
-
-  const visibleWorkspaceItems = userLoading ? [
-    { label: 'Nombre del workspace', value: 'Cargando...', icon: <Building2 className="h-4 w-4" /> },
-    { label: 'Email de administrador', value: 'Cargando...', icon: <Mail className="h-4 w-4" /> },
-    { label: 'Estado', value: 'Cargando', icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
-  ] : currentUser.isDemo ? [
-    { label: 'Nombre del workspace', value: 'Workspace de prueba', icon: <Building2 className="h-4 w-4" /> },
-    { label: 'Email de administrador', value: 'admin@inmobiliaria-demo.example', icon: <Mail className="h-4 w-4" /> },
-    { label: 'Estado', value: 'Entorno de prueba', icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
-  ] : [
-    { label: 'Nombre del workspace', value: currentUser.workspaceName, icon: <Building2 className="h-4 w-4" /> },
-    { label: 'Email de administrador', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
-    { label: 'Estado', value: currentUser.trialLabel, icon: <Shield className="h-4 w-4" /> },
-    { label: 'Idioma', value: 'Español', icon: <User className="h-4 w-4" /> },
-  ]
 
   const composeFlowUrl = useCallback((event: string) => {
     const rawPath = flowPaths[event] ?? ''
@@ -852,13 +824,12 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className={cn('grid gap-5', SHOW_INTERNAL_TECH && 'xl:grid-cols-[minmax(0,1fr)_360px]')}>
         <div className="space-y-5">
-          <VerticalPreferenceCard />
           <SectionCard
-            title="Mi cuenta"
-            description="Identidad y estado de tu workspace. Datos informativos del administrador."
-            action={<Badge variant={CAPABILITY_STATE_VARIANT.readonly}>{CAPABILITY_STATE_LABEL.readonly}</Badge>}
+            title="Perfil"
+            description="Tu identidad dentro del CRM."
+            action={<Badge variant="default">Solo lectura</Badge>}
           >
             <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex items-center gap-3">
@@ -866,27 +837,34 @@ export default function SettingsPage() {
                   {userLoading ? '..' : currentUser.initials}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{userLoading ? 'Cargando workspace...' : currentUser.workspaceName}</p>
-                  <p className="text-xs text-gray-500">{userLoading ? 'Cargando usuario...' : currentUser.email}</p>
+                  <p className="text-sm font-semibold text-gray-900">{userLoading ? 'Cargando…' : (currentUser.name || currentUser.email)}</p>
+                  <p className="text-xs text-gray-500">{userLoading ? '' : currentUser.email}</p>
                 </div>
               </div>
               <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'}>{userLoading ? 'Cargando' : currentUser.trialLabel}</Badge>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              {visibleWorkspaceItems.map(({ label, value, icon }) => (
+              {[
+                { label: 'Email', value: currentUser.email, icon: <Mail className="h-4 w-4" /> },
+                { label: 'Rol', value: currentUser.role === 'client_admin' ? 'Administrador' : currentUser.role === 'nowlabs_admin' ? 'Operador interno' : 'Usuario', icon: <Shield className="h-4 w-4" /> },
+                { label: 'Idioma', value: 'Español', icon: <Globe className="h-4 w-4" /> },
+                { label: 'Estado de la cuenta', value: currentUser.trialLabel, icon: <User className="h-4 w-4" /> },
+              ].map(({ label, value, icon }) => (
                 <div key={label} className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-3">
                   <div className="flex items-center gap-2.5">
                     <span className="text-gray-400">{icon}</span>
                     <div>
                       <p className="text-xs text-gray-500">{label}</p>
-                      <p className="text-sm font-medium text-gray-900">{value}</p>
+                      <p className="text-sm font-medium text-gray-900">{userLoading ? '…' : value}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           </SectionCard>
+
+          <WorkspaceProfileCard />
 
           <TeamUsersCard
             currentRole={currentUser.role}
@@ -1099,45 +1077,27 @@ export default function SettingsPage() {
           </SectionCard>
           )}
 
-          <SectionCard
-            title="Asistente IA"
-            description="Tu asistente del CRM, incluido y listo para usar."
-            action={<Badge variant={CAPABILITY_STATE_VARIANT.active} dot>{CAPABILITY_STATE_LABEL.active}</Badge>}
-          >
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100">
-                  <Zap className="h-4 w-4 text-indigo-700" />
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200/70 bg-white px-4 py-3 shadow-sm shadow-gray-950/[0.025]">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+                <Zap className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900">Asistente IA</p>
+                  <Badge variant="success" dot>Activo</Badge>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-indigo-900">Asistente IA incluido</p>
-                  <p className="mt-1 text-xs leading-5 text-indigo-700">
-                    Consulta datos reales del CRM, explica cómo usar los módulos y prepara acciones de forma segura. Las acciones no conectadas se dejan preparadas para realizarlas desde la interfaz. También bloquea prompts largos o técnicos para proteger el coste y el rendimiento.
-                  </p>
-                  <a
-                    href="/assistant"
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-600/20 transition-colors hover:bg-indigo-700"
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                    Abrir Asistente IA
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </a>
-                </div>
+                <p className="text-xs text-gray-500">Consulta tus datos y prepara acciones con tu confirmación.</p>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {[
-                { label: 'Consulta de datos', detail: 'Activo', desc: 'Lee clientes, inmuebles, operaciones, trámites y calendario reales.' },
-                { label: 'Acciones', detail: 'Con confirmación', desc: 'Prepara la acción y tú la confirmas; no escribe nada por su cuenta.' },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl border border-indigo-50 bg-white p-3">
-                  <p className="text-[11px] font-semibold text-gray-900">{item.label}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-indigo-600">{item.detail}</p>
-                  <p className="mt-1 text-[10px] text-gray-500">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
+            <a
+              href="/assistant"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+            >
+              Abrir
+              <ChevronRight className="h-3.5 w-3.5" />
+            </a>
+          </div>
 
           {/* Integraciones dormidas para el cliente (Google Calendar OAuth,
               calendario de equipo, Inbox Agent / respuesta automática): no hay
@@ -1699,8 +1659,8 @@ export default function SettingsPage() {
           )}
         </div>
 
+        {SHOW_INTERNAL_TECH && (
         <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
-          {SHOW_INTERNAL_TECH && (
           <SectionCard title="Estado del sistema" description="Resumen de servicios conectados y próximas integraciones">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-start gap-3">
@@ -1734,32 +1694,8 @@ export default function SettingsPage() {
               </Button>
             </div>
           </SectionCard>
-          )}
 
-          <SectionCard
-            title="Notificaciones"
-            description="Avisos automáticos del workspace."
-            action={<Badge variant={CAPABILITY_STATE_VARIANT.upcoming} dot>{CAPABILITY_STATE_LABEL.upcoming}</Badge>}
-          >
-            <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-800">
-              <Bell className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{getCapability('settings.notifications')?.userExplanation ?? 'Las notificaciones automáticas estarán disponibles en una fase posterior. Ahora mismo no se envían avisos automáticos.'}</span>
-            </div>
-            <div className="space-y-3">
-              {notifDefaults.filter((n) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['invoices', 'urgent'].includes(n.key)).map(({ key, label, description }) => (
-                <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{label}</p>
-                    <p className="mt-0.5 text-xs leading-5 text-gray-500">{description}</p>
-                  </div>
-                  <Badge variant={CAPABILITY_STATE_VARIANT.upcoming} className="shrink-0">{CAPABILITY_STATE_LABEL.upcoming}</Badge>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
-
-          {SHOW_INTERNAL_TECH && (
-            <SectionCard title="Checklist produccion" description="Lo que falta antes de venderlo en real">
+          <SectionCard title="Checklist produccion" description="Lo que falta antes de venderlo en real">
               <div className="space-y-2">
                 {[
                   { title: '1. Dominio + Resend', desc: 'Activar email confirmation y remitente propio.' },
@@ -1774,8 +1710,8 @@ export default function SettingsPage() {
                 ))}
               </div>
             </SectionCard>
-          )}
         </aside>
+        )}
       </div>
     </motion.div>
   )

@@ -2,7 +2,7 @@
 // comportamiento esperado y permite verificarlo con `runLocationEvals()` (vacío = todo OK).
 
 import { normalizeLocationText, normalizeLocationForSave, foldAccents, hasLetters } from '@/lib/locations/normalize-location'
-import { searchCities, searchAreas, findCity, isKnownArea } from '@/lib/locations/location-catalog'
+import { searchCities, searchAreas, findCity, isKnownArea, suggestCities, suggestAreas } from '@/lib/locations/location-catalog'
 
 export const NORMALIZE_CASES: Array<{ input: string; expected: string }> = [
   { input: ' bilbao ', expected: 'Bilbao' },
@@ -50,6 +50,39 @@ export function runLocationEvals(): string[] {
   // Guardado: solo símbolos/números → cadena vacía (no ensuciar BD); texto válido → normalizado.
   if (normalizeLocationForSave('123 ###') !== '') fail.push('normalizeLocationForSave(symbols) debería ser ""')
   if (normalizeLocationForSave('  bilbao ') !== 'Bilbao') fail.push('normalizeLocationForSave("  bilbao ") debería ser "Bilbao"')
+
+  // --- P16: alias y catálogo ampliado ---
+  const aliasCases: Array<[string, string]> = [
+    ['barna', 'Barcelona'], ['bilbo', 'Bilbao'], ['donosti', 'Donostia / San Sebastián'],
+    ['san sebastian', 'Donostia / San Sebastián'], ['vitoria', 'Vitoria-Gasteiz'], ['iruña', 'Pamplona'],
+    ['la coruña', 'A Coruña'],
+  ]
+  for (const [q, expected] of aliasCases) {
+    if (!searchCities(q).some((s) => s.value === expected)) fail.push(`searchCities("${q}") no sugiere ${expected}`)
+  }
+  // Ciudades nuevas presentes en el catálogo.
+  for (const city of ['Getxo', 'Granada', 'A Coruña', 'Palma', 'Estepona']) {
+    if (!findCity(city)) fail.push(`catálogo no incluye ${city}`)
+  }
+
+  // --- P16: mezcla catálogo + valores del workspace ---
+  // El valor del workspace prioriza sobre el catálogo en igualdad de coincidencia.
+  const cityMix = suggestCities('pat', ['Paterna'])
+  if (cityMix.items[0]?.value !== 'Paterna' || cityMix.items[0]?.source !== 'workspace') {
+    fail.push('suggestCities("pat", ["Paterna"]) debería priorizar Paterna (workspace) primero')
+  }
+  // Ciudad del catálogo sigue apareciendo cuando coincide.
+  if (!suggestCities('bil', []).items.some((s) => s.value === 'Bilbao' && s.source === 'catalog')) {
+    fail.push('suggestCities("bil") debería incluir Bilbao del catálogo')
+  }
+  // Zonas: mezcla barrio de catálogo (Deusto) con zona del workspace (La Cañada).
+  const areaMix = suggestAreas('Bilbao', '', ['La Cañada'])
+  if (!areaMix.items.some((s) => s.value === 'La Cañada' && s.source === 'workspace')) {
+    fail.push('suggestAreas debería incluir la zona del workspace "La Cañada"')
+  }
+  if (!suggestAreas('Bilbao', 'de', []).items.some((s) => s.value === 'Deusto')) {
+    fail.push('suggestAreas("Bilbao","de") debería incluir Deusto del catálogo')
+  }
 
   return fail
 }

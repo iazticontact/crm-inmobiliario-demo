@@ -42,24 +42,24 @@ export const CAPABILITY_STATE_VARIANT: Record<CapabilityState, 'success' | 'defa
   hidden: 'default',
 }
 
-// --- Configuración: estado real de cada bloque visible -------------------------------------------
+// --- Configuración: estado real de cada bloque visible (P16: sin roadmap ni "Próximamente") -------
 export const PRODUCT_CAPABILITIES: ProductCapability[] = [
   {
-    id: 'settings.account',
-    module: 'Configuración · Mi cuenta',
+    id: 'settings.profile',
+    module: 'Configuración · Perfil',
     state: 'readonly',
     userExplanation:
-      'Muestra el nombre del workspace, el administrador y el estado de la cuenta. Es informativo: de momento estos datos no se editan desde aquí.',
-    cannotDo: ['Editar el nombre del workspace', 'Cambiar el email del administrador'],
+      'Muestra tu identidad en el CRM: nombre, email, rol, idioma y estado de la cuenta. Es informativo.',
+    cannotDo: ['Editar el nombre o el email desde aquí', 'Subir foto de perfil (todavía)'],
     assistantCanExplain: true,
   },
   {
-    id: 'settings.workspaceType',
-    module: 'Configuración · Tipo de workspace',
+    id: 'settings.workspace',
+    module: 'Configuración · Workspace / Empresa',
     state: 'configurable',
     userExplanation:
-      'Define el tipo de operación que domina en el workspace (Inmobiliaria, Extranjería, Servicios, Mixto o General). Se guarda y sirve de contexto para el CRM y el Asistente IA.',
-    canDo: ['Elegir el tipo de workspace', 'Guardar el cambio'],
+      'Nombre comercial, descripción y tipo de workspace de tu inmobiliaria. Se guardan de verdad y dan contexto al CRM y al Asistente IA.',
+    canDo: ['Editar el nombre comercial', 'Editar la descripción', 'Elegir el tipo de workspace', 'Guardar los cambios'],
     assistantCanExplain: true,
   },
   {
@@ -67,8 +67,8 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
     module: 'Configuración · Equipo',
     state: 'active',
     userExplanation:
-      'Muestra los usuarios con acceso al workspace y permite invitar a nuevos por email con un rol (Usuario o Administrador). La invitación envía un enlace seguro para que el usuario defina su contraseña.',
-    canDo: ['Ver el equipo', 'Invitar usuario por email', 'Asignar rol', 'Eliminar usuario según permisos'],
+      'Invita a miembros de tu equipo (comerciales, administradores, gestores) para que accedan al workspace y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. La invitación se envía por email con un rol y un enlace seguro para definir la contraseña. No es para clientes finales.',
+    canDo: ['Ver el equipo', 'Invitar miembro por email', 'Asignar rol', 'Eliminar usuario según permisos'],
     assistantCanExplain: true,
   },
   {
@@ -76,18 +76,8 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
     module: 'Configuración · Asistente IA',
     state: 'active',
     userExplanation:
-      'El Asistente IA está incluido y activo: consulta datos reales del CRM, explica cómo usar los módulos y prepara acciones de forma segura. Las acciones no conectadas se dejan preparadas para realizarlas desde la interfaz.',
-    canDo: ['Consultar datos reales del CRM', 'Explicar los módulos', 'Preparar acciones con confirmación'],
-    cannotDo: ['Crear o guardar automáticamente sin confirmación', 'Enviar mensajes, emails o notificaciones'],
-    assistantCanExplain: true,
-  },
-  {
-    id: 'settings.notifications',
-    module: 'Configuración · Notificaciones',
-    state: 'upcoming',
-    userExplanation:
-      'Las notificaciones automáticas (avisos por email o resumen diario) están previstas para una fase posterior. Ahora mismo el CRM no envía avisos automáticos.',
-    cannotDo: ['Enviar avisos por email', 'Resumen diario automático', 'Notificaciones push o por campana'],
+      'Acceso al Asistente IA, que ya está en el menú lateral. Consulta datos reales del CRM y prepara acciones con tu confirmación.',
+    canDo: ['Abrir el Asistente IA'],
     assistantCanExplain: true,
   },
 ]
