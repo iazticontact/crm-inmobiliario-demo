@@ -75,6 +75,37 @@ export function truncateHistory<T extends { role: string; content: string }>(mes
     .map((m) => ({ role: m.role, content: (m.content || '').slice(0, ASSISTANT_LIMITS.maxHistoryCharsPerMessage) }))
 }
 
+// ─────────────────────────────────────────────────────────── Protección ante crisis humana (P18)
+// Detección de ALTO RIESGO explícito (intención de suicidio / autolesión). Prioriza la seguridad de la
+// persona por encima del CRM: cuando dispara, se responde con un protocolo humano y breve SIN llamar al
+// agente (no gasta tokens, no almacena el contenido sensible). NO se activa con tristeza/cansancio
+// normales: requiere intención explícita. Alta precisión, sesgada a seguridad ante la duda real.
+const CRISIS_PATTERNS: RegExp[] = [
+  /\bsuicid/i, // suicidio, suicidarme, suicidarse, suicide
+  /\bquitar(me|se)?\s+la\s+vida\b/i,
+  /\bacabar\s+con\s+mi\s+vida\b/i,
+  /\b(no\s+quiero|ya\s+no\s+quiero)\s+(seguir\s+)?vivir\b/i,
+  /\bno\s+quiero\s+seguir\s+viviendo\b/i,
+  /\b(voy\s+a|quiero|pienso)\s+matarme\b/i,
+  /\b(me\s+quiero|quiero|voy\s+a|pienso)\s+hacer(me)?\s+daño\b/i,
+  /\bautolesion/i,
+  /\bmejor\s+(estar[ií]a\s+)?muerto\b/i,
+  /\bno\s+merece\s+la\s+pena\s+(seguir\s+)?(vivir|viviendo)\b/i,
+  // inglés
+  /\bkill\s+myself\b/i, /\bi\s+want\s+to\s+die\b/i, /\bself.?harm\b/i, /\bend\s+my\s+life\b/i,
+]
+
+export function detectCrisis(text: string): boolean {
+  const t = text || ''
+  if (!t) return false
+  return CRISIS_PATTERNS.some((re) => re.test(t))
+}
+
+// Respuesta de seguridad (España): humana, breve, prioritaria. Menciona 024 y 112, anima a contactar
+// con alguien de confianza y a no quedarse solo/a. No reconduce al CRM, sin tono legalista.
+export const CRISIS_RESPONSE =
+  'Siento mucho que estés pasando por esto, y me importa de verdad. Ahora mismo lo más importante eres tú, mucho más que cualquier cosa del CRM. Si sientes que puedes hacerte daño, por favor pide ayuda ya: en España puedes llamar al 024 (línea de atención a la conducta suicida, gratuita y 24 h) o al 112 si es una emergencia. No te quedes solo/a: contacta cuanto antes con alguien de confianza y, si puedes, aléjate de cualquier cosa con la que puedas hacerte daño. No estás solo/a en esto.'
+
 // Rate limiter best-effort en memoria (ventana deslizante por clave usuario:workspace). En serverless
 // el estado no persiste entre instancias frías; es una primera barrera barata, no una cuota estricta.
 const HITS = new Map<string, number[]>()

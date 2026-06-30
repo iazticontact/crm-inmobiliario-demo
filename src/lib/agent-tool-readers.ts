@@ -68,6 +68,39 @@ function addDaysIso(iso: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Interpreta una palabra clave de rango temporal en Europe/Madrid → { from, to } (ISO yyyy-mm-dd,
+// día completo local). Semana natural lunes–domingo. Acepta español e inglés (el LLM puede enviar
+// cualquiera). Devuelve null si no reconoce la palabra (el llamante usa from/to explícitos).
+export function madridDateRange(keyword: string, todayIso: string): { from: string; to: string } | null {
+  const k = (keyword || '').toLowerCase().trim().replace(/\s+/g, ' ')
+  if (!k) return null
+  const dow = new Date(`${todayIso}T00:00:00Z`).getUTCDay() // 0=domingo … 6=sábado
+  const sinceMonday = (dow + 6) % 7
+  const monday = addDaysIso(todayIso, -sinceMonday)
+  switch (k) {
+    case 'today': case 'hoy': case 'ahora': case 'ya':
+      return { from: todayIso, to: todayIso }
+    case 'tomorrow': case 'mañana': case 'manana':
+      return { from: addDaysIso(todayIso, 1), to: addDaysIso(todayIso, 1) }
+    case 'day after tomorrow': case 'pasado mañana': case 'pasado manana':
+      return { from: addDaysIso(todayIso, 2), to: addDaysIso(todayIso, 2) }
+    case 'this week': case 'esta semana': case 'la semana': case 'semana':
+      return { from: monday, to: addDaysIso(monday, 6) }
+    case 'next week': case 'la semana que viene': case 'semana que viene': case 'proxima semana': case 'próxima semana':
+      return { from: addDaysIso(monday, 7), to: addDaysIso(monday, 13) }
+    case 'next 7 days': case 'proximos 7 dias': case 'próximos 7 días': case 'proximos dias': case 'próximos días': case 'proximos días': case 'estos dias': case 'estos días':
+      return { from: todayIso, to: addDaysIso(todayIso, 7) }
+    case 'this month': case 'este mes': {
+      const [y, m] = todayIso.split('-').map(Number)
+      const first = `${y}-${String(m).padStart(2, '0')}-01`
+      const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+      return { from: first, to: last }
+    }
+    default:
+      return null
+  }
+}
+
 function toNumber(v: unknown): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v
   if (typeof v === 'string') {
@@ -701,12 +734,18 @@ export type CalendarSummary = {
   events: Array<{
     id: string
     title: string
+    date: string | null
     start_at: string | null
     end_at: string | null
+    type: string | null
+    location: string | null
+    notes: string | null
     client_id: string | null
     client_name: string | null
+    property_id: string | null
+    opportunity_id: string | null
+    service_case_id: string | null
     status: string | null
-    source: string | null
   }>
 }
 
@@ -721,14 +760,16 @@ export async function getCalendarSummary(
   if (cid.error) return cid.error
 
   const today = todayMadridIso()
-  const fromIso = parseIsoDate(o.from) ?? today
-  const toIso = parseIsoDate(o.to) ?? addDaysIso(today, 14)
+  // Rango por palabra clave (hoy/mañana/esta semana…) en Europe/Madrid; si no, from/to explícitos.
+  const byKeyword = typeof o.range === 'string' ? madridDateRange(o.range, today) : null
+  const fromIso = byKeyword?.from ?? parseIsoDate(o.from) ?? today
+  const toIso = byKeyword?.to ?? parseIsoDate(o.to) ?? addDaysIso(today, 14)
   if (toIso < fromIso) {
     return { error: 'invalid_input', message: 'Rango de fechas inválido: `to` es anterior a `from`.' }
   }
 
   let q = supabase.from('calendar_events')
-    .select('id, title, date, start_at, end_at, client_id, client_name, status, type')
+    .select('id, title, date, start_at, end_at, location, notes, description, client_id, client_name, property_id, opportunity_id, case_id, status, type')
     .eq('workspace_id', workspaceId)
     .neq('status', 'cancelled')
     .gte('date', fromIso)
@@ -744,12 +785,18 @@ export async function getCalendarSummary(
     events: ((data ?? []) as Row[]).map((e) => ({
       id: String(e.id),
       title: clampString(e.title, 200) ?? '',
+      date: typeof e.date === 'string' ? e.date : null,
       start_at: typeof e.start_at === 'string' ? e.start_at : null,
       end_at: typeof e.end_at === 'string' ? e.end_at : null,
+      type: clampString(e.type, 40),
+      location: clampString(e.location, 200),
+      notes: clampString((e.notes ?? e.description) as unknown, 500),
       client_id: e.client_id ? String(e.client_id) : null,
       client_name: clampString(e.client_name, 120),
+      property_id: e.property_id ? String(e.property_id) : null,
+      opportunity_id: e.opportunity_id ? String(e.opportunity_id) : null,
+      service_case_id: e.case_id ? String(e.case_id) : null,
       status: clampString(e.status, 40),
-      source: clampString(e.type, 40),
     })),
   }
 }
@@ -1181,7 +1228,7 @@ const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   opportunities: { table: 'opportunities', cols: 'id, title, stage, value, probability, expected_close_date, notes, client_id', search: ['title', 'notes'], filters: ['stage'], dateCol: 'expected_close_date', orderCol: 'updated_at', soft: true },
   service_cases: { table: 'service_cases', cols: 'id, title, case_type, status, priority, due_date, notes, client_id', search: ['title', 'notes'], filters: ['status', 'priority', 'case_type'], dateCol: 'due_date', orderCol: 'updated_at', soft: true },
   tasks: { table: 'tasks', cols: 'id, title, status, priority, due_date, client_id', search: ['title'], filters: ['status', 'priority'], dateCol: 'due_date', orderCol: 'due_date' },
-  calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, location, status, client_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
+  calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, end_at, location, notes, status, client_id, client_name, property_id, opportunity_id, case_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
   properties: { table: 'properties', cols: 'id, title, property_type, operation_type, status, city, area, address, price, currency', search: ['title', 'city', 'area', 'address'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
   documents: { table: 'documents', cols: 'id, title, type, mime_type, size, created_at, client_id', search: ['title'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },

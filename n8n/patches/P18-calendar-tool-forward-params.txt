@@ -1,0 +1,48 @@
+MICROPARCHE P18 — get_calendar_summary: dejar pasar rango de fecha/cliente/límite al backend
+=============================================================================================
+
+POR QUÉ (hallazgo de la auditoría §14)
+--------------------------------------
+La tool `get_calendar_summary` del Agent V2 tenía inputSchema VACÍO ("properties": {}) y su jsCode
+enviaba SIEMPRE `input: {}`. Es decir, el LLM no podía pasar fecha/rango/cliente/límite: el backend
+`getCalendarSummary` recibía siempre el rango por defecto (hoy..+14) y no podía responder bien a
+"citas de hoy" vs "de esta semana" vs "la semana que viene". El backend SÍ soporta range/from/to/
+clientRef/limit (ya enriquecido en P18, incl. ubicación, notas y entidades vinculadas).
+
+QUÉ HACER (edición quirúrgica del nodo "get_calendar_summary", con autorización previa)
+---------------------------------------------------------------------------------------
+Sustituir DOS parámetros del nodo (toolCode) `get_calendar_summary`: `inputSchema` y `jsCode`.
+No tocar el resto del nodo, ni otros nodos, ni "=", ni {{ }}, ni credenciales/conexiones/memory/webhook.
+PUT por REST API. No imprimir secretos. Verificar active=true, 24 nodos.
+
+(A) inputSchema  — ANTES: { "type":"object", "properties":{}, "additionalProperties":true }
+DESPUÉS:
+{
+ "type": "object",
+ "properties": {
+  "range": { "type": "string", "description": "rango natural en Europe/Madrid: hoy, mañana, pasado mañana, esta semana, la semana que viene, próximos 7 días, este mes" },
+  "from": { "type": "string", "description": "fecha inicio yyyy-mm-dd (alternativa a range)" },
+  "to": { "type": "string", "description": "fecha fin yyyy-mm-dd (alternativa a range)" },
+  "clientRef": { "type": "string", "description": "UUID de cliente para ver solo sus citas" },
+  "limit": { "type": "number", "description": "máximo de eventos (por defecto 20)" }
+ },
+ "additionalProperties": true
+}
+
+(B) jsCode — añadir el reenvío de campos (mismo patrón que crm_read_query):
+const ws = $('Normalize input').first().json.workspaceId;
+const a = (query && typeof query === 'object') ? query : {};
+const input = {};
+const put = (k) => { const v = a[k]; if (v !== undefined && v !== null && String(v).trim() !== '') input[k] = String(v).trim(); };
+put('range'); put('from'); put('to'); put('clientRef'); put('limit');
+let res;
+try {
+  res = await this.helpers.httpRequest({ method: 'POST', url: $env.CRM_BASE_URL + '/api/agent/tool', headers: { 'x-nowcrm-secret': $env.AGENT_TOOL_SECRET, 'Content-Type': 'application/json' }, body: { tool: "get_calendar_summary", workspace_id: ws, input }, json: true });
+} catch (e) { return JSON.stringify({ ok:false, error: 'crm_unreachable', detail: String(e.message||e) }); }
+return typeof res === 'string' ? res : JSON.stringify(res);
+
+PENDIENTE MENOR (no incluido)
+-----------------------------
+`crm_read_query` no reenvía `from`/`to` (el backend sí los soporta vía dateCol). Como ya hay tool de
+calendario dedicada con rango, se deja como mejora futura (requeriría también declarar from/to en su
+inputSchema para que el LLM los use).

@@ -8,7 +8,7 @@ import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
-import { checkAssistantInput, ASSISTANT_LIMITS } from '@/lib/assistant-guard'
+import { checkAssistantInput, ASSISTANT_LIMITS, detectCrisis, CRISIS_RESPONSE } from '@/lib/assistant-guard'
 import { conversations as mockConversations, messages as mockMessages } from '@/lib/mock-data'
 import { callAgentTool, getAssistantAgentFlow, triggerN8nWebhook, type AgentToolName } from '@/lib/integrations'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -1643,6 +1643,14 @@ export default function AssistantPage() {
     }
     setInput('')
     setDetectedIntent(localIntentLabel)
+
+    // Seguridad humana (máxima prioridad): ante intención explícita de autolesión/suicidio, respondemos
+    // con un protocolo de seguridad SIN llamar al agente y sin reconducir al CRM.
+    if (detectCrisis(content)) {
+      await appendAssistantMessage(conversationId, CRISIS_RESPONSE, activeConversation.clientName)
+      return
+    }
+
     setIsTyping(true)
 
     try {

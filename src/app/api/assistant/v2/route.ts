@@ -6,7 +6,7 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
-import { checkAssistantInput, checkRateLimit, truncateHistory, ASSISTANT_BLOCK_MESSAGES } from '@/lib/assistant-guard'
+import { checkAssistantInput, checkRateLimit, truncateHistory, ASSISTANT_BLOCK_MESSAGES, detectCrisis, CRISIS_RESPONSE } from '@/lib/assistant-guard'
 
 export type AssistantErrorCode =
   | 'missing_api_key'
@@ -254,6 +254,14 @@ export async function POST(req: NextRequest) {
       debugSource: 'pre_agent',
       preparedAction: null,
     }, { status: 400 })
+  }
+
+  // --------------------------------------------------- Seguridad humana (máxima prioridad, P18)
+  // Si el mensaje expresa intención explícita de autolesión/suicidio, respondemos con un protocolo de
+  // seguridad SIN llamar al agente. No guardamos el contenido sensible (solo registramos el evento).
+  if (detectCrisis(message)) {
+    console.warn('[assistant/v2] crisis_safe_response', { user: user.id, ws: workspaceId })
+    return NextResponse.json({ ok: true, answer: CRISIS_RESPONSE, errorCode: null, debugSource: 'crisis_guard', preparedAction: null })
   }
 
   // ----------------------------------------------- Control de coste / anti-abuso
