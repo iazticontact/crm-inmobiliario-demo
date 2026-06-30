@@ -14,6 +14,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// Versión del CONTRATO de salida de las tools read-only (P24). Se incluye en `meta.toolVersion` de cada
+// respuesta y la expone /api/agent/diag, para que se pueda verificar que el backend desplegado al que
+// llama n8n (CRM_BASE_URL) es el esperado. Súbela cuando cambie el contrato de forma incompatible.
+export const TOOL_CONTRACT_VERSION = '2026-07-01.p24'
+
 type Row = Record<string, unknown>
 type Json = unknown
 

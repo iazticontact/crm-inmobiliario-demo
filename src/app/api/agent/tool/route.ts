@@ -54,6 +54,7 @@ import {
   searchProperties,
   crmReadQuery,
   isReaderError,
+  TOOL_CONTRACT_VERSION,
 } from '@/lib/agent-tool-readers'
 
 export const runtime = 'nodejs'
@@ -377,7 +378,7 @@ export async function POST(request: Request) {
           tool,
           error: code,
           message: result.message,
-          meta: { workspaceId, durationMs },
+          meta: { workspaceId, durationMs, source: 'agent-tool', toolVersion: TOOL_CONTRACT_VERSION, generatedAt: new Date().toISOString() },
         }, { status })
       }
       const count = brainResultCount(tool, result)
@@ -387,7 +388,7 @@ export async function POST(request: Request) {
         tool,
         result: stripInternalFields(result),
         message: `${tool}_ok`,
-        meta: { workspaceId, count, durationMs },
+        meta: { workspaceId, count, durationMs, source: 'agent-tool', toolVersion: TOOL_CONTRACT_VERSION, generatedAt: new Date().toISOString() },
       })
     } catch {
       const durationMs = Date.now() - start
@@ -397,7 +398,7 @@ export async function POST(request: Request) {
         tool,
         error: 'tool_execution_failed',
         message: 'Error inesperado al ejecutar la herramienta.',
-        meta: { workspaceId, durationMs },
+        meta: { workspaceId, durationMs, source: 'agent-tool', toolVersion: TOOL_CONTRACT_VERSION, generatedAt: new Date().toISOString() },
       }, { status: 500 })
     }
   }

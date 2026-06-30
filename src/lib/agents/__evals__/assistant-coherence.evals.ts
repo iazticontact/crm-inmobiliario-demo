@@ -430,4 +430,11 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no consta'],
     notes: 'DATOS VIVOS: volver a consultar con tool (no memoria); la lectura es fresca (force-dynamic). Solo decir que no aparece tras una consulta real y, si no aparece, explicar causa honesta.',
   },
+  {
+    question: '(cuenta sin datos en todo el módulo) ¿cuántos clientes tengo?',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'workspace', 'tabla', 'base de datos'],
+    notes: 'CUENTA VACÍA legítima (no bug): si la tool devuelve count 0 consistente en todo el módulo, decir con naturalidad que en esta cuenta aún no hay clientes y, si procede, sugerir revisar la sesión correcta. Sin tecnicismos ni mencionar workspaces/tablas/UUID.',
+  },
 ]

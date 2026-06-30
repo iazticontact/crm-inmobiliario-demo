@@ -9,9 +9,26 @@
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
+import { TOOL_CONTRACT_VERSION } from '@/lib/agent-tool-readers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+// Entidades del sondeo: tabla + columna de nombre + columna de fecha (para "última actualización").
+const PROBE_ENTITIES: Array<{ key: string; table: string; nameCol: string; dateCol: string }> = [
+  { key: 'clients', table: 'clients', nameCol: 'name', dateCol: 'updated_at' },
+  { key: 'events', table: 'calendar_events', nameCol: 'title', dateCol: 'updated_at' },
+  { key: 'properties', table: 'properties', nameCol: 'title', dateCol: 'updated_at' },
+  { key: 'opportunities', table: 'opportunities', nameCol: 'title', dateCol: 'updated_at' },
+  { key: 'service_cases', table: 'service_cases', nameCol: 'title', dateCol: 'updated_at' },
+  { key: 'tasks', table: 'tasks', nameCol: 'title', dateCol: 'updated_at' },
+  { key: 'documents', table: 'documents', nameCol: 'title', dateCol: 'created_at' },
+  { key: 'activities', table: 'activities', nameCol: 'title', dateCol: 'created_at' },
+]
+
+function clampName(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 60) : ''
+}
 
 function supabaseRef(): string | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
@@ -39,7 +56,10 @@ export async function GET(req: NextRequest) {
     service: 'agent-tool-backend',
     supabaseRef: supabaseRef(),
     commit: commit.slice(0, 12),
+    toolVersion: TOOL_CONTRACT_VERSION,
     generatedAt: new Date().toISOString(),
+    // Lectura del asistente SIEMPRE fresca: /api/agent/tool y /api/agent/diag son force-dynamic.
+    freshness: { agentToolDynamic: true, diagDynamic: true },
     config: {
       agentToolSecret: Boolean(process.env.AGENT_TOOL_SECRET?.trim()),
       serviceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
@@ -58,14 +78,20 @@ export async function GET(req: NextRequest) {
     }
     const admin = getSupabaseAdminClient()
     if (!admin) return NextResponse.json({ ...base, workspaceProbe: { error: 'service_unavailable' } }, { status: 503 })
-    const count = async (table: string) => {
-      const { count: c, error } = await admin.from(table).select('id', { count: 'exact', head: true }).eq('workspace_id', wsParam)
-      return error ? null : (c ?? 0)
+    // Por entidad: count exacto + última actualización + muestra sanitizada de nombres/títulos (sin
+    // UUIDs, sin datos sensibles largos). Permite comparar "lo que ve el backend" con la UI.
+    const probe = async (e: (typeof PROBE_ENTITIES)[number]) => {
+      const { count } = await admin.from(e.table).select('id', { count: 'exact', head: true }).eq('workspace_id', wsParam)
+      const { data } = await admin.from(e.table).select(`${e.nameCol}, ${e.dateCol}`).eq('workspace_id', wsParam).order(e.dateCol, { ascending: false, nullsFirst: false }).limit(3)
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+      return {
+        count: count ?? 0,
+        lastUpdated: rows[0]?.[e.dateCol] ?? null,
+        sample: rows.map((r) => clampName(r[e.nameCol])).filter(Boolean),
+      }
     }
-    const [clients, events, properties, opportunities, service_cases, tasks] = await Promise.all([
-      count('clients'), count('calendar_events'), count('properties'), count('opportunities'), count('service_cases'), count('tasks'),
-    ])
-    return NextResponse.json({ ...base, workspaceProbe: { workspace_id: wsParam, clients, events, properties, opportunities, service_cases, tasks } })
+    const results = await Promise.all(PROBE_ENTITIES.map(async (e) => [e.key, await probe(e)] as const))
+    return NextResponse.json({ ...base, workspaceProbe: { workspace_id: wsParam, entities: Object.fromEntries(results) } })
   }
 
   return NextResponse.json(base)
