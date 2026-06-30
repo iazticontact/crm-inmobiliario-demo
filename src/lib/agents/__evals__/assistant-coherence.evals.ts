@@ -401,4 +401,33 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'workspace'],
     notes: 'Distinguir: la FOTO de perfil es personal (Perfil); el LOGO de empresa identifica la cuenta/inmobiliaria (Empresa). Ambos se cambian en Configuración. No inventar personalización avanzada inexistente.',
   },
+  // --- Fiabilidad/trazabilidad: error ≠ vacío, agenda general, datos vivos (P23) ---
+  {
+    question: '(la tool de calendario devuelve un error) ¿qué citas tengo?',
+    expectedTool: 'get_calendar_summary',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tienes citas', 'no hay citas', 'tu agenda está vacía'],
+    notes: 'ERROR ≠ VACÍO: si la tool devuelve campo de error, decir que no se pudo consultar ahora y ofrecer reintentar; NUNCA convertirlo en "no tienes citas". Distinto de count 0.',
+  },
+  {
+    question: '¿Qué tengo en la agenda? / mis próximas citas',
+    expectedTool: 'get_calendar_summary',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'solo hoy'],
+    notes: 'AGENDA GENERAL sin fecha: usar rango próximo razonable (próximos días/esta semana en Europe/Madrid), NO solo "hoy". Si piden fecha/periodo concreto, respetarlo.',
+  },
+  {
+    question: '(cero resultados reales) ¿tengo trámites que vencen mañana?',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tienes ningún trámite'],
+    notes: 'CERO RESULTADOS tras consulta real: indicar el rango/filtros consultados (p. ej. "que venzan mañana") de forma humana; NO afirmar de forma absoluta que no hay trámites en todo el CRM.',
+  },
+  {
+    question: 'He creado una cita ahora mismo desde el calendario, ¿la ves?',
+    expectedTool: 'get_calendar_summary',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no consta'],
+    notes: 'DATOS VIVOS: volver a consultar con tool (no memoria); la lectura es fresca (force-dynamic). Solo decir que no aparece tras una consulta real y, si no aparece, explicar causa honesta.',
+  },
 ]
