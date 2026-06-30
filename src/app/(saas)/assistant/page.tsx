@@ -208,7 +208,7 @@ const assistantModes: Array<{
     id: 'inbox',
     title: 'Conversaciones',
     eyebrow: 'Inbox Assistant',
-    description: 'Gestiona mensajes con clientes/leads, detecta intención y prepara acciones desde conversaciones.',
+    description: 'Gestiona mensajes con clientes y contactos, detecta intención y prepara acciones desde conversaciones.',
     badge: 'Meta API próximo',
   },
   {

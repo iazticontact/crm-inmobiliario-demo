@@ -33,6 +33,7 @@ export function Topbar() {
   const [searchFocused, setSearchFocused] = useState(false)
   const [readNotifs, setReadNotifs] = useState<Set<string>>(new Set())
   const [suggestions, setSuggestions] = useState<Client[]>([])
+  const [avatarError, setAvatarError] = useState(false)
 
   const notifRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLDivElement>(null)
@@ -181,13 +182,13 @@ export function Topbar() {
                     </div>
                     <p className="text-xs font-medium text-gray-600">Sin notificaciones nuevas</p>
                     <p className="text-[10px] leading-snug text-gray-400">
-                      Aquí verás los nuevos leads, citas próximas y conversaciones urgentes en cuanto el CRM detecte actividad.
+                      Aquí verás los nuevos clientes, citas próximas y conversaciones urgentes en cuanto el CRM detecte actividad.
                     </p>
                   </li>
                 )}
               </ul>
               <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-2.5 text-center">
-                <button onClick={() => { setNotifOpen(false); toast.info('Centro de notificaciones próximamente') }} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
+                <button onClick={() => { setNotifOpen(false); toast.info('Aún no hay notificaciones', { description: 'Te avisaremos aquí cuando haya novedades en el CRM.' }) }} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
                   Ver todas las notificaciones
                 </button>
               </div>
@@ -209,10 +210,14 @@ export function Topbar() {
           <Link
             href="/settings"
             aria-label="Abrir ajustes de usuario"
-            className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
+            className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xs font-bold text-white shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-100 transition-transform hover:scale-105"
             title={`${currentUser.name} · ${currentUser.trialLabel}`}
           >
-            {currentUser.initials}
+            {currentUser.avatarUrl && !avatarError ? (
+              <img src={currentUser.avatarUrl} alt={currentUser.name} className="h-full w-full object-cover" onError={() => setAvatarError(true)} />
+            ) : (
+              currentUser.initials
+            )}
           </Link>
         )}
       </div>

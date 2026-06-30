@@ -279,11 +279,11 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     notes: 'P17: la sección Empresa es EDITABLE (nombre comercial, descripción, teléfono, web y email se guardan de verdad). Explicarlo como editable y guiar. Nunca decir "workspace".',
   },
   {
-    question: '¿Puedo crear permisos avanzados o subir foto de perfil en Configuración?',
+    question: '¿Puedo subir mi foto de perfil o crear permisos avanzados en Configuración?',
     expectedTool: 'none',
-    mustMention: [],
-    mustNotMention: [...FORBIDDEN_GLOBAL, 'permisos avanzados', 'sube tu foto'],
-    notes: 'No hay permisos avanzados ni subida de avatar todavía. Perfil es SOLO LECTURA. No prometer funciones inexistentes; explicar lo visible y ofrecer guiar.',
+    mustMention: ['foto'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'permisos avanzados'],
+    notes: 'P20: la FOTO de perfil SÍ se puede subir/cambiar (Perfil). Permisos avanzados NO existen. Explicar lo real, no prometer lo inexistente.',
   },
   // --- Fiabilidad global (P18): datos vivos, detalle, calendario, crisis humana ---
   {

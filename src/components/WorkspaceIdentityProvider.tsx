@@ -79,7 +79,9 @@ export function WorkspaceIdentityProvider({ children }: { children: React.ReactN
       // (which Supabase fires when the browser tab regains focus) are no-ops —
       // re-resolving there was what froze the whole app into "loading" for 1-2s
       // every time you came back to the tab.
-      if (event === 'SIGNED_OUT' || nextUserId !== resolvedUserIdRef.current) {
+      // USER_UPDATED (auth.updateUser, p. ej. foto de perfil) sí re-resuelve: actualiza el avatar del
+      // topbar sin recargar. No lo disparan TOKEN_REFRESHED/SIGNED_IN repetidos al volver a la pestaña.
+      if (event === 'SIGNED_OUT' || event === 'USER_UPDATED' || nextUserId !== resolvedUserIdRef.current) {
         clearWorkspaceIdentityCache()
         void run()
       }

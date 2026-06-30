@@ -49,9 +49,9 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
     module: 'Configuración · Perfil',
     state: 'configurable',
     userExplanation:
-      'Tu identidad en el CRM. El nombre visible es editable y se guarda; email, rol, idioma y estado de la cuenta son informativos.',
-    canDo: ['Editar el nombre visible y guardarlo'],
-    cannotDo: ['Cambiar el email o el rol desde aquí', 'Subir foto de perfil (todavía)'],
+      'Tu identidad en el CRM. El nombre visible es editable y se guarda, y puedes subir o cambiar tu foto de perfil (JPG, PNG o WebP, hasta 2 MB); email, rol, idioma y estado de la cuenta son informativos.',
+    canDo: ['Editar el nombre visible y guardarlo', 'Subir, cambiar o eliminar la foto de perfil'],
+    cannotDo: ['Cambiar el email o el rol desde aquí'],
     assistantCanExplain: true,
   },
   {

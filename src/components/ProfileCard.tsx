@@ -1,9 +1,8 @@
 'use client'
 
-// Perfil (P17) — identidad del usuario. El nombre visible es EDITABLE de verdad: se persiste en
-// profiles.full_name con el cliente de navegador bajo RLS (la política permite que cada usuario edite
-// su propio full_name; sin service_role). Email, rol y estado son solo lectura. Avatar = iniciales:
-// no hay subida de foto todavía (no ponemos upload falso; queda como pendiente honesto).
+// Perfil (P17 + foto real en P20) — identidad del usuario. El nombre visible es EDITABLE (se persiste en
+// profiles.full_name bajo RLS, sin service_role) y ahora la FOTO de perfil es real (Supabase Storage +
+// user_metadata, ver AvatarUploader). Email, rol y estado son solo lectura.
 
 import { useEffect, useState } from 'react'
 import { Globe, Mail, Shield, User } from 'lucide-react'
@@ -11,6 +10,7 @@ import { toast } from 'sonner'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
+import { AvatarUploader } from '@/components/AvatarUploader'
 import { useCurrentUser } from '@/lib/current-user'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -25,6 +25,7 @@ export function ProfileCard() {
   const [name, setName] = useState('')
   const [savedName, setSavedName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(currentUser.avatarUrl)
 
   useEffect(() => {
     if (userLoading) return
@@ -34,9 +35,10 @@ export function ProfileCard() {
       const initial = currentUser.name || ''
       setName(initial)
       setSavedName(initial)
+      setAvatarUrl(currentUser.avatarUrl)
     })
     return () => { cancelled = true }
-  }, [userLoading, currentUser.name])
+  }, [userLoading, currentUser.name, currentUser.avatarUrl])
 
   const dirty = name.trim() !== savedName.trim() && name.trim().length > 0
 
@@ -71,27 +73,31 @@ export function ProfileCard() {
 
   return (
     <SectionCard title="Perfil" description="Tu identidad en el CRM.">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-xl font-bold text-white shadow-sm shadow-indigo-600/20">
-            {userLoading ? '..' : currentUser.initials}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <label className="text-[11px] font-medium text-gray-500">Nombre visible</label>
-            <div className="flex items-center gap-2">
-              <input
-                value={name}
-                maxLength={80}
-                disabled={userLoading}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={currentUser.email}
-                className="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2.5 text-sm font-medium text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              {dirty && <Button size="sm" onClick={save} loading={saving}>Guardar</Button>}
-            </div>
+      <div className="mb-4 space-y-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <AvatarUploader
+            userId={currentUser.id}
+            initials={userLoading ? '..' : currentUser.initials}
+            avatarUrl={avatarUrl}
+            disabled={userLoading}
+            onChanged={(url) => setAvatarUrl(url ?? undefined)}
+          />
+          <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'}>{userLoading ? 'Cargando' : currentUser.trialLabel}</Badge>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-medium text-gray-500">Nombre visible</label>
+          <div className="flex items-center gap-2">
+            <input
+              value={name}
+              maxLength={80}
+              disabled={userLoading}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={currentUser.email}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {dirty && <Button size="sm" onClick={save} loading={saving}>Guardar</Button>}
           </div>
         </div>
-        <Badge variant={userLoading ? 'default' : currentUser.isDemo ? 'indigo' : 'success'}>{userLoading ? 'Cargando' : currentUser.trialLabel}</Badge>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

@@ -105,7 +105,7 @@ type TaskRow = {
 
 const STATUS_BADGE: Record<ClientStatus, { label: string; variant: 'success' | 'indigo' | 'default' | 'danger' }> = {
   active: { label: 'Activo', variant: 'success' },
-  lead: { label: 'Lead', variant: 'indigo' },
+  lead: { label: 'En seguimiento', variant: 'indigo' },
   inactive: { label: 'Inactivo', variant: 'default' },
   churned: { label: 'Perdido', variant: 'danger' },
 }

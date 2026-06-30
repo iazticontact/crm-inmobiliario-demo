@@ -16,6 +16,8 @@ export type CurrentUser = {
   workspaceId?: string
   workspaceName: string
   initials: string
+  /** Foto de perfil (user_metadata.avatar_url) si el usuario la ha subido. */
+  avatarUrl?: string
   isDemo: boolean
   // True only when there is a real Supabase session backing this user.
   // Consumers that must distinguish "real user" from "fallback placeholder"
@@ -140,6 +142,7 @@ export function buildCurrentUser(context: ResolvedWorkspaceContext): CurrentUser
     workspaceId: workspace?.id || profile?.workspace_id || undefined,
     workspaceName,
     initials: getInitials(name || workspaceName || email),
+    avatarUrl: getMetadataString(metadata, 'avatar_url') || undefined,
     isDemo: false,
     isAuthenticated: true,
     isFallback: false,
@@ -231,7 +234,9 @@ export function useCurrentUser() {
       // Only re-resolve on a real identity change (sign-out or different user).
       // TOKEN_REFRESHED / repeated SIGNED_IN for the SAME user (fired on tab
       // refocus) are ignored — re-resolving there caused the return-to-tab lag.
-      if (event === 'SIGNED_OUT' || nextUserId !== resolvedUserIdRef.current) {
+      // USER_UPDATED se dispara tras auth.updateUser (p. ej. al cambiar la foto de perfil): re-resolver
+      // para que el avatar/nombre se reflejen sin recargar.
+      if (event === 'SIGNED_OUT' || event === 'USER_UPDATED' || nextUserId !== resolvedUserIdRef.current) {
         clearWorkspaceIdentityCache()
         void run()
       }

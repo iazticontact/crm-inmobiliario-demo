@@ -81,7 +81,7 @@ const automationFlowMap: Record<string, N8nEventType> = {
 }
 
 const emailFlowSteps = [
-  { type: 'trigger', label: 'Trigger', description: 'Nuevo lead', icon: <Zap className="h-4 w-4" />, color: 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20' },
+  { type: 'trigger', label: 'Trigger', description: 'Nuevo cliente', icon: <Zap className="h-4 w-4" />, color: 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20' },
   { type: 'email', label: 'Email 1', description: 'Bienvenida', icon: <Mail className="h-4 w-4" />, color: 'bg-blue-50 border border-blue-200 text-blue-700' },
   { type: 'wait', label: 'Espera', description: '2 dias', icon: <Clock className="h-4 w-4" />, color: 'bg-gray-100 border border-gray-200 text-gray-600' },
   { type: 'email', label: 'Email 2', description: 'Recursos', icon: <Mail className="h-4 w-4" />, color: 'bg-blue-50 border border-blue-200 text-blue-700' },
