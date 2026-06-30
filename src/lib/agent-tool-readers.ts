@@ -1206,6 +1206,43 @@ export async function searchProperties(
   }
 }
 
+// Resuelve los nombres legibles de las relaciones por id (cliente/inmueble/operación) en lote, para
+// que el agente NUNCA hable de un id técnico: añade client_name / property_title / operation_title a
+// las filas que tengan el FK. Acotado por el `limit` de la consulta; RLS por workspace; 3 queries máx.
+async function enrichRelationNames(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  rows: Row[],
+): Promise<void> {
+  const distinct = (key: string) =>
+    [...new Set(rows.map((r) => r[key]).filter((v): v is string => typeof v === 'string' && v.length > 0))]
+  const clientIds = distinct('client_id')
+  const propertyIds = distinct('property_id')
+  const opportunityIds = distinct('opportunity_id')
+  if (!clientIds.length && !propertyIds.length && !opportunityIds.length) return
+
+  const sel = (table: string, ids: string[], col: string) =>
+    ids.length
+      ? supabase.from(table).select(`id, ${col}`).eq('workspace_id', workspaceId).in('id', ids)
+      : Promise.resolve({ data: [] as Row[] })
+  const [clients, properties, opportunities] = await Promise.all([
+    sel('clients', clientIds, 'name'),
+    sel('properties', propertyIds, 'title'),
+    sel('opportunities', opportunityIds, 'title'),
+  ])
+  const toMap = (res: { data: unknown }, col: string) =>
+    new Map((((res.data ?? []) as Row[])).map((r) => [String(r.id), clampString(r[col], 200)]))
+  const cmap = toMap(clients, 'name')
+  const pmap = toMap(properties, 'title')
+  const omap = toMap(opportunities, 'title')
+
+  for (const r of rows) {
+    if (typeof r.client_id === 'string' && cmap.has(r.client_id)) r.client_name = cmap.get(r.client_id) ?? null
+    if (typeof r.property_id === 'string' && pmap.has(r.property_id)) r.property_title = pmap.get(r.property_id) ?? null
+    if (typeof r.opportunity_id === 'string' && omap.has(r.opportunity_id)) r.operation_title = omap.get(r.opportunity_id) ?? null
+  }
+}
+
 // ─────────────────────────────────────────────────────────── crm_read_query
 // Universal CONTROLLED read: the agent picks an allowlisted ENTITY + safe
 // filters/searchText/clientRef/dateRange. NO free SQL. workspace_id is pinned by
@@ -1310,6 +1347,8 @@ export async function crmReadQuery(
     .range(offset, offset + limit - 1)
   if (error) return { error: 'query_failed', message: `No pude consultar ${entity}.` }
   const rows = ((data ?? []) as Row[]).map((r) => sanitizeQueryRow(cfg, r))
+  // 360: resolver nombres de las relaciones por id → el agente nunca muestra UUIDs.
+  await enrichRelationNames(supabase, workspaceId, rows)
   // Devolvemos el criterio aplicado para que el agente sepa exactamente qué posición consultó
   // (p. ej. orderBy=created_at, orderDirection=asc, offset=2 → el 3er cliente registrado).
   return { entity, count: rows.length, rows, orderBy, orderDirection: ascending ? 'asc' : 'desc', offset }

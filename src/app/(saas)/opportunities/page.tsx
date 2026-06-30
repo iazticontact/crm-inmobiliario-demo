@@ -165,6 +165,9 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 // Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). Función pura a nivel
 // de módulo para que las derivaciones memoizadas tengan dependencias estables.
 const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
+// Trámite finalizado (sale de la lista activa): completado (resolved) o cerrado.
+const isFinishedCase = (status: string | null) => status === 'resolved' || status === 'closed'
+const CASE_PRIO_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
 
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
@@ -196,6 +199,8 @@ export default function OpportunitiesPage() {
   const [propTipo, setPropTipo] = useState('')
   const [propLocalidad, setPropLocalidad] = useState('')
   const [propSort, setPropSort] = useState<'recientes' | 'precio_desc' | 'precio_asc' | 'localidad'>('recientes')
+  // Trámites: vista activos / finalizados / todos (P21). Por defecto, solo activos.
+  const [caseView, setCaseView] = useState<'active' | 'done' | 'all'>('active')
   // Cambio de estado de un inmueble que lo pasa a histórico (vendido/alquilado/archivado) → confirma.
   const [propStatusChange, setPropStatusChange] = useState<{ property: PropertyRow; nextStatus: string } | null>(null)
   // Borrado seguro de inmueble: bloqueo si tiene operaciones; confirmación fuerte si no.
@@ -284,6 +289,27 @@ export default function OpportunitiesPage() {
     if (vertical === 'all') return cases
     return cases.filter((c) => c.vertical === vertical)
   }, [cases, vertical])
+
+  // Trámites: separar ACTIVOS de FINALIZADOS (P21) — los completados no ensucian la lista activa.
+  // Finalizado = resolved/closed. Activos ordenados: bloqueados primero → vencen antes → sin fecha al
+  // final → recientes; finalizados: más recientes primero.
+  const activeCasesList = useMemo(() => {
+    const list = visibleCases.filter((c) => !isFinishedCase(c.status))
+    return [...list].sort((a, b) => {
+      const ab = a.status === 'blocked' ? 0 : 1, bb = b.status === 'blocked' ? 0 : 1
+      if (ab !== bb) return ab - bb
+      const ad = a.due_date || '', bd = b.due_date || ''
+      if (ad && bd && ad !== bd) return ad < bd ? -1 : 1
+      if (ad && !bd) return -1
+      if (!ad && bd) return 1
+      return (CASE_PRIO_RANK[a.priority] ?? 2) - (CASE_PRIO_RANK[b.priority] ?? 2)
+    })
+  }, [visibleCases])
+  const doneCasesList = useMemo(() => {
+    return [...visibleCases.filter((c) => isFinishedCase(c.status))]
+      .sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))
+  }, [visibleCases])
+  const shownCases = caseView === 'done' ? doneCasesList : caseView === 'all' ? [...activeCasesList, ...doneCasesList] : activeCasesList
 
   const visibleProperties = useMemo(() => {
     if (vertical === 'all') return properties
@@ -410,6 +436,13 @@ export default function OpportunitiesPage() {
   const displayedActive = useMemo(() => sortProps(activeSorted.filter(matchesPropFilters)), [activeSorted, matchesPropFilters, sortProps])
   const displayedHistory = useMemo(() => sortProps(historySorted.filter(matchesPropFilters)), [historySorted, matchesPropFilters, sortProps])
   const displayedProperties = useMemo(() => sortProps(shownProperties.filter(matchesPropFilters)), [shownProperties, matchesPropFilters, sortProps])
+
+  // Contador de "lo activo" por pestaña principal de Cartera (ayuda a la navegación).
+  const subtabCount: Partial<Record<Subtab, number>> = {
+    properties: activeProperties.length,
+    pipeline: openOpportunities.length,
+    cases: activeCasesList.length,
+  }
 
   // KPIs de cartera (vista Inmuebles). "Valor de cartera activa" = suma de precios de los inmuebles
   // activos (excluye el histórico vendido/alquilado): no es facturación ni ingresos.
@@ -550,7 +583,12 @@ export default function OpportunitiesPage() {
       void loadData()
       return
     }
-    toast.success('Trámite actualizado')
+    // Feedback discreto y honesto: al completar, el trámite pasa a «Finalizados» (no se pierde).
+    if (isFinishedCase(nextStatus) && !isFinishedCase(row.status)) {
+      toast.success('Trámite completado', { description: 'Lo encuentras en «Finalizados».' })
+    } else {
+      toast.success('Trámite actualizado')
+    }
   }
 
   // Pasar a histórico (vendido/alquilado/archivado) pide confirmación; el resto se aplica directo.
@@ -889,25 +927,31 @@ export default function OpportunitiesPage() {
         </div>
       )}
 
-      {/* Subtabs — Operaciones · Trámites · Propiedades (Propiedades se oculta en verticales
-          sin inmuebles). Plantillas/Automatizaciones solo en superficie de operador. */}
-      <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm">
+      {/* Navegación principal de Cartera (Inmuebles · Operaciones · Trámites · Comisiones). Es la
+          navegación clave de la sección: tamaño y contraste mayores, con contador de lo activo.
+          En móvil hace scroll horizontal limpio (sin apilarse). */}
+      <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-gray-100 bg-white p-1.5 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {visibleSubtabs.map((tab) => {
           const Icon = tab.icon
           const active = activeSubtab === tab.key
+          const count = subtabCount[tab.key]
           return (
             <button
               key={tab.key}
               onClick={() => { setSubtab(tab.key); setHighlightOpId(null) }}
+              aria-current={active ? 'page' : undefined}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
+                'inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors',
                 active
                   ? 'bg-gray-900 text-white shadow-sm shadow-gray-900/20'
                   : 'text-gray-600 hover:bg-gray-50',
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className="h-4 w-4" />
               {tab.label}
+              {typeof count === 'number' && count > 0 && (
+                <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums', active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500')}>{count}</span>
+              )}
             </button>
           )
         })}
@@ -1138,7 +1182,29 @@ export default function OpportunitiesPage() {
         <SectionCard
           title="Trámites"
           description="Gestiones y documentación asociadas a clientes, inmuebles u operaciones."
-          action={<Badge variant={visibleCases.length ? 'indigo' : 'default'} dot>{visibleCases.length} {visibleCases.length === 1 ? 'trámite' : 'trámites'}</Badge>}
+          action={
+            <div className="flex items-center gap-2">
+              {doneCasesList.length > 0 && (
+                <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5 text-[11px] font-medium">
+                  {([
+                    ['active', `Activos · ${activeCasesList.length}`],
+                    ['done', `Finalizados · ${doneCasesList.length}`],
+                    ['all', 'Todos'],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setCaseView(key)}
+                      className={cn('rounded-md px-2.5 py-1 transition-colors', caseView === key ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-black/[0.04]' : 'text-gray-500 hover:text-gray-700')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Badge variant={shownCases.length ? 'indigo' : 'default'} dot>{shownCases.length} {shownCases.length === 1 ? 'trámite' : 'trámites'}</Badge>
+            </div>
+          }
         >
           {highlightOpId && (
             <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800">
@@ -1170,9 +1236,23 @@ export default function OpportunitiesPage() {
                 </div>
               }
             />
+          ) : shownCases.length === 0 ? (
+            <EmptyState
+              icon={<FileText className="h-6 w-6 text-gray-300" />}
+              title={caseView === 'done' ? 'Aún no hay trámites finalizados' : 'No hay trámites activos'}
+              description={caseView === 'done'
+                ? 'Cuando completes un trámite aparecerá aquí, sin perderse.'
+                : 'Todos tus trámites están finalizados. Cámbialo a «Finalizados» o crea uno nuevo.'}
+              action={
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" size="sm" onClick={() => setOpenCase(true)}><Plus className="h-3.5 w-3.5" /> Nuevo trámite</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setCaseView(caseView === 'done' ? 'active' : 'done')}>{caseView === 'done' ? 'Ver activos' : 'Ver finalizados'}</Button>
+                </div>
+              }
+            />
           ) : (
             <ul className="space-y-2">
-              {visibleCases.map((c) => (
+              {shownCases.map((c) => (
                 <li key={c.id} className={cn('rounded-xl border bg-white p-3 transition-shadow', highlightOpId && c.opportunity_id === highlightOpId ? 'border-indigo-300 ring-2 ring-indigo-200' : 'border-gray-100')}>
                   <div className="flex items-center justify-between gap-2">
                     <button

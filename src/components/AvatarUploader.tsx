@@ -71,20 +71,30 @@ export function AvatarUploader({
 
   return (
     <div className="flex items-center gap-3">
-      <div className="relative h-14 w-14 shrink-0">
-        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-lg font-bold text-white ring-2 ring-indigo-100">
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => inputRef.current?.click()}
+        aria-label={avatarUrl ? 'Cambiar foto de perfil' : 'Subir foto de perfil'}
+        className="group relative h-16 w-16 shrink-0 rounded-full ring-2 ring-indigo-100 transition-transform hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-wait"
+      >
+        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-700 text-xl font-bold text-white">
           {shown ? (
             <img src={shown} alt="Foto de perfil" className="h-full w-full object-cover" onError={() => setImgError(true)} />
           ) : (
             <span>{initials}</span>
           )}
         </div>
+        {/* Insignia de cámara: invita a cambiar la foto al pasar el ratón / siempre visible en táctil. */}
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-gray-900 text-white shadow-sm transition-colors group-hover:bg-indigo-600">
+          <Camera className="h-3 w-3" />
+        </span>
         {busy && (
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/30">
             <Loader2 className="h-4 w-4 animate-spin text-white" />
           </div>
         )}
-      </div>
+      </button>
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">

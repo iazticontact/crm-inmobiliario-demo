@@ -357,4 +357,26 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no consta'],
     notes: 'TIEMPO REAL: la lectura del asistente es fresca (route force-dynamic). Volver a consultar; no responder de memoria ni decir que no existe sin consulta.',
   },
+  // --- Trámites activos/finalizados + relaciones legibles (P21) ---
+  {
+    question: '¿Qué trámites tengo pendientes/activos?',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'completado'],
+    notes: 'Trámites ACTIVOS = open/in_review/documentation_pending/blocked. No mezclar los finalizados (resolved). Filtrar por estado; incluir vencimiento/prioridad/vínculo si constan.',
+  },
+  {
+    question: '¿Qué trámites he completado / cuáles están finalizados?',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Finalizados = estado resolved (Completado). Listarlos aparte solo cuando se piden, no en la lista de activos. Visible "Completado", interno `resolved` (nunca `completed`).',
+  },
+  {
+    question: 'Detalla esa cita / esa operación (cliente e inmueble vinculados)',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
+    notes: 'RELACIONES LEGIBLES (P21): crm_read_query resuelve client_name/property_title/operation_title; mostrar NOMBRES, nunca ids/UUID. Si una relación no resuelve nombre, decir que el vínculo existe sin enseñar el id.',
+  },
 ]
