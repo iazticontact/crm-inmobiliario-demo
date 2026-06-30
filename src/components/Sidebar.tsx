@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { clearWorkspaceIdentityCache } from '@/lib/supabase-queries'
+import { getWorkspaceSettings } from '@/lib/workspace-settings'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { featureFlags, type FlagKey } from '@/lib/feature-flags'
@@ -50,6 +51,22 @@ export function Sidebar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutComplete, setLogoutComplete] = useState(false)
+  // Logo de empresa (P22) — para la tarjeta de cuenta. Fallback a iniciales si no hay o si falla.
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null)
+  const [logoError, setLogoError] = useState(false)
+  const workspaceId = currentUser.workspaceId
+  useEffect(() => {
+    let cancelled = false
+    if (!workspaceId || currentUser.isDemo) {
+      queueMicrotask(() => { if (!cancelled) setCompanyLogo(null) })
+      return () => { cancelled = true }
+    }
+    void getWorkspaceSettings(workspaceId).then((s) => {
+      const url = (s?.metadata as Record<string, unknown> | undefined)?.company_logo_url
+      if (!cancelled) { setCompanyLogo(typeof url === 'string' ? url : null); setLogoError(false) }
+    }).catch(() => { if (!cancelled) setCompanyLogo(null) })
+    return () => { cancelled = true }
+  }, [workspaceId, currentUser.isDemo])
   const menuRef = useRef<HTMLDivElement>(null)
 
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -208,7 +225,11 @@ export function Sidebar() {
             onClick={() => setUserMenuOpen((v) => !v)}
             className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.07] p-3 text-left shadow-lg shadow-black/10 ring-1 ring-white/[0.02] transition-colors hover:border-violet-200/20 hover:bg-white/[0.11]"
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">{currentUser.initials}</div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-white to-indigo-100 text-xs font-bold text-indigo-700 ring-1 ring-white/70">
+              {companyLogo && !logoError
+                ? <img src={companyLogo} alt={`Logo de ${currentUser.workspaceName}`} className="h-full w-full object-contain p-0.5" onError={() => setLogoError(true)} />
+                : currentUser.initials}
+            </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-xs font-semibold text-white">{currentUser.workspaceName}</p>
               <p className="truncate text-[10px] text-slate-500">{currentUser.email}</p>

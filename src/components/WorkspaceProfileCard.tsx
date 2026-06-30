@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { SectionCard } from '@/components/SectionCard'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
+import { CompanyLogoUploader } from '@/components/CompanyLogoUploader'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/current-user'
 import { getWorkspaceSettings, upsertWorkspaceSettings } from '@/lib/workspace-settings'
@@ -32,6 +33,7 @@ export function WorkspaceProfileCard() {
   const [website, setWebsite] = useState('')
   const [email, setEmail] = useState('')
   const [metadata, setMetadata] = useState<Record<string, unknown>>({})
+  const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -51,6 +53,7 @@ export function WorkspaceProfileCard() {
         setPhone(typeof meta.phone === 'string' ? meta.phone : '')
         setWebsite(typeof meta.website === 'string' ? meta.website : '')
         setEmail(typeof meta.contact_email === 'string' ? meta.contact_email : '')
+        setLogoUrl(typeof meta.company_logo_url === 'string' ? meta.company_logo_url : undefined)
         setLoading(false)
       })()
     })
@@ -71,11 +74,14 @@ export function WorkspaceProfileCard() {
     if (!workspaceId) { toast.info('Inicia sesión real para guardar', { description: 'En modo de ejemplo los cambios no se persisten.' }); return }
     setSaving(true)
     try {
+      // Releemos la metadata más reciente para no pisar el logo (que se guarda por separado al subirlo).
+      const latest = await getWorkspaceSettings(workspaceId)
+      const latestMeta = (latest?.metadata ?? metadata) as Record<string, unknown>
       const row = await upsertWorkspaceSettings(workspaceId, {
         business_name: name.trim(),
         vertical: 'real_estate',
         metadata: {
-          ...metadata,
+          ...latestMeta,
           description: description.trim() || undefined,
           phone: phone.trim() || undefined,
           website: website.trim() || undefined,
@@ -97,10 +103,20 @@ export function WorkspaceProfileCard() {
   return (
     <SectionCard
       title="Empresa"
-      description="Datos de tu inmobiliaria. Dan contexto al CRM y al Asistente IA."
+      description="Datos de tu inmobiliaria. Estos datos ayudan a identificar tu cuenta y dan contexto al CRM y al Asistente IA."
       action={saved ? <Badge variant="success" dot>Guardado</Badge> : <span className="inline-flex items-center gap-1 text-[11px] text-gray-400"><Building2 className="h-3 w-3" /> Editable</span>}
     >
       <div className="space-y-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Logo de empresa</label>
+          <CompanyLogoUploader
+            workspaceId={workspaceId ?? undefined}
+            companyName={name}
+            logoUrl={logoUrl}
+            disabled={loading}
+            onChanged={(url) => { setLogoUrl(url ?? undefined); setMetadata((m) => { const n = { ...m }; if (url) n.company_logo_url = url; else { delete n.company_logo_url; delete n.company_logo_path; delete n.company_logo_updated_at } return n }) }}
+          />
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">Nombre comercial</label>

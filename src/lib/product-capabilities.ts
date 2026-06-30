@@ -59,8 +59,8 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
     module: 'Configuración · Empresa',
     state: 'configurable',
     userExplanation:
-      'Datos de tu inmobiliaria: nombre comercial, descripción, teléfono, web y email de contacto. Son editables, se guardan y dan contexto al CRM y al Asistente IA. La actividad principal es Inmobiliaria.',
-    canDo: ['Editar el nombre comercial', 'Editar la descripción', 'Editar teléfono, web y email de contacto', 'Guardar los cambios'],
+      'Datos de tu inmobiliaria: logo de empresa, nombre comercial, descripción, teléfono, web y email de contacto. Son editables, se guardan y dan contexto al CRM. El logo de empresa identifica la cuenta y es distinto de la foto de perfil personal (que está en Perfil). La actividad principal es Inmobiliaria.',
+    canDo: ['Subir, cambiar o eliminar el logo de empresa', 'Editar el nombre comercial', 'Editar la descripción', 'Editar teléfono, web y email de contacto', 'Guardar los cambios'],
     assistantCanExplain: true,
   },
   {

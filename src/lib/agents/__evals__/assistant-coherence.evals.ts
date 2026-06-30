@@ -379,4 +379,26 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
     notes: 'RELACIONES LEGIBLES (P21): crm_read_query resuelve client_name/property_title/operation_title; mostrar NOMBRES, nunca ids/UUID. Si una relación no resuelve nombre, decir que el vínculo existe sin enseñar el id.',
   },
+  // --- Assistant 360: detailLevel/expand (P22) ---
+  {
+    question: 'Dame la ficha completa de ese cliente con sus operaciones, citas, tareas y trámites',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
+    notes: 'FICHA COMPLETA: detailLevel=full/detail + expand (operation/events/tasks/service_case/documents/activity). Relaciones acotadas (top 5) con NOMBRES, nunca ids. Si related_truncated, resumir y ofrecer profundizar.',
+  },
+  {
+    question: 'Enséñame todo el contexto de este inmueble (operaciones, visitas, tareas, trámites)',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no consta acceso'],
+    notes: 'Inmueble full: expand operación/citas/tareas/trámites por property_id, acotado, nombres legibles. Campos ausentes → "No consta". Sin UUIDs.',
+  },
+  {
+    question: '¿El logo de mi empresa es lo mismo que mi foto de perfil?',
+    expectedTool: 'none',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'workspace'],
+    notes: 'Distinguir: la FOTO de perfil es personal (Perfil); el LOGO de empresa identifica la cuenta/inmobiliaria (Empresa). Ambos se cambian en Configuración. No inventar personalización avanzada inexistente.',
+  },
 ]

@@ -1,0 +1,27 @@
+MICROPARCHE P22 — crm_read_query: detailLevel + expand (Assistant 360)
+======================================================================
+
+POR QUÉ
+-------
+El backend `crmReadQuery` ya soporta `detailLevel` (summary|detail|full) y `expand` (relaciones por
+entidad, acotadas y con nombres legibles, sin UUIDs). Falta que la tool `crm_read_query` del Agent V2
+los reenvíe para que el agente pueda pedir fichas completas / contexto conectado.
+
+QUÉ HACER (edición quirúrgica del nodo `crm_read_query`, con autorización previa)
+--------------------------------------------------------------------------------
+Modificar DOS parámetros del nodo (toolCode) `crm_read_query`: `inputSchema` (añadir detailLevel/expand,
+preservando el resto) y `jsCode` (reenviarlos). No tocar nada más (ni credenciales/conexiones/memory/
+webhook/otros nodos). PUT por REST API. Verificar active=true, 24 nodos, expresiones {{ }} intactas.
+
+(A) inputSchema — AÑADIR estas properties (sin quitar las existentes):
+  "detailLevel": { "type": "string", "description": "nivel de detalle: summary (rápido), detail (campos completos + nombres de relaciones) o full (incluye relaciones acotadas)" },
+  "expand": { "type": "array", "items": { "type": "string" }, "description": "relaciones a expandir (allowlist): operation, property, client, service_case, tasks, events, documents, activity. Úsalo para fichas completas/contexto conectado." }
+
+(B) jsCode — AÑADIR tras la línea `put('range');` (junto al reenvío de fecha de P19):
+  put('detailLevel');
+  if (Array.isArray(a.expand)) { const ex = a.expand.map((x) => String(x).trim()).filter(Boolean); if (ex.length) input.expand = ex; }
+
+NOTA
+----
+El backend aplica allowlist y caps (máx. 5 filas principales expandidas, máx. 5 por relación) y marca
+`related_truncated` si hay más. Alineado con `src/lib/agent-tool-readers.ts` y el fallback local.

@@ -1243,6 +1243,83 @@ async function enrichRelationNames(
   }
 }
 
+// ─────────────────────── Assistant 360: detailLevel + expand (relaciones acotadas) ─────────────
+// Protección de payload: solo se expanden las primeras N filas principales y cada relación trae como
+// mucho REL_CAP elementos (orden por fecha desc). Allowlist estricta. Nombres resueltos, sin UUIDs ni
+// campos técnicos. Si hay más filas de las expandibles, se marca `related_truncated`.
+export const EXPAND_ALLOWED = new Set(['operation', 'property', 'client', 'service_case', 'tasks', 'events', 'documents', 'activity'])
+export const REL_CAP = 5
+export const EXPAND_PRIMARY_CAP = 5
+
+type RelSpec = { table: string; fk: string; cols: string; order: string; outKey: string }
+// Por entidad principal → qué relaciones se pueden expandir y cómo. Solo FKs verificados en el schema.
+export const EXPAND_SPECS: Record<string, Partial<Record<string, RelSpec>>> = {
+  clients: {
+    operation: { table: 'opportunities', fk: 'client_id', cols: 'id, title, stage, value, property_id', order: 'updated_at', outKey: 'operaciones' },
+    property: { table: 'properties', fk: 'client_id', cols: 'id, title, city, area, status, price', order: 'updated_at', outKey: 'inmuebles' },
+    events: { table: 'calendar_events', fk: 'client_id', cols: 'id, title, date, start_at, location, status, property_id, opportunity_id', order: 'date', outKey: 'citas' },
+    tasks: { table: 'tasks', fk: 'client_id', cols: 'id, title, status, priority, due_date, property_id, opportunity_id', order: 'due_date', outKey: 'tareas' },
+    service_case: { table: 'service_cases', fk: 'client_id', cols: 'id, title, status, priority, due_date, property_id, opportunity_id', order: 'due_date', outKey: 'tramites' },
+    documents: { table: 'documents', fk: 'client_id', cols: 'id, title, type, created_at', order: 'created_at', outKey: 'documentos' },
+    activity: { table: 'activities', fk: 'client_id', cols: 'id, title, type, created_at', order: 'created_at', outKey: 'actividad' },
+  },
+  properties: {
+    operation: { table: 'opportunities', fk: 'property_id', cols: 'id, title, stage, value, client_id', order: 'updated_at', outKey: 'operaciones' },
+    events: { table: 'calendar_events', fk: 'property_id', cols: 'id, title, date, start_at, location, status, client_id', order: 'date', outKey: 'citas' },
+    tasks: { table: 'tasks', fk: 'property_id', cols: 'id, title, status, priority, due_date, client_id', order: 'due_date', outKey: 'tareas' },
+    service_case: { table: 'service_cases', fk: 'property_id', cols: 'id, title, status, priority, due_date, client_id', order: 'due_date', outKey: 'tramites' },
+  },
+  opportunities: {
+    events: { table: 'calendar_events', fk: 'opportunity_id', cols: 'id, title, date, start_at, location, status, client_id', order: 'date', outKey: 'citas' },
+    tasks: { table: 'tasks', fk: 'opportunity_id', cols: 'id, title, status, priority, due_date, client_id', order: 'due_date', outKey: 'tareas' },
+    service_case: { table: 'service_cases', fk: 'opportunity_id', cols: 'id, title, status, priority, due_date, client_id', order: 'due_date', outKey: 'tramites' },
+  },
+  service_cases: {
+    tasks: { table: 'tasks', fk: 'case_id', cols: 'id, title, status, priority, due_date, client_id', order: 'due_date', outKey: 'tareas' },
+    events: { table: 'calendar_events', fk: 'case_id', cols: 'id, title, date, start_at, location, status, client_id', order: 'date', outKey: 'citas' },
+  },
+}
+
+function sanitizeRelatedRow(r: Row): Row {
+  const out: Row = {}
+  for (const [k, v] of Object.entries(r)) {
+    if (k === 'workspace_id' || k === 'deleted_at' || k === 'metadata') continue
+    out[k] = typeof v === 'string' && v.length > 300 ? v.slice(0, 300) : v
+  }
+  return out
+}
+
+async function applyExpand(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entity: string,
+  rows: Row[],
+  expandKeys: string[],
+): Promise<boolean> {
+  const specs = EXPAND_SPECS[entity]
+  if (!specs) return false
+  const targets = expandKeys.filter((k) => EXPAND_ALLOWED.has(k) && specs[k])
+  if (!targets.length) return false
+  const primaries = rows.slice(0, EXPAND_PRIMARY_CAP)
+  for (const row of primaries) {
+    const id = typeof row.id === 'string' ? row.id : null
+    if (!id) continue
+    const related: Record<string, Row[]> = {}
+    await Promise.all(targets.map(async (key) => {
+      const spec = specs[key]!
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let rq: any = supabase.from(spec.table).select(spec.cols).eq('workspace_id', workspaceId).eq(spec.fk, id)
+      rq = rq.order(spec.order, { ascending: false, nullsFirst: false }).limit(REL_CAP)
+      const { data } = await rq
+      const childRows = ((data ?? []) as Row[]).map(sanitizeRelatedRow)
+      await enrichRelationNames(supabase, workspaceId, childRows)
+      related[spec.outKey] = childRows
+    }))
+    row.related = related
+  }
+  return rows.length > EXPAND_PRIMARY_CAP
+}
+
 // ─────────────────────────────────────────────────────────── crm_read_query
 // Universal CONTROLLED read: the agent picks an allowlisted ENTITY + safe
 // filters/searchText/clientRef/dateRange. NO free SQL. workspace_id is pinned by
@@ -1271,7 +1348,7 @@ const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
 }
 
-export type CrmQueryResult = { entity: string; count: number; rows: Row[]; orderBy?: string; orderDirection?: 'asc' | 'desc'; offset?: number }
+export type CrmQueryResult = { entity: string; count: number; rows: Row[]; orderBy?: string; orderDirection?: 'asc' | 'desc'; offset?: number; detailLevel?: string; related_truncated?: boolean }
 
 function sanitizeQueryRow(cfg: CrmEntityCfg, r: Row): Row {
   const out: Row = {}
@@ -1349,7 +1426,20 @@ export async function crmReadQuery(
   const rows = ((data ?? []) as Row[]).map((r) => sanitizeQueryRow(cfg, r))
   // 360: resolver nombres de las relaciones por id → el agente nunca muestra UUIDs.
   await enrichRelationNames(supabase, workspaceId, rows)
+
+  // detailLevel + expand (Assistant 360). detailLevel='full' aplica el set de relaciones por defecto de
+  // la entidad; `expand` (allowlist) lo acota. Solo se expanden las primeras filas (protección de payload).
+  const detailLevel = (() => {
+    const dl = asString(o.detailLevel).toLowerCase()
+    return dl === 'detail' || dl === 'full' ? dl : 'summary'
+  })()
+  const rawExpand = Array.isArray(o.expand) ? (o.expand as unknown[]).map((x) => String(x).toLowerCase()) : []
+  const defaultExpand = detailLevel === 'full' ? Object.keys(EXPAND_SPECS[entity] ?? {}) : []
+  const expandKeys = [...new Set([...rawExpand, ...defaultExpand])].filter((k) => EXPAND_ALLOWED.has(k))
+  let relatedTruncated = false
+  if (expandKeys.length) relatedTruncated = await applyExpand(supabase, workspaceId, entity, rows, expandKeys)
+
   // Devolvemos el criterio aplicado para que el agente sepa exactamente qué posición consultó
   // (p. ej. orderBy=created_at, orderDirection=asc, offset=2 → el 3er cliente registrado).
-  return { entity, count: rows.length, rows, orderBy, orderDirection: ascending ? 'asc' : 'desc', offset }
+  return { entity, count: rows.length, rows, orderBy, orderDirection: ascending ? 'asc' : 'desc', offset, detailLevel, ...(relatedTruncated ? { related_truncated: true } : {}) }
 }
