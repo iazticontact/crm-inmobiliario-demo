@@ -110,11 +110,10 @@ finalizado/completado y pregunta activos vs finalizados → debe responder actua
 | Asistente no ve datos | supabaseRef OK | conteos 0 | `CRM_BASE_URL` mal / base distinta | Corregir CRM_BASE_URL en n8n |
 | UI nueva, asistente raro | commit viejo / toolVersion viejo | — | Build desplegado viejo | Redeploy |
 
-## 9. Pendiente conocido (requiere decisión) — settings/logo no persisten
+## 9. Settings/logo — RESUELTO (migración P25)
 
-`workspace-settings.ts` (y por tanto el **logo de empresa** de P22 y los ajustes de empresa) consultan la
-tabla `workspace_settings`, que **no existe** en la BD desplegada (el esquema vivo guarda en
-`workspaces.settings`/`branding`). Hoy: la subida de logo se ve un momento (UI optimista) pero **no persiste**
-al recargar. No es un fallo del Asistente. Ver el informe P25 (§"Hallazgo: drift de settings") para las dos
-opciones de arreglo (crear la tabla vs repuntar el código a `workspaces.settings`). **Requiere tu
-autorización** antes de tocar la BD.
+`workspace-settings.ts` y el **logo de empresa** (P22) consultaban la tabla `workspace_settings`, que **no
+existía** en la BD → no persistían al recargar. **Resuelto** con la migración `p25_create_workspace_settings`
+(additiva, no destructiva; ver `docs/supabase/p25_workspace_settings.sql`), aplicada y verificada (11
+columnas, RLS ON, 4 policies, trigger). QA: con odunabeitia14, sube un logo en Configuración → Empresa,
+recarga → debe seguir ahí; cambia nombre/ai_tone → debe persistir.

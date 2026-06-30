@@ -155,8 +155,13 @@ UI · sin temp files. Detalle del comando en §22.
 | `scripts/check-agent-deploy.mjs` | **Nuevo** — verificación segura del backend desplegado |
 | `src/lib/agents/__evals__/assistant-diag.evals.ts` | **Nuevo** — eval ejecutable del contrato de diag |
 | `src/lib/agents/__evals__/assistant-coherence.evals.ts` | +5 fixtures P25 (genéricas) |
+| `docs/supabase/p25_workspace_settings.sql` | **Nuevo** — registro de la migración aplicada (tabla settings/logo) |
+| `src/lib/company-logo.ts` | Comentario actualizado (la tabla ya existe vía migración P25) |
 | `docs/P25_DEPLOYMENT_ASSISTANT_VERIFICATION_CHECKLIST.md` | **Nuevo** — checklist operativo |
 | `docs/PHASE_P25_DEPLOYMENT_AND_ASSISTANT_E2E_CLOSURE_REPORT.md` | **Nuevo** — este informe |
+
+**Cambio en BD (autorizado):** migración `p25_create_workspace_settings` aplicada al proyecto
+`ylhdbawrllqygfvllhdo` (crea `workspace_settings` + RLS + trigger). Additiva, no destructiva, verificada.
 
 ## 20. Cambios n8n
 
@@ -184,26 +189,21 @@ en EasyPanel == dominio del backend; (4) workflow activo; (5) QA E2E con odunabe
 1. **Verificación del backend desplegado**: no ejecutable desde aquí (sin dominio de staging ni secreto del
    webhook v2 en `.env.local`). Queda turnkey con el script + checklist. Si el §1–§2 da mismatch → redeploy /
    corregir `CRM_BASE_URL`/envs (no es lógica).
-2. **Hallazgo: drift de settings/logo (requiere tu decisión).** `src/lib/workspace-settings.ts` (y por tanto
-   el **logo de empresa** de P22 y los ajustes de Empresa) consultan la tabla **`workspace_settings`, que no
-   existe** en la BD desplegada — el esquema vivo guarda en `workspaces.settings`/`branding`. Efecto: el logo
-   se ve un instante (UI optimista) pero **no persiste** al recargar; los ajustes de empresa tampoco. Degrada
-   en silencio (`null`), no rompe. **No es el Asistente.** Dos arreglos posibles (ninguno aplicado, pendiente
-   de tu OK porque toca BD/código fuera del foco de P25):
-   - **(A) Crear la tabla** `workspace_settings` (additivo, no destructivo) con su RLS; el código actual
-     funciona tal cual. Requiere alinear la RLS con las funciones reales de la BD
-     (`current_workspace_ids()` vs `current_workspace_id()`).
-   - **(B) Repuntar el código** a `workspaces.settings` (jsonb existente); sin migración, pero cambia
-     `workspace-settings.ts` y sus consumidores.
-   - Recomendación: decidir en P26 con autorización explícita; mientras, el logo/ajustes de empresa quedan
-     como **limitación conocida**.
+2. **Hallazgo RESUELTO: drift de settings/logo.** `src/lib/workspace-settings.ts` (y el **logo de empresa**
+   de P22 y los ajustes de Empresa) consultaban la tabla **`workspace_settings`, que no existía** en la BD
+   desplegada → el logo/ajustes no persistían al recargar (UI optimista). **Decisión tomada: crear la tabla.**
+   Aplicada la migración `p25_create_workspace_settings` (additiva, no destructiva) vía MCP, con RLS alineada
+   al patrón **real** de esta BD (`current_workspace_ids()` para miembros, `is_workspace_admin()` para borrado,
+   trigger `set_updated_at()`). **Verificado:** 11 columnas (coinciden con el tipo `WorkspaceSettings`), RLS
+   ON, 4 policies, 1 trigger. Registro en `docs/supabase/p25_workspace_settings.sql`. El logo y los ajustes
+   de Empresa ahora persisten (sin cambios de código; el código ya esperaba esta tabla).
 
 ## 26. Veredicto
 
-**P25 COMPLETADO — DESPLIEGUE, ENTORNO Y ASISTENTE IA VERIFICADOS END-TO-END ANTES DE EXTRAS**, con dos
-matices honestos: (a) la comprobación del **backend desplegado** queda lista para ejecutar (script +
-checklist) porque este entorno es local; (b) se detectó un **drift real** (tabla `workspace_settings`
-ausente) que afecta a la persistencia de logo/ajustes de empresa —no al Asistente— y que requiere tu
-decisión antes de tocarse. Lo verificable desde aquí está **verificado y es objetivo**: Supabase
-(`ylhdbawrllqygfvllhdo`, conteos reales por cuenta), n8n (1 workflow activo, sin duplicados, `$env.CRM_BASE_URL`,
-sin hosts hardcodeados), y el diag corregido + guardado por eval. `tsc`/`lint`/`build` en verde. Sin tocar n8n.
+**P25 COMPLETADO — DESPLIEGUE, ENTORNO Y ASISTENTE IA VERIFICADOS END-TO-END ANTES DE EXTRAS.** Lo
+verificable desde aquí está **verificado y es objetivo**: Supabase (`ylhdbawrllqygfvllhdo`, conteos reales por
+cuenta), n8n (1 workflow activo, sin duplicados, `$env.CRM_BASE_URL` ×15, sin hosts hardcodeados), y el diag
+corregido + guardado por eval. Se detectó y **resolvió** un drift real (tabla `workspace_settings` ausente →
+logo/ajustes de empresa no persistían): creada vía migración additiva con RLS real, verificada. Único matiz
+honesto: la comprobación del **backend desplegado** (commit/`CRM_BASE_URL`) queda lista para ejecutar (script
++ checklist) porque este entorno es local. `tsc`/`lint`/`build` en verde. Sin tocar n8n.

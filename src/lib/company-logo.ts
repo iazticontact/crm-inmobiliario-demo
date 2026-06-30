@@ -3,7 +3,8 @@
 // Logo de empresa (P22). Distinto del avatar PERSONAL: identifica la inmobiliaria/cuenta. Sube a un
 // bucket público (`company-logos`) con RLS por workspace (solo miembros escriben en {workspaceId}/...),
 // con el cliente de navegador autenticado — NUNCA service_role. La URL pública se guarda en
-// `workspace_settings.metadata` (sin migración). Reutiliza la validación de imagen del avatar.
+// `workspace_settings.metadata` (tabla creada en la migración P25 — ver
+// docs/supabase/p25_workspace_settings.sql). Reutiliza la validación de imagen del avatar.
 
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { getWorkspaceSettings, upsertWorkspaceSettings } from '@/lib/workspace-settings'
