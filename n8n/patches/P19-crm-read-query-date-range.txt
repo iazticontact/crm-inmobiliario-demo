@@ -1,0 +1,36 @@
+MICROPARCHE P19 — crm_read_query: dejar pasar rango de fecha a cualquier entidad
+=================================================================================
+
+POR QUÉ (auditoría §10–11)
+--------------------------
+`crm_read_query` reenviaba entity/searchText/clientRef/orderBy/orderDirection/limit/offset + filtros,
+pero NO el rango de fecha. El backend SÍ lo soporta (dateCol → dateRange.{from,to}) y ahora también
+acepta una palabra clave `range` (hoy/esta semana/… en Europe/Madrid, reusando madridDateRange). Con
+esto el asistente puede pedir, p. ej., "tareas que vencen esta semana", "operaciones con cierre este
+mes", "trámites que vencen hoy" — sobre cualquier entidad con fecha, no solo el calendario dedicado.
+
+QUÉ HACER (edición quirúrgica del nodo `crm_read_query`, con autorización previa)
+--------------------------------------------------------------------------------
+Modificar DOS parámetros del nodo (toolCode) `crm_read_query`: `inputSchema` (añadir range/from/to a
+properties, preservando el resto) y `jsCode` (añadir el reenvío). No tocar nada más. PUT por REST API.
+Verificar = / {{ }} / credenciales / conexiones / memory / 24 nodos / active=true intactos.
+
+(A) inputSchema — AÑADIR estas properties (sin quitar las existentes):
+  "range": { "type": "string", "description": "rango natural en Europe/Madrid: hoy, mañana, esta semana, la semana que viene, próximos 7 días, este mes (se aplica al campo de fecha de la entidad)" },
+  "from":  { "type": "string", "description": "fecha inicio yyyy-mm-dd (alternativa a range)" },
+  "to":    { "type": "string", "description": "fecha fin yyyy-mm-dd (alternativa a range)" }
+
+(B) jsCode — AÑADIR tras los put() existentes (antes de construir filters o justo después):
+  put('range');
+  const _from = a['from'], _to = a['to'];
+  if ((_from && String(_from).trim()) || (_to && String(_to).trim())) {
+    input.dateRange = {};
+    if (_from && String(_from).trim()) input.dateRange.from = String(_from).trim();
+    if (_to && String(_to).trim()) input.dateRange.to = String(_to).trim();
+  }
+
+NOTA
+----
+El backend `crmReadQuery` resuelve `range` con `madridDateRange` y, si no, usa `dateRange.{from,to}`.
+Alineado con la tool de calendario (P18) y el parser central de fechas. No cambia el comportamiento de
+las consultas que no envían fecha.

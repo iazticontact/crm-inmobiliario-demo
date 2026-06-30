@@ -57,6 +57,9 @@ import {
 } from '@/lib/agent-tool-readers'
 
 export const runtime = 'nodejs'
+// Lectura SIEMPRE fresca (fuente de verdad = Supabase). Nunca cachear: el asistente debe ver datos
+// recién creados/editados en la UI en su siguiente consulta (P19, tiempo real 360).
+export const dynamic = 'force-dynamic'
 
 type AllowedTool =
   | 'get_workspace_summary'

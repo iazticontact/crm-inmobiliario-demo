@@ -38,6 +38,7 @@ import {
   X,
   Archive,
   ChevronRight,
+  Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -60,9 +61,11 @@ import {
 import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { PropertyStatusBadge } from '@/components/PropertyStatusBadge'
+import { propertyMatchesFilters, sortPortfolio } from '@/lib/portfolio-filter'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
+  PROPERTY_TYPE_LABEL,
   propLabel,
   propNum,
   propertyTypeText,
@@ -159,6 +162,9 @@ function formatDate(value: string | null) {
 
 // Etiquetas/estados/orden de inmuebles → módulo compartido con la ficha (property-display).
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+// Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). Función pura a nivel
+// de módulo para que las derivaciones memoizadas tengan dependencias estables.
+const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
 
 export default function OpportunitiesPage() {
   const { currentUser, isLoading: userLoading } = useCurrentUser()
@@ -183,6 +189,13 @@ export default function OpportunitiesPage() {
   const [reopenOpp, setReopenOpp] = useState<{ opp: OpportunityRow; nextStage: string } | null>(null)
   // Inmuebles: vista de cartera (activos / histórico / todos). Por defecto, solo activos.
   const [propView, setPropView] = useState<'active' | 'history' | 'all'>('active')
+  // Cartera Pro (P19): búsqueda + filtros + orden sobre los inmuebles ya cargados (RLS, sin N+1).
+  const [propSearch, setPropSearch] = useState('')
+  const [propEstado, setPropEstado] = useState('')
+  const [propOperacion, setPropOperacion] = useState('')
+  const [propTipo, setPropTipo] = useState('')
+  const [propLocalidad, setPropLocalidad] = useState('')
+  const [propSort, setPropSort] = useState<'recientes' | 'precio_desc' | 'precio_asc' | 'localidad'>('recientes')
   // Cambio de estado de un inmueble que lo pasa a histórico (vendido/alquilado/archivado) → confirma.
   const [propStatusChange, setPropStatusChange] = useState<{ property: PropertyRow; nextStatus: string } | null>(null)
   // Borrado seguro de inmueble: bloqueo si tiene operaciones; confirmación fuerte si no.
@@ -357,13 +370,46 @@ export default function OpportunitiesPage() {
   // Inmuebles cerrados (vendidos/alquilados/archivados) → histórico (no se borran). "Activos" = todo
   // lo que sigue en cartera. Orden: reservados → publicados → captación (activos); vendidos →
   // alquilados → archivados (histórico), con updated_at como desempate.
-  const isClosedProperty = (status: string | null) => status === 'sold' || status === 'rented' || status === 'archived'
-  const activeProperties = visibleProperties.filter((p) => !isClosedProperty(p.status))
-  const historyProperties = visibleProperties.filter((p) => isClosedProperty(p.status))
+  const activeProperties = useMemo(() => visibleProperties.filter((p) => !isClosedProperty(p.status)), [visibleProperties])
+  const historyProperties = useMemo(() => visibleProperties.filter((p) => isClosedProperty(p.status)), [visibleProperties])
   const soldArchivedCount = historyProperties.length
-  const activeSorted = sortPropertiesByStatus(activeProperties, ACTIVE_STATUS_RANK)
-  const historySorted = sortPropertiesByStatus(historyProperties, HISTORY_STATUS_RANK)
-  const shownProperties = propView === 'history' ? historySorted : propView === 'all' ? [...activeSorted, ...historySorted] : activeSorted
+  const activeSorted = useMemo(() => sortPropertiesByStatus(activeProperties, ACTIVE_STATUS_RANK), [activeProperties])
+  const historySorted = useMemo(() => sortPropertiesByStatus(historyProperties, HISTORY_STATUS_RANK), [historyProperties])
+  const shownProperties = useMemo(
+    () => (propView === 'history' ? historySorted : propView === 'all' ? [...activeSorted, ...historySorted] : activeSorted),
+    [propView, activeSorted, historySorted],
+  )
+
+  // Cartera Pro (P19): opciones de filtro derivadas de los inmuebles reales (solo lo que existe en la
+  // cartera) + predicado de búsqueda/filtros + orden. Todo client-side sobre datos ya cargados (RLS).
+  const propFilterOptions = useMemo(() => {
+    const localidades = new Set<string>(), tipos = new Set<string>(), operaciones = new Set<string>(), estados = new Set<string>()
+    for (const p of visibleProperties) {
+      if (p.city) localidades.add(p.city)
+      if (p.property_type) tipos.add(p.property_type)
+      if (p.operation_type) operaciones.add(p.operation_type)
+      if (p.status) estados.add(p.status)
+    }
+    return {
+      localidades: [...localidades].sort((a, b) => a.localeCompare(b, 'es')),
+      tipos: [...tipos].sort((a, b) => a.localeCompare(b, 'es')),
+      operaciones: [...operaciones].sort((a, b) => a.localeCompare(b, 'es')),
+      estados: [...estados].sort((a, b) => a.localeCompare(b, 'es')),
+    }
+  }, [visibleProperties])
+
+  const hasPropFilters = Boolean(propSearch.trim() || propEstado || propOperacion || propTipo || propLocalidad)
+  const clearPropFilters = () => { setPropSearch(''); setPropEstado(''); setPropOperacion(''); setPropTipo(''); setPropLocalidad('') }
+
+  const matchesPropFilters = useCallback((p: PropertyRow) => propertyMatchesFilters(p, {
+    search: propSearch, estado: propEstado, operacion: propOperacion, tipo: propTipo, localidad: propLocalidad,
+  }), [propEstado, propOperacion, propTipo, propLocalidad, propSearch])
+
+  const sortProps = useCallback((list: PropertyRow[]) => sortPortfolio(list, propSort), [propSort])
+
+  const displayedActive = useMemo(() => sortProps(activeSorted.filter(matchesPropFilters)), [activeSorted, matchesPropFilters, sortProps])
+  const displayedHistory = useMemo(() => sortProps(historySorted.filter(matchesPropFilters)), [historySorted, matchesPropFilters, sortProps])
+  const displayedProperties = useMemo(() => sortProps(shownProperties.filter(matchesPropFilters)), [shownProperties, matchesPropFilters, sortProps])
 
   // KPIs de cartera (vista Inmuebles). "Valor de cartera activa" = suma de precios de los inmuebles
   // activos (excluye el histórico vendido/alquilado): no es facturación ni ingresos.
@@ -1235,10 +1281,53 @@ export default function OpportunitiesPage() {
                   ))}
                 </div>
               )}
-              <Badge variant={shownProperties.length ? 'indigo' : 'default'} dot>{shownProperties.length} {shownProperties.length === 1 ? 'inmueble' : 'inmuebles'}</Badge>
+              <Badge variant={displayedProperties.length ? 'indigo' : 'default'} dot>{hasPropFilters ? `${displayedProperties.length} de ${shownProperties.length}` : `${displayedProperties.length} ${displayedProperties.length === 1 ? 'inmueble' : 'inmuebles'}`}</Badge>
             </div>
           }
         >
+          {/* Buscador + filtros + orden (Cartera Pro, P19) — sobre datos ya cargados (RLS). */}
+          {!loading && visibleProperties.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[180px] flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={propSearch}
+                  onChange={(e) => setPropSearch(e.target.value)}
+                  placeholder="Buscar por título, localidad, contacto…"
+                  className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 text-sm placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <select aria-label="Filtrar por estado" value={propEstado} onChange={(e) => setPropEstado(e.target.value)} className={cn(SELECT_CLS, 'h-9 w-auto')}>
+                <option value="">Estado</option>
+                {propFilterOptions.estados.map((s) => <option key={s} value={s}>{PROPERTY_STATUS_META[s]?.label ?? cap(s)}</option>)}
+              </select>
+              <select aria-label="Filtrar por operación" value={propOperacion} onChange={(e) => setPropOperacion(e.target.value)} className={cn(SELECT_CLS, 'h-9 w-auto')}>
+                <option value="">Operación</option>
+                {propFilterOptions.operaciones.map((o) => <option key={o} value={o}>{propLabel(PROPERTY_OPERATION_LABEL, o) || cap(o)}</option>)}
+              </select>
+              <select aria-label="Filtrar por tipo" value={propTipo} onChange={(e) => setPropTipo(e.target.value)} className={cn(SELECT_CLS, 'h-9 w-auto')}>
+                <option value="">Tipo</option>
+                {propFilterOptions.tipos.map((t) => <option key={t} value={t}>{propLabel(PROPERTY_TYPE_LABEL, t) || cap(t)}</option>)}
+              </select>
+              {propFilterOptions.localidades.length > 1 && (
+                <select aria-label="Filtrar por localidad" value={propLocalidad} onChange={(e) => setPropLocalidad(e.target.value)} className={cn(SELECT_CLS, 'h-9 w-auto')}>
+                  <option value="">Localidad</option>
+                  {propFilterOptions.localidades.map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+              )}
+              <select aria-label="Ordenar" value={propSort} onChange={(e) => setPropSort(e.target.value as typeof propSort)} className={cn(SELECT_CLS, 'h-9 w-auto')}>
+                <option value="recientes">Más recientes</option>
+                <option value="precio_desc">Precio: mayor a menor</option>
+                <option value="precio_asc">Precio: menor a mayor</option>
+                <option value="localidad">Localidad</option>
+              </select>
+              {hasPropFilters && (
+                <button type="button" onClick={clearPropFilters} className="inline-flex h-9 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50">
+                  <X className="h-3.5 w-3.5" /> Limpiar
+                </button>
+              )}
+            </div>
+          )}
           {loading ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {[0, 1, 2].map((s) => <div key={s} className="h-56 w-full animate-pulse rounded-2xl bg-slate-100" />)}
@@ -1270,24 +1359,31 @@ export default function OpportunitiesPage() {
                 }
               />
             )
+          ) : displayedProperties.length === 0 ? (
+            <EmptyState
+              icon={<Search className="h-6 w-6 text-gray-300" />}
+              title="Ningún inmueble coincide con los filtros"
+              description="Prueba con otra localidad, estado u operación, o limpia los filtros para ver toda la cartera."
+              action={<Button variant="secondary" size="sm" onClick={clearPropFilters}><X className="h-3.5 w-3.5" /> Limpiar filtros</Button>}
+            />
           ) : propView === 'all' ? (
             <div className="space-y-5">
-              {activeSorted.length > 0 && (
+              {displayedActive.length > 0 && (
                 <section>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Cartera activa · {activeSorted.length}</p>
-                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{activeSorted.map(renderPropertyCard)}</ul>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Cartera activa · {displayedActive.length}</p>
+                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{displayedActive.map(renderPropertyCard)}</ul>
                 </section>
               )}
-              {historySorted.length > 0 && (
+              {displayedHistory.length > 0 && (
                 <section>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Histórico · {historySorted.length}</p>
-                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{historySorted.map(renderPropertyCard)}</ul>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Histórico · {displayedHistory.length}</p>
+                  <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{displayedHistory.map(renderPropertyCard)}</ul>
                 </section>
               )}
             </div>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {shownProperties.map(renderPropertyCard)}
+              {displayedProperties.map(renderPropertyCard)}
             </ul>
           )}
         </SectionCard>

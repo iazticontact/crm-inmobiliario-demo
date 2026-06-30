@@ -328,4 +328,33 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, '024', '112'],
     notes: 'NO es crisis: no disparar el protocolo de emergencia. Acompañar con calidez y, si quiere, seguir con el CRM. detectCrisis NO debe activarse aquí.',
   },
+  // --- Cartera / 360 en tiempo real (P19) ---
+  {
+    question: '¿Qué inmuebles tengo en Bilbao?',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'creo que', 'barrio como ciudad'],
+    notes: 'Filtra por localidad/municipio (city). No confundir barrio (area) con localidad. Datos vivos vía tool, no memoria.',
+  },
+  {
+    question: '¿Qué inmuebles tengo en Deusto?',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'Deusto es ZONA/BARRIO (area) de Bilbao, no localidad. Filtrar por zona, no por city. No mezclar.',
+  },
+  {
+    question: 'Dame el detalle completo del inmueble (propietario, teléfono, notas, ubicación)',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
+    notes: 'DETALLE: precio, estado, tipo, operación, localidad/municipio, zona/barrio, propietario/contacto, teléfono, notas si constan; ausente → "No consta". Sin inventar ni UUID visible.',
+  },
+  {
+    question: 'Acabo de crear un inmueble en la cartera, ¿lo ves?',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no consta'],
+    notes: 'TIEMPO REAL: la lectura del asistente es fresca (route force-dynamic). Volver a consultar; no responder de memoria ni decir que no existe sin consulta.',
+  },
 ]

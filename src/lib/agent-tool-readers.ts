@@ -1290,7 +1290,9 @@ export async function crmReadQuery(
     if (safe) q = q.or(cfg.search.map((c) => `${c}.ilike.%${safe}%`).join(','))
   }
 
-  const dr = asObject(o.dateRange)
+  // Rango de fecha: palabra clave (hoy/esta semana/…) en Europe/Madrid, o dateRange.{from,to} explícito.
+  const byKeyword = typeof o.range === 'string' ? madridDateRange(o.range, todayMadridIso()) : null
+  const dr = byKeyword ?? asObject(o.dateRange)
   if (cfg.dateCol) {
     const from = parseIsoDate(dr.from)
     const to = parseIsoDate(dr.to)
