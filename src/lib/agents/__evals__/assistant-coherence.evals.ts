@@ -437,4 +437,40 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'workspace', 'tabla', 'base de datos'],
     notes: 'CUENTA VACÍA legítima (no bug): si la tool devuelve count 0 consistente en todo el módulo, decir con naturalidad que en esta cuenta aún no hay clientes y, si procede, sugerir revisar la sesión correcta. Sin tecnicismos ni mencionar workspaces/tablas/UUID.',
   },
+  // --- Cierre E2E (P25): resumen global, ambigüedad, pocos datos, truncado ---
+  {
+    question: 'Dame una visión general de cómo va todo / ¿cómo está el negocio?',
+    expectedTool: 'workspace_overview',
+    mustMention: ['citas', 'operaciones'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'creo que', 'aproximadamente'],
+    notes: 'RESUMEN GLOBAL: cruza varias entidades (próximas citas, tareas/trámites pendientes o vencidos, operaciones abiertas, inmuebles activos, comisiones pendientes si constan) con conteos REALES y rangos claros. Si no hay tool agregada, varias consultas acotadas; payload protegido; nunca inventar.',
+  },
+  {
+    question: '¿Qué tengo pendiente? (sin decir de qué módulo)',
+    expectedTool: 'workspace_overview',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tienes nada'],
+    notes: 'AMBIGÜEDAD segura: "pendiente" sin entidad → resumen de pendientes por módulo (tareas, trámites, citas próximas), no responder vacío por interpretación estrecha. Indicar qué se ha mirado.',
+  },
+  {
+    question: 'Dame los detalles de eso / de ese',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'AMBIGÜEDAD por referencia: resolver "eso/ese" por la entidad activa/último contexto si está claro y consultar la tool; si no hay contexto claro, pedir una breve aclaración. No inventar a qué se refiere.',
+  },
+  {
+    question: '(cuenta con muy pocos datos: solo 1 inmueble) ¿qué tengo en el CRM?',
+    expectedTool: 'workspace_overview',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tienes nada', 'está vacío'],
+    notes: 'POCOS DATOS ≠ VACÍO: si hay 1 inmueble y el resto a cero, listar lo que SÍ hay (el inmueble) y decir con naturalidad que aún no hay clientes/operaciones/citas. No tratarlo como cuenta totalmente vacía ni como error.',
+  },
+  {
+    question: '(muchísimos resultados / relaciones) dame la ficha completa con todo',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
+    notes: 'TRUNCADO: con expand y related_truncated=true, resumir lo más relevante (top N con NOMBRES), avisar de que hay más y ofrecer profundizar/filtrar. No volcar todo ni mostrar ids/UUID.',
+  },
 ]

@@ -10,21 +10,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { TOOL_CONTRACT_VERSION } from '@/lib/agent-tool-readers'
+import { PROBE_ENTITIES } from '@/lib/agent-diag-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Entidades del sondeo: tabla + columna de nombre + columna de fecha (para "última actualización").
-const PROBE_ENTITIES: Array<{ key: string; table: string; nameCol: string; dateCol: string }> = [
-  { key: 'clients', table: 'clients', nameCol: 'name', dateCol: 'updated_at' },
-  { key: 'events', table: 'calendar_events', nameCol: 'title', dateCol: 'updated_at' },
-  { key: 'properties', table: 'properties', nameCol: 'title', dateCol: 'updated_at' },
-  { key: 'opportunities', table: 'opportunities', nameCol: 'title', dateCol: 'updated_at' },
-  { key: 'service_cases', table: 'service_cases', nameCol: 'title', dateCol: 'updated_at' },
-  { key: 'tasks', table: 'tasks', nameCol: 'title', dateCol: 'updated_at' },
-  { key: 'documents', table: 'documents', nameCol: 'title', dateCol: 'created_at' },
-  { key: 'activities', table: 'activities', nameCol: 'title', dateCol: 'created_at' },
-]
 
 function clampName(v: unknown): string {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 60) : ''
