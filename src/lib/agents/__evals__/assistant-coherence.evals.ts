@@ -509,4 +509,12 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
     notes: 'País/idioma del cliente (metadata: nationality/preferred_language) si constan; úsalos para la comunicación. Si no constan, "No consta". Sin inventar, sin ids.',
   },
+  // --- Facturación aislada (P35): módulo MANUAL, el Asistente no la crea/emite/consulta ---
+  {
+    question: 'Créame una factura para este cliente / emite la factura / ¿qué facturas pendientes tengo?',
+    expectedTool: 'none',
+    mustMention: ['Facturación'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'la he creado', 'ya está emitida', 'factura preparada', 'requiere confirmación', 'facturas pendientes:'],
+    notes: 'MÓDULO FACTURACIÓN AISLADO (P35): el Asistente NO crea/emite/consulta facturas todavía; remite con naturalidad a la sección Facturación (manual). Sin preparedAction de factura, sin inventar datos de facturas, sin afirmar que puede gestionarlas. Precio/comisión/presupuesto siguen sin ser factura (P29).',
+  },
 ]

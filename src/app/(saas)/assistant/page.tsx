@@ -698,20 +698,8 @@ function buildPreparedAction(intent: AssistantIntent, mode: AssistantMode): Prep
     }
   }
 
-  if ((intent.intent === 'invoice' || intent.intent === 'invoice_concrete') && (extracted.clientName || extracted.amount || extracted.concept)) {
-    return {
-      id: `invoice-${Date.now()}`,
-      type: 'invoice',
-      title: 'Crear factura',
-      assistantMode: mode,
-      clientName: extracted.clientName,
-      concept: extracted.concept,
-      amount: extracted.amount,
-      dueDate: extracted.dueDate,
-      missingFields: intent.missingFields,
-      notes: 'Factura preparada desde el Asistente IA. Requiere confirmación.',
-    }
-  }
+  // P35: Facturación es un módulo MANUAL aislado. El Asistente NO prepara/crea/emite facturas todavía
+  // (no se construye preparedAction 'invoice'); si el usuario lo pide, se le redirige al módulo Facturación.
 
   return null
 }
@@ -735,8 +723,8 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
     return 'Sí, tiene mucho sentido para un negocio con citas. El Assistant puede recoger nombre, servicio, día, hora y duración, preparar la cita y guardarla en calendario con confirmación. Para montarlo bien, dime si quieres que esas reservas entren por WhatsApp Business, web o llamadas.'
   }
 
-  if (intent.intent === 'invoice_general') {
-    return 'Puedo ayudarte a preparar facturas, revisar pendientes y generar seguimientos de cobro. Para crear una factura real necesito cliente, importe, concepto y vencimiento, y siempre pediré confirmación antes de guardarla.'
+  if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete' || intent.intent === 'invoice_general') {
+    return 'La facturación se gestiona de forma manual desde la sección Facturación del CRM (crear borrador, líneas, IVA/IRPF, emitir con numeración y PDF). Ahí puedes hacerlo tú; el Asistente todavía no crea ni consulta facturas.'
   }
 
   if (intent.intent === 'document_request') {
@@ -750,15 +738,6 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
         : `Sí, se puede. Para crear la reserva necesito: ${missingText(intent.missingFields)}. Dime esos datos y preparo la cita en el calendario.`
     }
     return 'Tengo la cita preparada. Revísala abajo y pulsa Confirmar para crearla en Calendario.'
-  }
-
-  if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete') {
-    if (intent.missingFields.length) {
-      return buildPreparedAction(intent, mode)
-        ? `Tengo la factura casi lista. Falta: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
-        : `Puedo prepararla. Para crear la factura necesito: ${missingText(intent.missingFields)}. No la crearé hasta que confirmes.`
-    }
-    return 'Tengo la factura preparada. Revísala abajo y pulsa Confirmar para crearla.'
   }
 
   if (intent.intent === 'general' && intent.confidence < 0.4) {

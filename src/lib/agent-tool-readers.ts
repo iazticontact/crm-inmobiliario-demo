@@ -164,20 +164,6 @@ export type CrmOverview = {
       status: string | null
     }>
   }
-  invoices: {
-    pendingCount: number
-    overdueCount: number
-    pendingTotal: number
-    overdueTotal: number
-    recent: Array<{
-      id: string
-      client_name: string | null
-      amount: number
-      status: string | null
-      due_date: string | null
-      concept: string | null
-    }>
-  }
   calendar: {
     upcomingCount: number
     upcoming: Array<{
@@ -218,7 +204,8 @@ export async function getCrmOverview(
 ): Promise<CrmOverview> {
   const todayIso = todayMadridIso()
 
-  const [clients, tasks, invoices, events, activities, conversations] = await Promise.all([
+  // Facturación NO se lee desde el Asistente (P35: módulo aislado). Sin query a `invoices`.
+  const [clients, tasks, events, activities, conversations] = await Promise.all([
     supabase.from('clients')
       .select('id, name, company, status, lead_score, created_at')
       .eq('workspace_id', workspaceId)
@@ -230,11 +217,6 @@ export async function getCrmOverview(
       .eq('status', 'pending')
       .order('due_date', { ascending: true, nullsFirst: false })
       .limit(20),
-    supabase.from('invoices')
-      .select('id, client_id, client_name, amount, status, due_date, concept, created_at')
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
-      .limit(100),
     supabase.from('calendar_events')
       .select('id, title, date, start_at, end_at, status, client_id, client_name')
       .eq('workspace_id', workspaceId)
@@ -258,14 +240,9 @@ export async function getCrmOverview(
 
   const clientRows = (clients.data ?? []) as Row[]
   const taskRows = (tasks.data ?? []) as Row[]
-  const invRows = (invoices.data ?? []) as Row[]
   const eventRows = (events.data ?? []) as Row[]
   const actRows = (activities.data ?? []) as Row[]
   const convRows = (conversations.data ?? []) as Row[]
-
-  const pendingInvoices = invRows.filter((i) => i.status === 'pending' || i.status === 'overdue')
-  const overdueInvoices = invRows.filter((i) => i.status === 'overdue')
-  const sumAmount = (rows: Row[]) => rows.reduce((s, r) => s + toNumber(r.amount), 0)
 
   return {
     clients: {
@@ -288,20 +265,6 @@ export async function getCrmOverview(
         client_id: t.client_id ? String(t.client_id) : null,
         client_name: clampString(t.client_name, 120),
         status: clampString(t.status, 40),
-      })),
-    },
-    invoices: {
-      pendingCount: pendingInvoices.length,
-      overdueCount: overdueInvoices.length,
-      pendingTotal: round2(sumAmount(pendingInvoices)),
-      overdueTotal: round2(sumAmount(overdueInvoices)),
-      recent: invRows.slice(0, 5).map((i) => ({
-        id: String(i.id),
-        client_name: clampString(i.client_name, 120),
-        amount: toNumber(i.amount),
-        status: clampString(i.status, 40),
-        due_date: typeof i.due_date === 'string' ? i.due_date : null,
-        concept: clampString(i.concept, 200),
       })),
     },
     calendar: {
@@ -420,13 +383,6 @@ export type Client360 = {
     status: string | null
     priority: string | null
   }>
-  invoices: Array<{
-    id: string
-    amount: number
-    status: string | null
-    due_date: string | null
-    concept: string | null
-  }>
   calendarEvents: Array<{
     id: string
     title: string
@@ -491,16 +447,12 @@ export async function getClient360(
   // Escape commas in the name for PostgREST `.or()` filter syntax.
   const safeName = clientName.replace(/[,()]/g, '')
 
-  const [tasksRes, invRes, eventsRes, convRes, docsRes, actsRes] = await Promise.all([
+  // Facturación NO se lee desde el Asistente (P35: módulo aislado). Sin query a `invoices`.
+  const [tasksRes, eventsRes, convRes, docsRes, actsRes] = await Promise.all([
     supabase.from('tasks')
       .select('id, title, description, due_date, status, priority')
       .eq('workspace_id', workspaceId).eq('client_id', clientId)
       .order('due_date', { ascending: true, nullsFirst: false }).limit(10),
-    supabase.from('invoices')
-      .select('id, amount, status, due_date, concept, created_at')
-      .eq('workspace_id', workspaceId)
-      .or(safeName ? `client_id.eq.${clientId},client_name.eq.${safeName}` : `client_id.eq.${clientId}`)
-      .order('created_at', { ascending: false }).limit(10),
     supabase.from('calendar_events')
       .select('id, title, date, start_at, end_at, status')
       .eq('workspace_id', workspaceId)
@@ -558,13 +510,6 @@ export async function getClient360(
       due_date: typeof t.due_date === 'string' ? t.due_date : null,
       status: clampString(t.status, 40),
       priority: clampString(t.priority, 20),
-    })),
-    invoices: ((invRes.data ?? []) as Row[]).map((i) => ({
-      id: String(i.id),
-      amount: toNumber(i.amount),
-      status: clampString(i.status, 40),
-      due_date: typeof i.due_date === 'string' ? i.due_date : null,
-      concept: clampString(i.concept, 200),
     })),
     calendarEvents: ((eventsRes.data ?? []) as Row[]).map((e) => ({
       id: String(e.id),
@@ -691,49 +636,15 @@ export async function getInvoicesSummary(
   workspaceId: string,
   input: Json,
 ): Promise<ReaderResult<InvoicesSummary>> {
-  const o = asObject(input)
-  const limit = asPositiveInt(o.limit, 10, 10)
-  const cid = clientIdFromInput(input)
-  if (cid.error) return cid.error
-
-  let q = supabase.from('invoices')
-    .select('id, client_id, client_name, amount, status, due_date, concept, created_at')
-    .eq('workspace_id', workspaceId)
-  if (cid.clientId) q = q.eq('client_id', cid.clientId)
-  const { data, error } = await q
-    .order('created_at', { ascending: false })
-    .limit(300)
-  if (error) return { error: 'query_failed', message: 'No pude leer las facturas.' }
-
-  const rows = (data ?? []) as Row[]
-  const pending = rows.filter((r) => r.status === 'pending')
-  const overdue = rows.filter((r) => r.status === 'overdue')
-  const paid = rows.filter((r) => r.status === 'paid')
-  const sum = (rs: Row[]) => rs.reduce((s, r) => s + toNumber(r.amount), 0)
-
-  const shape = (r: Row): InvoiceShape => ({
-    id: String(r.id),
-    client_id: r.client_id ? String(r.client_id) : null,
-    client_name: clampString(r.client_name, 120),
-    amount: toNumber(r.amount),
-    status: clampString(r.status, 40),
-    due_date: typeof r.due_date === 'string' ? r.due_date : null,
-    concept: clampString(r.concept, 200),
-    created_at: typeof r.created_at === 'string' ? r.created_at : null,
-  })
-
+  // P35: Facturación es un módulo MANUAL aislado; el Asistente NO lee facturas todavía. No se consulta la
+  // tabla `invoices`. La integración con el Asistente (lectura + prepare_invoice con confirmación) queda
+  // como fase futura OPCIONAL. Devuelve un mensaje honesto (no un error de datos).
+  void supabase
+  void workspaceId
+  void input
   return {
-    totals: {
-      pendingCount: pending.length,
-      overdueCount: overdue.length,
-      paidCount: paid.length,
-      pendingTotal: round2(sum(pending)),
-      overdueTotal: round2(sum(overdue)),
-      paidTotal: round2(sum(paid)),
-    },
-    pending: pending.slice(0, limit).map(shape),
-    overdue: overdue.slice(0, limit).map(shape),
-    recent: rows.slice(0, limit).map(shape),
+    error: 'not_available',
+    message: 'La facturación se gestiona manualmente desde el módulo Facturación. El Asistente no consulta facturas todavía.',
   }
 }
 
