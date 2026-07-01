@@ -536,6 +536,14 @@ export default function CalendarPage() {
   // hiding a calendar here never desincronises it from `selected_calendar_ids`.
   const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'week' | 'agenda'>('week')
+  // P28B: en móvil/tablet (<lg) la vista Semana (7 columnas) queda demasiado apretada.
+  // Por defecto arrancamos en Agenda (lista legible); el usuario puede cambiar a Semana.
+  // Solo se aplica una vez al montar (no pelea con el toggle manual).
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      queueMicrotask(() => setViewMode('agenda'))
+    }
+  }, [])
   const overlayRef = useRef<HTMLDivElement>(null)
   const calendarsOverlayRef = useRef<HTMLDivElement>(null)
   const loadEventsRequestRef = useRef(0)

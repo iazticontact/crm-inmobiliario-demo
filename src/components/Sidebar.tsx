@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
   Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
-  Inbox, Building2,
+  Inbox, Building2, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -44,7 +44,7 @@ const visibleNavItems = navItems.filter((item) => {
   return true
 })
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
   const pathname = usePathname()
   const router = useRouter()
   const { currentUser, isLoading } = useWorkspaceIdentity()
@@ -119,6 +119,15 @@ export function Sidebar() {
           </div>
           {BRAND.poweredBy && <p className="text-[10px] text-slate-500">{BRAND.poweredBy}</p>}
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Cerrar menú"
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/10 hover:text-white lg:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Nav */}

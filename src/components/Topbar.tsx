@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Bell, BellOff, Search, HelpCircle, X } from 'lucide-react'
+import { Bell, BellOff, Search, HelpCircle, X, Menu } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -23,7 +23,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
   '/settings':      { title: 'Configuración', description: 'Ajustes del CRM' },
 }
 
-export function Topbar() {
+export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname()
   const page = pageLabels[pathname] ?? { title: BRAND.appName, description: '' }
   const { currentUser, isLoading } = useWorkspaceIdentity()
@@ -71,13 +71,22 @@ export function Topbar() {
   const markAllRead = () => setReadNotifs(new Set(visibleNotifications.map((n) => n.id)))
 
   return (
-    <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-gray-200/70 bg-white/88 px-6 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl">
-      <div>
-        <h1 className="text-base font-semibold text-gray-950">{page.title}</h1>
-        {page.description && <p className="text-xs text-gray-400">{page.description}</p>}
+    <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-gray-200/70 bg-white/88 px-4 shadow-sm shadow-gray-950/[0.025] backdrop-blur-xl sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          onClick={onMenuClick}
+          aria-label="Abrir menú de navegación"
+          className="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700 lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold text-gray-950">{page.title}</h1>
+          {page.description && <p className="hidden truncate text-xs text-gray-400 sm:block">{page.description}</p>}
+        </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
         {/* Search */}
         <div className="relative hidden md:block" ref={searchRef}>
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 pointer-events-none" />
