@@ -478,6 +478,9 @@ export async function createProperty(workspaceId: string, input: {
   city?: string
   area?: string
   price?: number | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  areaM2?: number | null
   ownerName?: string
   ownerPhone?: string
   clientId?: string | null
@@ -499,6 +502,9 @@ export async function createProperty(workspaceId: string, input: {
       city: input.city ?? null,
       area: input.area ?? null,
       price: input.price ?? null,
+      bedrooms: input.bedrooms ?? null,
+      bathrooms: input.bathrooms ?? null,
+      area_m2: input.areaM2 ?? null,
       owner_name: input.ownerName ?? null,
       owner_phone: input.ownerPhone ?? null,
       notes: input.notes ?? null,

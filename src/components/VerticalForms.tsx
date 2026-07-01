@@ -544,6 +544,16 @@ const PROPERTY_STATUS_OPTIONS = [
   { id: 'under_contract', label: 'Reservado' },
 ]
 
+// P29: parseo seguro de m²/habitaciones/baños del formulario (vacío o inválido → null; no negativos).
+function toNonNegNumber(s: string): number | null {
+  const v = Number(s)
+  return s.trim() !== '' && Number.isFinite(v) && v >= 0 ? v : null
+}
+function toNonNegInt(s: string): number | null {
+  const v = Math.trunc(Number(s))
+  return s.trim() !== '' && Number.isFinite(v) && v >= 0 ? v : null
+}
+
 export function NewPropertyDrawer({
   open,
   onClose,
@@ -561,6 +571,9 @@ export function NewPropertyDrawer({
   const [area, setArea] = useState('')
   const areaInputRef = useRef<HTMLInputElement>(null)
   const [price, setPrice] = useState('')
+  const [areaM2, setAreaM2] = useState('')
+  const [bedrooms, setBedrooms] = useState('')
+  const [bathrooms, setBathrooms] = useState('')
   const [ownerName, setOwnerName] = useState(defaultClientName ?? '')
   const [ownerPhone, setOwnerPhone] = useState('')
   const [notes, setNotes] = useState('')
@@ -575,6 +588,9 @@ export function NewPropertyDrawer({
     setCity('')
     setArea('')
     setPrice('')
+    setAreaM2('')
+    setBedrooms('')
+    setBathrooms('')
     setOwnerName(defaultClientName ?? '')
     setOwnerPhone('')
     setNotes('')
@@ -610,6 +626,9 @@ export function NewPropertyDrawer({
         city: normalizeLocationForSave(city) || undefined,
         area: normalizeLocationForSave(area) || undefined,
         price: price ? Number(price) || null : null,
+        areaM2: toNonNegNumber(areaM2),
+        bedrooms: toNonNegInt(bedrooms),
+        bathrooms: toNonNegInt(bathrooms),
         ownerName: ownerName.trim() || undefined,
         ownerPhone: ownerPhone.trim() || undefined,
         clientId: defaultClientId,
@@ -714,6 +733,11 @@ export function NewPropertyDrawer({
           value={price}
           onChange={(e) => setPrice(e.target.value)}
         />
+        <div className="grid grid-cols-3 gap-3">
+          <Input label="Superficie (m²)" type="number" min="0" placeholder="Opcional" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} />
+          <Input label="Habitaciones" type="number" min="0" placeholder="Opcional" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
+          <Input label="Baños" type="number" min="0" placeholder="Opcional" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Propietario / contacto"

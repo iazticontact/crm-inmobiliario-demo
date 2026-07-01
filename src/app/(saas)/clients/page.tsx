@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { AutocompleteSelect } from '@/components/AutocompleteSelect'
+import { LANGUAGES, COUNTRIES } from '@/lib/geo-language-data'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -777,21 +779,19 @@ export default function ClientsPage() {
                     </select>
                   </Field>
                   <Field label="Idioma preferente">
-                    <input
-                      type="text"
+                    <AutocompleteSelect
                       value={form.preferredLanguage}
-                      onChange={(e) => setForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
-                      placeholder="Español, English, Français…"
-                      className={inputCls}
+                      onChange={(v) => setForm((p) => ({ ...p, preferredLanguage: v }))}
+                      options={LANGUAGES}
+                      placeholder="Escribe para buscar idioma…"
                     />
                   </Field>
-                  <Field label="Nacionalidad">
-                    <input
-                      type="text"
+                  <Field label="País">
+                    <AutocompleteSelect
                       value={form.nationality}
-                      onChange={(e) => setForm((p) => ({ ...p, nationality: e.target.value }))}
-                      placeholder="Opcional"
-                      className={inputCls}
+                      onChange={(v) => setForm((p) => ({ ...p, nationality: v }))}
+                      options={COUNTRIES}
+                      placeholder="Escribe para buscar país…"
                     />
                   </Field>
                 </div>

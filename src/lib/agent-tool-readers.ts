@@ -13,6 +13,10 @@
 // enforced manually here on every query, no exceptions.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  buildCriteriaFromText, normalizePropertyType, normalizeOperation, rankProperties, foldText,
+  type PropertyCriteria, type AvailabilityMode, type ScorableProperty, type RankedProperty,
+} from '@/lib/real-estate-search'
 
 // Versión del CONTRATO de salida de las tools read-only (P24). Se incluye en `meta.toolVersion` de cada
 // respuesta y la expone /api/agent/diag, para que se pueda verificar que el backend desplegado al que
@@ -1161,46 +1165,87 @@ export async function getPipelineSummary(
 
 // ─────────────────────────────────────────────────────────── search_properties
 
+export type SearchPropertyItem = {
+  id: string
+  title: string | null
+  property_type: string | null
+  operation_type: string | null
+  status: string | null
+  city: string | null
+  area: string | null
+  address: string | null
+  price: number | null
+  currency: string | null
+  area_m2: number | null
+  bedrooms: number | null
+  bathrooms: number | null
+  owner_name: string | null
+  owner_phone: string | null
+  reference: string | null
+  notes: string | null
+  matchLevel?: 'exact' | 'partial'
+  reasons?: string[]
+}
 export type SearchPropertiesResult = {
-  properties: Array<{
-    id: string
-    title: string | null
-    property_type: string | null
-    operation_type: string | null
-    status: string | null
-    city: string | null
-    area: string | null
-    address: string | null
-    price: number | null
-    currency: string | null
-  }>
+  properties: SearchPropertyItem[] // combinado (exactos + parciales) — compat con countFor
+  exactMatches: SearchPropertyItem[]
+  partialMatches: SearchPropertyItem[]
+  count: number
+  appliedFilters: Record<string, unknown>
+  availabilityMode: string
+  warnings: string[]
 }
 
-// Search the property portfolio. Optional filters: query (title/city/area/
-// address), status (e.g. only available), city. Workspace-scoped, limited.
+// Búsqueda SEMÁNTICA de cartera (P29). No es literal: normaliza tipo/operación/ubicación/presupuesto
+// (real-estate-search.ts), clasifica disponibilidad y separa exactos de parciales para evitar falsos
+// negativos. Acepta `query` libre + filtros explícitos opcionales. Workspace-scoped, payload acotado.
 export async function searchProperties(
   supabase: SupabaseClient,
   workspaceId: string,
   input: Json,
 ): Promise<ReaderResult<SearchPropertiesResult>> {
   const o = asObject(input)
-  const query = asString(o.query)
-  const status = asString(o.status)
-  const city = asString(o.city)
-  let q = supabase
-    .from('properties')
-    .select('id, title, property_type, operation_type, status, city, area, address, price, currency')
-    .eq('workspace_id', workspaceId)
-  if (status) q = q.eq('status', status)
-  if (city) q = q.ilike('city', `%${city}%`)
-  if (query) {
-    const safe = query.replace(/[,()]/g, '')
-    q = q.or(`title.ilike.%${safe}%,city.ilike.%${safe}%,area.ilike.%${safe}%,address.ilike.%${safe}%`)
+  const query = asString(o.query) || asString(o.searchText)
+  const availabilityRaw = asString(o.availabilityMode).toLowerCase()
+  const availability: AvailabilityMode =
+    availabilityRaw === 'all' ? 'all' : availabilityRaw === 'closed' ? 'closed' : 'available'
+  const includePartial = o.includePartialMatches !== false
+
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const explicit: Partial<PropertyCriteria> = {
+    types: normalizePropertyType(asString(o.type)).canonical,
+    operation: normalizeOperation(asString(o.operation)),
+    availability,
   }
-  const { data, error } = await q.order('updated_at', { ascending: false }).limit(25)
+  if (num(o.minPrice) != null) explicit.minPrice = num(o.minPrice)
+  if (num(o.maxPrice) != null) explicit.maxPrice = num(o.maxPrice)
+  if (num(o.bedrooms) != null) explicit.bedrooms = num(o.bedrooms)
+  if (num(o.bathrooms) != null) explicit.bathrooms = num(o.bathrooms)
+
+  const criteria = buildCriteriaFromText(query, explicit)
+  const localityTokens = [asString(o.locality), asString(o.area), asString(o.city)]
+    .map((s) => foldText(s)).filter(Boolean)
+  if (localityTokens.length) {
+    criteria.locationTokens = [...new Set([...(criteria.locationTokens ?? []), ...localityTokens])]
+  }
+
+  // Candidatos amplios: NO se filtra por status en la BD (evita falsos negativos); disponibilidad y
+  // criterios se aplican por ranking. Acotado a 120 filas por workspace.
+  const { data, error } = await supabase
+    .from('properties')
+    .select('id, title, property_type, operation_type, status, city, area, address, price, currency, area_m2, bedrooms, bathrooms, owner_name, owner_phone, reference, notes')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(120)
   if (error) return { error: 'query_failed', message: 'No pude leer las propiedades.' }
-  return {
-    properties: ((data ?? []) as Row[]).map((p) => ({
+
+  const rows = (data ?? []) as Row[]
+  const { exact, partial, excludedCount } = rankProperties(rows as unknown as ScorableProperty[], criteria)
+
+  const toItem = (r: RankedProperty<ScorableProperty>): SearchPropertyItem => {
+    const p = r.item as Row
+    return {
       id: String(p.id),
       title: clampString(p.title, 200),
       property_type: clampString(p.property_type, 60),
@@ -1211,7 +1256,42 @@ export async function searchProperties(
       address: clampString(p.address, 200),
       price: typeof p.price === 'number' ? p.price : null,
       currency: clampString(p.currency, 8),
-    })),
+      area_m2: typeof p.area_m2 === 'number' ? p.area_m2 : null,
+      bedrooms: typeof p.bedrooms === 'number' ? p.bedrooms : null,
+      bathrooms: typeof p.bathrooms === 'number' ? p.bathrooms : null,
+      owner_name: clampString(p.owner_name, 120),
+      owner_phone: clampString(p.owner_phone, 40),
+      reference: clampString(p.reference, 60),
+      notes: clampString(p.notes, 400),
+      matchLevel: r.matchLevel,
+      reasons: r.reasons.slice(0, 6),
+    }
+  }
+
+  const exactItems = exact.slice(0, 12).map(toItem)
+  const partialItems = (includePartial ? partial.slice(0, 8) : []).map(toItem)
+  const warnings: string[] = []
+  if (!exactItems.length && partialItems.length) warnings.push('sin coincidencias exactas; se muestran parciales relevantes')
+  if (!exactItems.length && !partialItems.length && excludedCount > 0 && availability === 'available') {
+    warnings.push('hay inmuebles en la cartera pero están cerrados (vendido/alquilado/archivado) para el criterio pedido')
+  }
+
+  return {
+    properties: [...exactItems, ...partialItems].slice(0, 20),
+    exactMatches: exactItems,
+    partialMatches: partialItems,
+    count: exactItems.length + partialItems.length,
+    appliedFilters: {
+      types: criteria.types ?? null,
+      operation: criteria.operation ?? null,
+      location: criteria.locationTokens ?? [],
+      minPrice: criteria.minPrice ?? null,
+      maxPrice: criteria.maxPrice ?? null,
+      bedrooms: criteria.bedrooms ?? null,
+      bathrooms: criteria.bathrooms ?? null,
+    },
+    availabilityMode: availability,
+    warnings,
   }
 }
 
@@ -1349,12 +1429,15 @@ type CrmEntityCfg = {
 }
 
 const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
+  // País/idioma del cliente viven en metadata (nationality/preferred_language, patrón de perfil
+  // extendido); `includeMeta: true` ya los entrega al Asistente. Las columnas dedicadas country/
+  // preferred_language quedan additivas para uso futuro (ver migración P29).
   clients: { table: 'clients', cols: 'id, name, company, email, phone, channel, status, notes, metadata, created_at', search: ['name', 'company', 'email', 'phone'], filters: ['status', 'channel'], dateCol: 'created_at', orderCol: 'updated_at', soft: true, includeMeta: true },
   opportunities: { table: 'opportunities', cols: 'id, title, stage, value, probability, expected_close_date, notes, client_id', search: ['title', 'notes'], filters: ['stage'], dateCol: 'expected_close_date', orderCol: 'updated_at', soft: true },
   service_cases: { table: 'service_cases', cols: 'id, title, case_type, status, priority, due_date, notes, client_id', search: ['title', 'notes'], filters: ['status', 'priority', 'case_type'], dateCol: 'due_date', orderCol: 'updated_at', soft: true },
   tasks: { table: 'tasks', cols: 'id, title, status, priority, due_date, client_id', search: ['title'], filters: ['status', 'priority'], dateCol: 'due_date', orderCol: 'due_date' },
   calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, end_at, location, notes, status, client_id, client_name, property_id, opportunity_id, case_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
-  properties: { table: 'properties', cols: 'id, title, property_type, operation_type, status, city, area, address, price, currency', search: ['title', 'city', 'area', 'address'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
+  properties: { table: 'properties', cols: 'id, title, reference, property_type, operation_type, status, city, area, address, price, currency, area_m2, bedrooms, bathrooms, owner_name, owner_phone, notes', search: ['title', 'city', 'area', 'address', 'notes', 'reference'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
 }
 

@@ -206,7 +206,10 @@ function isConsultativeBusinessQuestion(text: string) {
 export function detectAssistantIntent(message: string, context: { defaultClientName?: string } = {}): AssistantIntent {
   const raw = message.trim()
   const text = normalizeText(raw)
-  const invoiceWords = ['factura', 'facturar', 'cobro', 'cobrar', 'importe', 'vencimiento', 'vence', 'vencida', 'pago', 'presupuesto', 'euros', 'eur', '€']
+  // P29: SOLO facturación explícita dispara intención de factura. En inmobiliaria, presupuesto/€/euros/
+  // importe/pago/comisión/precio son habituales (presupuesto del comprador, precio del inmueble,
+  // comisión de venta) y NO deben clasificarse como "factura". Los cobros los cubre 'collection'.
+  const invoiceWords = ['factura', 'facturar', 'facturacion', 'facturarle', 'nota de honorarios']
   const clientSearchWords = ['buscar cliente', 'localizar cliente', 'encuentra cliente', 'cliente por nombre', 'cliente por email']
   const nextActionWords = ['proxima accion', 'siguiente accion', 'que hago', 'prioridad', 'tareas']
 
