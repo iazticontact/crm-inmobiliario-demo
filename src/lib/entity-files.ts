@@ -21,6 +21,7 @@ export type EntityFile = {
   is_cover: boolean
   sort_order: number
   caption: string | null
+  metadata: Record<string, unknown> | null
   created_at: string
 }
 
@@ -69,6 +70,8 @@ export async function uploadEntityFile(opts: {
   file: File
   category?: FileCategory
   isCover?: boolean
+  kind?: string        // tipo fino (contrato/DNI/…): se guarda en metadata.kind (P36)
+  description?: string // se guarda en caption (P36)
 }): Promise<EntityFile> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no disponible')
@@ -92,13 +95,49 @@ export async function uploadEntityFile(opts: {
     mime_type: opts.file.type || null,
     size_bytes: opts.file.size,
     is_cover: !!opts.isCover,
+    caption: opts.description?.trim() || null,
+    metadata: opts.kind ? { kind: opts.kind } : {},
   }).select('*').single()
   if (error) {
     // Evita huérfanos en Storage si falla el insert de metadatos.
     await supabase.storage.from(BUCKET).remove([path]).catch(() => {})
     throw new Error(`[metadata] ${error.message || 'fallo al guardar los metadatos'}${error.code ? ` (${error.code})` : ''}`)
   }
-  return data as EntityFile
+  const row = data as EntityFile
+  void logFileActivity('file_uploaded', row)
+  return row
+}
+
+// Edita metadata visible del documento (tipo/descripción). No mueve el archivo en Storage. (P36)
+export async function updateEntityFileMetadata(file: EntityFile, patch: { kind?: string; description?: string }): Promise<void> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) throw new Error('Supabase no disponible')
+  const update: Record<string, unknown> = {}
+  if (patch.description !== undefined) update.caption = patch.description.trim() || null
+  if (patch.kind !== undefined) update.metadata = { ...(file.metadata ?? {}), kind: patch.kind }
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase.from('entity_files').update(update).eq('id', file.id)
+  if (error) throw new Error(error.message)
+  void logFileActivity('file_metadata_updated', file)
+}
+
+// Actividad de documentos (best-effort; no rompe el flujo). `activities.entity_type` no tiene CHECK.
+async function logFileActivity(action: 'file_uploaded' | 'file_deleted' | 'file_metadata_updated', f: EntityFile) {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return
+  const title = action === 'file_uploaded' ? `Documento subido: ${f.file_name}`
+    : action === 'file_deleted' ? `Documento eliminado: ${f.file_name}`
+    : `Documento actualizado: ${f.file_name}`
+  const { data: u } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }))
+  await supabase.from('activities').insert({
+    workspace_id: f.workspace_id,
+    type: 'file',
+    title,
+    entity_type: f.entity_type,
+    entity_id: f.entity_id,
+    created_by: u?.user?.id ?? null,
+    metadata: { file_id: f.id, action, category: f.category },
+  }).then(() => {}, () => {})
 }
 
 // Borra TODOS los archivos (Storage + metadata) de una entidad. Para borrado seguro de un
@@ -110,12 +149,13 @@ export async function deleteEntityFilesFor(workspaceId: string, entityType: Enti
   }
 }
 
-export async function deleteEntityFile(file: Pick<EntityFile, 'id' | 'path'>): Promise<void> {
+export async function deleteEntityFile(file: EntityFile): Promise<void> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) throw new Error('Supabase no disponible')
   await supabase.storage.from(BUCKET).remove([file.path]).catch(() => {})
   const { error } = await supabase.from('entity_files').delete().eq('id', file.id)
   if (error) throw error
+  void logFileActivity('file_deleted', file)
 }
 
 export async function setCoverPhoto(
