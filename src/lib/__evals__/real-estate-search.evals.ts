@@ -70,6 +70,16 @@ export function runRealEstateSearchEvals(): string[] {
   const rNote = rankProperties(withNote, buildCriteriaFromText('local en Larrabasterra'))
   ok(rNote.exact.length + rNote.partial.length === 1, 'match por notas')
 
+  // 6.5) Extracción de ubicación: filler/presupuesto/atributos/intención/estado NO son localidad
+  // (regresión del bug de falsos negativos de P29).
+  const noLeak = (t: string) => buildCriteriaFromText(t).locationTokens ?? []
+  ok(noLeak('qué viviendas tengo disponibles').length === 0, 'no leak: tengo/disponibles')
+  ok(noLeak('busco un piso en venta hasta 300.000€').length === 0, 'no leak: hasta/venta')
+  ok(noLeak('piso de 3 habitaciones y 2 baños').length === 0, 'no leak: habitaciones/baños')
+  ok(noLeak('algo para invertir hasta 500 mil').length === 0, 'no leak: invertir/mil')
+  ok(noLeak('inmuebles vendidos').length === 0, 'no leak: vendidos')
+  ok(noLeak('algún piso en Bilbao').includes('bilbao'), 'localidad real sí se detecta (bilbao)')
+
   // 7) Detección de acción: precio/comisión/presupuesto NO son factura; factura explícita sí
   ok(detectAssistantIntent('busco un piso hasta 300.000€').intent !== 'invoice' && detectAssistantIntent('busco un piso hasta 300.000€').intent !== 'invoice_concrete', 'precio ≠ factura')
   ok(!String(detectAssistantIntent('¿qué comisión saco de esta venta?').intent).startsWith('invoice'), 'comisión ≠ factura')

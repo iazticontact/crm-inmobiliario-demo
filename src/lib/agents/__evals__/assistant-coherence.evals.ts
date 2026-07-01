@@ -473,4 +473,40 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
     notes: 'TRUNCADO: con expand y related_truncated=true, resumir lo más relevante (top N con NOMBRES), avisar de que hay más y ofrecer profundizar/filtrar. No volcar todo ni mostrar ids/UUID.',
   },
+  // --- Asistente inmobiliario omnicontextual (P29/P30): búsqueda semántica, comisiones, país/idioma ---
+  {
+    question: '¿Qué viviendas tengo disponibles para un comprador?',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no hay inmuebles'],
+    notes: 'BÚSQUEDA NO LITERAL: "vivienda" es genérico (no filtra tipo). Devuelve activos (no vendido/alquilado/archivado). Si no hay exactos, ofrece parciales con motivos; nunca "no hay" con candidatos. Incluye m²/hab/baños/precio/ubicación si constan.',
+  },
+  {
+    question: 'Busco un piso o apartamento en venta hasta 300.000€ de 3 habitaciones',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'factura'],
+    notes: 'Sinónimos piso/apartamento; operación venta; presupuesto máximo 300.000€ (es-ES); 3 hab. Exactos primero, parciales después (p. ej. ligeramente por encima de presupuesto). El presupuesto NO es factura.',
+  },
+  {
+    question: '¿Hay alguna casa o chalet? ¿y algo para invertir?',
+    expectedTool: 'search_properties',
+    mustMention: [],
+    mustNotMention: FORBIDDEN_GLOBAL,
+    notes: 'casa→casa/chalet/adosado; "invertir"→operación venta. No confundir tipo genérico con exclusión rígida. Considerar notas para condiciones/precio (citar "según las notas" si difiere del precio listado).',
+  },
+  {
+    question: '¿Qué comisión tengo de esa operación y con qué inmueble está?',
+    expectedTool: 'crm_read_query',
+    mustMention: ['comisión'],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'factura', 'facturación'],
+    notes: 'Comisiones = control interno de la operación (commission_rate/status/paid). Resolver el inmueble por NOMBRE (property_title), nunca id. Comisión/precio NO es factura. Si falta el dato, "No consta".',
+  },
+  {
+    question: 'Enséñame la ficha del cliente con su país e idioma preferido',
+    expectedTool: 'crm_read_query',
+    mustMention: [],
+    mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
+    notes: 'País/idioma del cliente (metadata: nationality/preferred_language) si constan; úsalos para la comunicación. Si no constan, "No consta". Sin inventar, sin ids.',
+  },
 ]
