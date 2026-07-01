@@ -84,21 +84,22 @@ export type Invoice = {
   updatedAt: string
 }
 
+// Fila de línea tal cual viene de la tabla `invoice_items` (snake_case).
 export type InvoiceItem = {
   id: string
-  invoiceId: string
-  workspaceId: string
+  invoice_id: string
+  workspace_id: string
   description: string
   quantity: number
-  unitPrice: number
-  discountRate: number
-  taxRate: number
-  withholdingRate: number
-  lineSubtotal: number
-  lineTaxTotal: number
-  lineWithholdingTotal: number
-  lineTotal: number
-  sortOrder: number
+  unit_price: number
+  discount_rate: number
+  tax_rate: number
+  withholding_rate: number
+  line_subtotal: number
+  line_tax_total: number
+  line_withholding_total: number
+  line_total: number
+  sort_order: number
 }
 
 export type InvoiceNumberSequence = {

@@ -20,6 +20,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
   '/automations':   { title: 'Automatizaciones', description: 'Flujos internos' },
   '/calendar':      { title: 'Calendario',    description: 'Visitas, asesorías y disponibilidad' },
   '/billing':       { title: 'Facturación',   description: 'Facturas e ingresos' },
+  '/facturacion':   { title: 'Facturación',   description: 'Facturas: borradores, emisión y PDF' },
   '/settings':      { title: 'Configuración', description: 'Ajustes del CRM' },
 }
 

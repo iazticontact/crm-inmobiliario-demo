@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Bot, Users, Zap, Calendar, CreditCard, Settings,
   Sparkles, LogOut, ChevronUp, User, HelpCircle, Loader2, CheckCircle,
-  Inbox, Building2, X,
+  Inbox, Building2, X, Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -29,6 +29,7 @@ const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboar
   { href: '/opportunities', label: 'Cartera',           icon: Building2,  flag: 'opportunities' },
   { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
   { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
+  { href: '/facturacion',   label: 'Facturación',       icon: Receipt },
   // Operator-only routes kept in code but hidden from the client sidebar.
   // WhatsApp/Inbox has no real backend yet (no conversations/messages tables,
   // no Meta Cloud API) — keep it operator-only until its phase. Route/page intact.

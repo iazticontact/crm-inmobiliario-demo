@@ -3,7 +3,8 @@
 // storage.objects) garantiza el aislamiento por workspace. Bucket privado → signed URLs.
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 
-export type EntityType = 'property' | 'client' | 'opportunity' | 'service_case'
+// 'invoice' añadido en P34 (el CHECK de entity_files.entity_type se amplió en P33).
+export type EntityType = 'property' | 'client' | 'opportunity' | 'service_case' | 'invoice'
 export type FileCategory = 'image' | 'document'
 
 export type EntityFile = {
