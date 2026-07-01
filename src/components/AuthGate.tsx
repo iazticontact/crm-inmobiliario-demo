@@ -116,7 +116,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!allowed) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#070814] text-white">
+      <div className="flex min-h-dvh items-center justify-center bg-[#070814] text-white">
         <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm shadow-2xl shadow-black/30">
           <Loader2 className="h-4 w-4 animate-spin text-indigo-200" />
           Verificando acceso...

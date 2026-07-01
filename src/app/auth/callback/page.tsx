@@ -82,7 +82,7 @@ export default function AuthCallbackPage() {
   }, [router])
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050713] px-6 text-white">
+    <main className="flex min-h-dvh items-center justify-center bg-[#050713] px-6 text-white">
       <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.08] p-6 text-center shadow-2xl shadow-black/40 backdrop-blur-2xl">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-indigo-700">
           <ShieldCheck className="h-5 w-5" />

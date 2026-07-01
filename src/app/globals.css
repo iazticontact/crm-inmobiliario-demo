@@ -31,6 +31,37 @@ textarea {
   letter-spacing: 0;
 }
 
+/* iOS Safari (P28C): hace ZOOM automático al enfocar un campo cuyo font-size < 16px.
+   En móvil (<=767px) forzamos 16px en TODOS los campos editables para eliminar ese
+   auto-zoom, sin tocar el tamaño de diseño (text-sm/text-xs) en desktop y sin bloquear
+   el pinch-zoom (accesibilidad). Cubre inputs "crudos" y cualquier componente, porque
+   apunta al tipo de elemento. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea,
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='search'],
+  input[type='tel'],
+  input[type='url'],
+  input[type='number'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'] {
+    font-size: 16px !important;
+    line-height: 1.4;
+  }
+}
+
+/* Red de seguridad anti scroll-horizontal global (safe-area/scrollbar en móvil). */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;

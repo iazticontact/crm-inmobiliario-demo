@@ -171,7 +171,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f5] text-gray-900">
+    <div className="relative min-h-dvh overflow-hidden bg-[#f7f7f5] text-gray-900">
       {/* Fondo despacho profesional — color crema sutil con un acento gráfico mínimo */}
       <div
         className="pointer-events-none absolute inset-0"
@@ -222,7 +222,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      <main className="relative grid min-h-screen lg:grid-cols-[1fr_minmax(420px,520px)]">
+      <main className="relative grid min-h-dvh lg:grid-cols-[1fr_minmax(420px,520px)]">
         {/* Panel izquierdo — despacho serio: sólo marca, claim y firma. Sin tarjetas, sin métricas. */}
         <aside className="relative hidden flex-col justify-between px-12 py-14 lg:flex xl:px-20 xl:py-16">
           <div className="flex items-center gap-3">
@@ -291,7 +291,7 @@ export default function LoginPage() {
         </aside>
 
         {/* Panel derecho — el formulario es el protagonista */}
-        <section className="flex min-h-screen w-full items-center justify-center border-l border-gray-200/70 bg-white px-6 py-12 sm:px-12 lg:py-16">
+        <section className="flex min-h-dvh w-full items-center justify-center border-l border-gray-200/70 bg-white px-6 py-12 sm:px-12 lg:py-16">
           <motion.div
             initial={false}
             animate={{ opacity: 1, y: 0 }}
@@ -329,6 +329,10 @@ export default function LoginPage() {
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="nombre@inmobiliaria.com"
                     autoComplete="email"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className={cn(
                       'h-12 w-full rounded-xl border bg-white pl-11 pr-3.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10',
                       showErrors && formErrors.email ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200',

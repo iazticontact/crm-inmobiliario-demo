@@ -100,7 +100,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-[#050713] px-5 py-10 text-white">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-x-hidden bg-[#050713] px-5 py-10 text-white">
       <div
         className="absolute inset-0"
         style={{

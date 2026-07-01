@@ -78,7 +78,7 @@ export default function OnboardingPage() {
 
   if (checking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f7f5] text-gray-900">
+      <div className="flex min-h-dvh items-center justify-center bg-[#f7f7f5] text-gray-900">
         <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm">
           <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
           Preparando tu espacio…
@@ -88,7 +88,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f5] text-gray-900">
+    <div className="relative min-h-dvh overflow-hidden bg-[#f7f7f5] text-gray-900">
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
@@ -97,7 +97,7 @@ export default function OnboardingPage() {
             'radial-gradient(circle at 75% 18%, rgba(15,23,42,0.04), transparent 55%), linear-gradient(180deg, #fafaf7 0%, #f3f3ef 100%)',
         }}
       />
-      <main className="relative flex min-h-screen items-center justify-center px-6 py-12">
+      <main className="relative flex min-h-dvh items-center justify-center px-6 py-12">
         <div className="w-full max-w-[440px]">
           <div className="mb-8 flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-950 text-white">
