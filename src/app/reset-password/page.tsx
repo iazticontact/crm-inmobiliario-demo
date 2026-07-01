@@ -118,7 +118,7 @@ export default function ResetPasswordPage() {
             <ShieldCheck className="h-4 w-4 text-emerald-200" />
           </div>
           <h1 className="text-3xl font-bold leading-tight">Nuevo password</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-300">Define un acceso seguro para volver a tu workspace.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">Define un acceso seguro para volver a tu cuenta.</p>
         </div>
 
         <div className="p-7 text-gray-900">

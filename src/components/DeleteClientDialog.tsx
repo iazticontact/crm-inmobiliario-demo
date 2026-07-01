@@ -24,7 +24,7 @@ type Related = {
 
 const IMPACT_LABELS: { key: keyof Related; singular: string; plural: string }[] = [
   { key: 'opportunities', singular: 'operación', plural: 'operaciones' },
-  { key: 'service_cases', singular: 'expediente', plural: 'expedientes' },
+  { key: 'service_cases', singular: 'trámite', plural: 'trámites' },
   { key: 'tasks', singular: 'tarea', plural: 'tareas' },
   { key: 'calendar_events', singular: 'cita', plural: 'citas' },
   { key: 'activities', singular: 'actividad', plural: 'actividades' },

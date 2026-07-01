@@ -959,10 +959,14 @@ export async function getDocumentsMetadata(
   const cid = clientIdFromInput(input)
   if (cid.error) return cid.error
 
-  let q = supabase.from('documents')
-    .select('id, client_id, title, mime_type, size, created_at')
+  // Metadata de documentos = tabla real `entity_files` (category='document'). Solo lectura de metadata
+  // (nombre/tipo/tamaño/fecha); NUNCA contenido del archivo. No existe tabla `documents` en esta BD; los
+  // archivos se enlazan por entity_type/entity_id (no client_id).
+  let q = supabase.from('entity_files')
+    .select('id, entity_type, entity_id, file_name, mime_type, size_bytes, created_at')
     .eq('workspace_id', workspaceId)
-  if (cid.clientId) q = q.eq('client_id', cid.clientId)
+    .eq('category', 'document')
+  if (cid.clientId) q = q.eq('entity_type', 'client').eq('entity_id', cid.clientId)
   const { data, error } = await q
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -971,10 +975,10 @@ export async function getDocumentsMetadata(
   return {
     documents: ((data ?? []) as Row[]).map((d) => ({
       id: String(d.id),
-      client_id: d.client_id ? String(d.client_id) : null,
-      file_name: clampString(d.title, 200) ?? '',
+      client_id: d.entity_type === 'client' && d.entity_id ? String(d.entity_id) : null,
+      file_name: clampString(d.file_name, 200) ?? '',
       mime_type: clampString(d.mime_type, 80),
-      size_bytes: typeof d.size === 'number' ? d.size : null,
+      size_bytes: typeof d.size_bytes === 'number' ? d.size_bytes : null,
       created_at: typeof d.created_at === 'string' ? d.created_at : null,
     })),
     capability: 'metadata_only',
@@ -1252,7 +1256,10 @@ async function enrichRelationNames(
 // Protección de payload: solo se expanden las primeras N filas principales y cada relación trae como
 // mucho REL_CAP elementos (orden por fecha desc). Allowlist estricta. Nombres resueltos, sin UUIDs ni
 // campos técnicos. Si hay más filas de las expandibles, se marca `related_truncated`.
-export const EXPAND_ALLOWED = new Set(['operation', 'property', 'client', 'service_case', 'tasks', 'events', 'documents', 'activity'])
+// Nota (P27): 'documents' NO se expande aquí. La metadata de documentos vive en `entity_files` (enlazada
+// por entity_type/entity_id, no por FK client_id/property_id) y se sirve por la tool dedicada
+// get_documents_metadata. Mantenerla fuera del expand genérico evita consultar una tabla inexistente.
+export const EXPAND_ALLOWED = new Set(['operation', 'property', 'client', 'service_case', 'tasks', 'events', 'activity'])
 export const REL_CAP = 5
 export const EXPAND_PRIMARY_CAP = 5
 
@@ -1265,7 +1272,6 @@ export const EXPAND_SPECS: Record<string, Partial<Record<string, RelSpec>>> = {
     events: { table: 'calendar_events', fk: 'client_id', cols: 'id, title, date, start_at, location, status, property_id, opportunity_id', order: 'date', outKey: 'citas' },
     tasks: { table: 'tasks', fk: 'client_id', cols: 'id, title, status, priority, due_date, property_id, opportunity_id', order: 'due_date', outKey: 'tareas' },
     service_case: { table: 'service_cases', fk: 'client_id', cols: 'id, title, status, priority, due_date, property_id, opportunity_id', order: 'due_date', outKey: 'tramites' },
-    documents: { table: 'documents', fk: 'client_id', cols: 'id, title, type, created_at', order: 'created_at', outKey: 'documentos' },
     activity: { table: 'activities', fk: 'client_id', cols: 'id, title, type, created_at', order: 'created_at', outKey: 'actividad' },
   },
   properties: {
@@ -1349,7 +1355,6 @@ const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   tasks: { table: 'tasks', cols: 'id, title, status, priority, due_date, client_id', search: ['title'], filters: ['status', 'priority'], dateCol: 'due_date', orderCol: 'due_date' },
   calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, end_at, location, notes, status, client_id, client_name, property_id, opportunity_id, case_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
   properties: { table: 'properties', cols: 'id, title, property_type, operation_type, status, city, area, address, price, currency', search: ['title', 'city', 'area', 'address'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
-  documents: { table: 'documents', cols: 'id, title, type, mime_type, size, created_at, client_id', search: ['title'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
 }
 

@@ -95,7 +95,7 @@ export function TeamCalendarStatusCard({ currentRole }: { currentRole: ProfileRo
       ) : team.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 p-5 text-center">
           <Users className="mx-auto mb-2 h-5 w-5 text-gray-400" />
-          <p className="text-sm text-gray-500">Aún no hay otros usuarios en el workspace.</p>
+          <p className="text-sm text-gray-500">Aún no hay otros usuarios en la cuenta.</p>
         </div>
       ) : (
         <ul className="divide-y divide-gray-100">

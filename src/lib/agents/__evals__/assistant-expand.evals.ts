@@ -15,9 +15,11 @@ export function runExpandEvals(): string[] {
   const fail: string[] = []
 
   // Allowlist: acepta las relaciones válidas, rechaza arbitrarias.
-  for (const k of ['operation', 'property', 'events', 'tasks', 'service_case', 'documents', 'activity']) {
+  // (P27) 'documents' se sirve por get_documents_metadata (entity_files), fuera del expand genérico.
+  for (const k of ['operation', 'property', 'events', 'tasks', 'service_case', 'activity']) {
     if (!EXPAND_ALLOWED.has(k)) fail.push(`EXPAND_ALLOWED debería incluir "${k}"`)
   }
+  if (EXPAND_ALLOWED.has('documents')) fail.push('EXPAND_ALLOWED no debería incluir "documents" (tabla inexistente; usa get_documents_metadata)')
   if (EXPAND_ALLOWED.has('drop_table') || EXPAND_ALLOWED.has('secrets')) fail.push('EXPAND_ALLOWED no debería incluir claves arbitrarias')
 
   // Caps de protección de payload.

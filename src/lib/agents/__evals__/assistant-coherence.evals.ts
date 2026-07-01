@@ -385,7 +385,7 @@ export const ASSISTANT_COHERENCE_EVALS: AssistantEval[] = [
     expectedTool: 'crm_read_query',
     mustMention: [],
     mustNotMention: [...FORBIDDEN_GLOBAL, 'no tengo acceso'],
-    notes: 'FICHA COMPLETA: detailLevel=full/detail + expand (operation/events/tasks/service_case/documents/activity). Relaciones acotadas (top 5) con NOMBRES, nunca ids. Si related_truncated, resumir y ofrecer profundizar.',
+    notes: 'FICHA COMPLETA: detailLevel=full/detail + expand (operation/events/tasks/service_case/activity). Relaciones acotadas (top 5) con NOMBRES, nunca ids. Los documentos (metadata) se piden aparte con get_documents_metadata (entity_files). Si related_truncated, resumir y ofrecer profundizar.',
   },
   {
     question: 'Enséñame todo el contexto de este inmueble (operaciones, visitas, tareas, trámites)',

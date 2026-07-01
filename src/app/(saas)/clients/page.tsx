@@ -498,7 +498,7 @@ export default function ClientsPage() {
 
       <SectionCard
         title="Base de clientes"
-        description="Listado completo del workspace"
+        description="Listado completo de la cuenta"
         noPadding
       >
         <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-gray-50/50 px-5 py-3">

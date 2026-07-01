@@ -243,14 +243,14 @@ export default function LoginPage() {
               Gestiona clientes, operaciones y citas desde un solo lugar.
             </h1>
             <p className="mt-4 max-w-md text-sm leading-6 text-gray-600">
-              CRM privado para inmobiliarias: seguimiento comercial, expedientes,
+              CRM privado para inmobiliarias: seguimiento comercial, trámites,
               tareas, calendario y asistente IA operativo.
             </p>
 
             <ul className="mt-7 space-y-3">
               {[
                 { icon: <Users className="h-4 w-4" />, text: 'Clientes y operaciones organizados' },
-                { icon: <Calendar className="h-4 w-4" />, text: 'Tareas, citas y expedientes bajo control' },
+                { icon: <Calendar className="h-4 w-4" />, text: 'Tareas, citas y trámites bajo control' },
                 { icon: <Bot className="h-4 w-4" />, text: 'Asistente IA para consultar y preparar acciones' },
               ].map((b) => (
                 <li key={b.text} className="flex items-center gap-3">
