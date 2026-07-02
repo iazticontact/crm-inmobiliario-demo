@@ -2,7 +2,8 @@
 // dashboard del módulo. Es ORIENTATIVO para gestión interna: NO es una declaración fiscal oficial.
 //
 // Reglas de cálculo (documentadas):
-//   · Se excluyen SIEMPRE las facturas en papelera (deletedAt != null).
+//   · Cuentan las facturas NO excluidas del resumen (accountingExcluded=false), estén activas, en papelera o
+//     purgadas (una factura en papelera puede seguir contando salvo que se excluya explícitamente).
 //   · Borradores (draft) NO cuentan como facturado.
 //   · Canceladas/anuladas (cancelled/void) NO cuentan como facturado activo.
 //   · "Facturado" = Σ total de facturas emitidas/enviadas/pagadas (no borrador, no cancelada) del periodo.
@@ -24,6 +25,8 @@ export type SummaryInvoice = {
   total: number
   clientName: string
   deletedAt?: string | null
+  purgedAt?: string | null
+  accountingExcluded?: boolean
 }
 
 export type InvoiceSummary = {
@@ -37,6 +40,7 @@ export type InvoiceSummary = {
   neto: number
   countIssued: number
   countDrafts: number
+  excludedCount: number
   currency: string
   collect: { paid: number; pending: number; overdue: number }   // para el gráfico cobrado/pendiente/vencido
   byStatus: { key: string; label: string; total: number; count: number }[]
@@ -66,8 +70,9 @@ const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', '
 export function computeInvoiceSummary(rows: SummaryInvoice[], period: SummaryPeriod, nowIso?: string): InvoiceSummary {
   const now = nowIso ? new Date(nowIso) : new Date()
   const today = now.toISOString().slice(0, 10)
-  const active = rows.filter((r) => !r.deletedAt)
-  const scope = active.filter((r) => inPeriod(r.issueDate, period, now))
+  // Cuentan las facturas NO excluidas del resumen (estén activas, en papelera o purgadas).
+  const included = rows.filter((r) => !r.accountingExcluded)
+  const scope = included.filter((r) => inPeriod(r.issueDate, period, now))
 
   const overdue = (r: SummaryInvoice) => isPending(r.status) && !!r.dueDate && r.dueDate < today
 
@@ -100,7 +105,7 @@ export function computeInvoiceSummary(rows: SummaryInvoice[], period: SummaryPer
 
   // Evolución mensual (últimos 6 meses hasta hoy, sobre TODO lo facturado, no solo el periodo)
   const monthly: { ym: string; label: string; total: number }[] = []
-  const billedAll = active.filter((r) => isBilled(r.status))
+  const billedAll = included.filter((r) => isBilled(r.status))
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -116,7 +121,8 @@ export function computeInvoiceSummary(rows: SummaryInvoice[], period: SummaryPer
   return {
     facturado, cobrado, pendiente, vencido, base, iva, irpf, neto: round2(base - irpf),
     countIssued: billed.length,
-    countDrafts: scope.filter((r) => r.status === 'draft').length,
+    countDrafts: rows.filter((r) => r.status === 'draft' && !r.deletedAt && !r.purgedAt && inPeriod(r.issueDate, period, now)).length,
+    excludedCount: rows.filter((r) => r.accountingExcluded && isBilled(r.status)).length,
     currency: 'EUR',
     collect, byStatus, monthly, topClients,
   }

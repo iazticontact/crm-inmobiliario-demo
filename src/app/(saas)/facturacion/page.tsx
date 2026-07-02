@@ -1,20 +1,19 @@
 'use client'
 
-// Facturación PRO (P34 · P36A-D) — MÓDULO EXTRA premium y CERRADO. UI simple: 5 vistas
-// (Todas · Borradores · Pendientes · Pagadas · Papelera), KPIs claros, resumen fiscal/financiero,
-// generador texto/audio, editor a pantalla completa con vista previa y PDF profesional. Ciclo de vida
-// seguro: cualquier factura se mueve a papelera (reversible); el borrado definitivo queda para borradores
-// (admin). Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
+// Facturación PRO (P34 · P36A-E) — MÓDULO EXTRA premium y CERRADO. UI simple (5 vistas), papelera con
+// restaurar y eliminación definitiva controlada (borradores: hard delete; emitidas: purga con trazabilidad),
+// inclusión/exclusión del resumen financiero, dashboard financiero simple, generador texto/audio, editor con
+// vista previa y PDF profesional. Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, FileDown, Loader2, FileText, Eye, Pencil, MoreVertical, Send, CheckCircle2, Ban, Trash2, RotateCcw, Sparkles, BarChart3, AlertTriangle } from 'lucide-react'
+import { Plus, FileDown, Loader2, FileText, Eye, Pencil, MoreVertical, Send, CheckCircle2, Ban, Trash2, RotateCcw, Sparkles, BarChart3, AlertTriangle, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { cn } from '@/lib/utils'
 import { INVOICE_STATUS_LABEL, type InvoiceStatus, type IssuerSnapshot } from '@/lib/invoicing/types'
 import { formatInvoiceCurrency } from '@/lib/invoicing/calc'
 import {
-  listInvoices, saveDraft, emitInvoice, setInvoiceStatus, moveToTrash, restoreInvoice, hardDeleteInvoice,
+  listInvoices, saveDraft, emitInvoice, setInvoiceStatus, moveToTrash, restoreInvoice, permanentDelete, setAccountingExcluded,
   loadInvoice, loadClientsLite, getInvoicePdfUrl, loadIssuerSnapshot, issuerMissingCritical, regeneratePdf,
   type InvoiceListRow, type InvoiceFormData, type InvoiceFormItem, type ClientLite,
 } from '@/lib/invoicing/invoice-repo'
@@ -78,7 +77,7 @@ function RowMenu({ items }: { items: MenuItem[] }) {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-9 z-20 w-56 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
             {items.map((it, i) => (
               <button key={i} onClick={() => { setOpen(false); it.onClick() }} className={cn('flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-gray-50', it.tone === 'danger' ? 'text-red-600' : 'text-gray-700')}>
                 {it.icon}{it.label}
@@ -97,8 +96,7 @@ export default function FacturacionPage() {
   const isDemo = currentUser.isDemo
   const isAdmin = currentUser.role !== 'member'
 
-  const [allRows, setAllRows] = useState<InvoiceListRow[]>([])
-  const [trashRows, setTrashRows] = useState<InvoiceListRow[]>([])
+  const [everything, setEverything] = useState<InvoiceListRow[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('todas')
   const [search, setSearch] = useState('')
@@ -118,16 +116,16 @@ export default function FacturacionPage() {
   const [emitting, setEmitting] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [hardTarget, setHardTarget] = useState<{ id: string; display: string } | null>(null)
+  const [hardTarget, setHardTarget] = useState<{ id: string; display: string; status: InvoiceStatus } | null>(null)
+  const [hardRetain, setHardRetain] = useState(false)
   const [hardText, setHardText] = useState('')
 
   const issuerMissing = useMemo(() => (issuer ? issuerMissingCritical(issuer) : []), [issuer])
 
   const reload = useCallback(async () => {
-    if (!workspaceId) { setAllRows([]); setTrashRows([]); setLoading(false); return }
+    if (!workspaceId) { setEverything([]); setLoading(false); return }
     setLoading(true)
-    const [active, trashed] = await Promise.all([listInvoices(workspaceId, {}), listInvoices(workspaceId, { trashed: true })])
-    setAllRows(active); setTrashRows(trashed)
+    setEverything(await listInvoices(workspaceId, { scope: 'all' }))
     setLoading(false)
   }, [workspaceId])
 
@@ -137,6 +135,11 @@ export default function FacturacionPage() {
     void loadClientsLite(workspaceId).then(setClients)
     void loadIssuerSnapshot(workspaceId).then(setIssuer)
   }, [workspaceId])
+
+  // Derivadas: activas (ni papelera ni purgadas) y papelera (deleted, no purgadas). Las purgadas nunca se
+  // muestran en la UI; solo pueden alimentar el resumen financiero (si no están excluidas).
+  const allRows = useMemo(() => everything.filter((r) => !r.deletedAt && !r.purgedAt), [everything])
+  const trashRows = useMemo(() => everything.filter((r) => r.deletedAt && !r.purgedAt), [everything])
 
   const counts = useMemo(() => ({
     todas: allRows.length,
@@ -165,9 +168,9 @@ export default function FacturacionPage() {
       overdue: sum(isOverdue),
       billedMonth: sum((r) => r.status !== 'draft' && r.status !== 'cancelled' && r.status !== 'void' && r.issueDate.slice(0, 7) === ym),
       drafts: allRows.filter((r) => r.status === 'draft').length,
-      currency: allRows[0]?.currency ?? 'EUR',
+      currency: everything[0]?.currency ?? 'EUR',
     }
-  }, [allRows])
+  }, [allRows, everything])
 
   const setCurrent = (id: string | null, mode: InvoiceEditorMode, display: string | null, status: InvoiceStatus, hasPdf: boolean, trashed: boolean) => {
     setEditingId(id); setEditorMode(mode); setCurrentDisplay(display); setCurrentStatus(status); setCurrentHasPdf(hasPdf); setCurrentTrashed(trashed)
@@ -241,13 +244,22 @@ export default function FacturacionPage() {
     toast.success('Factura restaurada', { description: 'Vuelve a aparecer en el listado principal.' })
     setEditorOpen(false); void reload()
   }
-  const askHardDelete = (id: string, display: string | null) => { setHardTarget({ id, display: display ?? 'Borrador' }); setHardText('') }
-  const confirmHardDelete = async () => {
+  const doAccounting = async (id: string, excluded: boolean) => {
+    if (!workspaceId) return
+    const res = await setAccountingExcluded(workspaceId, id, excluded)
+    if ('error' in res) { toast.error(res.error); return }
+    toast.success(excluded ? 'Excluida del resumen financiero' : 'Incluida en el resumen financiero')
+    void reload()
+  }
+  const askPermanentDelete = (id: string, display: string | null, status: InvoiceStatus) => {
+    setHardTarget({ id, display: display ?? 'Borrador', status }); setHardRetain(false); setHardText('')
+  }
+  const confirmPermanentDelete = async () => {
     if (!workspaceId || !hardTarget) return
-    const res = await hardDeleteInvoice(workspaceId, hardTarget.id)
+    const res = await permanentDelete(workspaceId, hardTarget.id, { accountingRetained: hardRetain })
     setHardTarget(null); setHardText('')
     if ('error' in res) { toast.error(res.error); return }
-    toast.success('Eliminada definitivamente')
+    toast.success('Eliminada definitivamente', { description: res.mode === 'purged' ? (hardRetain ? 'Se conserva en el resumen como registro histórico.' : 'Excluida del resumen financiero.') : undefined })
     setEditorOpen(false); void reload()
   }
 
@@ -292,9 +304,13 @@ export default function FacturacionPage() {
 
   const rowMenuItems = (r: InvoiceListRow): MenuItem[] => {
     const items: MenuItem[] = []
+    const accountingToggle = (): MenuItem => r.accountingExcluded
+      ? { label: 'Incluir en el resumen', icon: <BarChart3 className="h-3.5 w-3.5" />, onClick: () => doAccounting(r.id, false) }
+      : { label: 'Excluir del resumen', icon: <EyeOff className="h-3.5 w-3.5" />, onClick: () => doAccounting(r.id, true) }
+
     if (view === 'papelera') {
-      items.push({ label: 'Restaurar factura', icon: <RotateCcw className="h-3.5 w-3.5" />, onClick: () => doRestore(r.id) })
-      if (r.status === 'draft' && isAdmin) items.push({ label: 'Eliminar definitivamente', icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'danger', onClick: () => askHardDelete(r.id, r.display) })
+      if (r.status !== 'draft') items.push(accountingToggle())
+      if (isAdmin) items.push({ label: 'Eliminar definitivamente', icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'danger', onClick: () => askPermanentDelete(r.id, r.display, r.status) })
       return items
     }
     if (r.status === 'draft') {
@@ -304,6 +320,7 @@ export default function FacturacionPage() {
       if (r.status === 'issued') items.push({ label: 'Marcar enviada', icon: <Send className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'sent', 'Factura marcada como enviada') })
       if (r.status === 'issued' || r.status === 'sent') items.push({ label: 'Marcar cobrada', icon: <CheckCircle2 className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'paid', 'Factura marcada como cobrada') })
       if (r.status !== 'paid' && r.status !== 'cancelled' && r.status !== 'void') items.push({ label: 'Anular factura', icon: <Ban className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'cancelled', 'Factura anulada') })
+      items.push(accountingToggle())
     }
     items.push({ label: 'Mover a papelera', icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'danger', onClick: () => doTrash(r.id) })
     return items
@@ -315,7 +332,7 @@ export default function FacturacionPage() {
     draft: { title: 'No hay borradores', desc: 'Los borradores en curso aparecerán aquí hasta que los emitas.' },
     pending: { title: 'Nada pendiente de cobro', desc: 'Las facturas emitidas o enviadas sin cobrar aparecerán aquí.' },
     paid: { title: 'Aún no hay facturas cobradas', desc: 'Marca una factura como cobrada y aparecerá aquí.' },
-    papelera: { title: 'La papelera está vacía', desc: 'Las facturas que muevas a la papelera aparecerán aquí y podrás restaurarlas.' },
+    papelera: { title: 'La papelera está vacía', desc: 'Las facturas que muevas a la papelera aparecerán aquí y podrás restaurarlas o eliminarlas definitivamente.' },
   }
 
   return (
@@ -335,7 +352,7 @@ export default function FacturacionPage() {
         </button>
       </div>
 
-      {/* KPIs claros + acceso al resumen */}
+      {/* KPIs claros */}
       <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <Kpi label="Pendiente de cobro" value={formatInvoiceCurrency(kpis.pending, kpis.currency)} />
         <Kpi label="Vencido" value={formatInvoiceCurrency(kpis.overdue, kpis.currency)} tone={kpis.overdue > 0 ? 'danger' : undefined} />
@@ -346,7 +363,7 @@ export default function FacturacionPage() {
       <button onClick={() => setShowDash((v) => !v)} className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50">
         <BarChart3 className="h-3.5 w-3.5" /> {showDash ? 'Ocultar resumen financiero' : 'Ver resumen financiero'}
       </button>
-      {showDash && <div className="mb-4"><InvoiceDashboard rows={allRows} currency={kpis.currency} /></div>}
+      {showDash && <div className="mb-4"><InvoiceDashboard rows={everything} currency={kpis.currency} /></div>}
 
       {/* Aviso de datos fiscales del emisor incompletos */}
       {!isDemo && issuer && issuerMissing.length > 0 && (
@@ -362,7 +379,7 @@ export default function FacturacionPage() {
       </div>
 
       {/* Vistas + búsqueda */}
-      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {VIEWS.map((v) => (
             <button key={v.key} onClick={() => setView(v.key)}
@@ -377,6 +394,10 @@ export default function FacturacionPage() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar número o cliente…" className={searchCls} />
         </div>
       </div>
+
+      {view === 'papelera' && trashRows.length > 0 && (
+        <p className="mb-3 text-xs text-gray-500">Restaura una factura para devolverla al listado, o elimínala definitivamente (requiere confirmación). Las facturas emitidas se conservan por trazabilidad aunque las elimines.</p>
+      )}
 
       {/* Listado */}
       {loading ? (
@@ -404,6 +425,7 @@ export default function FacturacionPage() {
                     <span className="text-sm font-semibold text-gray-900">{r.display ?? 'Borrador'}</span>
                     <StatusPill status={overdue && !inTrash ? 'overdue' : r.status} />
                     {r.hasPdf && <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-100"><FileDown className="h-3 w-3" /> PDF</span>}
+                    {r.accountingExcluded && <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-amber-100"><EyeOff className="h-3 w-3" /> fuera del resumen</span>}
                   </div>
                   <p className="mt-1 truncate text-xs text-gray-500">
                     {r.clientName} · {fmtDate(r.issueDate)}
@@ -449,17 +471,17 @@ export default function FacturacionPage() {
         saving={savingDraft}
         emitting={emitting}
         regenerating={regenerating}
-        canHardDelete={isAdmin && currentStatus === 'draft'}
+        canHardDelete={isAdmin}
         onSaveDraft={handleSaveDraft}
         onEmit={handleSaveAndEmit}
         onTrash={editingId && !currentTrashed ? () => doTrash(editingId) : undefined}
         onRestore={editingId && currentTrashed ? () => doRestore(editingId) : undefined}
-        onHardDelete={editingId && currentTrashed ? () => askHardDelete(editingId, currentDisplay) : undefined}
+        onHardDelete={editingId && currentTrashed ? () => askPermanentDelete(editingId, currentDisplay, currentStatus) : undefined}
         onDownload={currentHasPdf ? handleDownloadCurrent : undefined}
         onRegenerate={!currentTrashed && currentStatus !== 'draft' ? handleRegenerate : undefined}
       />
 
-      {/* Modal de eliminación definitiva (confirmación fuerte) */}
+      {/* Eliminación definitiva — doble confirmación (tratamiento contable + escribir ELIMINAR) */}
       {hardTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setHardTarget(null)} />
@@ -469,13 +491,30 @@ export default function FacturacionPage() {
               <h3 className="text-sm font-semibold text-gray-900">Eliminar definitivamente</h3>
             </div>
             <p className="text-xs leading-5 text-gray-600">
-              Vas a eliminar <b>{hardTarget.display}</b> de forma permanente. Se borrarán sus líneas y no podrá recuperarse. La numeración emitida no se ve afectada.
+              Vas a eliminar <b>{hardTarget.display}</b> de forma permanente. {hardTarget.status === 'draft'
+                ? 'Se borrarán sus líneas y no podrá recuperarse.'
+                : 'Esta factura ya tiene numeración o impacto económico: no se reutilizará su número y desaparecerá de la gestión, pero se conserva por trazabilidad.'}
             </p>
+
+            {hardTarget.status !== 'draft' && (
+              <div className="mt-3 space-y-1.5">
+                <p className="text-[11px] font-medium text-gray-600">¿Cómo tratar esta factura en el resumen financiero?</p>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs">
+                  <input type="radio" name="acc" checked={!hardRetain} onChange={() => setHardRetain(false)} className="mt-0.5" />
+                  <span><b>Excluir del resumen</b> — no contará en facturado/cobrado/IVA. Útil para errores o duplicados.</span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs">
+                  <input type="radio" name="acc" checked={hardRetain} onChange={() => setHardRetain(true)} className="mt-0.5" />
+                  <span><b>Mantener como registro histórico</b> — seguirá contando en el resumen, pero no podrás editarla ni restaurarla.</span>
+                </label>
+              </div>
+            )}
+
             <p className="mt-3 text-[11px] font-medium text-gray-500">Escribe <b>ELIMINAR</b> para confirmar:</p>
             <input value={hardText} onChange={(e) => setHardText(e.target.value)} className={cn(searchCls, 'mt-1.5')} placeholder="ELIMINAR" />
             <div className="mt-4 flex items-center justify-end gap-2">
               <button onClick={() => setHardTarget(null)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
-              <button onClick={confirmHardDelete} disabled={hardText.trim().toUpperCase() !== 'ELIMINAR'} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">Eliminar definitivamente</button>
+              <button onClick={confirmPermanentDelete} disabled={hardText.trim().toUpperCase() !== 'ELIMINAR'} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">Eliminar definitivamente</button>
             </div>
           </div>
         </div>

@@ -51,6 +51,8 @@ export type InvoiceListRow = {
   hasPdf: boolean
   updatedAt: string | null
   deletedAt: string | null
+  purgedAt: string | null
+  accountingExcluded: boolean
 }
 
 export type ClientLite = { id: string; name: string; snapshot: CustomerSnapshot }
@@ -197,16 +199,21 @@ export async function loadInvoice(workspaceId: string, id: string) {
   return { invoice: inv as Record<string, unknown>, items: (items ?? []) as unknown as InvoiceItem[] }
 }
 
-export async function listInvoices(workspaceId: string, opts: { status?: string; search?: string; trashed?: boolean } = {}): Promise<InvoiceListRow[]> {
+// scope: 'active' (ni papelera ni purgadas) · 'trashed' (papelera, no purgadas) · 'all' (todo, para el
+// resumen financiero, que puede contar facturas en papelera/purgadas si no están excluidas). Las purgadas
+// nunca se muestran en los listados de la UI (se filtran client-side por purgedAt).
+export async function listInvoices(workspaceId: string, opts: { status?: string; search?: string; scope?: 'active' | 'trashed' | 'all' } = {}): Promise<InvoiceListRow[]> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
+  const scope = opts.scope ?? 'active'
   let q = supabase.from('invoices')
-    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, subtotal, tax_total, withholding_total, total, customer_snapshot, pdf_file_id, updated_at, deleted_at')
+    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, subtotal, tax_total, withholding_total, total, customer_snapshot, pdf_file_id, updated_at, deleted_at, purged_at, accounting_excluded')
     .eq('workspace_id', workspaceId)
-  q = opts.trashed ? q.not('deleted_at', 'is', null) : q.is('deleted_at', null)
+  if (scope === 'active') q = q.is('deleted_at', null).is('purged_at', null)
+  else if (scope === 'trashed') q = q.not('deleted_at', 'is', null).is('purged_at', null)
   if (opts.status && opts.status !== 'todas') q = q.eq('status', opts.status)
-  const orderKey = opts.trashed ? 'updated_at' : 'issue_date'
-  const { data, error } = await q.order(orderKey, { ascending: false }).order('created_at', { ascending: false }).limit(300)
+  const orderKey = scope === 'trashed' ? 'updated_at' : 'issue_date'
+  const { data, error } = await q.order(orderKey, { ascending: false }).order('created_at', { ascending: false }).limit(500)
   if (error || !data) return []
   const search = (opts.search ?? '').trim().toLowerCase()
   const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
@@ -227,6 +234,8 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
       hasPdf: Boolean(r.pdf_file_id),
       updatedAt: str(r.updated_at),
       deletedAt: str(r.deleted_at),
+      purgedAt: str(r.purged_at),
+      accountingExcluded: Boolean(r.accounting_excluded),
     }))
     .filter((r) => !search || (r.display ?? '').toLowerCase().includes(search) || r.clientName.toLowerCase().includes(search))
 }
@@ -350,21 +359,43 @@ export async function restoreInvoice(workspaceId: string, id: string): Promise<{
   return { ok: true }
 }
 
-// Eliminar DEFINITIVAMENTE (hard delete). La RLS solo lo permite a administradores y SOLO sobre borradores;
-// aquí lo reforzamos con una comprobación explícita y mensajes claros. Las líneas se borran en cascada (FK).
-export async function hardDeleteInvoice(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+// Incluir / excluir una factura del RESUMEN financiero (reversible). No la borra ni la mueve.
+export async function setAccountingExcluded(workspaceId: string, id: string, excluded: boolean): Promise<{ ok: true } | { error: string }> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const { error } = await supabase.from('invoices').update({ accounting_excluded: excluded }).eq('id', id).eq('workspace_id', workspaceId)
+  if (error) return { error: mapError(error.message) }
+  return { ok: true }
+}
+
+// Eliminar DEFINITIVAMENTE (desde la papelera, con doble confirmación en la UI). Estrategia segura:
+//  · BORRADOR → hard delete real (RLS admin+draft): la fila y sus líneas desaparecen (cascada).
+//  · EMITIDA/ENVIADA/PAGADA/CANCELADA → NO se borra la fila (trazabilidad fiscal): se PURGA (purged_at) para
+//    ocultarla de toda la UI (listados y papelera) y se fija su tratamiento contable:
+//      accountingRetained=true  → sigue contando en el resumen (registro histórico),
+//      accountingRetained=false → se excluye del resumen.
+// En ningún caso se reutiliza la numeración ya emitida.
+export async function permanentDelete(workspaceId: string, id: string, opts: { accountingRetained: boolean }): Promise<{ ok: true; mode: 'deleted' | 'purged' } | { error: string }> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return { error: 'Sin sesión.' }
   const loaded = await loadInvoice(workspaceId, id)
   if (!loaded) return { error: 'Factura no encontrada.' }
-  if (loaded.invoice.status !== 'draft') {
-    return { error: 'Solo los borradores pueden eliminarse definitivamente. Las facturas emitidas se conservan por trazabilidad; puedes mantenerlas en la papelera.' }
+  const isDraft = loaded.invoice.status === 'draft'
+
+  if (isDraft) {
+    await logInvoiceActivity(workspaceId, loaded.invoice, 'Borrador eliminado definitivamente')
+    const { error } = await supabase.from('invoices').delete().eq('id', id).eq('workspace_id', workspaceId).eq('status', 'draft')
+    if (error) return { error: mapError(error.message) === 'No se pudo completar la operación. Inténtalo de nuevo.' ? 'No tienes permiso para eliminar definitivamente (requiere administrador).' : mapError(error.message) }
+    return { ok: true, mode: 'deleted' }
   }
-  // Actividad ANTES del borrado (después ya no existirá la fila).
-  await logInvoiceActivity(workspaceId, loaded.invoice, 'Borrador eliminado definitivamente')
-  const { error } = await supabase.from('invoices').delete().eq('id', id).eq('workspace_id', workspaceId).eq('status', 'draft')
-  if (error) return { error: mapError(error.message) === 'No se pudo completar la operación. Inténtalo de nuevo.' ? 'No tienes permiso para eliminar definitivamente (requiere administrador).' : mapError(error.message) }
-  return { ok: true }
+
+  // Emitida+: purgar (conservar fila) + tratamiento contable.
+  const { error } = await supabase.from('invoices')
+    .update({ purged_at: new Date().toISOString(), accounting_excluded: !opts.accountingRetained })
+    .eq('id', id).eq('workspace_id', workspaceId)
+  if (error) return { error: mapError(error.message) }
+  await logInvoiceActivity(workspaceId, loaded.invoice, `Factura eliminada definitivamente (${opts.accountingRetained ? 'mantenida en resumen' : 'excluida del resumen'}): ${str(loaded.invoice.invoice_number_display) ?? ''}`)
+  return { ok: true, mode: 'purged' }
 }
 
 export async function setInvoiceStatus(workspaceId: string, id: string, status: InvoiceStatus): Promise<{ ok: true } | { error: string }> {

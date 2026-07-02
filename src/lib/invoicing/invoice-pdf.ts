@@ -190,7 +190,7 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
   tRows.push({ label: 'IVA', value: money(inv.taxTotal) })
   if (inv.withholdingTotal) tRows.push({ label: 'Retención IRPF', value: `−${money(inv.withholdingTotal)}` })
 
-  const boxW = 250, boxX = MR - boxW
+  const boxW = 258, boxX = MR - boxW
   const totalsH = 16 + tRows.length * 17 + 40
   if (y + totalsH > doc.H - 90) { doc.addPage(); y = 60 }
   let ty = y + 18
