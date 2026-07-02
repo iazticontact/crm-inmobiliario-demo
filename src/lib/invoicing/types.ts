@@ -31,8 +31,12 @@ export type InvoiceTotals = {
 
 export type IssuerSnapshot = {
   legalName?: string | null
-  taxId?: string | null
-  address?: string | null
+  taxId?: string | null       // NIF/CIF
+  address?: string | null     // calle y número (dirección fiscal)
+  postalCode?: string | null  // CP
+  city?: string | null
+  province?: string | null
+  country?: string | null
   email?: string | null
   phone?: string | null
   website?: string | null

@@ -32,6 +32,13 @@ export function WorkspaceProfileCard() {
   const [phone, setPhone] = useState('')
   const [website, setWebsite] = useState('')
   const [email, setEmail] = useState('')
+  // Datos fiscales del emisor (para Facturación) — P36B. Se guardan en metadata (additivo, sin migración).
+  const [taxId, setTaxId] = useState('')
+  const [fiscalAddress, setFiscalAddress] = useState('')
+  const [postalCode, setPostalCode] = useState('')
+  const [city, setCity] = useState('')
+  const [province, setProvince] = useState('')
+  const [country, setCountry] = useState('')
   const [metadata, setMetadata] = useState<Record<string, unknown>>({})
   const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -53,6 +60,12 @@ export function WorkspaceProfileCard() {
         setPhone(typeof meta.phone === 'string' ? meta.phone : '')
         setWebsite(typeof meta.website === 'string' ? meta.website : '')
         setEmail(typeof meta.contact_email === 'string' ? meta.contact_email : '')
+        setTaxId(typeof meta.tax_id === 'string' ? meta.tax_id : '')
+        setFiscalAddress(typeof meta.fiscal_address === 'string' ? meta.fiscal_address : '')
+        setPostalCode(typeof meta.postal_code === 'string' ? meta.postal_code : '')
+        setCity(typeof meta.city === 'string' ? meta.city : '')
+        setProvince(typeof meta.province === 'string' ? meta.province : '')
+        setCountry(typeof meta.country === 'string' ? meta.country : '')
         setLogoUrl(typeof meta.company_logo_url === 'string' ? meta.company_logo_url : undefined)
         setLoading(false)
       })()
@@ -86,6 +99,12 @@ export function WorkspaceProfileCard() {
           phone: phone.trim() || undefined,
           website: website.trim() || undefined,
           contact_email: email.trim() || undefined,
+          tax_id: taxId.trim() || undefined,
+          fiscal_address: fiscalAddress.trim() || undefined,
+          postal_code: postalCode.trim() || undefined,
+          city: city.trim() || undefined,
+          province: province.trim() || undefined,
+          country: country.trim() || undefined,
         },
       })
       if (row) {
@@ -150,6 +169,44 @@ export function WorkspaceProfileCard() {
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">Email de contacto</label>
             <input value={email} maxLength={120} disabled={loading} onChange={(e) => setEmail(e.target.value)} placeholder="contacto@tuinmobiliaria.com" className={FIELD_INPUT} />
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-3.5 w-3.5 text-indigo-500" />
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Datos fiscales · Facturación</p>
+              <p className="text-[11px] text-gray-500">Aparecen como emisor en tus facturas y en el PDF. Rellénalos para emitir facturas serias.</p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">NIF / CIF</label>
+              <input value={taxId} maxLength={20} disabled={loading} onChange={(e) => setTaxId(e.target.value)} placeholder="B12345678" className={FIELD_INPUT} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">Dirección fiscal</label>
+              <input value={fiscalAddress} maxLength={120} disabled={loading} onChange={(e) => setFiscalAddress(e.target.value)} placeholder="Calle Mayor 1, 2º B" className={FIELD_INPUT} />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">CP</label>
+              <input value={postalCode} maxLength={10} disabled={loading} onChange={(e) => setPostalCode(e.target.value)} placeholder="48001" className={FIELD_INPUT} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">Ciudad</label>
+              <input value={city} maxLength={60} disabled={loading} onChange={(e) => setCity(e.target.value)} placeholder="Bilbao" className={FIELD_INPUT} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">Provincia</label>
+              <input value={province} maxLength={60} disabled={loading} onChange={(e) => setProvince(e.target.value)} placeholder="Bizkaia" className={FIELD_INPUT} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">País</label>
+              <input value={country} maxLength={60} disabled={loading} onChange={(e) => setCountry(e.target.value)} placeholder="España" className={FIELD_INPUT} />
+            </div>
           </div>
         </div>
 

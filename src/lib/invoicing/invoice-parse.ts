@@ -54,11 +54,18 @@ function parseAmount(text: string): number | null {
   return toNumberEs(m[1])
 }
 function parseTax(n: string): { rate: number; included: boolean } {
-  if (/\bsin\s+iva\b/.test(n)) return { rate: 0, included: false }
+  if (/\bsin\s+iva\b/.test(n) || /\biva\s+0\s*%?/.test(n) || /\bexento\b/.test(n)) return { rate: 0, included: false }
   const m = n.match(/iva\s*(?:del?\s*)?(\d{1,2})\s*%?/) || n.match(/(\d{1,2})\s*%\s*(?:de\s*)?iva/)
-  const included = /\biva\s+incluido\b/.test(n) || /\biva\s+inc\b/.test(n)
-  if (m) return { rate: Number(m[1]), included }
-  return { rate: 21, included } // por defecto IVA general
+  const rate = m ? Number(m[1]) : 21 // por defecto IVA general
+  // ¿el importe escrito es bruto (IVA incluido) o neto (IVA aparte)?
+  const excluded = /(m[aá]s\s+iva|\+\s*iva|iva\s+(?:no\s+incluido|aparte|excluido|no\s+incl)|sin\s+incluir|base\s+imponible)/.test(n)
+  const included = !excluded && /(iva\s+incl(?:uido|\.)?|impuestos?\s+incluidos?|con\s+impuestos|precio\s+final|total\s+con\s+iva)/.test(n)
+  return { rate, included }
+}
+function parseNotes(text: string): string | null {
+  const m = text.match(/\b(?:nota|notas|observaciones)\s*[:\-]\s*(.+)$/i)
+  const note = m ? m[1].trim() : null
+  return note && note.length > 1 ? note : null
 }
 function parseWithholding(n: string): number {
   const m = n.match(/(?:irpf|retenci[oó]n)\s*(?:del?\s*)?(\d{1,2})\s*%?/) || n.match(/(\d{1,2})\s*%\s*(?:de\s*)?(?:irpf|retenci[oó]n)/)
@@ -105,6 +112,7 @@ export function parseInvoiceText(text: string, clients: ClientLite[] = []): Invo
   const dueDate = parseDue(n, issueDate)
   const series = parseSeries(n)
   const concept = parseConcept(raw)
+  const notes = parseNotes(raw)
   const client = matchClient(raw, clients)
 
   // "IVA incluido": el importe escrito es BRUTO → calculamos la base para no facturar de más.
@@ -145,7 +153,7 @@ export function parseInvoiceText(text: string, clients: ClientLite[] = []): Invo
     issueDate,
     dueDate,
     currency: 'EUR',
-    notes: '',
+    notes: notes ?? '',
     internalNotes: '',
     items: [item],
   }

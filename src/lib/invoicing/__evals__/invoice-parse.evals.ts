@@ -34,6 +34,23 @@ export function runInvoiceParseEvals(): string[] {
   ok(r.draft.items[0].unitPrice === 1000, 'IVA incluido → base 1000')
   ok(r.warnings.some((w) => /iva incluido/i.test(w)), 'IVA incluido → aviso')
 
+  // "impuestos incluidos" también retrocede la base
+  r = parseInvoiceText('Factura por 1210 € impuestos incluidos')
+  ok(r.draft.items[0].unitPrice === 1000, 'impuestos incluidos → base 1000')
+
+  // IVA excluido explícito ("más IVA"): el importe es la base, no se retrocede
+  r = parseInvoiceText('Factura por 1000 € más IVA 21%')
+  ok(r.draft.items[0].unitPrice === 1000 && r.draft.items[0].taxRate === 21, 'más IVA → base intacta')
+  ok(!r.warnings.some((w) => /iva incluido/i.test(w)), 'más IVA → sin aviso de incluido')
+
+  // Exento de IVA
+  r = parseInvoiceText('Factura por 500 € exento de IVA')
+  ok(r.draft.items[0].taxRate === 0, 'exento → 0%')
+
+  // Notas visibles
+  r = parseInvoiceText('Factura por 300 €. Nota: pago por transferencia bancaria')
+  ok((r.draft.notes ?? '').toLowerCase().includes('transferencia'), 'nota detectada')
+
   // IRPF / retención
   r = parseInvoiceText('Factura por 1000 € con IRPF 15%')
   ok(r.draft.items[0].withholdingRate === 15, 'IRPF 15%')

@@ -8,6 +8,7 @@ import { uploadEntityFile, signedUrls } from '@/lib/entity-files'
 import { calcLineTotals, calculateInvoiceTotals } from './calc'
 import { reserveInvoiceNumber, validateInvoicePayload } from './invoice-service'
 import { buildInvoicePdfBytes } from './invoice-pdf'
+import { urlToJpegBytes } from '@/lib/pdf/image-to-jpeg'
 import type { CustomerSnapshot, FiscalSnapshot, InvoiceItem, IssuerSnapshot, InvoiceStatus } from './types'
 
 export type InvoiceFormItem = {
@@ -37,6 +38,7 @@ export type InvoiceFormData = {
 export type InvoiceListRow = {
   id: string
   display: string | null
+  series: string | null
   status: InvoiceStatus
   issueDate: string
   dueDate: string | null
@@ -44,6 +46,7 @@ export type InvoiceListRow = {
   total: number
   clientName: string
   hasPdf: boolean
+  updatedAt: string | null
 }
 
 export type ClientLite = { id: string; name: string; snapshot: CustomerSnapshot }
@@ -61,18 +64,34 @@ function mapError(code: string): string {
 }
 
 // Datos del emisor desde la Configuración de empresa (workspace_settings). Sin inventar: null = No consta.
+// P36B FIX: el email se guardaba como `contact_email` (Settings) pero se leía como `email`/`billing_email`
+// → salía siempre "No consta". Ahora se leen las claves reales + los campos fiscales nuevos (NIF/dirección/
+// CP/ciudad/provincia/país), que la Configuración de empresa persiste en metadata (additivo, sin migración).
 export async function loadIssuerSnapshot(workspaceId: string): Promise<IssuerSnapshot> {
   const s = await getWorkspaceSettings(workspaceId).catch(() => null)
   const m = meta(s?.metadata)
   return {
     legalName: s?.business_name ?? str(m.company_name) ?? str(m.business_name),
-    taxId: str(m.tax_id) ?? str(m.cif) ?? str(m.nif),
-    address: str(m.address),
-    email: str(m.email) ?? str(m.billing_email),
+    taxId: str(m.tax_id) ?? str(m.cif) ?? str(m.nif) ?? str(m.vat),
+    address: str(m.fiscal_address) ?? str(m.address),
+    postalCode: str(m.postal_code) ?? str(m.zip),
+    city: str(m.city),
+    province: str(m.province),
+    country: str(m.country),
+    email: str(m.contact_email) ?? str(m.email) ?? str(m.billing_email),
     phone: str(m.phone),
     website: str(m.website) ?? str(m.web),
     logoUrl: str(m.company_logo_url),
   }
+}
+
+// Datos MÍNIMOS para emitir una factura seria (guardrail). Devuelve las etiquetas que faltan.
+export function issuerMissingCritical(issuer: IssuerSnapshot): string[] {
+  const miss: string[] = []
+  if (!str(issuer.legalName)) miss.push('nombre fiscal')
+  if (!str(issuer.taxId)) miss.push('NIF/CIF')
+  if (!str(issuer.address)) miss.push('dirección fiscal')
+  return miss
 }
 
 export async function loadClientsLite(workspaceId: string): Promise<ClientLite[]> {
@@ -178,7 +197,7 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
   let q = supabase.from('invoices')
-    .select('id, invoice_number_display, status, issue_date, due_date, currency, total, customer_snapshot, pdf_file_id')
+    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, total, customer_snapshot, pdf_file_id, updated_at')
     .eq('workspace_id', workspaceId).is('deleted_at', null)
   if (opts.status && opts.status !== 'todas') q = q.eq('status', opts.status)
   const { data, error } = await q.order('issue_date', { ascending: false }).order('created_at', { ascending: false }).limit(200)
@@ -188,6 +207,7 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
     .map((r) => ({
       id: String(r.id),
       display: str(r.invoice_number_display),
+      series: str(r.series),
       status: (r.status as InvoiceStatus) ?? 'draft',
       issueDate: String(r.issue_date),
       dueDate: str(r.due_date),
@@ -195,21 +215,56 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
       total: typeof r.total === 'number' ? r.total : Number(r.total) || 0,
       clientName: str(meta(r.customer_snapshot).name) ?? 'Sin cliente',
       hasPdf: Boolean(r.pdf_file_id),
+      updatedAt: str(r.updated_at),
     }))
     .filter((r) => !search || (r.display ?? '').toLowerCase().includes(search) || r.clientName.toLowerCase().includes(search))
 }
 
-// Emisión: reserva atómica del número (RPC) → status issued → PDF → entity-files → pdf_file_id → actividad.
-// El número se reserva primero (recurso escaso). Si el PDF fallara después, la factura queda emitida y el
-// PDF se puede regenerar (no se pierde ni se duplica el número).
+// Construye el PDF profesional (con logo real si existe) y lo guarda en entity-files, apuntando
+// invoices.pdf_file_id. Reutilizable por emisión y por "regenerar PDF". Lanza si algo va mal.
+async function buildAndStorePdf(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  workspaceId: string, id: string, invoice: Record<string, unknown>, items: InvoiceItem[],
+): Promise<void> {
+  const issuer = (invoice.issuer_snapshot ?? {}) as IssuerSnapshot
+  const customer = (invoice.customer_snapshot ?? {}) as CustomerSnapshot
+  const logo = await urlToJpegBytes(issuer.logoUrl).catch(() => null)
+  const bytes = buildInvoicePdfBytes({
+    display: str(invoice.invoice_number_display), status: String(invoice.status ?? 'issued'),
+    issueDate: String(invoice.issue_date), dueDate: str(invoice.due_date), currency: str(invoice.currency) ?? 'EUR',
+    subtotal: Number(invoice.subtotal) || 0, taxTotal: Number(invoice.tax_total) || 0,
+    withholdingTotal: Number(invoice.withholding_total) || 0, total: Number(invoice.total) || 0,
+    notes: str(invoice.notes), issuer, customer, logo,
+  }, items)
+  const disp = str(invoice.invoice_number_display) ?? id
+  const safeName = disp.replace(/[^\w.-]+/g, '-')
+  const file = new File([bytes as BlobPart], `factura-${safeName}.pdf`, { type: 'application/pdf' })
+  const ef = await uploadEntityFile({ workspaceId, entityType: 'invoice', entityId: id, file, category: 'document' })
+  await supabase.from('invoices').update({ pdf_file_id: ef.id }).eq('id', id).eq('workspace_id', workspaceId)
+}
+
+// Emisión: guardrails → reserva atómica del número (RPC) → refresca emisor → status issued → PDF (logo) →
+// entity-files → pdf_file_id → actividad. El número se reserva primero (recurso escaso). Si el PDF fallara
+// después, la factura queda emitida y el PDF se puede regenerar (no se pierde ni se duplica el número).
 export async function emitInvoice(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return { error: 'Sin sesión.' }
   const loaded = await loadInvoice(workspaceId, id)
   if (!loaded) return { error: 'Factura no encontrada.' }
   const { invoice, items } = loaded
+
+  // Guardrails: no emitir facturas rotas.
   if (invoice.status !== 'draft') return { error: 'Solo se pueden emitir borradores.' }
   if (!items.length) return { error: 'La factura necesita al menos una línea.' }
+  if (!str(invoice.client_id) || !str(meta(invoice.customer_snapshot).name)) return { error: 'Selecciona un cliente válido antes de emitir.' }
+  const totalNum = Number(invoice.total)
+  if (!Number.isFinite(totalNum) || totalNum < 0) return { error: 'Los importes de la factura no son coherentes.' }
+
+  // Refresca el emisor desde Configuración (por si se completó tras crear el borrador) y valida el mínimo.
+  const freshIssuer = await loadIssuerSnapshot(workspaceId)
+  if (issuerMissingCritical(freshIssuer).includes('nombre fiscal')) {
+    return { error: 'Configura el nombre fiscal de tu empresa en Configuración antes de emitir.' }
+  }
 
   const series = String(invoice.series || 'A')
   const issueDate = String(invoice.issue_date)
@@ -218,27 +273,37 @@ export async function emitInvoice(workspaceId: string, id: string): Promise<{ ok
 
   const { error: upErr } = await supabase.from('invoices').update({
     series: res.series, year: res.year, number: res.number, invoice_number_display: res.display, status: 'issued',
+    issuer_snapshot: freshIssuer,
   }).eq('id', id).eq('workspace_id', workspaceId)
   if (upErr) return { error: mapError(upErr.message) }
 
   // PDF + almacenamiento (retryable; el número ya está reservado).
   try {
-    const issuer = (invoice.issuer_snapshot ?? {}) as IssuerSnapshot
-    const customer = (invoice.customer_snapshot ?? {}) as CustomerSnapshot
-    const bytes = buildInvoicePdfBytes({
-      display: res.display, status: 'issued', issueDate, dueDate: str(invoice.due_date), currency: str(invoice.currency) ?? 'EUR',
-      subtotal: Number(invoice.subtotal) || 0, taxTotal: Number(invoice.tax_total) || 0, withholdingTotal: Number(invoice.withholding_total) || 0, total: Number(invoice.total) || 0,
-      notes: str(invoice.notes), issuer, customer,
+    await buildAndStorePdf(supabase, workspaceId, id, {
+      ...invoice, invoice_number_display: res.display, status: 'issued', issuer_snapshot: freshIssuer,
     }, items)
-    const safeName = res.display.replace(/[^\w.-]+/g, '-')
-    const file = new File([bytes as BlobPart], `factura-${safeName}.pdf`, { type: 'application/pdf' })
-    const ef = await uploadEntityFile({ workspaceId, entityType: 'invoice', entityId: id, file, category: 'document' })
-    await supabase.from('invoices').update({ pdf_file_id: ef.id }).eq('id', id).eq('workspace_id', workspaceId)
   } catch {
     // Emitida sin PDF: se puede regenerar. No romper el flujo (número ya asignado).
   }
 
   await logInvoiceActivity(workspaceId, invoice, `Factura emitida: ${res.display}`)
+  return { ok: true }
+}
+
+// Regenera el PDF de una factura ya emitida (p. ej. tras completar logo/datos fiscales del emisor).
+export async function regeneratePdf(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const loaded = await loadInvoice(workspaceId, id)
+  if (!loaded) return { error: 'Factura no encontrada.' }
+  const { invoice, items } = loaded
+  if (invoice.status === 'draft') return { error: 'Emite la factura para generar su PDF.' }
+  try {
+    await buildAndStorePdf(supabase, workspaceId, id, invoice, items)
+  } catch {
+    return { error: 'No se pudo generar el PDF. Inténtalo de nuevo.' }
+  }
+  await logInvoiceActivity(workspaceId, invoice, `PDF regenerado: ${str(invoice.invoice_number_display) ?? ''}`)
   return { ok: true }
 }
 
