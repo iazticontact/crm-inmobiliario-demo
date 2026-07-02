@@ -20,7 +20,11 @@
 
 ## MÓDULOS PREMIUM / FUTUROS (NO en el pack básico)
 Ocultos al cliente por defecto (flags `nowlabsInternal`/`*` en OFF). Se venderán por packs:
-- **Facturación automática** (`/billing`) — interno hoy; emisión/cobros reales pendientes.
+- **Facturación PRO** (`/facturacion`) — ✅ **módulo extra premium real** (P33–P36A): borradores, líneas
+  con IVA/IRPF/descuento, numeración atómica, emisión, **PDF** y **generador por texto/voz** (parser local
+  determinista, Web Speech API) con preview editable. Manual y **AISLADO del Asistente IA** (P35: el bot no
+  lee ni acciona facturas). Nav en sección "Módulos extra". Pendiente: email/cobros, Verifactu/TicketBAI.
+- **Facturación automática** (`/billing`) — placeholder interno antiguo; emisión/cobros reales pendientes.
 - **WhatsApp Business / Inbox** (`/inbox`) — Meta Cloud API; sin tablas conversations/messages aún.
 - **Automatizaciones n8n** (`/automations`) — editor de flujos para el operador.
 - **Scraper comercial** (Google Maps / email / teléfono) — captación de leads.

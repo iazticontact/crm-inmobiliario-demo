@@ -1,16 +1,16 @@
 'use client'
 
-// Facturación (P34) — listado + crear/editar borrador + emisión con numeración atómica + PDF + descarga.
-// Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS (P33). Mobile: inputs ≥16px (P28C).
+// Facturación PRO (P34 + P36A) — MÓDULO EXTRA premium: listado + KPIs + generador por texto/audio +
+// crear/editar borrador + emisión con numeración atómica + PDF + descarga. Sin n8n, sin emails, sin
+// Asistente-write. Escrituras bajo RLS (P33). Mobile: inputs ≥16px (P28C).
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, Trash2, FileDown, Loader2, Pencil, X } from 'lucide-react'
+import { Plus, Trash2, FileDown, Loader2, Pencil, X, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { SideDrawer } from '@/components/SideDrawer'
 import { Button } from '@/components/Button'
 import { Input } from '@/components/Input'
-import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
 import { INVOICE_STATUS_LABEL, type InvoiceStatus } from '@/lib/invoicing/types'
 import { calculateInvoiceTotals, formatInvoiceCurrency } from '@/lib/invoicing/calc'
@@ -18,6 +18,8 @@ import {
   listInvoices, saveDraft, emitInvoice, setInvoiceStatus, loadInvoice, loadClientsLite, getInvoicePdfUrl,
   type InvoiceListRow, type InvoiceFormData, type InvoiceFormItem, type ClientLite,
 } from '@/lib/invoicing/invoice-repo'
+import { InvoicePromptBuilder } from '@/components/invoicing/InvoicePromptBuilder'
+import type { InvoiceParseResult } from '@/lib/invoicing/invoice-parse'
 
 const STATUS_PILL: Record<InvoiceStatus, string> = {
   draft: 'bg-gray-100 text-gray-600 border-gray-200',
@@ -48,12 +50,22 @@ function StatusPill({ status }: { status: InvoiceStatus }) {
   return <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium', STATUS_PILL[status])}>{INVOICE_STATUS_LABEL[status]}</span>
 }
 
+function Kpi({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-white/5 px-3 py-2.5 ring-1 ring-white/10">
+      <p className="text-[11px] font-medium text-white/50">{label}</p>
+      <p className="mt-0.5 text-base font-semibold tabular-nums text-white">{value}</p>
+    </div>
+  )
+}
+
 export default function FacturacionPage() {
   const { currentUser } = useWorkspaceIdentity()
   const workspaceId = currentUser.workspaceId
   const isDemo = currentUser.isDemo
 
   const [rows, setRows] = useState<InvoiceListRow[]>([])
+  const [allRows, setAllRows] = useState<InvoiceListRow[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('todas')
   const [search, setSearch] = useState('')
@@ -67,9 +79,13 @@ export default function FacturacionPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    if (!workspaceId) { setRows([]); setLoading(false); return }
+    if (!workspaceId) { setRows([]); setAllRows([]); setLoading(false); return }
     setLoading(true)
-    setRows(await listInvoices(workspaceId, { status: statusFilter, search }))
+    const [filtered, all] = await Promise.all([
+      listInvoices(workspaceId, { status: statusFilter, search }),
+      listInvoices(workspaceId, {}),
+    ])
+    setRows(filtered); setAllRows(all)
     setLoading(false)
   }, [workspaceId, statusFilter, search])
 
@@ -79,6 +95,34 @@ export default function FacturacionPage() {
   const totals = useMemo(() => calculateInvoiceTotals(form.items.map((i) => ({
     quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate, withholdingRate: i.withholdingRate, discountRate: i.discountRate,
   }))), [form.items])
+
+  // KPIs premium — se calculan sobre TODAS las facturas (no sobre el filtro visible). (P36A)
+  const kpis = useMemo(() => {
+    const count = (s: InvoiceStatus) => allRows.filter((r) => r.status === s).length
+    const sum = (pred: (r: InvoiceListRow) => boolean) => allRows.filter(pred).reduce((a, r) => a + (r.total ?? 0), 0)
+    const currency = allRows[0]?.currency ?? 'EUR'
+    return {
+      drafts: count('draft'),
+      issued: allRows.filter((r) => r.status === 'issued' || r.status === 'sent' || r.status === 'overdue').length,
+      paid: count('paid'),
+      pending: sum((r) => r.status === 'issued' || r.status === 'sent' || r.status === 'overdue'),
+      billed: sum((r) => r.status !== 'draft' && r.status !== 'cancelled' && r.status !== 'void'),
+      currency,
+    }
+  }, [allRows])
+
+  // Propuesta del generador texto/audio → precarga el borrador y abre el drawer (revisión antes de emitir). (P36A)
+  const handleGenerate = (result: InvoiceParseResult) => {
+    if (isDemo) { toast.info('Modo demo', { description: 'Conecta tu cuenta real para crear facturas.' }); return }
+    setEditingId(null); setReadOnly(false); setForm(result.draft); setDrawerOpen(true)
+    if (result.warnings.length) {
+      toast.warning('Propuesta generada — revísala', { description: result.warnings[0] })
+    } else if (result.missingFields.length) {
+      toast.info('Propuesta generada', { description: `Completa antes de guardar: ${result.missingFields.join(', ')}.` })
+    } else {
+      toast.success('Propuesta generada', { description: 'Revisa los datos y guarda el borrador.' })
+    }
+  }
 
   const openCreate = () => {
     if (isDemo) { toast.info('Modo demo', { description: 'Conecta tu cuenta real para emitir facturas.' }); return }
@@ -147,12 +191,30 @@ export default function FacturacionPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-950">Facturación</h1>
-          <p className="text-xs text-gray-500">Crea, emite y descarga facturas de tu inmobiliaria.</p>
+      {/* Hero premium — MÓDULO EXTRA (P36A). Aislado del Asistente IA general (P35). */}
+      <div className="mb-4 overflow-hidden rounded-2xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-800 p-5 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-200 ring-1 ring-white/15">Módulo extra · PRO</span>
+            <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">Facturación profesional</h1>
+            <p className="mt-1 max-w-lg text-sm text-white/70">Crea, revisa y emite facturas para tu inmobiliaria: numeración automática, IVA/IRPF, PDF descargable y generación por texto o voz.</p>
+          </div>
+          <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm transition-colors hover:bg-gray-100">
+            <Plus className="h-4 w-4" /> Crear factura
+          </button>
         </div>
-        <Button variant="primary" size="sm" onClick={openCreate}><Plus className="h-3.5 w-3.5" /> Crear factura</Button>
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <Kpi label="Borradores" value={String(kpis.drafts)} />
+          <Kpi label="Emitidas" value={String(kpis.issued)} />
+          <Kpi label="Pagadas" value={String(kpis.paid)} />
+          <Kpi label="Pendiente de cobro" value={formatInvoiceCurrency(kpis.pending, kpis.currency)} />
+          <Kpi label="Total facturado" value={formatInvoiceCurrency(kpis.billed, kpis.currency)} />
+        </div>
+      </div>
+
+      {/* Generador por texto/audio — dentro del módulo, NUNCA en el Asistente IA general (P35/P36A). */}
+      <div className="mb-4">
+        <InvoicePromptBuilder clients={clients} onGenerate={handleGenerate} />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -173,8 +235,22 @@ export default function FacturacionPage() {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
-        <EmptyState title="Todavía no hay facturas" description="Crea tu primera factura: cliente, conceptos, IVA/IRPF y emisión con numeración automática."
-          action={<Button variant="primary" size="sm" onClick={openCreate}><Plus className="h-3.5 w-3.5" /> Crear factura</Button>} />
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><FileText className="h-6 w-6" /></div>
+          <h3 className="text-sm font-semibold text-gray-900">
+            {statusFilter === 'todas' && !search ? 'Todavía no hay facturas' : 'Sin resultados'}
+          </h3>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">
+            {statusFilter === 'todas' && !search
+              ? 'Empieza describiendo la factura arriba (texto o voz) o créala manualmente. Numeración automática, IVA/IRPF y PDF incluidos.'
+              : 'Prueba a cambiar el filtro o el término de búsqueda.'}
+          </p>
+          {statusFilter === 'todas' && !search && (
+            <button onClick={openCreate} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800">
+              <Plus className="h-4 w-4" /> Crear factura manual
+            </button>
+          )}
+        </div>
       ) : (
         <ul className="space-y-2">
           {rows.map((r) => (

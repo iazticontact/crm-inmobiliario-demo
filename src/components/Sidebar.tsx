@@ -23,13 +23,12 @@ import { BRAND } from '@/lib/brand'
 // NEXT_PUBLIC_NOWLABS_INTERNAL=true — used for operator-only modules that
 // still exist as routes but are not part of the client navigation surface
 // (WhatsApp/Inbox, Automatizaciones, Facturación). See src/lib/feature-flags.ts.
-const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean }> = [
+const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboard; flag?: FlagKey; internal?: boolean; extra?: boolean; badge?: string }> = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
   { href: '/clients',       label: 'Clientes',          icon: Users },
   { href: '/opportunities', label: 'Cartera',           icon: Building2,  flag: 'opportunities' },
   { href: '/calendar',      label: 'Calendario',        icon: Calendar,   flag: 'calendar' },
   { href: '/assistant',     label: 'Asistente IA',      icon: Bot,        flag: 'assistant' },
-  { href: '/facturacion',   label: 'Facturación',       icon: Receipt },
   // Operator-only routes kept in code but hidden from the client sidebar.
   // WhatsApp/Inbox has no real backend yet (no conversations/messages tables,
   // no Meta Cloud API) — keep it operator-only until its phase. Route/page intact.
@@ -37,6 +36,8 @@ const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboar
   { href: '/automations',   label: 'Automatizaciones',  icon: Zap,        flag: 'automations', internal: true },
   { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing',     internal: true },
   { href: '/settings',      label: 'Configuración',     icon: Settings },
+  // Módulos extra — integrados con el CRM pero separados del core (P36A).
+  { href: '/facturacion',   label: 'Facturación',       icon: Receipt,    extra: true, badge: 'PRO' },
 ]
 
 const visibleNavItems = navItems.filter((item) => {
@@ -44,6 +45,8 @@ const visibleNavItems = navItems.filter((item) => {
   if (item.internal && !featureFlags.nowlabsInternal) return false
   return true
 })
+const coreNavItems = visibleNavItems.filter((i) => !i.extra)
+const extraNavItems = visibleNavItems.filter((i) => i.extra)
 
 export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
   const pathname = usePathname()
@@ -134,7 +137,7 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
       {/* Nav */}
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-5">
         <ul className="space-y-0.5">
-          {visibleNavItems.map((item) => {
+          {coreNavItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
             return (
@@ -156,6 +159,39 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
             )
           })}
         </ul>
+
+        {extraNavItems.length > 0 && (
+          <div className="mt-4">
+            <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Módulos extra</p>
+            <p className="mb-1.5 px-3 text-[10px] text-slate-600">Borradores, emisión y PDF</p>
+            <ul className="space-y-0.5">
+              {extraNavItems.map((item) => {
+                const Icon = item.icon
+                const isActive = pathname === item.href
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                        isActive
+                          ? 'bg-gradient-to-r from-white to-indigo-50 text-slate-950 shadow-lg shadow-black/20'
+                          : 'text-slate-300 hover:bg-white/[0.08] hover:text-white'
+                      )}
+                    >
+                      {isActive && <span className="absolute -left-1 h-6 w-1 rounded-full bg-violet-400" />}
+                      <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-100')} />
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge && (
+                        <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold', isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-500/20 text-violet-200')}>{item.badge}</span>
+                      )}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="mt-5 rounded-2xl border border-violet-300/15 bg-white/[0.065] p-3 shadow-xl shadow-black/10 ring-1 ring-white/[0.03]">
