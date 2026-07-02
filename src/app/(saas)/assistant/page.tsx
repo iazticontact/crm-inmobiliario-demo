@@ -724,7 +724,7 @@ function buildLocalOperationalResponse(intent: AssistantIntent, mode: AssistantM
   }
 
   if (intent.intent === 'invoice' || intent.intent === 'invoice_concrete' || intent.intent === 'invoice_general') {
-    return 'La facturación se gestiona de forma manual desde la sección Facturación del CRM (crear borrador, líneas, IVA/IRPF, emitir con numeración y PDF). Ahí puedes hacerlo tú; el Asistente todavía no crea ni consulta facturas.'
+    return 'Las facturas, cobros e IVA se gestionan en el módulo Facturación (crear borrador, líneas, IVA/IRPF, emitir con numeración y PDF); el Asistente todavía no crea ni consulta facturas. En cambio, sí puedo ayudarte con los honorarios/comisiones de tus operaciones: cerrados, pendientes de cobro y potencial de operaciones abiertas.'
   }
 
   if (intent.intent === 'document_request') {

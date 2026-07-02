@@ -26,6 +26,15 @@ export function runInvoicingEvals(): string[] {
   l = calcLineTotals({ quantity: 3, unitPrice: 33.33, taxRate: 21 })
   ok(l.lineSubtotal === 99.99 && l.lineTaxTotal === 21 && l.lineTotal === 120.99, 'redondeo 2 dec')
 
+  // Honorarios inmobiliarios (P41): la factura es por la COMISIÓN, no por el precio de la vivienda.
+  // Vivienda 250.000 € · honorarios 3% = 7.500 € · IVA 21% = 1.575 € · total factura = 9.075 €.
+  const HOUSE_PRICE = 250000
+  const fee = round2(HOUSE_PRICE * 0.03) // 7500
+  l = calcLineTotals({ quantity: 1, unitPrice: fee, taxRate: 21 })
+  ok(fee === 7500, 'honorarios 3% de 250.000 = 7.500')
+  ok(l.lineSubtotal === 7500 && l.lineTaxTotal === 1575 && l.lineTotal === 9075, 'IVA sobre honorarios → factura 9.075 €')
+  ok(l.lineTaxTotal !== round2(HOUSE_PRICE * 0.21), 'el IVA NO se calcula sobre el precio del inmueble')
+
   // Totales de factura (dos líneas, una con retención)
   const t = calculateInvoiceTotals([
     { quantity: 1, unitPrice: 1000, taxRate: 21 },                    // base 1000, IVA 210

@@ -38,7 +38,7 @@ export function InvoiceDashboard({ rows }: { rows: InvoiceListRow[] }) {
           ))}
         </div>
       </div>
-      <p className="mb-4 flex items-start gap-1 text-[11px] text-gray-400"><Info className="mt-0.5 h-3 w-3 shrink-0" /> Datos orientativos en EUR (moneda base) basados en las facturas incluidas en el resumen. Revísalos con tu asesor fiscal antes de presentar impuestos.</p>
+      <p className="mb-4 flex items-start gap-1 text-[11px] text-gray-400"><Info className="mt-0.5 h-3 w-3 shrink-0" /> Importes orientativos en EUR basados en tus facturas. El IVA se calcula sobre la base de cada factura (tus honorarios), no sobre el precio del inmueble. Revísalos con tu asesor fiscal antes de presentar impuestos.</p>
 
       {/* KPIs principales (simple) */}
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">

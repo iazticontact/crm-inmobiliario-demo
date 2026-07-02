@@ -179,13 +179,18 @@ export function InvoiceEditor({
 
             {/* D · Conceptos */}
             <Section title="Conceptos" step="D" action={!readOnly ? <button onClick={addItem} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"><Plus className="h-3.5 w-3.5" /> Añadir línea</button> : undefined}>
+              {!readOnly && (
+                <p className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] leading-4 text-gray-600">
+                  Factura por tus <b>honorarios/comisión</b>, no por el precio del inmueble. El <b>IVA se calcula sobre los honorarios</b>. Ej.: vivienda 250.000 € · honorarios 7.500 € → factura <b>7.500 € + IVA</b>.
+                </p>
+              )}
               <div className="space-y-3">
                 {form.items.map((it, idx) => {
                   const lt = calcLineTotals({ quantity: it.quantity, unitPrice: it.unitPrice, taxRate: it.taxRate, withholdingRate: it.withholdingRate, discountRate: it.discountRate })
                   return (
                     <div key={idx} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3">
                       <div className="mb-2 flex items-start gap-2">
-                        <input className={field} placeholder="Descripción del concepto" value={it.description} disabled={readOnly} onChange={(e) => setItem(idx, { description: e.target.value })} />
+                        <input className={field} list="invoice-concepts" placeholder="Concepto (p. ej. Honorarios de intermediación inmobiliaria)" value={it.description} disabled={readOnly} onChange={(e) => setItem(idx, { description: e.target.value })} />
                         {!readOnly && <button title="Eliminar" onClick={() => delItem(idx)} className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -234,6 +239,13 @@ export function InvoiceEditor({
       {/* Sugerencias de tipos habituales (editable, sin bloqueos) */}
       <datalist id="iva-rates"><option value="21" /><option value="10" /><option value="4" /><option value="0" /></datalist>
       <datalist id="irpf-rates"><option value="0" /><option value="7" /><option value="15" /><option value="19" /></datalist>
+      <datalist id="invoice-concepts">
+        <option value="Honorarios de intermediación inmobiliaria" />
+        <option value="Comisión por venta de inmueble" />
+        <option value="Comisión por alquiler de inmueble" />
+        <option value="Gestión y tramitación" />
+        <option value="Asesoramiento inmobiliario" />
+      </datalist>
 
       {/* Acciones — dependen del estado (ciclo de vida) */}
       <footer className="flex items-center justify-between gap-2 border-t border-gray-200 bg-white px-4 py-3 sm:px-6">

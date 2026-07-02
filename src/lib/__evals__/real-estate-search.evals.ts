@@ -86,5 +86,10 @@ export function runRealEstateSearchEvals(): string[] {
   ok(!String(detectAssistantIntent('presupuesto de 250 mil para una casa').intent).startsWith('invoice'), 'presupuesto ≠ factura')
   ok(String(detectAssistantIntent('prepara una factura para Juan de 500€').intent).startsWith('invoice'), 'factura explícita sí')
 
+  // P41 (claridad inmobiliaria): "facturado" remite a Facturación; "comisionado/honorarios" son operaciones.
+  ok(String(detectAssistantIntent('¿cuánto he facturado este mes?').intent).startsWith('invoice'), 'facturado → remite a Facturación')
+  ok(!String(detectAssistantIntent('¿cuánto he comisionado?').intent).startsWith('invoice'), 'comisionado ≠ factura (operaciones)')
+  ok(!String(detectAssistantIntent('¿qué honorarios tengo pendientes?').intent).startsWith('invoice'), 'honorarios ≠ factura (operaciones)')
+
   return fail
 }
