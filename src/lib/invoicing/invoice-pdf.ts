@@ -112,10 +112,10 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
   const custContact = [inv.customer.email, inv.customer.phone].filter(has).join('  ·  ')
   if (custContact) custLines.push({ t: custContact })
 
-  const cardTop = bandY + bandH + 18
+  const cardTop = bandY + bandH + 20
   const cardGap = 14
   const cardW = (CW - cardGap) / 2
-  const cardH = Math.max(96, 30 + Math.max(issuerLines.length, custLines.length) * 12.5)
+  const cardH = Math.max(104, 32 + Math.max(issuerLines.length, custLines.length) * 12.5)
 
   const drawCard = (x: number, label: string, lines: { t: string; bold?: boolean }[]) => {
     doc.rect(x, cardTop, cardW, cardH, { fill: CARD })
@@ -161,7 +161,7 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
     if (it.discount_rate) extra.push(`Descuento ${it.discount_rate}% (−${money(discount)})`)
     if (it.withholding_rate) extra.push(`IRPF ${it.withholding_rate}%`)
     const bodyLines = descLines.length + (extra.length ? 1 : 0)
-    const rowH = Math.max(28, ROWPAD * 2 + bodyLines * LINEH)
+    const rowH = Math.max(30, ROWPAD * 2 + bodyLines * LINEH)
 
     if (y + rowH > pageBottom) { doc.addPage(); y = 60; y = drawTableHeader(y) }
     if (zebra) doc.rect(ML, y, CW, rowH, { fill: ZEBRA })
@@ -200,11 +200,11 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
     ty += 17
     doc.line(boxX, ty + 1, MR, ty + 1, { color: HAIR })
   }
-  ty += 6
-  doc.rect(boxX, ty, boxW, 34, { fill: BRAND_SOFT })
-  doc.rect(boxX, ty, 3.5, 34, { fill: BRAND })
-  doc.text('TOTAL', boxX + 14, ty + 22, { size: 12.5, bold: true, color: INK })
-  doc.text(money(inv.total), MR - 12, ty + 22.5, { size: 14, bold: true, color: BRAND, align: 'right' })
+  ty += 8
+  doc.rect(boxX, ty, boxW, 38, { fill: BRAND_SOFT })
+  doc.rect(boxX, ty, 3.5, 38, { fill: BRAND })
+  doc.text('TOTAL', boxX + 14, ty + 24, { size: 13, bold: true, color: INK })
+  doc.text(money(inv.total), MR - 12, ty + 24.5, { size: 15, bold: true, color: BRAND, align: 'right' })
 
   // Notas / condiciones (izquierda, alineado con el panel de totales)
   const notesX = ML, notesMaxW = boxX - ML - 20

@@ -43,10 +43,14 @@ export type InvoiceListRow = {
   issueDate: string
   dueDate: string | null
   currency: string
+  subtotal: number
+  taxTotal: number
+  withholdingTotal: number
   total: number
   clientName: string
   hasPdf: boolean
   updatedAt: string | null
+  deletedAt: string | null
 }
 
 export type ClientLite = { id: string; name: string; snapshot: CustomerSnapshot }
@@ -193,16 +197,19 @@ export async function loadInvoice(workspaceId: string, id: string) {
   return { invoice: inv as Record<string, unknown>, items: (items ?? []) as unknown as InvoiceItem[] }
 }
 
-export async function listInvoices(workspaceId: string, opts: { status?: string; search?: string } = {}): Promise<InvoiceListRow[]> {
+export async function listInvoices(workspaceId: string, opts: { status?: string; search?: string; trashed?: boolean } = {}): Promise<InvoiceListRow[]> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return []
   let q = supabase.from('invoices')
-    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, total, customer_snapshot, pdf_file_id, updated_at')
-    .eq('workspace_id', workspaceId).is('deleted_at', null)
+    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, subtotal, tax_total, withholding_total, total, customer_snapshot, pdf_file_id, updated_at, deleted_at')
+    .eq('workspace_id', workspaceId)
+  q = opts.trashed ? q.not('deleted_at', 'is', null) : q.is('deleted_at', null)
   if (opts.status && opts.status !== 'todas') q = q.eq('status', opts.status)
-  const { data, error } = await q.order('issue_date', { ascending: false }).order('created_at', { ascending: false }).limit(200)
+  const orderKey = opts.trashed ? 'updated_at' : 'issue_date'
+  const { data, error } = await q.order(orderKey, { ascending: false }).order('created_at', { ascending: false }).limit(300)
   if (error || !data) return []
   const search = (opts.search ?? '').trim().toLowerCase()
+  const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
   return (data as Record<string, unknown>[])
     .map((r) => ({
       id: String(r.id),
@@ -212,10 +219,14 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
       issueDate: String(r.issue_date),
       dueDate: str(r.due_date),
       currency: str(r.currency) ?? 'EUR',
-      total: typeof r.total === 'number' ? r.total : Number(r.total) || 0,
+      subtotal: n(r.subtotal),
+      taxTotal: n(r.tax_total),
+      withholdingTotal: n(r.withholding_total),
+      total: n(r.total),
       clientName: str(meta(r.customer_snapshot).name) ?? 'Sin cliente',
       hasPdf: Boolean(r.pdf_file_id),
       updatedAt: str(r.updated_at),
+      deletedAt: str(r.deleted_at),
     }))
     .filter((r) => !search || (r.display ?? '').toLowerCase().includes(search) || r.clientName.toLowerCase().includes(search))
 }
@@ -307,19 +318,52 @@ export async function regeneratePdf(workspaceId: string, id: string): Promise<{ 
   return { ok: true }
 }
 
-// Ciclo de vida: solo los BORRADORES se eliminan (soft delete). Las facturas emitidas NO se borran —
-// se anulan/cancelan (integridad del histórico). Reversible por diseño (deleted_at).
-export async function deleteDraft(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+// Ciclo de vida — PAPELERA (P36D). Cualquier factura puede moverse a la papelera (soft delete): reversible,
+// no rompe la numeración y desaparece de las vistas normales. Restaurar la devuelve tal cual. El borrado
+// DEFINITIVO (hard delete) queda reservado a los BORRADORES y a administradores (la RLS lo impone también),
+// para preservar la trazabilidad fiscal de las facturas ya emitidas.
+
+// Mover a papelera: sirve para cualquier estado. Reversible.
+export async function moveToTrash(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return { error: 'Sin sesión.' }
-  const { data } = await supabase.from('invoices').select('status').eq('workspace_id', workspaceId).eq('id', id).maybeSingle()
-  const status = (data as { status?: string } | null)?.status
-  if (!status) return { error: 'Factura no encontrada.' }
-  if (status !== 'draft') return { error: 'Solo se pueden eliminar borradores. Las facturas emitidas se anulan.' }
+  const loaded = await loadInvoice(workspaceId, id)
+  if (!loaded) return { error: 'Factura no encontrada.' }
   const { error } = await supabase.from('invoices')
     .update({ deleted_at: new Date().toISOString() })
-    .eq('id', id).eq('workspace_id', workspaceId).eq('status', 'draft')
+    .eq('id', id).eq('workspace_id', workspaceId)
   if (error) return { error: mapError(error.message) }
+  await logInvoiceActivity(workspaceId, loaded.invoice, `Factura movida a papelera: ${str(loaded.invoice.invoice_number_display) ?? 'borrador'}`)
+  return { ok: true }
+}
+
+// Restaurar desde papelera: conserva número, estado y PDF. No regenera nada.
+export async function restoreInvoice(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const { error } = await supabase.from('invoices')
+    .update({ deleted_at: null })
+    .eq('id', id).eq('workspace_id', workspaceId)
+  if (error) return { error: mapError(error.message) }
+  const loaded = await loadInvoice(workspaceId, id)
+  if (loaded) await logInvoiceActivity(workspaceId, loaded.invoice, `Factura restaurada: ${str(loaded.invoice.invoice_number_display) ?? 'borrador'}`)
+  return { ok: true }
+}
+
+// Eliminar DEFINITIVAMENTE (hard delete). La RLS solo lo permite a administradores y SOLO sobre borradores;
+// aquí lo reforzamos con una comprobación explícita y mensajes claros. Las líneas se borran en cascada (FK).
+export async function hardDeleteInvoice(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const loaded = await loadInvoice(workspaceId, id)
+  if (!loaded) return { error: 'Factura no encontrada.' }
+  if (loaded.invoice.status !== 'draft') {
+    return { error: 'Solo los borradores pueden eliminarse definitivamente. Las facturas emitidas se conservan por trazabilidad; puedes mantenerlas en la papelera.' }
+  }
+  // Actividad ANTES del borrado (después ya no existirá la fila).
+  await logInvoiceActivity(workspaceId, loaded.invoice, 'Borrador eliminado definitivamente')
+  const { error } = await supabase.from('invoices').delete().eq('id', id).eq('workspace_id', workspaceId).eq('status', 'draft')
+  if (error) return { error: mapError(error.message) === 'No se pudo completar la operación. Inténtalo de nuevo.' ? 'No tienes permiso para eliminar definitivamente (requiere administrador).' : mapError(error.message) }
   return { ok: true }
 }
 

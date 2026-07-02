@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { X, Plus, Trash2, FileDown, RefreshCw, AlertTriangle, Building2, Eye, PencilLine } from 'lucide-react'
+import { X, Plus, Trash2, FileDown, RefreshCw, RotateCcw, AlertTriangle, Building2, Eye, PencilLine } from 'lucide-react'
 import { Button } from '@/components/Button'
 import { InvoicePreview } from '@/components/invoicing/InvoicePreview'
 import { calculateInvoiceTotals, calcLineTotals, formatInvoiceCurrency } from '@/lib/invoicing/calc'
@@ -23,8 +23,8 @@ export type InvoiceEditorMode = 'create' | 'edit' | 'view'
 
 export function InvoiceEditor({
   open, onClose, mode, form, onChange, clients, issuer, issuerMissing,
-  displayNumber, status, saving, emitting, regenerating,
-  onSaveDraft, onEmit, onDownload, onRegenerate, onDelete,
+  displayNumber, status, saving, emitting, regenerating, trashed, canHardDelete,
+  onSaveDraft, onEmit, onDownload, onRegenerate, onTrash, onRestore, onHardDelete,
 }: {
   open: boolean
   onClose: () => void
@@ -39,11 +39,15 @@ export function InvoiceEditor({
   saving: boolean
   emitting: boolean
   regenerating?: boolean
+  trashed?: boolean
+  canHardDelete?: boolean
   onSaveDraft: () => void
   onEmit: () => void
   onDownload?: () => void
   onRegenerate?: () => void
-  onDelete?: () => void
+  onTrash?: () => void
+  onRestore?: () => void
+  onHardDelete?: () => void
 }) {
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit')
   if (!open) return null
@@ -192,16 +196,21 @@ export function InvoiceEditor({
       <datalist id="iva-rates"><option value="21" /><option value="10" /><option value="4" /><option value="0" /></datalist>
       <datalist id="irpf-rates"><option value="0" /><option value="7" /><option value="15" /><option value="19" /></datalist>
 
-      {/* Acciones */}
+      {/* Acciones — dependen del estado (ciclo de vida) */}
       <footer className="flex items-center justify-between gap-2 border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
         <div className="flex items-center gap-1.5">
           <Button variant="secondary" size="sm" onClick={onClose}>Cerrar</Button>
-          {!readOnly && onDelete && (
-            <button onClick={onDelete} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>
+          {onTrash && (
+            <button onClick={onTrash} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /> Mover a papelera</button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {readOnly ? (
+          {trashed ? (
+            <>
+              {onHardDelete && canHardDelete && <button onClick={onHardDelete} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar definitivamente</button>}
+              {onRestore && <Button variant="primary" size="sm" onClick={onRestore}><RotateCcw className="h-3.5 w-3.5" /> Restaurar</Button>}
+            </>
+          ) : readOnly ? (
             <>
               {onRegenerate && <Button variant="secondary" size="sm" onClick={onRegenerate} loading={regenerating} disabled={regenerating}><RefreshCw className="h-3.5 w-3.5" /> Regenerar PDF</Button>}
               {onDownload && <Button variant="primary" size="sm" onClick={onDownload}><FileDown className="h-3.5 w-3.5" /> Descargar PDF</Button>}

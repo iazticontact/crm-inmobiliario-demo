@@ -1,24 +1,26 @@
 'use client'
 
-// Facturación PRO (P34 · P36A · P36B · P36C) — MÓDULO EXTRA premium. Cabecera sobria + KPIs claros +
-// generador texto/audio + navegación por estados con recuentos + editor a pantalla completa con vista
-// previa + PDF profesional (logo real). Ciclo de vida definido: borradores editables/eliminables; emitidas
-// se envían/cobran/anulan (no se borran). Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
+// Facturación PRO (P34 · P36A-D) — MÓDULO EXTRA premium y CERRADO. UI simple: 5 vistas
+// (Todas · Borradores · Pendientes · Pagadas · Papelera), KPIs claros, resumen fiscal/financiero,
+// generador texto/audio, editor a pantalla completa con vista previa y PDF profesional. Ciclo de vida
+// seguro: cualquier factura se mueve a papelera (reversible); el borrado definitivo queda para borradores
+// (admin). Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, FileDown, Loader2, FileText, Eye, Pencil, CheckCircle2, Ban, Trash2, Send, Sparkles } from 'lucide-react'
+import { Plus, FileDown, Loader2, FileText, Eye, Pencil, MoreVertical, Send, CheckCircle2, Ban, Trash2, RotateCcw, Sparkles, BarChart3, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { cn } from '@/lib/utils'
 import { INVOICE_STATUS_LABEL, type InvoiceStatus, type IssuerSnapshot } from '@/lib/invoicing/types'
 import { formatInvoiceCurrency } from '@/lib/invoicing/calc'
 import {
-  listInvoices, saveDraft, emitInvoice, setInvoiceStatus, deleteDraft, loadInvoice, loadClientsLite, getInvoicePdfUrl,
-  loadIssuerSnapshot, issuerMissingCritical, regeneratePdf,
+  listInvoices, saveDraft, emitInvoice, setInvoiceStatus, moveToTrash, restoreInvoice, hardDeleteInvoice,
+  loadInvoice, loadClientsLite, getInvoicePdfUrl, loadIssuerSnapshot, issuerMissingCritical, regeneratePdf,
   type InvoiceListRow, type InvoiceFormData, type InvoiceFormItem, type ClientLite,
 } from '@/lib/invoicing/invoice-repo'
 import { InvoicePromptBuilder } from '@/components/invoicing/InvoicePromptBuilder'
 import { InvoiceEditor, type InvoiceEditorMode } from '@/components/invoicing/InvoiceEditor'
+import { InvoiceDashboard } from '@/components/invoicing/InvoiceDashboard'
 import type { InvoiceParseResult } from '@/lib/invoicing/invoice-parse'
 
 const STATUS_PILL: Record<InvoiceStatus, string> = {
@@ -40,15 +42,9 @@ const fmtDate = (iso: string | null): string => {
 }
 const isOverdue = (r: InvoiceListRow) => (r.status === 'issued' || r.status === 'sent') && !!r.dueDate && r.dueDate < todayIso()
 
-// Navegación por estados (sin solapamientos: una factura cae en una sola pestaña).
-const TABS: { key: string; label: string; match: (r: InvoiceListRow, ov: boolean) => boolean }[] = [
-  { key: 'todas', label: 'Todas', match: () => true },
-  { key: 'draft', label: 'Borradores', match: (r) => r.status === 'draft' },
-  { key: 'issued', label: 'Emitidas', match: (r, ov) => r.status === 'issued' && !ov },
-  { key: 'sent', label: 'Enviadas', match: (r, ov) => r.status === 'sent' && !ov },
-  { key: 'overdue', label: 'Vencidas', match: (_r, ov) => ov },
-  { key: 'paid', label: 'Pagadas', match: (r) => r.status === 'paid' },
-  { key: 'cancelled', label: 'Canceladas', match: (r) => r.status === 'cancelled' || r.status === 'void' },
+const VIEWS: { key: string; label: string }[] = [
+  { key: 'todas', label: 'Todas' }, { key: 'draft', label: 'Borradores' }, { key: 'pending', label: 'Pendientes' },
+  { key: 'paid', label: 'Pagadas' }, { key: 'papelera', label: 'Papelera' },
 ]
 
 const emptyItem = (): InvoiceFormItem => ({ description: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 21, withholdingRate: 0, sortOrder: 0 })
@@ -72,27 +68,43 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'dan
   )
 }
 
-function IconBtn({ title, onClick, children, tone }: { title: string; onClick: () => void; children: React.ReactNode; tone?: 'default' | 'success' | 'danger' | 'indigo' }) {
-  const tones = {
-    default: 'text-gray-500 hover:bg-gray-100',
-    success: 'text-gray-500 hover:bg-emerald-50 hover:text-emerald-700',
-    danger: 'text-gray-400 hover:bg-red-50 hover:text-red-600',
-    indigo: 'text-gray-500 hover:bg-indigo-50 hover:text-indigo-700',
-  }[tone ?? 'default']
-  return <button title={title} onClick={onClick} className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition-colors', tones)}>{children}</button>
+type MenuItem = { label: string; icon: React.ReactNode; onClick: () => void; tone?: 'danger' }
+function RowMenu({ items }: { items: MenuItem[] }) {
+  const [open, setOpen] = useState(false)
+  if (!items.length) return null
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((o) => !o)} title="Más acciones" className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100"><MoreVertical className="h-4 w-4" /></button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
+            {items.map((it, i) => (
+              <button key={i} onClick={() => { setOpen(false); it.onClick() }} className={cn('flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-gray-50', it.tone === 'danger' ? 'text-red-600' : 'text-gray-700')}>
+                {it.icon}{it.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function FacturacionPage() {
   const { currentUser } = useWorkspaceIdentity()
   const workspaceId = currentUser.workspaceId
   const isDemo = currentUser.isDemo
+  const isAdmin = currentUser.role !== 'member'
 
   const [allRows, setAllRows] = useState<InvoiceListRow[]>([])
+  const [trashRows, setTrashRows] = useState<InvoiceListRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('todas')
+  const [view, setView] = useState('todas')
   const [search, setSearch] = useState('')
   const [clients, setClients] = useState<ClientLite[]>([])
   const [issuer, setIssuer] = useState<IssuerSnapshot | null>(null)
+  const [showDash, setShowDash] = useState(false)
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorMode, setEditorMode] = useState<InvoiceEditorMode>('create')
@@ -100,18 +112,22 @@ export default function FacturacionPage() {
   const [currentDisplay, setCurrentDisplay] = useState<string | null>(null)
   const [currentStatus, setCurrentStatus] = useState<InvoiceStatus>('draft')
   const [currentHasPdf, setCurrentHasPdf] = useState(false)
+  const [currentTrashed, setCurrentTrashed] = useState(false)
   const [form, setForm] = useState<InvoiceFormData>(emptyForm())
   const [savingDraft, setSavingDraft] = useState(false)
   const [emitting, setEmitting] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [hardTarget, setHardTarget] = useState<{ id: string; display: string } | null>(null)
+  const [hardText, setHardText] = useState('')
 
   const issuerMissing = useMemo(() => (issuer ? issuerMissingCritical(issuer) : []), [issuer])
 
   const reload = useCallback(async () => {
-    if (!workspaceId) { setAllRows([]); setLoading(false); return }
+    if (!workspaceId) { setAllRows([]); setTrashRows([]); setLoading(false); return }
     setLoading(true)
-    setAllRows(await listInvoices(workspaceId, {}))
+    const [active, trashed] = await Promise.all([listInvoices(workspaceId, {}), listInvoices(workspaceId, { trashed: true })])
+    setAllRows(active); setTrashRows(trashed)
     setLoading(false)
   }, [workspaceId])
 
@@ -122,36 +138,44 @@ export default function FacturacionPage() {
     void loadIssuerSnapshot(workspaceId).then(setIssuer)
   }, [workspaceId])
 
-  const counts = useMemo(() => Object.fromEntries(TABS.map((t) => [t.key, allRows.filter((r) => t.match(r, isOverdue(r))).length])), [allRows])
+  const counts = useMemo(() => ({
+    todas: allRows.length,
+    draft: allRows.filter((r) => r.status === 'draft').length,
+    pending: allRows.filter((r) => r.status === 'issued' || r.status === 'sent').length,
+    paid: allRows.filter((r) => r.status === 'paid').length,
+    papelera: trashRows.length,
+  }) as Record<string, number>, [allRows, trashRows])
 
   const rows = useMemo(() => {
-    const t = TABS.find((x) => x.key === tab) ?? TABS[0]
     const q = search.trim().toLowerCase()
-    return allRows.filter((r) => t.match(r, isOverdue(r)) && (!q || (r.display ?? '').toLowerCase().includes(q) || r.clientName.toLowerCase().includes(q)))
-  }, [allRows, tab, search])
+    let base: InvoiceListRow[]
+    if (view === 'papelera') base = trashRows
+    else if (view === 'draft') base = allRows.filter((r) => r.status === 'draft')
+    else if (view === 'pending') base = allRows.filter((r) => r.status === 'issued' || r.status === 'sent')
+    else if (view === 'paid') base = allRows.filter((r) => r.status === 'paid')
+    else base = allRows
+    return base.filter((r) => !q || (r.display ?? '').toLowerCase().includes(q) || r.clientName.toLowerCase().includes(q))
+  }, [view, allRows, trashRows, search])
 
   const kpis = useMemo(() => {
     const ym = todayIso().slice(0, 7)
-    const sum = (pred: (r: InvoiceListRow) => boolean) => allRows.filter(pred).reduce((a, r) => a + (r.total ?? 0), 0)
-    const currency = allRows[0]?.currency ?? 'EUR'
-    const isBilled = (r: InvoiceListRow) => r.status !== 'draft' && r.status !== 'cancelled' && r.status !== 'void'
+    const sum = (p: (r: InvoiceListRow) => boolean) => allRows.filter(p).reduce((a, r) => a + (r.total ?? 0), 0)
     return {
-      drafts: allRows.filter((r) => r.status === 'draft').length,
-      pending: sum((r) => r.status === 'issued' || r.status === 'sent'),
+      pending: sum((r) => (r.status === 'issued' || r.status === 'sent') && !isOverdue(r)),
       overdue: sum(isOverdue),
-      paid: sum((r) => r.status === 'paid'),
-      billedMonth: sum((r) => isBilled(r) && r.issueDate.slice(0, 7) === ym),
-      currency,
+      billedMonth: sum((r) => r.status !== 'draft' && r.status !== 'cancelled' && r.status !== 'void' && r.issueDate.slice(0, 7) === ym),
+      drafts: allRows.filter((r) => r.status === 'draft').length,
+      currency: allRows[0]?.currency ?? 'EUR',
     }
   }, [allRows])
 
-  const setCurrent = (id: string | null, mode: InvoiceEditorMode, display: string | null, status: InvoiceStatus, hasPdf: boolean) => {
-    setEditingId(id); setEditorMode(mode); setCurrentDisplay(display); setCurrentStatus(status); setCurrentHasPdf(hasPdf)
+  const setCurrent = (id: string | null, mode: InvoiceEditorMode, display: string | null, status: InvoiceStatus, hasPdf: boolean, trashed: boolean) => {
+    setEditingId(id); setEditorMode(mode); setCurrentDisplay(display); setCurrentStatus(status); setCurrentHasPdf(hasPdf); setCurrentTrashed(trashed)
   }
 
   const handleGenerate = (result: InvoiceParseResult) => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para crear facturas reales.' }); return }
-    setForm(result.draft); setCurrent(null, 'create', null, 'draft', false); setEditorOpen(true)
+    setForm(result.draft); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
     if (result.warnings.length) toast.warning('Propuesta lista — revísala', { description: result.warnings[0] })
     else if (result.missingFields.length) toast.info('Propuesta lista', { description: `Completa antes de guardar: ${result.missingFields.join(', ')}.` })
     else toast.success('Propuesta lista', { description: 'Revisa los datos y guarda el borrador.' })
@@ -159,7 +183,7 @@ export default function FacturacionPage() {
 
   const openCreate = () => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para emitir facturas reales.' }); return }
-    setForm(emptyForm()); setCurrent(null, 'create', null, 'draft', false); setEditorOpen(true)
+    setForm(emptyForm()); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
   }
 
   const openInvoice = async (r: InvoiceListRow) => {
@@ -167,6 +191,7 @@ export default function FacturacionPage() {
     const loaded = await loadInvoice(workspaceId, r.id)
     if (!loaded) { toast.error('No se pudo abrir la factura.'); return }
     const inv = loaded.invoice
+    const trashed = !!r.deletedAt
     setForm({
       clientId: (inv.client_id as string) ?? null, propertyId: (inv.property_id as string) ?? null, opportunityId: (inv.opportunity_id as string) ?? null,
       series: String(inv.series ?? 'A'), issueDate: String(inv.issue_date), dueDate: (inv.due_date as string) ?? null,
@@ -176,7 +201,7 @@ export default function FacturacionPage() {
         discountRate: it.discount_rate, taxRate: it.tax_rate, withholdingRate: it.withholding_rate, sortOrder: it.sort_order ?? i,
       })) : [emptyItem()],
     })
-    setCurrent(r.id, r.status === 'draft' ? 'edit' : 'view', r.display, r.status, r.hasPdf)
+    setCurrent(r.id, r.status === 'draft' && !trashed ? 'edit' : 'view', r.display, r.status, r.hasPdf, trashed)
     setEditorOpen(true)
   }
 
@@ -202,12 +227,27 @@ export default function FacturacionPage() {
     setEditorOpen(false); void reload()
   }
 
-  const handleDeleteFromEditor = async () => {
-    if (!workspaceId || !editingId) return
-    if (!window.confirm('¿Eliminar este borrador? Esta acción no se puede deshacer.')) return
-    const res = await deleteDraft(workspaceId, editingId)
+  const doTrash = async (id: string) => {
+    if (!workspaceId) return
+    const res = await moveToTrash(workspaceId, id)
     if ('error' in res) { toast.error(res.error); return }
-    toast.success('Borrador eliminado')
+    toast.success('Movida a la papelera', { description: 'Puedes restaurarla cuando quieras.' })
+    setEditorOpen(false); void reload()
+  }
+  const doRestore = async (id: string) => {
+    if (!workspaceId) return
+    const res = await restoreInvoice(workspaceId, id)
+    if ('error' in res) { toast.error(res.error); return }
+    toast.success('Factura restaurada', { description: 'Vuelve a aparecer en el listado principal.' })
+    setEditorOpen(false); void reload()
+  }
+  const askHardDelete = (id: string, display: string | null) => { setHardTarget({ id, display: display ?? 'Borrador' }); setHardText('') }
+  const confirmHardDelete = async () => {
+    if (!workspaceId || !hardTarget) return
+    const res = await hardDeleteInvoice(workspaceId, hardTarget.id)
+    setHardTarget(null); setHardText('')
+    if ('error' in res) { toast.error(res.error); return }
+    toast.success('Eliminada definitivamente')
     setEditorOpen(false); void reload()
   }
 
@@ -220,7 +260,6 @@ export default function FacturacionPage() {
     toast.success('PDF actualizado', { description: 'Regenerado con los datos actuales del emisor.' })
     setCurrentHasPdf(true); void reload()
   }
-
   const handleDownloadCurrent = async () => {
     if (!workspaceId || !editingId) return
     const url = await getInvoicePdfUrl(workspaceId, editingId)
@@ -228,7 +267,7 @@ export default function FacturacionPage() {
     window.open(url, '_blank', 'noopener')
   }
 
-  // Acciones desde el listado
+  // Acciones de listado
   const listEmit = async (id: string) => {
     if (!workspaceId) return
     setBusyId(id)
@@ -240,35 +279,44 @@ export default function FacturacionPage() {
   }
   const listStatus = async (id: string, status: InvoiceStatus, label: string) => {
     if (!workspaceId) return
-    setBusyId(id)
     const res = await setInvoiceStatus(workspaceId, id, status)
-    setBusyId(null)
     if ('error' in res) { toast.error(res.error); return }
     toast.success(label); void reload()
   }
-  const listCancel = async (id: string) => {
-    if (!window.confirm('¿Anular esta factura? Quedará registrada como cancelada.')) return
-    await listStatus(id, 'cancelled', 'Factura anulada')
-  }
-  const listDelete = async (id: string) => {
-    if (!workspaceId) return
-    if (!window.confirm('¿Eliminar este borrador? Esta acción no se puede deshacer.')) return
-    setBusyId(id)
-    const res = await deleteDraft(workspaceId, id)
-    setBusyId(null)
-    if ('error' in res) { toast.error(res.error); return }
-    toast.success('Borrador eliminado'); void reload()
-  }
   const listDownload = async (id: string) => {
     if (!workspaceId) return
-    setBusyId(id)
     const url = await getInvoicePdfUrl(workspaceId, id)
-    setBusyId(null)
     if (!url) { toast.error('Esta factura no tiene PDF disponible.'); return }
     window.open(url, '_blank', 'noopener')
   }
 
-  const filtering = tab !== 'todas' || !!search
+  const rowMenuItems = (r: InvoiceListRow): MenuItem[] => {
+    const items: MenuItem[] = []
+    if (view === 'papelera') {
+      items.push({ label: 'Restaurar factura', icon: <RotateCcw className="h-3.5 w-3.5" />, onClick: () => doRestore(r.id) })
+      if (r.status === 'draft' && isAdmin) items.push({ label: 'Eliminar definitivamente', icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'danger', onClick: () => askHardDelete(r.id, r.display) })
+      return items
+    }
+    if (r.status === 'draft') {
+      items.push({ label: 'Editar', icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => openInvoice(r) })
+      items.push({ label: 'Emitir factura', icon: <FileText className="h-3.5 w-3.5" />, onClick: () => listEmit(r.id) })
+    } else {
+      if (r.status === 'issued') items.push({ label: 'Marcar enviada', icon: <Send className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'sent', 'Factura marcada como enviada') })
+      if (r.status === 'issued' || r.status === 'sent') items.push({ label: 'Marcar cobrada', icon: <CheckCircle2 className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'paid', 'Factura marcada como cobrada') })
+      if (r.status !== 'paid' && r.status !== 'cancelled' && r.status !== 'void') items.push({ label: 'Anular factura', icon: <Ban className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'cancelled', 'Factura anulada') })
+    }
+    items.push({ label: 'Mover a papelera', icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'danger', onClick: () => doTrash(r.id) })
+    return items
+  }
+
+  const filtering = !!search
+  const emptyCopy: Record<string, { title: string; desc: string }> = {
+    todas: { title: 'Empieza a facturar', desc: 'Describe la factura por texto o voz arriba, o créala manualmente. Numeración automática, IVA/IRPF y PDF con tu logo incluidos.' },
+    draft: { title: 'No hay borradores', desc: 'Los borradores en curso aparecerán aquí hasta que los emitas.' },
+    pending: { title: 'Nada pendiente de cobro', desc: 'Las facturas emitidas o enviadas sin cobrar aparecerán aquí.' },
+    paid: { title: 'Aún no hay facturas cobradas', desc: 'Marca una factura como cobrada y aparecerá aquí.' },
+    papelera: { title: 'La papelera está vacía', desc: 'Las facturas que muevas a la papelera aparecerán aquí y podrás restaurarlas.' },
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -287,14 +335,18 @@ export default function FacturacionPage() {
         </button>
       </div>
 
-      {/* KPIs claros */}
-      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-        <Kpi label="Borradores" value={String(kpis.drafts)} />
+      {/* KPIs claros + acceso al resumen */}
+      <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <Kpi label="Pendiente de cobro" value={formatInvoiceCurrency(kpis.pending, kpis.currency)} />
         <Kpi label="Vencido" value={formatInvoiceCurrency(kpis.overdue, kpis.currency)} tone={kpis.overdue > 0 ? 'danger' : undefined} />
-        <Kpi label="Cobrado" value={formatInvoiceCurrency(kpis.paid, kpis.currency)} />
         <Kpi label="Facturado (mes)" value={formatInvoiceCurrency(kpis.billedMonth, kpis.currency)} />
+        <Kpi label="Borradores" value={String(kpis.drafts)} />
       </div>
+
+      <button onClick={() => setShowDash((v) => !v)} className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50">
+        <BarChart3 className="h-3.5 w-3.5" /> {showDash ? 'Ocultar resumen financiero' : 'Ver resumen financiero'}
+      </button>
+      {showDash && <div className="mb-4"><InvoiceDashboard rows={allRows} currency={kpis.currency} /></div>}
 
       {/* Aviso de datos fiscales del emisor incompletos */}
       {!isDemo && issuer && issuerMissing.length > 0 && (
@@ -309,15 +361,15 @@ export default function FacturacionPage() {
         <InvoicePromptBuilder clients={clients} onGenerate={handleGenerate} />
       </div>
 
-      {/* Navegación por estados + búsqueda */}
+      {/* Vistas + búsqueda */}
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TABS.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+          {VIEWS.map((v) => (
+            <button key={v.key} onClick={() => setView(v.key)}
               className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                tab === t.key ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100')}>
-              {t.label}
-              <span className={cn('rounded-full px-1.5 text-[10px] font-semibold tabular-nums', tab === t.key ? 'bg-white/20 text-white' : t.key === 'overdue' && counts[t.key] ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500')}>{counts[t.key] ?? 0}</span>
+                view === v.key ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100')}>
+              {v.label}
+              <span className={cn('rounded-full px-1.5 text-[10px] font-semibold tabular-nums', view === v.key ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500')}>{counts[v.key] ?? 0}</span>
             </button>
           ))}
         </div>
@@ -331,12 +383,10 @@ export default function FacturacionPage() {
         <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">{filtering ? <FileText className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</div>
-          <h3 className="text-sm font-semibold text-gray-900">{filtering ? 'Sin resultados' : 'Empieza a facturar'}</h3>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">
-            {filtering ? 'No hay facturas en esta vista. Cambia de pestaña o ajusta la búsqueda.' : 'Describe la factura por texto o voz arriba, o créala manualmente. Numeración automática, IVA/IRPF y PDF con tu logo incluidos.'}
-          </p>
-          {!filtering && (
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">{view === 'papelera' ? <Trash2 className="h-6 w-6" /> : view === 'todas' && !filtering ? <Sparkles className="h-6 w-6" /> : <FileText className="h-6 w-6" />}</div>
+          <h3 className="text-sm font-semibold text-gray-900">{filtering ? 'Sin resultados' : emptyCopy[view].title}</h3>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{filtering ? 'No hay facturas que coincidan con la búsqueda.' : emptyCopy[view].desc}</p>
+          {view === 'todas' && !filtering && (
             <button onClick={openCreate} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800">
               <Plus className="h-4 w-4" /> Nueva factura
             </button>
@@ -346,41 +396,36 @@ export default function FacturacionPage() {
         <ul className="space-y-2">
           {rows.map((r) => {
             const overdue = isOverdue(r)
-            const canPay = r.status === 'issued' || r.status === 'sent'
-            const canCancel = r.status !== 'draft' && r.status !== 'cancelled' && r.status !== 'void' && r.status !== 'paid'
+            const inTrash = view === 'papelera'
             return (
               <li key={r.id} className="group flex flex-col gap-3 rounded-xl border border-gray-100 bg-white p-3.5 shadow-sm transition-colors hover:border-gray-200 sm:flex-row sm:items-center sm:justify-between">
                 <button onClick={() => openInvoice(r)} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-gray-900">{r.display ?? 'Borrador'}</span>
-                    <StatusPill status={overdue ? 'overdue' : r.status} />
+                    <StatusPill status={overdue && !inTrash ? 'overdue' : r.status} />
                     {r.hasPdf && <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-100"><FileDown className="h-3 w-3" /> PDF</span>}
                   </div>
                   <p className="mt-1 truncate text-xs text-gray-500">
                     {r.clientName} · {fmtDate(r.issueDate)}
-                    {r.dueDate ? <> · <span className={overdue ? 'font-medium text-red-600' : ''}>vence {fmtDate(r.dueDate)}</span></> : null}
+                    {inTrash
+                      ? <> · <span className="text-gray-400">en papelera desde {fmtDate(r.deletedAt)}</span></>
+                      : r.dueDate ? <> · <span className={overdue ? 'font-medium text-red-600' : ''}>vence {fmtDate(r.dueDate)}</span></> : null}
                   </p>
                 </button>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold tabular-nums text-gray-900">{formatInvoiceCurrency(r.total, r.currency)}</span>
                   <div className="flex items-center gap-0.5">
-                    {r.status === 'draft' ? (
-                      <>
-                        <IconBtn title="Editar" onClick={() => openInvoice(r)}><Pencil className="h-4 w-4" /></IconBtn>
-                        <IconBtn title="Eliminar borrador" onClick={() => listDelete(r.id)} tone="danger"><Trash2 className="h-4 w-4" /></IconBtn>
-                        <button onClick={() => listEmit(r.id)} disabled={busyId === r.id} className="ml-0.5 inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
-                          {busyId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Emitir
-                        </button>
-                      </>
+                    {inTrash ? (
+                      <button onClick={() => doRestore(r.id)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Restaurar</button>
                     ) : (
                       <>
-                        <IconBtn title="Ver" onClick={() => openInvoice(r)}><Eye className="h-4 w-4" /></IconBtn>
-                        {r.hasPdf && <IconBtn title="Descargar PDF" onClick={() => listDownload(r.id)} tone="indigo"><FileDown className="h-4 w-4" /></IconBtn>}
-                        {r.status === 'issued' && <IconBtn title="Marcar enviada" onClick={() => listStatus(r.id, 'sent', 'Factura marcada como enviada')} tone="indigo"><Send className="h-4 w-4" /></IconBtn>}
-                        {canPay && <IconBtn title="Marcar pagada" onClick={() => listStatus(r.id, 'paid', 'Factura marcada como cobrada')} tone="success"><CheckCircle2 className="h-4 w-4" /></IconBtn>}
-                        {canCancel && <IconBtn title="Anular" onClick={() => listCancel(r.id)} tone="danger"><Ban className="h-4 w-4" /></IconBtn>}
+                        <button title={r.status === 'draft' ? 'Editar' : 'Ver'} onClick={() => openInvoice(r)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{r.status === 'draft' ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                        {r.status === 'draft'
+                          ? <button onClick={() => listEmit(r.id)} disabled={busyId === r.id} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{busyId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Emitir</button>
+                          : r.hasPdf ? <button title="Descargar PDF" onClick={() => listDownload(r.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"><FileDown className="h-4 w-4" /></button> : null}
                       </>
                     )}
+                    <RowMenu items={rowMenuItems(r)} />
                   </div>
                 </div>
               </li>
@@ -393,6 +438,7 @@ export default function FacturacionPage() {
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         mode={editorMode}
+        trashed={currentTrashed}
         form={form}
         onChange={setForm}
         clients={clients}
@@ -403,12 +449,37 @@ export default function FacturacionPage() {
         saving={savingDraft}
         emitting={emitting}
         regenerating={regenerating}
+        canHardDelete={isAdmin && currentStatus === 'draft'}
         onSaveDraft={handleSaveDraft}
         onEmit={handleSaveAndEmit}
-        onDelete={editorMode === 'edit' ? handleDeleteFromEditor : undefined}
+        onTrash={editingId && !currentTrashed ? () => doTrash(editingId) : undefined}
+        onRestore={editingId && currentTrashed ? () => doRestore(editingId) : undefined}
+        onHardDelete={editingId && currentTrashed ? () => askHardDelete(editingId, currentDisplay) : undefined}
         onDownload={currentHasPdf ? handleDownloadCurrent : undefined}
-        onRegenerate={handleRegenerate}
+        onRegenerate={!currentTrashed && currentStatus !== 'draft' ? handleRegenerate : undefined}
       />
+
+      {/* Modal de eliminación definitiva (confirmación fuerte) */}
+      {hardTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setHardTarget(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-600"><AlertTriangle className="h-4.5 w-4.5" /></span>
+              <h3 className="text-sm font-semibold text-gray-900">Eliminar definitivamente</h3>
+            </div>
+            <p className="text-xs leading-5 text-gray-600">
+              Vas a eliminar <b>{hardTarget.display}</b> de forma permanente. Se borrarán sus líneas y no podrá recuperarse. La numeración emitida no se ve afectada.
+            </p>
+            <p className="mt-3 text-[11px] font-medium text-gray-500">Escribe <b>ELIMINAR</b> para confirmar:</p>
+            <input value={hardText} onChange={(e) => setHardText(e.target.value)} className={cn(searchCls, 'mt-1.5')} placeholder="ELIMINAR" />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button onClick={() => setHardTarget(null)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+              <button onClick={confirmHardDelete} disabled={hardText.trim().toUpperCase() !== 'ELIMINAR'} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">Eliminar definitivamente</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
