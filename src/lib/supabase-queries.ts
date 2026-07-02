@@ -1950,70 +1950,10 @@ export async function createActivity(workspaceId: string, payload: ActivityPaylo
   return mapSupabaseActivity(data as DataRecord)
 }
 
-export function mapSupabaseDocument(row: DataRecord): WorkspaceDocument {
-  return {
-    id: asString(row.id),
-    workspaceId: asString(row.workspace_id),
-    clientId: asString(row.client_id) || undefined,
-    title: asString(row.title, 'Documento'),
-    type: normalizeDocumentType(row.type),
-    storageBucket: asString(row.storage_bucket),
-    storagePath: asString(row.storage_path),
-    mimeType: asString(row.mime_type) || undefined,
-    size: asNumber(row.size, 0) || undefined,
-    createdBy: asString(row.created_by) || undefined,
-    createdAt: asString(row.created_at) || undefined,
-  }
-}
-
-function normalizeDocumentType(value: unknown): WorkspaceDocument['type'] {
-  if (value === 'client_file' || value === 'invoice_pdf' || value === 'proposal_pdf' || value === 'conversation_attachment' || value === 'workspace_asset') return value
-  return 'client_file'
-}
-
-function toDocumentRow(workspaceId: string, payload: DocumentPayload): DataRecord {
-  return {
-    workspace_id: workspaceId,
-    client_id: payload.clientId || null,
-    title: payload.title.trim(),
-    type: payload.type,
-    storage_bucket: payload.storageBucket,
-    storage_path: payload.storagePath,
-    mime_type: payload.mimeType || null,
-    size: payload.size ?? null,
-    created_by: payload.createdBy || null,
-  }
-}
-
-export async function listDocuments(workspaceId: string, clientId?: string) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) return []
-
-  let query = supabase
-    .from('documents')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-
-  if (clientId) query = query.eq('client_id', clientId)
-  const { data, error } = await query
-  if (error) throw error
-  return ((data as DataRecord[] | null) ?? []).map(mapSupabaseDocument)
-}
-
-export async function createDocumentRecord(workspaceId: string, payload: DocumentPayload) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) throw new Error('Supabase no esta configurado')
-
-  const { data, error } = await supabase
-    .from('documents')
-    .insert(toDocumentRow(workspaceId, payload))
-    .select('*')
-    .single()
-
-  if (error) throw error
-  return mapSupabaseDocument(data as DataRecord)
-}
+// NOTA (P37/P38): no existe tabla `documents` en esta BD. Los documentos por entidad viven en
+// `entity_files` (ver EntityDocumentsManager / entity-files.ts). Aquí solo quedan los helpers de STORAGE
+// (subir a un bucket + firmar URL) que usa el generador de PDF del Asistente; NO se escribe en ninguna
+// tabla `documents`. Los antiguos list/create/mapSupabaseDocument se eliminaron por apuntar a esa tabla.
 
 export async function getSignedDocumentUrl(document: Pick<WorkspaceDocument, 'storageBucket' | 'storagePath'>, expiresIn = 60 * 10) {
   const supabase = getSupabaseBrowserClient()
@@ -2049,10 +1989,13 @@ export async function uploadDocumentToStorage(
   return data
 }
 
-export async function saveGeneratedDocument(workspaceId: string, payload: DocumentPayload, content: string | Uint8Array | Blob) {
+// Sube el PDF generado (informe/factura del Asistente) a su bucket de Storage y devuelve la ubicación.
+// Ya NO escribe en la tabla `documents` (inexistente). `doc.id` se mantiene por compatibilidad de firma con
+// los llamantes, pero es null (el enlace se firma a partir de bucket/path). `_workspaceId` se conserva en la
+// firma para no romper las llamadas posicionales.
+export async function saveGeneratedDocument(_workspaceId: string, payload: DocumentPayload, content: string | Uint8Array | Blob) {
   const uploaded = await uploadDocumentToStorage(payload.storageBucket, payload.storagePath, content, payload.mimeType)
-  const doc = await createDocumentRecord(workspaceId, payload)
-  return { uploaded, doc }
+  return { uploaded, doc: { id: null as string | null } }
 }
 
 function requiresFromRow(row: DataRecord): N8nRequirement[] {
