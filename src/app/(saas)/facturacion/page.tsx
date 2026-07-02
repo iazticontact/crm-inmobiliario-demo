@@ -5,16 +5,17 @@
 // inclusión/exclusión del resumen financiero, dashboard financiero simple, generador texto/audio, editor con
 // vista previa y PDF profesional. Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Plus, FileDown, Loader2, FileText, Eye, Pencil, MoreVertical, Send, CheckCircle2, Ban, Trash2, RotateCcw, Sparkles, BarChart3, AlertTriangle, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { cn } from '@/lib/utils'
-import { INVOICE_STATUS_LABEL, type InvoiceStatus, type IssuerSnapshot } from '@/lib/invoicing/types'
+import { INVOICE_STATUS_LABEL, type InvoiceStatus, type IssuerSnapshot, type InvoiceItem } from '@/lib/invoicing/types'
 import { formatInvoiceCurrency } from '@/lib/invoicing/calc'
 import {
   listInvoices, saveDraft, emitInvoice, setInvoiceStatus, moveToTrash, restoreInvoice, permanentDelete, setAccountingExcluded,
   loadInvoice, loadClientsLite, getInvoicePdfUrl, loadIssuerSnapshot, issuerMissingCritical, regeneratePdf,
+  loadOpportunityInvoicePrefill,
   type InvoiceListRow, type InvoiceFormData, type InvoiceFormItem, type ClientLite,
 } from '@/lib/invoicing/invoice-repo'
 import { InvoicePromptBuilder } from '@/components/invoicing/InvoicePromptBuilder'
@@ -52,6 +53,23 @@ const emptyForm = (): InvoiceFormData => ({
   currency: 'EUR', exchangeRateToEur: null, exchangeRateSource: 'Manual', exchangeRateDate: null,
   notes: '', internalNotes: '', items: [emptyItem()],
 })
+
+// Mapea una factura cargada (BD) al formulario del editor. A nivel de módulo → reutilizable y estable.
+function mapInvoiceToForm(inv: Record<string, unknown>, items: InvoiceItem[]): InvoiceFormData {
+  return {
+    clientId: (inv.client_id as string) ?? null, propertyId: (inv.property_id as string) ?? null, opportunityId: (inv.opportunity_id as string) ?? null,
+    series: String(inv.series ?? 'A'), issueDate: String(inv.issue_date), dueDate: (inv.due_date as string) ?? null,
+    currency: String(inv.currency ?? 'EUR'),
+    exchangeRateToEur: inv.exchange_rate_to_eur == null ? null : Number(inv.exchange_rate_to_eur),
+    exchangeRateSource: String(inv.exchange_rate_source ?? 'Manual'),
+    exchangeRateDate: (inv.exchange_rate_date as string) ?? null,
+    notes: String(inv.notes ?? ''), internalNotes: String(inv.internal_notes ?? ''),
+    items: items.length ? items.map((it, i) => ({
+      id: it.id, description: it.description, quantity: it.quantity, unitPrice: it.unit_price,
+      discountRate: it.discount_rate, taxRate: it.tax_rate, withholdingRate: it.withholding_rate, sortOrder: it.sort_order ?? i,
+    })) : [emptyItem()],
+  }
+}
 
 const searchCls = 'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-base sm:text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500'
 
@@ -137,6 +155,40 @@ export default function FacturacionPage() {
     void loadIssuerSnapshot(workspaceId).then(setIssuer)
   }, [workspaceId])
 
+  // Prellenado desde una operación: /facturacion?fromOpportunity=<id> → factura de honorarios (base =
+  // comisión, no precio del inmueble). Si ya hay factura vinculada, la abre en vez de duplicar. Se ejecuta
+  // una sola vez y limpia el parámetro de la URL.
+  const prefillRef = useRef(false)
+  useEffect(() => {
+    if (!workspaceId || prefillRef.current) return
+    const oppId = new URLSearchParams(window.location.search).get('fromOpportunity')
+    if (!oppId) return
+    prefillRef.current = true
+    window.history.replaceState(null, '', '/facturacion')
+    if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para facturar operaciones reales.' }); return }
+    void (async () => {
+      const res = await loadOpportunityInvoicePrefill(workspaceId, oppId)
+      if ('error' in res) { toast.error('No se pudo preparar la factura', { description: res.error }); return }
+      if ('existing' in res) {
+        toast.info('Esta operación ya tiene una factura vinculada', { description: `${res.existing.display ?? 'Borrador'} · ${INVOICE_STATUS_LABEL[res.existing.status]}. La abro para revisarla.` })
+        const loaded = await loadInvoice(workspaceId, res.existing.id)
+        if (!loaded) return
+        const inv = loaded.invoice
+        const trashed = !!inv.deleted_at
+        const status = (inv.status as InvoiceStatus) ?? 'draft'
+        setForm(mapInvoiceToForm(inv, loaded.items))
+        setEditingId(res.existing.id); setEditorMode(status === 'draft' && !trashed ? 'edit' : 'view')
+        setCurrentDisplay((inv.invoice_number_display as string) ?? null); setCurrentStatus(status)
+        setCurrentHasPdf(Boolean(inv.pdf_file_id)); setCurrentTrashed(trashed); setEditorOpen(true)
+        return
+      }
+      setForm(res.draft)
+      setEditingId(null); setEditorMode('create'); setCurrentDisplay(null); setCurrentStatus('draft')
+      setCurrentHasPdf(false); setCurrentTrashed(false); setEditorOpen(true)
+      toast.success('Factura de honorarios preparada', { description: `Base: honorarios ${formatInvoiceCurrency(res.honorarios, 'EUR')}${res.propertyTitle ? ` · ${res.propertyTitle}` : ''}. Revisa y guarda.` })
+    })()
+  }, [workspaceId, isDemo])
+
   // Derivadas: activas (ni papelera ni purgadas) y papelera (deleted, no purgadas). Las purgadas nunca se
   // muestran en la UI; solo pueden alimentar el resumen financiero (si no están excluidas).
   const allRows = useMemo(() => everything.filter((r) => !r.deletedAt && !r.purgedAt), [everything])
@@ -190,26 +242,16 @@ export default function FacturacionPage() {
     setForm(emptyForm()); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
   }
 
-  const openInvoice = async (r: InvoiceListRow) => {
+  // Abre una factura por id (deriva estado/número/PDF/papelera de la propia factura → una sola fuente).
+  const openInvoiceById = async (id: string) => {
     if (!workspaceId) return
-    const loaded = await loadInvoice(workspaceId, r.id)
+    const loaded = await loadInvoice(workspaceId, id)
     if (!loaded) { toast.error('No se pudo abrir la factura.'); return }
     const inv = loaded.invoice
-    const trashed = !!r.deletedAt
-    setForm({
-      clientId: (inv.client_id as string) ?? null, propertyId: (inv.property_id as string) ?? null, opportunityId: (inv.opportunity_id as string) ?? null,
-      series: String(inv.series ?? 'A'), issueDate: String(inv.issue_date), dueDate: (inv.due_date as string) ?? null,
-      currency: String(inv.currency ?? 'EUR'),
-      exchangeRateToEur: inv.exchange_rate_to_eur == null ? null : Number(inv.exchange_rate_to_eur),
-      exchangeRateSource: String(inv.exchange_rate_source ?? 'Manual'),
-      exchangeRateDate: (inv.exchange_rate_date as string) ?? null,
-      notes: String(inv.notes ?? ''), internalNotes: String(inv.internal_notes ?? ''),
-      items: loaded.items.length ? loaded.items.map((it, i) => ({
-        id: it.id, description: it.description, quantity: it.quantity, unitPrice: it.unit_price,
-        discountRate: it.discount_rate, taxRate: it.tax_rate, withholdingRate: it.withholding_rate, sortOrder: it.sort_order ?? i,
-      })) : [emptyItem()],
-    })
-    setCurrent(r.id, r.status === 'draft' && !trashed ? 'edit' : 'view', r.display, r.status, r.hasPdf, trashed)
+    const trashed = !!inv.deleted_at
+    const status = (inv.status as InvoiceStatus) ?? 'draft'
+    setForm(mapInvoiceToForm(inv, loaded.items))
+    setCurrent(id, status === 'draft' && !trashed ? 'edit' : 'view', (inv.invoice_number_display as string) ?? null, status, Boolean(inv.pdf_file_id), trashed)
     setEditorOpen(true)
   }
 
@@ -319,7 +361,7 @@ export default function FacturacionPage() {
       return items
     }
     if (r.status === 'draft') {
-      items.push({ label: 'Editar', icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => openInvoice(r) })
+      items.push({ label: 'Editar', icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => openInvoiceById(r.id) })
       items.push({ label: 'Emitir factura', icon: <FileText className="h-3.5 w-3.5" />, onClick: () => listEmit(r.id) })
     } else {
       if (r.status === 'issued') items.push({ label: 'Marcar enviada', icon: <Send className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'sent', 'Factura marcada como enviada') })
@@ -425,7 +467,7 @@ export default function FacturacionPage() {
             const inTrash = view === 'papelera'
             return (
               <li key={r.id} className="group flex flex-col gap-3 rounded-xl border border-gray-100 bg-white p-3.5 shadow-sm transition-colors hover:border-gray-200 sm:flex-row sm:items-center sm:justify-between">
-                <button onClick={() => openInvoice(r)} className="min-w-0 flex-1 text-left">
+                <button onClick={() => openInvoiceById(r.id)} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-gray-900">{r.display ?? 'Borrador'}</span>
                     <StatusPill status={overdue && !inTrash ? 'overdue' : r.status} />
@@ -446,7 +488,7 @@ export default function FacturacionPage() {
                       <button onClick={() => doRestore(r.id)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Restaurar</button>
                     ) : (
                       <>
-                        <button title={r.status === 'draft' ? 'Editar' : 'Ver'} onClick={() => openInvoice(r)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{r.status === 'draft' ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                        <button title={r.status === 'draft' ? 'Editar' : 'Ver'} onClick={() => openInvoiceById(r.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">{r.status === 'draft' ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
                         {r.status === 'draft'
                           ? <button onClick={() => listEmit(r.id)} disabled={busyId === r.id} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{busyId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Emitir</button>
                           : r.hasPdf ? <button title="Descargar PDF" onClick={() => listDownload(r.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"><FileDown className="h-4 w-4" /></button> : null}

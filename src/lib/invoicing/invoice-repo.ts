@@ -8,6 +8,7 @@ import { uploadEntityFile, signedUrls } from '@/lib/entity-files'
 import { calcLineTotals, calculateInvoiceTotals } from './calc'
 import { reserveInvoiceNumber, validateInvoicePayload } from './invoice-service'
 import { buildInvoicePdfBytes } from './invoice-pdf'
+import { computeHonorarios } from './honorarios'
 import { urlToJpegBytes } from '@/lib/pdf/image-to-jpeg'
 import type { CustomerSnapshot, FiscalSnapshot, InvoiceItem, IssuerSnapshot, InvoiceStatus } from './types'
 
@@ -130,6 +131,84 @@ export async function loadClientsLite(workspaceId: string): Promise<ClientLite[]
       },
     }
   })
+}
+
+// ── Factura de honorarios desde una operación (P42) ─────────────────────────────────────────────────
+export type OpportunityInvoiceLink = { id: string; display: string | null; status: InvoiceStatus }
+
+// Facturas ACTIVAS (no papelera/purgadas) vinculadas a operaciones. Para mostrar estado en Operaciones.
+export async function loadInvoiceLinksForOpportunities(workspaceId: string, oppIds: string[]): Promise<Record<string, OpportunityInvoiceLink>> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase || !oppIds.length) return {}
+  const { data } = await supabase.from('invoices')
+    .select('id, opportunity_id, invoice_number_display, status, created_at')
+    .eq('workspace_id', workspaceId).in('opportunity_id', oppIds)
+    .is('deleted_at', null).is('purged_at', null)
+    .order('created_at', { ascending: false })
+  const out: Record<string, OpportunityInvoiceLink> = {}
+  for (const r of (data ?? []) as Record<string, unknown>[]) {
+    const oid = str(r.opportunity_id)
+    if (!oid || out[oid]) continue // la más reciente por operación
+    out[oid] = { id: String(r.id), display: str(r.invoice_number_display), status: (r.status as InvoiceStatus) ?? 'draft' }
+  }
+  return out
+}
+
+export type OpportunityPrefill =
+  | { existing: OpportunityInvoiceLink }
+  | { draft: InvoiceFormData; propertyTitle: string | null; operationTitle: string | null; honorarios: number }
+  | { error: string }
+
+// Prellenado de FACTURA DE HONORARIOS desde una operación. NO crea nada: devuelve un borrador editable, o la
+// factura ya vinculada (evita duplicados), o un error humano. La base es la COMISIÓN, nunca el precio del
+// inmueble (computeHonorarios, mismo modelo que la pantalla de Operaciones).
+export async function loadOpportunityInvoicePrefill(workspaceId: string, oppId: string): Promise<OpportunityPrefill> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const { data: opp } = await supabase.from('opportunities')
+    .select('id, client_id, property_id, title, stage, value, commission_rate, metadata')
+    .eq('workspace_id', workspaceId).eq('id', oppId).is('deleted_at', null).maybeSingle()
+  if (!opp) return { error: 'Operación no encontrada.' }
+  const o = opp as Record<string, unknown>
+
+  // Evitar duplicados: ¿ya hay factura vinculada activa?
+  const links = await loadInvoiceLinksForOpportunities(workspaceId, [oppId])
+  if (links[oppId]) return { existing: links[oppId] }
+
+  const clientId = str(o.client_id)
+  if (!clientId) return { error: 'Esta operación no tiene cliente asociado. Asígnalo antes de facturar.' }
+
+  // Inmueble: precio (base venta / renta mensual), tipo de operación y título.
+  let propertyPrice: number | null = null, propertyTitle: string | null = null, isRental = false
+  const propertyId = str(o.property_id)
+  if (propertyId) {
+    const { data: prop } = await supabase.from('properties').select('price, operation_type, title, address').eq('id', propertyId).maybeSingle()
+    if (prop) {
+      const p = prop as Record<string, unknown>
+      propertyPrice = p.price == null ? null : Number(p.price)
+      propertyTitle = str(p.title) ?? str(p.address)
+      const ot = str(p.operation_type)
+      isRental = ot === 'alquiler' || ot === 'alquiler_opcion_compra'
+    }
+  }
+
+  const honorarios = computeHonorarios({
+    value: o.value == null ? null : Number(o.value),
+    commissionRate: o.commission_rate == null ? null : Number(o.commission_rate),
+    propertyPrice, isRental, metadata: meta(o.metadata),
+  })
+  if (!honorarios || honorarios <= 0) return { error: 'Añade honorarios/comisión a la operación para generar una factura.' }
+
+  const concept = propertyTitle ? `Honorarios de intermediación inmobiliaria · ${propertyTitle}` : 'Honorarios de intermediación inmobiliaria'
+  const draft: InvoiceFormData = {
+    clientId, propertyId: propertyId ?? null, opportunityId: oppId,
+    series: 'A', issueDate: new Date().toISOString().slice(0, 10), dueDate: null,
+    currency: 'EUR', exchangeRateToEur: null, exchangeRateSource: 'Manual', exchangeRateDate: null,
+    notes: 'IVA calculado sobre los honorarios de la inmobiliaria, no sobre el precio del inmueble.',
+    internalNotes: '',
+    items: [{ description: concept, quantity: 1, unitPrice: honorarios, discountRate: 0, taxRate: 21, withholdingRate: 0, sortOrder: 0 }],
+  }
+  return { draft, propertyTitle, operationTitle: str(o.title), honorarios }
 }
 
 function totalsFor(items: InvoiceFormItem[]) {

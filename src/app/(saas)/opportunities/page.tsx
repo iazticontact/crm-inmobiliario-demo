@@ -62,6 +62,9 @@ import { WorkspaceTemplatesPanel } from '@/components/WorkspaceTemplatesPanel'
 import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { PropertyStatusBadge } from '@/components/PropertyStatusBadge'
 import { propertyMatchesFilters, sortPortfolio } from '@/lib/portfolio-filter'
+import { computeHonorarios } from '@/lib/invoicing/honorarios'
+import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
+import { INVOICE_STATUS_LABEL } from '@/lib/invoicing/types'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
@@ -175,6 +178,7 @@ export default function OpportunitiesPage() {
   const [vertical, setVertical] = useState<VerticalTab>('all')
   const [subtab, setSubtab] = useState<Subtab>('properties')
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
+  const [invoiceLinks, setInvoiceLinks] = useState<Record<string, OpportunityInvoiceLink>>({})
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
   const [clientNames, setClientNames] = useState<Record<string, string>>({})
@@ -348,6 +352,14 @@ export default function OpportunitiesPage() {
   // Mapas para enlazar entidades (vínculos reales ya cargados, sin N+1).
   const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
   const opportunitiesById = useMemo(() => Object.fromEntries(opportunities.map((o) => [o.id, o])), [opportunities])
+
+  // Facturas de honorarios vinculadas a operaciones (para mostrar «Facturar» vs «Factura vinculada»).
+  useEffect(() => {
+    if (!workspaceId || !opportunities.length) { queueMicrotask(() => setInvoiceLinks({})); return }
+    let cancelled = false
+    void loadInvoiceLinksForOpportunities(workspaceId, opportunities.map((o) => o.id)).then((m) => { if (!cancelled) setInvoiceLinks(m) })
+    return () => { cancelled = true }
+  }, [workspaceId, opportunities])
   // ¿La operación es un alquiler (a efectos de comisión)? Lo es si el inmueble es de alquiler o si
   // la operación lo declara en metadata.operation_kind.
   const isRentalOpp = (opp: OpportunityRow): boolean => {
@@ -360,22 +372,13 @@ export default function OpportunitiesPage() {
   // metadata.commission_model: 'percent' (def.) · 'one_month' (1 mensualidad de alquiler) ·
   // 'fixed' (importe en metadata.commission_fixed). Clave en alquiler %: la base es la renta ANUAL
   // (valor potencial), no la mensualidad, para no producir cifras absurdas (3% de 1 mes).
-  const commissionOf = (opp: OpportunityRow): number | null => {
-    const meta = opp.metadata ?? {}
-    const model = typeof meta.commission_model === 'string' ? meta.commission_model : 'percent'
-    const rental = isRentalOpp(opp)
-    const monthly = rental && opp.property_id ? (propertiesById[opp.property_id]?.price ?? null) : null
-    if (model === 'fixed') {
-      const f = Number(meta.commission_fixed)
-      return Number.isFinite(f) && f > 0 ? Math.round(f) : null
-    }
-    if (model === 'one_month') {
-      return monthly ? Math.round(monthly) : null
-    }
-    // percent (por defecto): venta → base = precio del inmueble o valor; alquiler → renta anual.
-    const base = rental ? opp.value : ((opp.property_id ? propertiesById[opp.property_id]?.price : null) ?? opp.value)
-    return base && opp.commission_rate ? Math.round((base * opp.commission_rate) / 100) : null
-  }
+  const commissionOf = (opp: OpportunityRow): number | null => computeHonorarios({
+    value: opp.value ?? null,
+    commissionRate: opp.commission_rate ?? null,
+    propertyPrice: opp.property_id ? (propertiesById[opp.property_id]?.price ?? null) : null,
+    isRental: isRentalOpp(opp),
+    metadata: opp.metadata ?? null,
+  })
   // Criterio de comisión, para la lista de Comisiones: "3%", "1 mensualidad" o "importe fijo".
   const commissionBasisLabel = (opp: OpportunityRow): string => {
     const model = typeof opp.metadata?.commission_model === 'string' ? opp.metadata.commission_model : 'percent'
@@ -1501,6 +1504,7 @@ export default function OpportunitiesPage() {
             <ul className="space-y-2">
               {commissionRows.map((o) => {
                 const est = commissionOf(o) ?? 0
+                const invLink = invoiceLinks[o.id]
                 const paid = o.commission_status === 'cobrada'
                 const propTitle = o.property_id ? propertiesById[o.property_id]?.title : ''
                 const kind = typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : ''
@@ -1524,6 +1528,15 @@ export default function OpportunitiesPage() {
                         <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada') : 'Comisión prevista'}</p>
                       </div>
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
+                      {invLink ? (
+                        <Link href="/facturacion" title={`Factura ${invLink.display ?? 'borrador'} · ${INVOICE_STATUS_LABEL[invLink.status]}`} className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100">
+                          <FileText className="h-3.5 w-3.5" /> {invLink.display ?? 'Borrador'} · {INVOICE_STATUS_LABEL[invLink.status]}
+                        </Link>
+                      ) : o.client_id ? (
+                        <Link href={`/facturacion?fromOpportunity=${o.id}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
+                          <FileText className="h-3.5 w-3.5" /> Facturar honorarios
+                        </Link>
+                      ) : null}
                       {paid ? (
                         <button type="button" onClick={() => void markCommissionPending(o)} title="Volver a marcar la comisión como pendiente" className="inline-flex h-7 items-center rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Marcar pendiente</button>
                       ) : (

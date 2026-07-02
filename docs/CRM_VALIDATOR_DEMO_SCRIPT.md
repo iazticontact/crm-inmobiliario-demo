@@ -42,6 +42,15 @@
 - **Se ve:** agenda y próximas citas; en móvil se ve igual de bien.
 - **Decir:** «Tu agenda de visitas y disponibilidad, integrada con clientes e inmuebles.»
 
+### 7b) Factura de honorarios desde una operación (2 min)
+- **Mostrar:** **Operaciones → Comisiones** → en *«Compra chalet Los Robles»* pulsa **«Facturar honorarios»**.
+- **Se ve:** se abre Facturación con un borrador **prellenado**: cliente, inmueble, concepto «Honorarios de
+  intermediación inmobiliaria», y la base = **comisión** (p. ej. 16.800 € = 3% de 560.000 €), **no** el
+  precio de la vivienda. Banner: «Factura generada desde una operación inmobiliaria».
+- **Decir:** «Desde una operación cerrada facturas tus honorarios en un clic; el IVA va sobre la comisión.»
+- **Nota:** si vuelves a pulsar, avisa de que «esta operación ya tiene una factura vinculada» y la abre (no
+  duplica). En Comisiones verás el estado de la factura junto a la operación.
+
 ### 8) Facturación — crear por texto (3 min)
 - **Mostrar:** **Módulos extra → Facturación** → «Crear con texto»:
   «Factura a *Inversiones Atlántico SL* por una comisión de venta de 3.500 € + IVA, vencimiento en 15 días».

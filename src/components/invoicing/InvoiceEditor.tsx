@@ -99,6 +99,12 @@ export function InvoiceEditor({
         {/* Formulario */}
         <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:max-w-[560px] lg:border-r lg:border-gray-200', mobileView === 'preview' && 'hidden lg:block')}>
           <div className="mx-auto max-w-xl space-y-5">
+            {form.opportunityId && (
+              <div className="flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] leading-4 text-gray-600">
+                <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                <span>Factura generada desde una <b>operación inmobiliaria</b>. La base son tus <b>honorarios/comisión</b> (no el precio del inmueble). Revísala y edítala antes de emitir.</span>
+              </div>
+            )}
             {/* A · Cabecera */}
             <Section title="Cabecera" step="A">
               <div className="grid grid-cols-1 gap-3">
