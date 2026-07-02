@@ -65,6 +65,7 @@ import { propertyMatchesFilters, sortPortfolio } from '@/lib/portfolio-filter'
 import { computeHonorarios } from '@/lib/invoicing/honorarios'
 import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
 import { INVOICE_STATUS_LABEL } from '@/lib/invoicing/types'
+import { billingStateFromInvoice, BILLING_STATE_LABEL } from '@/lib/invoicing/billing-state'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
@@ -1528,11 +1529,18 @@ export default function OpportunitiesPage() {
                         <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada') : 'Comisión prevista'}</p>
                       </div>
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
-                      {invLink ? (
-                        <Link href="/facturacion" title={`Factura ${invLink.display ?? 'borrador'} · ${INVOICE_STATUS_LABEL[invLink.status]}`} className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100">
-                          <FileText className="h-3.5 w-3.5" /> {invLink.display ?? 'Borrador'} · {INVOICE_STATUS_LABEL[invLink.status]}
-                        </Link>
-                      ) : o.client_id ? (
+                      {invLink ? (() => {
+                        const bs = billingStateFromInvoice(invLink.status)
+                        const tone = bs === 'collected' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : bs === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                          : bs === 'draft' ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
+                          : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                        return (
+                          <Link href="/facturacion" title={`${invLink.display ?? 'Borrador'} · ${INVOICE_STATUS_LABEL[invLink.status]}`} className={cn('inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors', tone)}>
+                            <FileText className="h-3.5 w-3.5" /> {BILLING_STATE_LABEL[bs]}
+                          </Link>
+                        )
+                      })() : o.client_id ? (
                         <Link href={`/facturacion?fromOpportunity=${o.id}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
                           <FileText className="h-3.5 w-3.5" /> Facturar honorarios
                         </Link>
@@ -1548,8 +1556,22 @@ export default function OpportunitiesPage() {
               })}
             </ul>
           )}
-          <p className="mt-3 text-[11px] leading-snug text-gray-400">
-            Control interno de comisiones. Las facturas, gastos e impuestos se gestionarán en el módulo económico.
+          {(() => {
+            const closed = commissionRows.filter((o) => commStateOf(o.stage) === 'won')
+            if (!closed.length) return null
+            const pend = closed.filter((o) => !invoiceLinks[o.id]).length
+            const fact = closed.filter((o) => { const l = invoiceLinks[o.id]; return l && billingStateFromInvoice(l.status) === 'billed' }).length
+            const cob = closed.filter((o) => { const l = invoiceLinks[o.id]; return l && billingStateFromInvoice(l.status) === 'collected' }).length
+            return (
+              <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                <span><b className="text-gray-700 tabular-nums">{pend}</b> pendiente{pend === 1 ? '' : 's'} de facturar</span>
+                <span><b className="text-indigo-600 tabular-nums">{fact}</b> facturada{fact === 1 ? '' : 's'} sin cobrar</span>
+                <span><b className="text-emerald-600 tabular-nums">{cob}</b> cobrada{cob === 1 ? '' : 's'}</span>
+              </p>
+            )
+          })()}
+          <p className="mt-2 text-[11px] leading-snug text-gray-400">
+            Control interno de comisiones. Las facturas, cobros e IVA se gestionan en el módulo Facturación.
           </p>
         </SectionCard>
       )}

@@ -1841,16 +1841,18 @@ export default function AssistantPage() {
           } else {
             setLastAgentMode('local')
           }
-          console.log('[assistant/ui] v2 response', {
-            ok: v2Data.ok,
-            debugSource: v2Data.debugSource,
-            errorCode: v2Data.errorCode ?? null,
-            mode: v2Data.mode,
-            traceId: v2Data.trace_id,
-            toolCalls: v2Data.toolCalls,
-            hasReferencedClient: Boolean(v2Data.referencedClientId),
-            hasPreparedAction: Boolean(v2Data.preparedAction),
-          })
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[assistant/ui] v2 response', {
+              ok: v2Data.ok,
+              debugSource: v2Data.debugSource,
+              errorCode: v2Data.errorCode ?? null,
+              mode: v2Data.mode,
+              traceId: v2Data.trace_id,
+              toolCalls: v2Data.toolCalls,
+              hasReferencedClient: Boolean(v2Data.referencedClientId),
+              hasPreparedAction: Boolean(v2Data.preparedAction),
+            })
+          }
 
           if (v2Data.ok && v2Data.answer) {
             if (v2Data.referencedClientId && v2Data.referencedClientName) {
