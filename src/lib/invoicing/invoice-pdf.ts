@@ -1,8 +1,8 @@
-// PDF de factura PROFESIONAL (P36B) — reescrito sobre el motor vectorial sin dependencias (pdf-doc.ts).
-// Estructura real de factura A4: cabecera con logo, título FACTURA + número + estado + fechas, bloques
-// EMISOR / FACTURAR A, tabla de conceptos con importes alineados a la derecha, caja de totales destacada,
-// notas y footer. Acentos correctos (WinAnsi). Degrada con elegancia: si falta un dato, no se pinta la
-// línea (sin "No consta" por todas partes). Determinista; el logo (bytes JPEG) se pasa ya resuelto.
+// PDF de factura PREMIUM (P36C) — reescrito sobre el motor vectorial sin dependencias (pdf-doc.ts).
+// Diseño propio, sobrio y profesional que aprovecha bien la hoja A4: cabecera con logo + título, banda de
+// metadatos (número · emisión · vencimiento · estado), tarjetas EMISOR / CLIENTE, tabla de conceptos con
+// importes alineados, panel de totales con TOTAL destacado, bloque de notas/condiciones y footer fijado al
+// pie. Acentos correctos (WinAnsi). Degrada con elegancia (si falta un dato, no se pinta la línea).
 
 import { PdfDoc, type RGB } from '@/lib/pdf/pdf-doc'
 import { formatInvoiceCurrency, round2 } from './calc'
@@ -29,13 +29,15 @@ export type InvoicePdfInput = {
 }
 
 // Paleta sobria/profesional (0..1)
-const INK: RGB = [0.11, 0.13, 0.18]
-const MUTED: RGB = [0.45, 0.48, 0.54]
-const HAIR: RGB = [0.85, 0.87, 0.91]
+const INK: RGB = [0.12, 0.14, 0.19]
+const SUBINK: RGB = [0.28, 0.31, 0.38]
+const MUTED: RGB = [0.47, 0.50, 0.56]
+const HAIR: RGB = [0.87, 0.89, 0.92]
 const BRAND: RGB = [0.31, 0.29, 0.78]
-const HEADBG: RGB = [0.14, 0.16, 0.23]
-const ZEBRA: RGB = [0.968, 0.972, 0.984]
-const TOTALBG: RGB = [0.949, 0.949, 0.988]
+const BRAND_SOFT: RGB = [0.937, 0.937, 0.988]
+const SLATE: RGB = [0.15, 0.17, 0.24]
+const CARD: RGB = [0.968, 0.973, 0.984]
+const ZEBRA: RGB = [0.975, 0.978, 0.988]
 const WHITE: RGB = [1, 1, 1]
 
 const STATUS_RGB: Record<InvoiceStatus, RGB> = {
@@ -55,160 +57,172 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
   const doc = new PdfDoc()
   const cur = inv.currency || 'EUR'
   const money = (n: number) => formatInvoiceCurrency(n, cur)
-  const ML = 42, MR = doc.W - 42, RIGHT = MR
+  const ML = 46, MR = doc.W - 46, CW = MR - ML
   const status = (inv.status as InvoiceStatus) in INVOICE_STATUS_LABEL ? (inv.status as InvoiceStatus) : 'draft'
+  const issuerName = has(inv.issuer.legalName) ? inv.issuer.legalName! : 'Tu empresa'
 
   // ── Cabecera ────────────────────────────────────────────────────────────
-  const issuerName = has(inv.issuer.legalName) ? inv.issuer.legalName! : 'Tu empresa'
-  if (inv.logo) {
-    doc.image(inv.logo.jpeg, inv.logo.width, inv.logo.height, ML, 40, 150, 52)
-  } else {
-    doc.text(issuerName, ML, 58, { size: 16, bold: true, color: INK, maxWidth: 260 })
-    if (has(inv.issuer.taxId)) doc.text(`NIF/CIF: ${inv.issuer.taxId}`, ML, 74, { size: 9, color: MUTED })
-  }
+  if (inv.logo) doc.image(inv.logo.jpeg, inv.logo.width, inv.logo.height, ML, 42, 168, 58)
+  else doc.text(issuerName, ML, 66, { size: 17, bold: true, color: INK, maxWidth: 300 })
 
-  doc.text('FACTURA', RIGHT, 62, { size: 24, bold: true, color: INK, align: 'right' })
-  doc.text(inv.display ? `Nº ${inv.display}` : 'Borrador (sin numerar)', RIGHT, 80, { size: 10.5, color: MUTED, align: 'right' })
+  doc.text('FACTURA', MR, 60, { size: 26, bold: true, color: INK, align: 'right' })
+  doc.text(inv.display ? `Nº ${inv.display}` : 'Borrador · sin numerar', MR, 80, { size: 10.5, color: MUTED, align: 'right' })
+  // Regla de acento
+  doc.rect(ML, 112, CW, 2.4, { fill: BRAND })
 
-  // Pill de estado
-  const label = INVOICE_STATUS_LABEL[status].toUpperCase()
-  const pw = Math.max(46, 10 + label.length * 5.2)
-  doc.rect(RIGHT - pw, 88, pw, 15, { fill: STATUS_RGB[status] })
-  doc.text(label, RIGHT - pw / 2, 99, { size: 8, bold: true, color: WHITE, align: 'center' })
+  // ── Banda de metadatos ──────────────────────────────────────────────────
+  const bandY = 124, bandH = 50
+  doc.rect(ML, bandY, CW, bandH, { fill: CARD })
+  const metaCols: { label: string; value: string; pill?: boolean }[] = [
+    { label: 'NÚMERO', value: inv.display ?? 'Borrador' },
+    { label: 'FECHA DE EMISIÓN', value: fmtDate(inv.issueDate) },
+    { label: 'VENCIMIENTO', value: fmtDate(inv.dueDate) },
+    { label: 'ESTADO', value: INVOICE_STATUS_LABEL[status], pill: true },
+  ]
+  const colW = CW / metaCols.length
+  metaCols.forEach((c, i) => {
+    const cx = ML + i * colW + 12
+    doc.text(c.label, cx, bandY + 18, { size: 7.5, bold: true, color: MUTED })
+    if (c.pill) {
+      const label = c.value.toUpperCase()
+      const pw = Math.max(48, 12 + label.length * 5.2)
+      doc.rect(cx, bandY + 26, pw, 14, { fill: STATUS_RGB[status] })
+      doc.text(label, cx + pw / 2, bandY + 36, { size: 7.5, bold: true, color: WHITE, align: 'center' })
+    } else {
+      doc.text(c.value, cx, bandY + 37, { size: 11, bold: true, color: INK, maxWidth: colW - 20 })
+    }
+    if (i > 0) doc.line(ML + i * colW, bandY + 10, ML + i * colW, bandY + bandH - 10, { color: HAIR })
+  })
 
-  doc.text(`Emisión: ${fmtDate(inv.issueDate)}`, RIGHT, 118, { size: 9.5, color: INK, align: 'right' })
-  if (has(inv.dueDate)) doc.text(`Vencimiento: ${fmtDate(inv.dueDate)}`, RIGHT, 132, { size: 9.5, color: INK, align: 'right' })
-
-  // ── Bloques EMISOR / FACTURAR A ────────────────────────────────────────
-  const blockTop = 158
-  doc.line(ML, 146, MR, 146, { color: HAIR })
-
-  const colL = ML, colR = 312, blockW = 235
-  doc.text('DE', colL, blockTop, { size: 8.5, bold: true, color: BRAND })
-  doc.text('FACTURAR A', colR, blockTop, { size: 8.5, bold: true, color: BRAND })
-
+  // ── Tarjetas EMISOR / CLIENTE ───────────────────────────────────────────
   const issuerLines: { t: string; bold?: boolean }[] = [{ t: issuerName, bold: true }]
   if (has(inv.issuer.taxId)) issuerLines.push({ t: `NIF/CIF: ${inv.issuer.taxId}` })
   if (has(inv.issuer.address)) issuerLines.push({ t: inv.issuer.address! })
-  const issuerCityLine = [inv.issuer.postalCode, inv.issuer.city, inv.issuer.province].filter(has).join(' ')
-  if (issuerCityLine) issuerLines.push({ t: issuerCityLine })
+  const issuerCity = [inv.issuer.postalCode, inv.issuer.city, inv.issuer.province].filter(has).join(' ')
+  if (issuerCity) issuerLines.push({ t: issuerCity })
   if (has(inv.issuer.country)) issuerLines.push({ t: inv.issuer.country! })
-  if (has(inv.issuer.email)) issuerLines.push({ t: inv.issuer.email! })
-  if (has(inv.issuer.phone)) issuerLines.push({ t: inv.issuer.phone! })
-  if (has(inv.issuer.website)) issuerLines.push({ t: inv.issuer.website! })
+  const issuerContact = [inv.issuer.email, inv.issuer.phone, inv.issuer.website].filter(has).join('  ·  ')
+  if (issuerContact) issuerLines.push({ t: issuerContact })
 
   const custName = has(inv.customer.name) ? inv.customer.name! : 'Cliente sin especificar'
   const custLines: { t: string; bold?: boolean }[] = [{ t: custName, bold: true }]
   if (has(inv.customer.taxId)) custLines.push({ t: `NIF/CIF: ${inv.customer.taxId}` })
   if (has(inv.customer.address)) custLines.push({ t: inv.customer.address! })
   if (has(inv.customer.country)) custLines.push({ t: inv.customer.country! })
-  if (has(inv.customer.email)) custLines.push({ t: inv.customer.email! })
-  if (has(inv.customer.phone)) custLines.push({ t: inv.customer.phone! })
+  const custContact = [inv.customer.email, inv.customer.phone].filter(has).join('  ·  ')
+  if (custContact) custLines.push({ t: custContact })
 
-  let yl = blockTop + 15
-  for (const ln of issuerLines) { doc.text(ln.t, colL, yl, { size: 9.5, bold: ln.bold, color: ln.bold ? INK : MUTED, maxWidth: blockW }); yl += 13 }
-  let yr = blockTop + 15
-  for (const ln of custLines) { doc.text(ln.t, colR, yr, { size: 9.5, bold: ln.bold, color: ln.bold ? INK : MUTED, maxWidth: blockW }); yr += 13 }
+  const cardTop = bandY + bandH + 18
+  const cardGap = 14
+  const cardW = (CW - cardGap) / 2
+  const cardH = Math.max(96, 30 + Math.max(issuerLines.length, custLines.length) * 12.5)
+
+  const drawCard = (x: number, label: string, lines: { t: string; bold?: boolean }[]) => {
+    doc.rect(x, cardTop, cardW, cardH, { fill: CARD })
+    doc.rect(x, cardTop, 3, cardH, { fill: BRAND })
+    doc.text(label, x + 14, cardTop + 17, { size: 8, bold: true, color: BRAND })
+    let ly = cardTop + 33
+    for (const ln of lines) { doc.text(ln.t, x + 14, ly, { size: ln.bold ? 10.5 : 9, bold: ln.bold, color: ln.bold ? INK : SUBINK, maxWidth: cardW - 26 }); ly += ln.bold ? 14 : 12 }
+  }
+  drawCard(ML, 'EMISOR', issuerLines)
+  drawCard(ML + cardW + cardGap, 'FACTURAR A', custLines)
 
   // Referencias opcionales (operación / inmueble)
-  let refY = Math.max(yl, yr) + 4
+  let y = cardTop + cardH + 14
   const refs = [inv.operationTitle && `Operación: ${inv.operationTitle}`, inv.propertyTitle && `Inmueble: ${inv.propertyTitle}`].filter(Boolean) as string[]
-  for (const r of refs) { doc.text(r, colL, refY, { size: 9, color: MUTED, maxWidth: doc.W - 84 }); refY += 12 }
+  if (refs.length) { doc.text(refs.join('     '), ML, y + 4, { size: 8.5, color: MUTED, maxWidth: CW }); y += 16 }
 
   // ── Tabla de conceptos ─────────────────────────────────────────────────
-  // Columnas: DESCRIPCIÓN (izq) | CANT | PRECIO | IVA | IMPORTE (der)
-  const cDescX = ML + 6
-  const cQtyR = 350, cPriceR = 432, cVatR = 476, cAmtR = RIGHT - 6
-  const descMaxW = 232
-  const pageBottom = doc.H - 70
-  const ROWPAD = 7, LINEH = 12
+  const cDescX = ML + 10
+  const cImporteR = MR - 10, cIvaR = MR - 96, cPrecioR = MR - 158, cCantR = MR - 232
+  const descMaxW = cCantR - cDescX - 16
+  const pageBottom = doc.H - 96
+  const HEADH = 26, ROWPAD = 8, LINEH = 12.5
 
-  const drawTableHeader = (y: number): number => {
-    doc.rect(ML, y, MR - ML, 22, { fill: HEADBG })
-    const ty = y + 14.5
+  const drawTableHeader = (yy: number): number => {
+    doc.rect(ML, yy, CW, HEADH, { fill: SLATE })
+    const ty = yy + 17
     doc.text('DESCRIPCIÓN', cDescX, ty, { size: 8.5, bold: true, color: WHITE })
-    doc.text('CANT.', cQtyR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
-    doc.text('PRECIO', cPriceR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
-    doc.text('IVA', cVatR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
-    doc.text('IMPORTE', cAmtR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
-    return y + 22
+    doc.text('CANT.', cCantR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
+    doc.text('PRECIO', cPrecioR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
+    doc.text('IVA', cIvaR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
+    doc.text('IMPORTE', cImporteR, ty, { size: 8.5, bold: true, color: WHITE, align: 'right' })
+    return yy + HEADH
   }
 
-  let y = Math.max(refY + 10, 300)
+  y += 6
   y = drawTableHeader(y)
-
   let zebra = false
-  const rowsToRender = items.length ? items : []
-  for (const it of rowsToRender) {
+  for (const it of items) {
     const descLines = doc.wrap(has(it.description) ? it.description : '(sin descripción)', 9.5, descMaxW)
     const gross = round2(it.quantity * it.unit_price)
     const discount = round2(gross - it.line_subtotal)
     const extra: string[] = []
-    if (it.discount_rate) extra.push(`Descuento ${it.discount_rate}%  (−${money(discount)})`)
+    if (it.discount_rate) extra.push(`Descuento ${it.discount_rate}% (−${money(discount)})`)
     if (it.withholding_rate) extra.push(`IRPF ${it.withholding_rate}%`)
     const bodyLines = descLines.length + (extra.length ? 1 : 0)
-    const rowH = ROWPAD * 2 + bodyLines * LINEH - (bodyLines > 1 ? 2 : 0)
+    const rowH = Math.max(28, ROWPAD * 2 + bodyLines * LINEH)
 
-    if (y + rowH > pageBottom) { doc.addPage(); y = 50; y = drawTableHeader(y) }
-    if (zebra) doc.rect(ML, y, MR - ML, rowH, { fill: ZEBRA })
+    if (y + rowH > pageBottom) { doc.addPage(); y = 60; y = drawTableHeader(y) }
+    if (zebra) doc.rect(ML, y, CW, rowH, { fill: ZEBRA })
     zebra = !zebra
 
     let ly = y + ROWPAD + 9
     for (const dl of descLines) { doc.text(dl, cDescX, ly, { size: 9.5, color: INK }); ly += LINEH }
-    if (extra.length) { doc.text(extra.join('   ·   '), cDescX, ly, { size: 8, color: MUTED }); ly += LINEH }
+    if (extra.length) { doc.text(extra.join('    ·    '), cDescX, ly, { size: 8, color: MUTED }); ly += LINEH }
 
     const midY = y + ROWPAD + 9
-    doc.text(String(it.quantity), cQtyR, midY, { size: 9.5, color: INK, align: 'right' })
-    doc.text(money(it.unit_price), cPriceR, midY, { size: 9.5, color: INK, align: 'right' })
-    doc.text(`${it.tax_rate}%`, cVatR, midY, { size: 9.5, color: INK, align: 'right' })
-    doc.text(money(it.line_total), cAmtR, midY, { size: 9.5, bold: true, color: INK, align: 'right' })
+    doc.text(String(it.quantity), cCantR, midY, { size: 9.5, color: SUBINK, align: 'right' })
+    doc.text(money(it.unit_price), cPrecioR, midY, { size: 9.5, color: SUBINK, align: 'right' })
+    doc.text(`${it.tax_rate}%`, cIvaR, midY, { size: 9.5, color: SUBINK, align: 'right' })
+    doc.text(money(it.line_total), cImporteR, midY, { size: 9.5, bold: true, color: INK, align: 'right' })
 
     y += rowH
     doc.line(ML, y, MR, y, { color: HAIR })
   }
-  if (!rowsToRender.length) {
-    doc.text('Sin conceptos.', cDescX, y + 16, { size: 9.5, color: MUTED })
-    y += 26
-    doc.line(ML, y, MR, y, { color: HAIR })
-  }
+  if (!items.length) { doc.text('Sin conceptos.', cDescX, y + 17, { size: 9.5, color: MUTED }); y += 28; doc.line(ML, y, MR, y, { color: HAIR }) }
 
-  // ── Caja de totales (derecha) ──────────────────────────────────────────
-  const discountTotal = items.reduce((a, it) => a + round2(round2(it.quantity * it.unit_price) - it.line_subtotal), 0)
-  const rows: { label: string; value: string; strong?: boolean }[] = []
-  if (discountTotal > 0) rows.push({ label: 'Descuentos', value: `−${money(round2(discountTotal))}` })
-  rows.push({ label: 'Base imponible', value: money(inv.subtotal) })
-  rows.push({ label: 'IVA', value: money(inv.taxTotal) })
-  if (inv.withholdingTotal) rows.push({ label: 'Retención IRPF', value: `−${money(inv.withholdingTotal)}` })
+  // ── Totales (panel derecho) + notas (izquierda) ──────────────────────────
+  const discountTotal = round2(items.reduce((a, it) => a + round2(round2(it.quantity * it.unit_price) - it.line_subtotal), 0))
+  const tRows: { label: string; value: string }[] = []
+  if (discountTotal > 0) tRows.push({ label: 'Descuentos', value: `−${money(discountTotal)}` })
+  tRows.push({ label: 'Base imponible', value: money(inv.subtotal) })
+  tRows.push({ label: 'IVA', value: money(inv.taxTotal) })
+  if (inv.withholdingTotal) tRows.push({ label: 'Retención IRPF', value: `−${money(inv.withholdingTotal)}` })
 
   const boxW = 250, boxX = MR - boxW
-  let ty = y + 16
-  if (ty + rows.length * 16 + 34 > doc.H - 60) { doc.addPage(); ty = 60 }
-  for (const r of rows) {
-    doc.text(r.label, boxX + 8, ty + 10, { size: 9.5, color: MUTED })
-    doc.text(r.value, MR - 8, ty + 10, { size: 9.5, color: INK, align: 'right' })
-    ty += 16
+  const totalsH = 16 + tRows.length * 17 + 40
+  if (y + totalsH > doc.H - 90) { doc.addPage(); y = 60 }
+  let ty = y + 18
+  for (const r of tRows) {
+    doc.text(r.label, boxX, ty + 10, { size: 10, color: MUTED })
+    doc.text(r.value, MR, ty + 10, { size: 10, color: SUBINK, align: 'right' })
+    ty += 17
+    doc.line(boxX, ty + 1, MR, ty + 1, { color: HAIR })
   }
-  // Total destacado
-  doc.rect(boxX, ty + 4, boxW, 30, { fill: TOTALBG })
-  doc.rect(boxX, ty + 4, 3, 30, { fill: BRAND })
-  doc.text('TOTAL', boxX + 12, ty + 23, { size: 12, bold: true, color: INK })
-  doc.text(money(inv.total), MR - 10, ty + 23, { size: 13, bold: true, color: BRAND, align: 'right' })
-  let afterTotals = ty + 44
+  ty += 6
+  doc.rect(boxX, ty, boxW, 34, { fill: BRAND_SOFT })
+  doc.rect(boxX, ty, 3.5, 34, { fill: BRAND })
+  doc.text('TOTAL', boxX + 14, ty + 22, { size: 12.5, bold: true, color: INK })
+  doc.text(money(inv.total), MR - 12, ty + 22.5, { size: 14, bold: true, color: BRAND, align: 'right' })
 
-  // ── Notas ───────────────────────────────────────────────────────────────
+  // Notas / condiciones (izquierda, alineado con el panel de totales)
+  const notesX = ML, notesMaxW = boxX - ML - 20
+  let ny = y + 18
   if (has(inv.notes)) {
-    if (afterTotals + 40 > doc.H - 60) { doc.addPage(); afterTotals = 60 }
-    doc.text('NOTAS', ML, afterTotals + 6, { size: 8.5, bold: true, color: BRAND })
-    let ny = afterTotals + 20
-    for (const nl of doc.wrap(inv.notes!.trim(), 9, MR - ML - 4)) { doc.text(nl, ML, ny, { size: 9, color: MUTED }); ny += 12 }
+    doc.text('NOTAS Y CONDICIONES', notesX, ny + 8, { size: 8, bold: true, color: BRAND })
+    ny += 22
+    for (const nl of doc.wrap(inv.notes!.trim(), 9, notesMaxW)) { if (ny > doc.H - 96) break; doc.text(nl, notesX, ny, { size: 9, color: SUBINK }); ny += 12.5 }
+  } else if (issuerContact) {
+    doc.text('¿DUDAS CON ESTA FACTURA?', notesX, ny + 8, { size: 8, bold: true, color: BRAND })
+    doc.text([inv.issuer.email, inv.issuer.phone].filter(has).join('  ·  '), notesX, ny + 24, { size: 9, color: SUBINK, maxWidth: notesMaxW })
   }
 
-  // ── Footer ────────────────────────────────────────────────────────────
-  const footY = doc.H - 34
-  doc.line(ML, footY - 8, MR, footY - 8, { color: HAIR })
-  const footBits = [issuerName, has(inv.issuer.taxId) ? inv.issuer.taxId! : null, has(inv.issuer.email) ? inv.issuer.email! : null].filter(Boolean) as string[]
-  doc.text(footBits.join('   ·   '), ML, footY, { size: 8, color: MUTED, maxWidth: 380 })
-  doc.text('Documento generado por el CRM', MR, footY, { size: 8, color: MUTED, align: 'right' })
+  // ── Footer fijado al pie ────────────────────────────────────────────────
+  const footY = doc.H - 46
+  doc.line(ML, footY - 10, MR, footY - 10, { color: HAIR })
+  const footBits = [issuerName, has(inv.issuer.taxId) ? inv.issuer.taxId! : null, has(inv.issuer.email) ? inv.issuer.email! : null, has(inv.issuer.website) ? inv.issuer.website! : null].filter(Boolean) as string[]
+  doc.text(footBits.join('    ·    '), ML + CW / 2, footY, { size: 8, color: MUTED, align: 'center', maxWidth: CW })
 
   return doc.bytes()
 }

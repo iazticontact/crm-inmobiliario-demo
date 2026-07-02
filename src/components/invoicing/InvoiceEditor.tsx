@@ -24,7 +24,7 @@ export type InvoiceEditorMode = 'create' | 'edit' | 'view'
 export function InvoiceEditor({
   open, onClose, mode, form, onChange, clients, issuer, issuerMissing,
   displayNumber, status, saving, emitting, regenerating,
-  onSaveDraft, onEmit, onDownload, onRegenerate,
+  onSaveDraft, onEmit, onDownload, onRegenerate, onDelete,
 }: {
   open: boolean
   onClose: () => void
@@ -43,6 +43,7 @@ export function InvoiceEditor({
   onEmit: () => void
   onDownload?: () => void
   onRegenerate?: () => void
+  onDelete?: () => void
 }) {
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit')
   if (!open) return null
@@ -148,8 +149,8 @@ export function InvoiceEditor({
                         <Field label="Cantidad"><input type="number" min="0" step="any" className={field} value={it.quantity} disabled={readOnly} onChange={(e) => setItem(idx, { quantity: num(e.target.value) })} /></Field>
                         <Field label="Precio"><input type="number" min="0" step="any" className={field} value={it.unitPrice} disabled={readOnly} onChange={(e) => setItem(idx, { unitPrice: num(e.target.value) })} /></Field>
                         <Field label="Dto. %"><input type="number" min="0" max="100" step="any" className={field} value={it.discountRate} disabled={readOnly} onChange={(e) => setItem(idx, { discountRate: num(e.target.value) })} /></Field>
-                        <Field label="IVA %"><input type="number" min="0" step="any" className={field} value={it.taxRate} disabled={readOnly} onChange={(e) => setItem(idx, { taxRate: num(e.target.value) })} /></Field>
-                        <Field label="IRPF %"><input type="number" min="0" step="any" className={field} value={it.withholdingRate} disabled={readOnly} onChange={(e) => setItem(idx, { withholdingRate: num(e.target.value) })} /></Field>
+                        <Field label="IVA %"><input type="number" min="0" step="any" list="iva-rates" className={field} value={it.taxRate} disabled={readOnly} onChange={(e) => setItem(idx, { taxRate: num(e.target.value) })} /></Field>
+                        <Field label="IRPF %"><input type="number" min="0" step="any" list="irpf-rates" className={field} value={it.withholdingRate} disabled={readOnly} onChange={(e) => setItem(idx, { withholdingRate: num(e.target.value) })} /></Field>
                       </div>
                       <div className="mt-2 text-right text-[11px] text-gray-500">Total línea: <span className="font-semibold text-gray-800">{money(lt.lineTotal)}</span></div>
                     </div>
@@ -187,9 +188,18 @@ export function InvoiceEditor({
         </div>
       </div>
 
+      {/* Sugerencias de tipos habituales (editable, sin bloqueos) */}
+      <datalist id="iva-rates"><option value="21" /><option value="10" /><option value="4" /><option value="0" /></datalist>
+      <datalist id="irpf-rates"><option value="0" /><option value="7" /><option value="15" /><option value="19" /></datalist>
+
       {/* Acciones */}
       <footer className="flex items-center justify-between gap-2 border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
-        <Button variant="secondary" size="sm" onClick={onClose}>Cerrar</Button>
+        <div className="flex items-center gap-1.5">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cerrar</Button>
+          {!readOnly && onDelete && (
+            <button onClick={onDelete} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {readOnly ? (
             <>

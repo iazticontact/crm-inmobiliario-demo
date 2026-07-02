@@ -307,6 +307,22 @@ export async function regeneratePdf(workspaceId: string, id: string): Promise<{ 
   return { ok: true }
 }
 
+// Ciclo de vida: solo los BORRADORES se eliminan (soft delete). Las facturas emitidas NO se borran —
+// se anulan/cancelan (integridad del histórico). Reversible por diseño (deleted_at).
+export async function deleteDraft(workspaceId: string, id: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = getSupabaseBrowserClient()
+  if (!supabase) return { error: 'Sin sesión.' }
+  const { data } = await supabase.from('invoices').select('status').eq('workspace_id', workspaceId).eq('id', id).maybeSingle()
+  const status = (data as { status?: string } | null)?.status
+  if (!status) return { error: 'Factura no encontrada.' }
+  if (status !== 'draft') return { error: 'Solo se pueden eliminar borradores. Las facturas emitidas se anulan.' }
+  const { error } = await supabase.from('invoices')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id).eq('workspace_id', workspaceId).eq('status', 'draft')
+  if (error) return { error: mapError(error.message) }
+  return { ok: true }
+}
+
 export async function setInvoiceStatus(workspaceId: string, id: string, status: InvoiceStatus): Promise<{ ok: true } | { error: string }> {
   const supabase = getSupabaseBrowserClient()
   if (!supabase) return { error: 'Sin sesión.' }
