@@ -13,7 +13,7 @@
 | Expedientes | dentro de cliente/operaciones | ✅ real | nombre comercial "Expedientes" (tabla técnica `service_cases`) |
 | Tareas | dentro de cliente | ✅ real | pendientes, responsable, vencimiento, estado |
 | Calendario | `/calendar` | ✅ real + demo | citas/visitas/disponibilidad interna (sin Google OAuth) |
-| Documentos (metadata) | dentro de cliente | ✅ real | título/tipo/fecha; SIN lectura de contenido PDF (sin RAG) |
+| Documentos | dentro de cliente/inmueble/trámite | ✅ real (P37) | subir/listar/descargar (signed URL) y borrar sobre `entity_files` con RLS; SIN lectura de contenido PDF (sin OCR/RAG). La ficha de cliente usa `EntityDocumentsManager` (fin de la tabla legacy `documents`). |
 | Asistente IA (Copiloto) | `/assistant` | ✅ real (n8n Agent V2) | read-only: consulta y resume; memoria, personalidad premium; NO crea/edita aún |
 | Demo offline | `?demo` / flag | ✅ | datos mock, solo lectura, claramente demo |
 | Configuración básica | `/settings` | ✅ | perfil/workspace; lo técnico se oculta al cliente |

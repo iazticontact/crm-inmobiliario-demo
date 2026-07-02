@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -14,7 +14,6 @@ import {
   Clock,
   Copy,
   CreditCard,
-  Download,
   FileText,
   Loader2,
   Mail,
@@ -23,8 +22,6 @@ import {
   Phone,
   Plus,
   Target,
-  Trash2,
-  Upload,
   User as UserIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -32,8 +29,8 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
 import { PageSkeleton } from '@/components/PageSkeleton'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmailAction } from '@/components/EmailAction'
+import { EntityDocumentsManager } from '@/components/EntityDocumentsManager'
 import { featureFlags } from '@/lib/feature-flags'
 import { cn } from '@/lib/utils'
 import {
@@ -78,17 +75,6 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'invoices', label: 'Facturación', icon: <CreditCard className="h-3.5 w-3.5" /> },
 ]
 
-type ClientDocument = {
-  id: string
-  title: string
-  type: string
-  storage_path: string
-  storage_bucket: string
-  mime_type?: string | null
-  size?: number | null
-  created_at: string
-  metadata?: Record<string, unknown> | null
-}
 
 type TaskRow = {
   id: string
@@ -217,18 +203,6 @@ function readMeta(client: Client | null, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-function formatBytes(bytes?: number | null) {
-  if (!bytes || bytes <= 0) return '—'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`
-}
-
 function formatDate(value?: string | null, withTime = false) {
   if (!value) return '—'
   const d = new Date(value)
@@ -281,13 +255,9 @@ export default function ClientDetailPage() {
   const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
 
-  const [documents, setDocuments] = useState<ClientDocument[]>([])
-  const [documentsLoading, setDocumentsLoading] = useState(false)
-  const [docToDelete, setDocToDelete] = useState<ClientDocument | null>(null)
-  const [deletingDoc, setDeletingDoc] = useState(false)
-  const [docDeleteError, setDocDeleteError] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Documentos del cliente = entity_files (mismo componente que inmuebles/trámites). El recuento alimenta
+  // las estadísticas de las pestañas.
+  const [docCount, setDocCount] = useState(0)
 
   const [activities, setActivities] = useState<Activity[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -330,28 +300,6 @@ export default function ClientDetailPage() {
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
 
-  const loadDocuments = useCallback(async () => {
-    if (!clientId) return
-    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
-      setDocuments([])
-      return
-    }
-    setDocumentsLoading(true)
-    try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body?.error || `Error ${res.status}`)
-      }
-      const data = await res.json() as { documents: ClientDocument[] }
-      setDocuments(data.documents)
-    } catch (error) {
-      toast.error('No se pudieron cargar los documentos', { description: error instanceof Error ? error.message : '' })
-    } finally {
-      setDocumentsLoading(false)
-    }
-  }, [clientId])
-
   const loadEverything = useCallback(async () => {
     if (!clientId) return
     setLoading(true)
@@ -376,7 +324,7 @@ export default function ClientDetailPage() {
       setInvoices(demoInvoicesList.filter((i) => i.clientName === c.name))
       setTasks([])
       setMembers([])
-      setDocuments([])
+      setDocCount(0)
       setLoading(false)
       return
     }
@@ -432,40 +380,6 @@ export default function ClientDetailPage() {
     const timeout = window.setTimeout(() => { void loadEverything() }, 0)
     return () => window.clearTimeout(timeout)
   }, [loadEverything])
-
-  useEffect(() => {
-    if (activeTab !== 'documents') return
-    const timeout = window.setTimeout(() => { void loadDocuments() }, 0)
-    return () => window.clearTimeout(timeout)
-  }, [activeTab, loadDocuments])
-
-  const handleFileSelect = async (file: File | null) => {
-    if (!file || !clientId) return
-    if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
-      toast.info('Modo demo (solo lectura)', { description: 'Subir documentos estará disponible al conectar tu cuenta.' })
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-    setUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('title', file.name)
-      const res = await fetch(`/api/clients/${clientId}/documents`, {
-        method: 'POST',
-        body: formData,
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || `Error ${res.status}`)
-      toast.success('Documento subido', { description: file.name })
-      await loadDocuments()
-    } catch (error) {
-      toast.error('Error al subir documento', { description: error instanceof Error ? error.message : '' })
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
 
   // RT4 — crear tarea real vinculada al cliente (RLS), con actividad automática.
   const handleCreateTask = async () => {
@@ -748,40 +662,6 @@ export default function ClientDetailPage() {
     }
   }
 
-  const handleDownload = async (doc: ClientDocument) => {
-    try {
-      const res = await fetch(`/api/clients/${clientId}/documents/${doc.id}`)
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || `Error ${res.status}`)
-      window.open(body.url, '_blank', 'noopener,noreferrer')
-    } catch (error) {
-      toast.error('No se pudo abrir el documento', { description: error instanceof Error ? error.message : '' })
-    }
-  }
-
-  const handleDeleteDocument = (doc: ClientDocument) => {
-    setDocDeleteError(null)
-    setDocToDelete(doc)
-  }
-
-  const confirmDeleteDocument = async () => {
-    if (!docToDelete) return
-    setDeletingDoc(true)
-    setDocDeleteError(null)
-    try {
-      const res = await fetch(`/api/clients/${clientId}/documents/${docToDelete.id}`, { method: 'DELETE' })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || `Error ${res.status}`)
-      setDocToDelete(null)
-      toast.success('Documento eliminado')
-      await loadDocuments()
-    } catch (error) {
-      setDocDeleteError(error instanceof Error ? error.message : 'No se pudo eliminar el documento.')
-    } finally {
-      setDeletingDoc(false)
-    }
-  }
-
   const handleSaveNotes = async () => {
     if (!client) return
     if (typeof window !== 'undefined' && window.localStorage.getItem(DEMO_MODE_KEY) === 'true') {
@@ -858,13 +738,13 @@ export default function ClientDetailPage() {
   }), [client])
 
   const tabCount = useMemo(() => ({
-    documents: documents.length,
+    documents: docCount,
     cases: cases.length + opportunities.length + properties.length,
     calendar: events.length,
     tasks: tasks.length,
     conversations: conversations.length,
     invoices: invoices.length,
-  }), [documents.length, cases.length, opportunities.length, properties.length, events.length, tasks.length, conversations.length, invoices.length])
+  }), [docCount, cases.length, opportunities.length, properties.length, events.length, tasks.length, conversations.length, invoices.length])
 
   // Tareas ordenadas: vencidas primero, luego "vence pronto", luego el resto y
   // las cerradas al final; dentro de cada grupo, por fecha de vencimiento.
@@ -918,18 +798,6 @@ export default function ClientDetailPage() {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5 pb-2"
     >
-      <ConfirmDialog
-        open={Boolean(docToDelete)}
-        title="Eliminar documento"
-        description={docToDelete ? `Vas a eliminar el documento "${docToDelete.title}". Esta acción no se puede deshacer.` : ''}
-        confirmLabel="Eliminar documento"
-        loadingLabel="Eliminando…"
-        destructive
-        loading={deletingDoc}
-        error={docDeleteError}
-        onConfirm={confirmDeleteDocument}
-        onCancel={() => { if (!deletingDoc) { setDocToDelete(null); setDocDeleteError(null) } }}
-      />
       <button onClick={() => router.push('/clients')} className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700">
         <ArrowLeft className="h-3.5 w-3.5" /> Volver a clientes
       </button>
@@ -1002,11 +870,11 @@ export default function ClientDetailPage() {
         </div>
       </SectionCard>
 
-      {/* Tabs — los módulos sin backend real (Documentos/Storage, Conversaciones,
-          Facturación) se ocultan al cliente; solo visibles con NOWLABS_INTERNAL.
-          El contenido/código de esas pestañas se mantiene intacto. */}
+      {/* Tabs — Documentos ya funciona con almacenamiento real (entity_files), así que se muestra siempre.
+          Conversaciones y Facturación por-cliente siguen ocultas al cliente (solo con NOWLABS_INTERNAL);
+          su código se mantiene intacto. */}
       <div className="flex flex-wrap items-center gap-1 rounded-xl border border-gray-200/70 bg-white p-1 shadow-sm">
-        {TABS.filter((t) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['documents', 'conversations', 'invoices'].includes(t.key)).map((tab) => {
+        {TABS.filter((t) => process.env.NEXT_PUBLIC_NOWLABS_INTERNAL === 'true' || !['conversations', 'invoices'].includes(t.key)).map((tab) => {
           const count = tab.key in tabCount ? tabCount[tab.key as keyof typeof tabCount] : null
           const isActive = activeTab === tab.key
           return (
@@ -1170,81 +1038,16 @@ export default function ClientDetailPage() {
         </div>
       )}
 
-      {/* Documentos */}
+      {/* Documentos — mismo gestor real (entity_files) que inmuebles y trámites: subir, listar, descargar
+          por signed URL y eliminar, bajo RLS del workspace. */}
       {activeTab === 'documents' && (
         <SectionCard
           title="Documentos del cliente"
-          description="PDFs, contratos, documentación y adjuntos. Privados al workspace."
-          action={
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                hidden
-                onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"
-              />
-              <Button size="sm" loading={uploading} onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" /> Subir documento
-              </Button>
-            </div>
-          }
+          description="PDFs, contratos, documentación y adjuntos. Privados y cifrados en el almacenamiento del workspace."
         >
-          {documentsLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> Cargando documentos…
-            </div>
-          ) : documents.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 p-8 text-center">
-              <FileText className="mx-auto mb-3 h-7 w-7 text-gray-400" />
-              <p className="text-sm font-semibold text-gray-700">Sin documentos todavía</p>
-              <p className="mt-1 text-xs text-gray-500">PDF, imágenes y documentos de Office hasta 50 MB. Almacenamiento privado del workspace.</p>
-              <Button size="sm" className="mt-4" loading={uploading} onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" /> Subir primer documento
-              </Button>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-gray-100">
-              <table className="w-full">
-                <thead className="bg-gray-50/70 text-[11px] uppercase tracking-wide text-gray-400">
-                  <tr>
-                    <th className="px-4 py-2.5 text-left font-semibold">Documento</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Tipo</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Tamaño</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Fecha</th>
-                    <th className="px-4 py-2.5 text-right font-semibold">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {documents.map((doc) => (
-                    <tr key={doc.id} className="hover:bg-indigo-50/30">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                            <FileText className="h-4 w-4" />
-                          </div>
-                          <span className="truncate text-sm font-semibold text-gray-900">{doc.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{doc.mime_type ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{formatBytes(doc.size)}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{formatDate(doc.created_at, true)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => handleDownload(doc)} title="Abrir / descargar" className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600">
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => handleDeleteDocument(doc)} title="Eliminar" className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {workspaceId
+            ? <EntityDocumentsManager workspaceId={workspaceId} entityType="client" entityId={clientId} onCountChange={(_entityId, count) => setDocCount(count)} />
+            : <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 p-6 text-center text-xs text-gray-500">Conecta tu cuenta para gestionar los documentos de este cliente.</p>}
         </SectionCard>
       )}
 

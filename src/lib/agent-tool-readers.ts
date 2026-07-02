@@ -463,9 +463,10 @@ export async function getClient360(
       .select('id, channel, status, sentiment, intent, ai_summary, updated_at')
       .eq('workspace_id', workspaceId).eq('client_id', clientId)
       .order('updated_at', { ascending: false }).limit(5),
-    supabase.from('documents')
-      .select('id, title, mime_type, size, created_at')
-      .eq('workspace_id', workspaceId).eq('client_id', clientId)
+    // Documentos = tabla real `entity_files` (no existe tabla `documents`). Solo metadata; nunca contenido.
+    supabase.from('entity_files')
+      .select('id, file_name, mime_type, size_bytes, created_at')
+      .eq('workspace_id', workspaceId).eq('entity_type', 'client').eq('entity_id', clientId).eq('category', 'document')
       .order('created_at', { ascending: false }).limit(10),
     supabase.from('activities')
       .select('id, type, description, created_at')
@@ -538,9 +539,9 @@ export async function getClient360(
     })),
     documents: ((docsRes.data ?? []) as Row[]).map((d) => ({
       id: String(d.id),
-      file_name: clampString(d.title, 200) ?? '',
+      file_name: clampString(d.file_name, 200) ?? '',
       mime_type: clampString(d.mime_type, 80),
-      size_bytes: typeof d.size === 'number' ? d.size : null,
+      size_bytes: typeof d.size_bytes === 'number' ? d.size_bytes : null,
       created_at: typeof d.created_at === 'string' ? d.created_at : null,
     })),
     activity: ((actsRes.data ?? []) as Row[]).map((a) => ({

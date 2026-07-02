@@ -398,16 +398,21 @@ export async function toolListClientDocuments(
   }
   if (!id) return { text: 'Dime de qué cliente quieres ver los documentos.', data: null }
 
+  // Documentos = tabla real `entity_files` (no existe tabla `documents`). Solo metadata; nunca contenido.
   const { data } = await supabase
-    .from('documents')
-    .select('id, title, type, mime_type, size, created_at')
-    .eq('workspace_id', workspaceId).eq('client_id', id)
+    .from('entity_files')
+    .select('id, file_name, mime_type, size_bytes, created_at, metadata')
+    .eq('workspace_id', workspaceId).eq('entity_type', 'client').eq('entity_id', id).eq('category', 'document')
     .order('created_at', { ascending: false }).limit(50)
   const rows = (data ?? []) as Row[]
   if (!rows.length) {
     return { text: `No hay documentos adjuntos${name ? ` de ${name}` : ''}.`, data: [], referencedClientId: id, referencedClientName: name }
   }
-  const list = rows.map((d, i) => `${i + 1}. ${hasValue(d.title) ? d.title : 'Documento'}${hasValue(d.type) ? ` · ${d.type}` : ''}`).join('\n')
+  const kindOf = (d: Row): string | null => {
+    const m = d.metadata
+    return m && typeof m === 'object' && typeof (m as Record<string, unknown>).kind === 'string' ? String((m as Record<string, unknown>).kind) : null
+  }
+  const list = rows.map((d, i) => `${i + 1}. ${hasValue(d.file_name) ? d.file_name : 'Documento'}${hasValue(kindOf(d)) ? ` · ${kindOf(d)}` : ''}`).join('\n')
   return {
     text: `${rows.length} documento(s) adjunto(s)${name ? ` de ${name}` : ''}:\n${list}\nVeo el listado, pero el contenido de los archivos no está indexado todavía, así que no puedo leerlos por dentro.`,
     data: rows,
