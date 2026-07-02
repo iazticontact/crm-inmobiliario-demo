@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { X, Plus, Trash2, FileDown, RefreshCw, RotateCcw, AlertTriangle, Building2, Eye, PencilLine, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/Button'
 import { AutocompleteSelect } from '@/components/AutocompleteSelect'
+import { DecimalInput } from '@/components/invoicing/DecimalInput'
 import { InvoicePreview } from '@/components/invoicing/InvoicePreview'
 import { calculateInvoiceTotals, calcLineTotals, formatInvoiceCurrency } from '@/lib/invoicing/calc'
 import { currencyOptions, currencyName } from '@/lib/invoicing/currencies'
@@ -188,11 +189,11 @@ export function InvoiceEditor({
                         {!readOnly && <button title="Eliminar" onClick={() => delItem(idx)} className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                        <Field label="Cantidad"><input type="number" min="0" step="any" className={field} value={it.quantity} disabled={readOnly} onChange={(e) => setItem(idx, { quantity: num(e.target.value) })} /></Field>
-                        <Field label="Precio"><input type="number" min="0" step="any" className={field} value={it.unitPrice} disabled={readOnly} onChange={(e) => setItem(idx, { unitPrice: num(e.target.value) })} /></Field>
-                        <Field label="Dto. %"><input type="number" min="0" max="100" step="any" className={field} value={it.discountRate} disabled={readOnly} onChange={(e) => setItem(idx, { discountRate: num(e.target.value) })} /></Field>
-                        <Field label="IVA %"><input type="number" min="0" step="any" list="iva-rates" className={field} value={it.taxRate} disabled={readOnly} onChange={(e) => setItem(idx, { taxRate: num(e.target.value) })} /></Field>
-                        <Field label="IRPF %"><input type="number" min="0" step="any" list="irpf-rates" className={field} value={it.withholdingRate} disabled={readOnly} onChange={(e) => setItem(idx, { withholdingRate: num(e.target.value) })} /></Field>
+                        <Field label="Cantidad"><DecimalInput value={it.quantity} min={0} disabled={readOnly} className={field} ariaLabel="Cantidad" onCommit={(n) => setItem(idx, { quantity: n })} /></Field>
+                        <Field label="Precio"><DecimalInput value={it.unitPrice} min={0} disabled={readOnly} className={field} ariaLabel="Precio" onCommit={(n) => setItem(idx, { unitPrice: n })} /></Field>
+                        <Field label="Dto. %"><DecimalInput value={it.discountRate} min={0} max={100} disabled={readOnly} className={field} ariaLabel="Descuento %" onCommit={(n) => setItem(idx, { discountRate: n })} /></Field>
+                        <Field label="IVA %"><DecimalInput value={it.taxRate} min={0} disabled={readOnly} list="iva-rates" className={field} ariaLabel="IVA %" onCommit={(n) => setItem(idx, { taxRate: n })} /></Field>
+                        <Field label="IRPF %"><DecimalInput value={it.withholdingRate} min={0} disabled={readOnly} list="irpf-rates" className={field} ariaLabel="IRPF %" onCommit={(n) => setItem(idx, { withholdingRate: n })} /></Field>
                       </div>
                       <div className="mt-2 text-right text-[11px] text-gray-500">Total línea: <span className="font-semibold text-gray-800">{money(lt.lineTotal)}</span></div>
                     </div>
