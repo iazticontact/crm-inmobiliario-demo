@@ -94,7 +94,8 @@ export function parseBudget(text: unknown): BudgetParse {
   let maxPrice: number | null = null
   const between = n.match(new RegExp(`\\bentre\\s+${num}\\s*(k|mil|m|millones?)?\\s*(?:y|a|-)\\s*${num}\\s*(k|mil|m|millones?)?`))
   if (between) {
-    minPrice = scale(between[1], between[2])
+    // El sufijo (mil/k/millón) puede aparecer solo en un extremo y aplica a ambos: "entre 200 y 250 mil".
+    minPrice = scale(between[1], between[2] ?? between[4])
     maxPrice = scale(between[3], between[4] ?? between[2])
   } else {
     const max = n.match(new RegExp(`(?:hasta|maximo|max|menos de|por debajo de|no mas de)\\s+${num}\\s*(k|mil|m|millones?)?`))

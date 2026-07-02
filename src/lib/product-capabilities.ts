@@ -68,7 +68,7 @@ export const PRODUCT_CAPABILITIES: ProductCapability[] = [
     module: 'Configuración · Equipo',
     state: 'active',
     userExplanation:
-      'Invita a miembros de tu equipo (comerciales, administradores, gestores) para que accedan al workspace y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. La invitación se envía por email con un rol y un enlace seguro para definir la contraseña. No es para clientes finales.',
+      'Invita a miembros de tu equipo (comerciales, administradores, gestores) para que accedan a la cuenta y trabajen sobre los mismos clientes, inmuebles, operaciones y tareas. La invitación se envía por email con un rol y un enlace seguro para definir la contraseña. No es para clientes finales.',
     canDo: ['Ver el equipo', 'Invitar miembro por email', 'Asignar rol', 'Eliminar usuario según permisos'],
     assistantCanExplain: true,
   },
