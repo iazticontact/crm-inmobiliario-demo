@@ -27,6 +27,8 @@ export type SummaryInvoice = {
   deletedAt?: string | null
   purgedAt?: string | null
   accountingExcluded?: boolean
+  currency?: string
+  exchangeRateToEur?: number | null
 }
 
 export type InvoiceSummary = {
@@ -41,6 +43,7 @@ export type InvoiceSummary = {
   countIssued: number
   countDrafts: number
   excludedCount: number
+  fxMissing: number
   currency: string
   collect: { paid: number; pending: number; overdue: number }   // para el gráfico cobrado/pendiente/vencido
   byStatus: { key: string; label: string; total: number; count: number }[]
@@ -77,7 +80,14 @@ export function computeInvoiceSummary(rows: SummaryInvoice[], period: SummaryPer
   const overdue = (r: SummaryInvoice) => isPending(r.status) && !!r.dueDate && r.dueDate < today
 
   const billed = scope.filter((r) => isBilled(r.status))
-  const sum = (arr: SummaryInvoice[], f: (r: SummaryInvoice) => number) => round2(arr.reduce((a, r) => a + f(r), 0))
+  // Conversión a EUR (moneda base del CRM). Divisa extranjera sin tipo de cambio → no se puede sumar (0) y
+  // se contabiliza aparte en fxMissing para avisar al usuario.
+  const rateOf = (r: SummaryInvoice): number | null => {
+    if (!r.currency || r.currency === 'EUR') return 1
+    return typeof r.exchangeRateToEur === 'number' && r.exchangeRateToEur > 0 ? r.exchangeRateToEur : null
+  }
+  const eur = (r: SummaryInvoice, v: number) => { const rt = rateOf(r); return rt == null ? 0 : round2(v * rt) }
+  const sum = (arr: SummaryInvoice[], f: (r: SummaryInvoice) => number) => round2(arr.reduce((a, r) => a + eur(r, f(r)), 0))
 
   const facturado = sum(billed, (r) => r.total)
   const cobrado = sum(billed.filter((r) => r.status === 'paid'), (r) => r.total)
@@ -123,6 +133,7 @@ export function computeInvoiceSummary(rows: SummaryInvoice[], period: SummaryPer
     countIssued: billed.length,
     countDrafts: rows.filter((r) => r.status === 'draft' && !r.deletedAt && !r.purgedAt && inPeriod(r.issueDate, period, now)).length,
     excludedCount: rows.filter((r) => r.accountingExcluded && isBilled(r.status)).length,
+    fxMissing: billed.filter((r) => rateOf(r) == null).length,
     currency: 'EUR',
     collect, byStatus, monthly, topClients,
   }

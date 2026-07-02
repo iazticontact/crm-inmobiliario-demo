@@ -30,6 +30,9 @@ export type InvoiceFormData = {
   issueDate: string
   dueDate: string | null
   currency: string
+  exchangeRateToEur: number | null   // 1 unidad de `currency` = X EUR (EUR → 1/null). Snapshot orientativo.
+  exchangeRateSource: string
+  exchangeRateDate: string | null
   notes: string
   internalNotes: string
   items: InvoiceFormItem[]
@@ -43,6 +46,7 @@ export type InvoiceListRow = {
   issueDate: string
   dueDate: string | null
   currency: string
+  exchangeRateToEur: number | null
   subtotal: number
   taxTotal: number
   withholdingTotal: number
@@ -161,14 +165,20 @@ export async function saveDraft(workspaceId: string, form: InvoiceFormData, exis
   const clients = form.clientId ? await loadClientsLite(workspaceId) : []
   const customer: CustomerSnapshot = clients.find((c) => c.id === form.clientId)?.snapshot ?? { clientId: form.clientId }
   const issuer = await loadIssuerSnapshot(workspaceId)
-  const fiscal: FiscalSnapshot = { currency: form.currency || 'EUR', notes: null }
+  const currency = (form.currency || 'EUR').toUpperCase()
+  const isEur = currency === 'EUR'
+  const rate = isEur ? 1 : (form.exchangeRateToEur ?? null)
+  const fiscal: FiscalSnapshot = { currency, notes: null }
   const t = totalsFor(form.items)
 
   const base = {
     workspace_id: workspaceId,
     client_id: form.clientId, property_id: form.propertyId, opportunity_id: form.opportunityId,
     series: form.series || 'A',
-    issue_date: form.issueDate, due_date: form.dueDate, currency: form.currency || 'EUR',
+    issue_date: form.issueDate, due_date: form.dueDate, currency,
+    exchange_rate_to_eur: rate,
+    exchange_rate_source: isEur ? null : (form.exchangeRateSource?.trim() || 'Manual'),
+    exchange_rate_date: isEur ? null : (form.exchangeRateDate || form.issueDate),
     subtotal: t.subtotal, tax_total: t.taxTotal, withholding_total: t.withholdingTotal, total: t.total,
     issuer_snapshot: issuer, customer_snapshot: customer, fiscal_snapshot: fiscal,
     notes: form.notes || null, internal_notes: form.internalNotes || null,
@@ -207,7 +217,7 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
   if (!supabase) return []
   const scope = opts.scope ?? 'active'
   let q = supabase.from('invoices')
-    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, subtotal, tax_total, withholding_total, total, customer_snapshot, pdf_file_id, updated_at, deleted_at, purged_at, accounting_excluded')
+    .select('id, invoice_number_display, series, status, issue_date, due_date, currency, exchange_rate_to_eur, subtotal, tax_total, withholding_total, total, customer_snapshot, pdf_file_id, updated_at, deleted_at, purged_at, accounting_excluded')
     .eq('workspace_id', workspaceId)
   if (scope === 'active') q = q.is('deleted_at', null).is('purged_at', null)
   else if (scope === 'trashed') q = q.not('deleted_at', 'is', null).is('purged_at', null)
@@ -226,6 +236,7 @@ export async function listInvoices(workspaceId: string, opts: { status?: string;
       issueDate: String(r.issue_date),
       dueDate: str(r.due_date),
       currency: str(r.currency) ?? 'EUR',
+      exchangeRateToEur: r.exchange_rate_to_eur == null ? null : Number(r.exchange_rate_to_eur),
       subtotal: n(r.subtotal),
       taxTotal: n(r.tax_total),
       withholdingTotal: n(r.withholding_total),
@@ -249,12 +260,17 @@ async function buildAndStorePdf(
   const issuer = (invoice.issuer_snapshot ?? {}) as IssuerSnapshot
   const customer = (invoice.customer_snapshot ?? {}) as CustomerSnapshot
   const logo = await urlToJpegBytes(issuer.logoUrl).catch(() => null)
+  const currency = str(invoice.currency) ?? 'EUR'
+  const rate = Number(invoice.exchange_rate_to_eur)
+  const exchange = currency !== 'EUR' && rate > 0
+    ? { currency, rate, date: str(invoice.exchange_rate_date), source: str(invoice.exchange_rate_source) }
+    : null
   const bytes = buildInvoicePdfBytes({
     display: str(invoice.invoice_number_display), status: String(invoice.status ?? 'issued'),
-    issueDate: String(invoice.issue_date), dueDate: str(invoice.due_date), currency: str(invoice.currency) ?? 'EUR',
+    issueDate: String(invoice.issue_date), dueDate: str(invoice.due_date), currency,
     subtotal: Number(invoice.subtotal) || 0, taxTotal: Number(invoice.tax_total) || 0,
     withholdingTotal: Number(invoice.withholding_total) || 0, total: Number(invoice.total) || 0,
-    notes: str(invoice.notes), issuer, customer, logo,
+    notes: str(invoice.notes), issuer, customer, logo, exchange,
   }, items)
   const disp = str(invoice.invoice_number_display) ?? id
   const safeName = disp.replace(/[^\w.-]+/g, '-')
@@ -279,6 +295,10 @@ export async function emitInvoice(workspaceId: string, id: string): Promise<{ ok
   if (!str(invoice.client_id) || !str(meta(invoice.customer_snapshot).name)) return { error: 'Selecciona un cliente válido antes de emitir.' }
   const totalNum = Number(invoice.total)
   if (!Number.isFinite(totalNum) || totalNum < 0) return { error: 'Los importes de la factura no son coherentes.' }
+  const currency = String(invoice.currency || 'EUR').toUpperCase()
+  if (currency !== 'EUR' && !(Number(invoice.exchange_rate_to_eur) > 0)) {
+    return { error: `Añade el tipo de cambio a EUR para facturar en ${currency}.` }
+  }
 
   // Refresca el emisor desde Configuración (por si se completó tras crear el borrador) y valida el mínimo.
   const freshIssuer = await loadIssuerSnapshot(workspaceId)

@@ -46,6 +46,16 @@ export function runInvoiceSummaryEvals(): string[] {
   ], 'month', NOW)
   ok(purge.facturado === 121, `purgada retenida cuenta / excluida no (=121) got ${purge.facturado}`)
 
+  // Divisas: USD con tipo de cambio convierte a EUR; divisa sin cambio no suma (fxMissing)
+  const fx = computeInvoiceSummary([
+    { status: 'paid', issueDate: '2026-07-01', dueDate: null, subtotal: 100, taxTotal: 0, withholdingTotal: 0, total: 100, clientName: 'US', currency: 'USD', exchangeRateToEur: 0.9 },
+    { status: 'paid', issueDate: '2026-07-01', dueDate: null, subtotal: 100, taxTotal: 0, withholdingTotal: 0, total: 100, clientName: 'NoRate', currency: 'GBP', exchangeRateToEur: null },
+    { status: 'issued', issueDate: '2026-07-02', dueDate: '2026-07-30', subtotal: 100, taxTotal: 0, withholdingTotal: 0, total: 100, clientName: 'EU' },
+  ], 'month', NOW)
+  ok(fx.cobrado === 90, `USD 100*0.9 = 90 EUR (got ${fx.cobrado})`)
+  ok(fx.facturado === 190, `USD 90 + EUR 100 = 190 (GBP sin cambio excluido) (got ${fx.facturado})`)
+  ok(fx.fxMissing === 1, `1 factura sin tipo de cambio (got ${fx.fxMissing})`)
+
   // inPeriod
   const now = new Date(NOW)
   ok(inPeriod('2026-07-01', 'month', now) === true, 'inPeriod month same')

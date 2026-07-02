@@ -15,11 +15,12 @@ const PERIODS: { key: SummaryPeriod; label: string }[] = [
   { key: 'month', label: 'Este mes' }, { key: 'quarter', label: 'Trimestre' }, { key: 'year', label: 'Año' }, { key: 'all', label: 'Todo' },
 ]
 
-export function InvoiceDashboard({ rows, currency }: { rows: InvoiceListRow[]; currency: string }) {
+export function InvoiceDashboard({ rows }: { rows: InvoiceListRow[] }) {
   const [period, setPeriod] = useState<SummaryPeriod>('year')
   const [showFiscal, setShowFiscal] = useState(false)
   const s = useMemo(() => computeInvoiceSummary(rows, period), [rows, period])
-  const money = (n: number) => formatInvoiceCurrency(n, currency || 'EUR')
+  // El resumen se muestra en EUR (moneda base del CRM); las divisas se convierten con el cambio guardado.
+  const money = (n: number) => formatInvoiceCurrency(n, 'EUR')
 
   const collectTotal = Math.max(1, s.collect.paid + s.collect.pending + s.collect.overdue)
   const monthlyMax = Math.max(1, ...s.monthly.map((m) => m.total))
@@ -37,7 +38,7 @@ export function InvoiceDashboard({ rows, currency }: { rows: InvoiceListRow[]; c
           ))}
         </div>
       </div>
-      <p className="mb-4 flex items-start gap-1 text-[11px] text-gray-400"><Info className="mt-0.5 h-3 w-3 shrink-0" /> Datos orientativos basados en las facturas incluidas en el resumen. Revísalos con tu asesor fiscal antes de presentar impuestos.</p>
+      <p className="mb-4 flex items-start gap-1 text-[11px] text-gray-400"><Info className="mt-0.5 h-3 w-3 shrink-0" /> Datos orientativos en EUR (moneda base) basados en las facturas incluidas en el resumen. Revísalos con tu asesor fiscal antes de presentar impuestos.</p>
 
       {/* KPIs principales (simple) */}
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
@@ -49,6 +50,9 @@ export function InvoiceDashboard({ rows, currency }: { rows: InvoiceListRow[]; c
 
       {s.excludedCount > 0 && (
         <p className="mt-2.5 text-[11px] text-amber-600">Hay {s.excludedCount} {s.excludedCount === 1 ? 'factura excluida' : 'facturas excluidas'} del resumen.</p>
+      )}
+      {s.fxMissing > 0 && (
+        <p className="mt-1 text-[11px] text-amber-600">Hay {s.fxMissing} {s.fxMissing === 1 ? 'factura en moneda extranjera' : 'facturas en moneda extranjera'} sin tipo de cambio: no se incluyen en los totales en EUR. Añade el tipo de cambio para contarlas.</p>
       )}
 
       {/* Detalle fiscal (avanzado, oculto por defecto) */}

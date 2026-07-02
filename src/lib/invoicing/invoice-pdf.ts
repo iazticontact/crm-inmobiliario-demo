@@ -26,6 +26,7 @@ export type InvoicePdfInput = {
   propertyTitle?: string | null
   operationTitle?: string | null
   logo?: InvoicePdfLogo | null
+  exchange?: { currency: string; rate: number; date: string | null; source: string | null } | null
 }
 
 // Paleta sobria/profesional (0..1)
@@ -205,6 +206,14 @@ export function buildInvoicePdfBytes(inv: InvoicePdfInput, items: InvoiceItem[])
   doc.rect(boxX, ty, 3.5, 38, { fill: BRAND })
   doc.text('TOTAL', boxX + 14, ty + 24, { size: 13, bold: true, color: INK })
   doc.text(money(inv.total), MR - 12, ty + 24.5, { size: 15, bold: true, color: BRAND, align: 'right' })
+
+  // Nota de tipo de cambio (solo divisa extranjera), discreta, bajo el total.
+  if (inv.exchange && inv.exchange.rate > 0) {
+    const rateStr = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 4 }).format(inv.exchange.rate)
+    const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(round2(inv.total * inv.exchange.rate))
+    doc.text(`Tipo de cambio de referencia: 1 ${inv.exchange.currency} = ${rateStr} EUR${inv.exchange.date ? ` · ${fmtDate(inv.exchange.date)}` : ''}`, MR, ty + 50, { size: 7.5, color: MUTED, align: 'right', maxWidth: boxW })
+    doc.text(`Equivalente orientativo: ${eur}`, MR, ty + 60, { size: 7.5, color: MUTED, align: 'right', maxWidth: boxW })
+  }
 
   // Notas / condiciones (izquierda, alineado con el panel de totales)
   const notesX = ML, notesMaxW = boxX - ML - 20

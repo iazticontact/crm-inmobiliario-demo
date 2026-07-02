@@ -7,10 +7,12 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { X, Plus, Trash2, FileDown, RefreshCw, RotateCcw, AlertTriangle, Building2, Eye, PencilLine } from 'lucide-react'
+import { X, Plus, Trash2, FileDown, RefreshCw, RotateCcw, AlertTriangle, Building2, Eye, PencilLine, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/Button'
+import { AutocompleteSelect } from '@/components/AutocompleteSelect'
 import { InvoicePreview } from '@/components/invoicing/InvoicePreview'
 import { calculateInvoiceTotals, calcLineTotals, formatInvoiceCurrency } from '@/lib/invoicing/calc'
+import { currencyOptions, currencyName } from '@/lib/invoicing/currencies'
 import { cn } from '@/lib/utils'
 import type { InvoiceStatus, IssuerSnapshot, CustomerSnapshot } from '@/lib/invoicing/types'
 import type { InvoiceFormData, InvoiceFormItem, ClientLite } from '@/lib/invoicing/invoice-repo'
@@ -50,12 +52,21 @@ export function InvoiceEditor({
   onHardDelete?: () => void
 }) {
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit')
+  const [confirmEmit, setConfirmEmit] = useState(false)
   if (!open) return null
 
   const readOnly = mode === 'view'
   const customer: CustomerSnapshot | null = form.clientId ? clients.find((c) => c.id === form.clientId)?.snapshot ?? { clientId: form.clientId } : null
   const totals = calculateInvoiceTotals(form.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate, withholdingRate: i.withholdingRate, discountRate: i.discountRate })))
   const money = (n: number) => formatInvoiceCurrency(n, form.currency || 'EUR')
+  const eur = (n: number) => formatInvoiceCurrency(n, 'EUR')
+
+  const isForeign = (form.currency || 'EUR').toUpperCase() !== 'EUR'
+  const fxOk = !isForeign || (typeof form.exchangeRateToEur === 'number' && form.exchangeRateToEur > 0)
+  const eurEquiv = isForeign && form.exchangeRateToEur ? totals.total * form.exchangeRateToEur : null
+  const hasAmount = form.items.some((i) => i.quantity > 0 && i.unitPrice > 0)
+  const canEmit = !!form.clientId && hasAmount && fxOk
+  const custMissing = customer ? [!has(customer.taxId) ? 'NIF/CIF' : null, !has(customer.address) ? 'dirección' : null].filter(Boolean) as string[] : []
 
   const setItem = (idx: number, patch: Partial<InvoiceFormItem>) => onChange((f) => ({ ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)) }))
   const addItem = () => onChange((f) => ({ ...f, items: [...f.items, { description: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 21, withholdingRate: 0, sortOrder: f.items.length }] }))
@@ -98,12 +109,36 @@ export function InvoiceEditor({
                   </select>
                   {!form.clientId && !readOnly && <span className="text-[11px] text-amber-600">Necesario para emitir la factura.</span>}
                 </label>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <label className="flex flex-col gap-1"><span className="text-xs font-medium text-gray-600">Serie</span><input className={field} value={form.series} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, series: e.target.value.toUpperCase().slice(0, 4) }))} /></label>
-                  <label className="flex flex-col gap-1"><span className="text-xs font-medium text-gray-600">Moneda</span><input className={field} value={form.currency} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, currency: e.target.value.toUpperCase().slice(0, 3) }))} /></label>
-                  <label className="flex flex-col gap-1"><span className="text-xs font-medium text-gray-600">Emisión</span><input type="date" className={field} value={form.issueDate} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, issueDate: e.target.value }))} /></label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-gray-600">Serie de numeración</span>
+                    <input className={field} value={form.series} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, series: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) }))} />
+                    <span className="text-[11px] text-gray-400">Separa la numeración. Normalmente puedes dejar «A». Ejemplo: FAC-A/2026/0001.</span>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-gray-600">Moneda</span>
+                    {readOnly
+                      ? <input className={field} value={`${form.currency} — ${currencyName(form.currency)}`} disabled />
+                      : <AutocompleteSelect value={form.currency} onChange={(v) => onChange((f) => ({ ...f, currency: (v || 'EUR').toUpperCase() }))} options={currencyOptions} allowClear={false} inputClassName="text-base sm:text-sm" />}
+                  </label>
+                  <label className="flex flex-col gap-1"><span className="text-xs font-medium text-gray-600">Fecha de emisión</span><input type="date" className={field} value={form.issueDate} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, issueDate: e.target.value }))} /></label>
                   <label className="flex flex-col gap-1"><span className="text-xs font-medium text-gray-600">Vencimiento</span><input type="date" className={field} value={form.dueDate ?? ''} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, dueDate: e.target.value || null }))} /></label>
                 </div>
+
+                {isForeign && (
+                  <div className="space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
+                    <p className="text-[11px] font-medium text-gray-700">Factura en {form.currency}. Añade el tipo de cambio a EUR (moneda base del CRM):</p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <label className="flex flex-col gap-1"><span className="text-[10px] text-gray-500">1 {form.currency} = € </span><input type="number" step="any" min="0" className={field} value={form.exchangeRateToEur ?? ''} disabled={readOnly} placeholder="0,00" onChange={(e) => onChange((f) => ({ ...f, exchangeRateToEur: e.target.value === '' ? null : num(e.target.value) }))} /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[10px] text-gray-500">Fecha del cambio</span><input type="date" className={field} value={form.exchangeRateDate ?? form.issueDate} disabled={readOnly} onChange={(e) => onChange((f) => ({ ...f, exchangeRateDate: e.target.value || null }))} /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[10px] text-gray-500">Fuente</span><input className={field} value={form.exchangeRateSource} disabled={readOnly} placeholder="Manual" onChange={(e) => onChange((f) => ({ ...f, exchangeRateSource: e.target.value }))} /></label>
+                    </div>
+                    {eurEquiv != null
+                      ? <p className="text-[11px] text-gray-600">Equivalente orientativo: <b>{eur(eurEquiv)}</b> (total {money(totals.total)}).</p>
+                      : <p className="text-[11px] text-amber-600">Sin tipo de cambio no podrás emitir ni contar esta factura en el resumen en EUR.</p>}
+                    <p className="text-[10px] text-gray-400">Conversión orientativa para control interno. Revisa el tipo de cambio aplicable con tu asesor fiscal.</p>
+                  </div>
+                )}
               </div>
             </Section>
 
@@ -131,10 +166,13 @@ export function InvoiceEditor({
               {customer && has(customer.name) ? (
                 <div className="rounded-lg border border-gray-100 bg-white p-3 text-xs text-gray-600">
                   <p className="font-semibold text-gray-800">{customer.name}</p>
-                  <p className="mt-0.5 space-x-1">{[has(customer.taxId) ? `NIF ${customer.taxId}` : null, customer.email, customer.phone].filter(Boolean).join(' · ') || 'Sin datos de contacto en la ficha del cliente.'}</p>
+                  <p className="mt-0.5">{[has(customer.taxId) ? `NIF ${customer.taxId}` : null, customer.address, customer.email, customer.phone, customer.country].filter(Boolean).join(' · ') || 'Sin datos de contacto en la ficha del cliente.'}</p>
+                  {custMissing.length > 0 && !readOnly && (
+                    <p className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Este cliente no tiene {custMissing.join(' ni ')}. Puedes emitir, pero revisa si necesitas completarlo en su ficha.</p>
+                  )}
                 </div>
               ) : (
-                <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-3 text-xs text-gray-400">Selecciona un cliente en la cabecera para rellenar este bloque.</p>
+                <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-3 text-xs text-gray-400">Selecciona un cliente en la cabecera para rellenar sus datos automáticamente.</p>
               )}
             </Section>
 
@@ -188,7 +226,7 @@ export function InvoiceEditor({
         {/* Vista previa */}
         <div className={cn('min-h-0 flex-1 overflow-y-auto bg-gray-100 px-4 py-5 sm:px-6', mobileView === 'edit' && 'hidden lg:block')}>
           <p className="mx-auto mb-2 max-w-[640px] text-[11px] font-medium uppercase tracking-wide text-gray-400">Vista previa · se parece al PDF final</p>
-          <InvoicePreview issuer={issuer} customer={customer} displayNumber={displayNumber} status={status} issueDate={form.issueDate} dueDate={form.dueDate} currency={form.currency} notes={form.notes} items={form.items} />
+          <InvoicePreview issuer={issuer} customer={customer} displayNumber={displayNumber} status={status} issueDate={form.issueDate} dueDate={form.dueDate} currency={form.currency} notes={form.notes} items={form.items} exchange={isForeign && form.exchangeRateToEur ? { currency: form.currency, rate: form.exchangeRateToEur, date: form.exchangeRateDate ?? form.issueDate } : null} />
         </div>
       </div>
 
@@ -218,11 +256,57 @@ export function InvoiceEditor({
           ) : (
             <>
               <Button variant="secondary" size="sm" onClick={onSaveDraft} loading={saving} disabled={saving || emitting}>Guardar borrador</Button>
-              <Button variant="primary" size="sm" onClick={onEmit} loading={emitting} disabled={saving || emitting}>Guardar y emitir</Button>
+              <Button variant="primary" size="sm" onClick={() => setConfirmEmit(true)} loading={emitting} disabled={saving || emitting}>Guardar y emitir</Button>
             </>
           )}
         </div>
       </footer>
+
+      {/* Revisión antes de emitir (checklist) */}
+      {confirmEmit && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setConfirmEmit(false)} />
+          <div className="relative flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-semibold text-gray-900">Revisar antes de emitir</h3>
+              <p className="mt-0.5 text-[11px] text-gray-500">Comprueba que todo es correcto. Al emitir se reservará el siguiente número de la serie {form.series || 'A'}.</p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 text-xs">
+              <CheckRow label="Cliente" value={has(customer?.name) ? customer!.name! : 'Sin cliente'} bad={!form.clientId} />
+              <CheckRow label="NIF/CIF del cliente" value={has(customer?.taxId) ? customer!.taxId! : 'No consta'} warn={!has(customer?.taxId)} />
+              <CheckRow label="Emisor" value={has(issuer?.legalName) ? issuer!.legalName! : 'Sin configurar'} warn={hasCritical} />
+              <CheckRow label="Serie" value={form.series || 'A'} />
+              <CheckRow label="Fecha de emisión" value={form.issueDate} />
+              <CheckRow label="Vencimiento" value={form.dueDate ?? '—'} warn={!form.dueDate} />
+              <CheckRow label="Moneda" value={`${form.currency}${isForeign ? (fxOk ? ` · 1 ${form.currency} = ${form.exchangeRateToEur} EUR` : ' · falta tipo de cambio') : ''}`} bad={isForeign && !fxOk} />
+              <CheckRow label="Conceptos" value={`${form.items.length} línea${form.items.length === 1 ? '' : 's'}`} bad={!hasAmount} />
+              <div className="my-2 border-t border-gray-100" />
+              <CheckRow label="Base imponible" value={money(totals.subtotal)} />
+              <CheckRow label="IVA" value={money(totals.taxTotal)} />
+              {totals.withholdingTotal > 0 && <CheckRow label="Retención IRPF" value={`−${money(totals.withholdingTotal)}`} />}
+              <div className="mt-1 flex items-center justify-between rounded-lg bg-indigo-50/70 px-3 py-2"><span className="text-sm font-bold text-gray-900">Total</span><span className="text-sm font-bold tabular-nums text-indigo-700">{money(totals.total)}{eurEquiv != null ? ` · ${eur(eurEquiv)}` : ''}</span></div>
+              <p className="mt-3 text-[11px] text-gray-500">Se generará y guardará el PDF. <b>La numeración no se reutiliza:</b> si después anulas o eliminas la factura, ese número no se reasigna.</p>
+              {!canEmit && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">{!form.clientId ? 'Selecciona un cliente. ' : ''}{!hasAmount ? 'Añade al menos una línea con importe. ' : ''}{isForeign && !fxOk ? 'Añade el tipo de cambio a EUR. ' : ''}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3">
+              <Button variant="secondary" size="sm" onClick={() => setConfirmEmit(false)}>Volver a editar</Button>
+              <Button variant="primary" size="sm" disabled={!canEmit || emitting} loading={emitting} onClick={() => { setConfirmEmit(false); onEmit() }}>Emitir factura</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CheckRow({ label, value, warn, bad }: { label: string; value: string; warn?: boolean; bad?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1">
+      <span className="flex items-center gap-1.5 text-gray-500">
+        {bad ? <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> : warn ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
+        {label}
+      </span>
+      <span className={cn('max-w-[55%] truncate text-right font-medium', bad ? 'text-red-600' : warn ? 'text-amber-700' : 'text-gray-800')}>{value}</span>
     </div>
   )
 }

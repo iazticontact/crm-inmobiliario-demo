@@ -90,12 +90,21 @@ function parseConcept(text: string): string | null {
   if (m) { const c = m[1].trim().replace(/\s+/g, ' '); if (c.length > 2) return c }
   return null
 }
+const CLIENT_STOP = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'sl', 'slu', 'sa', 'scp', 'cb', 'inmobiliaria', 'inmuebles', 'grupo', 'y'])
 function matchClient(text: string, clients: ClientLite[]): { id: string | null; name: string | null; ambiguous: string[] } {
   const n = fold(text)
-  const hits = clients.filter((c) => { const cn = fold(c.name); return cn.length > 2 && n.includes(cn) })
-  if (hits.length === 1) return { id: hits[0].id, name: hits[0].name, ambiguous: [] }
-  if (hits.length > 1) return { id: null, name: null, ambiguous: hits.slice(0, 5).map((c) => c.name) }
-  // "factura a/para <Nombre>" como pista aunque no exista cliente
+  // 1) coincidencia por nombre completo (tolerante a acentos)
+  const full = clients.filter((c) => { const cn = fold(c.name); return cn.length > 2 && n.includes(cn) })
+  if (full.length === 1) return { id: full[0].id, name: full[0].name, ambiguous: [] }
+  if (full.length > 1) return { id: null, name: null, ambiguous: full.slice(0, 5).map((c) => c.name) }
+  // 2) coincidencia PARCIAL por token (nombre/apellido/razón social) — p. ej. solo el apellido dictado
+  const partial = clients.filter((c) => {
+    const toks = fold(c.name).split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !CLIENT_STOP.has(t))
+    return toks.some((t) => new RegExp(`\\b${t}\\b`).test(n))
+  })
+  if (partial.length === 1) return { id: partial[0].id, name: partial[0].name, ambiguous: [] }
+  if (partial.length > 1) return { id: null, name: null, ambiguous: partial.slice(0, 5).map((c) => c.name) }
+  // 3) "factura a/para <Nombre>" como pista aunque no exista cliente (no se inventa el id)
   const m = text.match(/\bfactura\s+(?:a|para)\s+([A-ZÁÉÍÓÚÑ][^,.;0-9€]+?)(?:\s+(?:por|de|con|,|\.|;|\b\d)|$)/)
   return { id: null, name: m ? m[1].trim() : null, ambiguous: [] }
 }
@@ -153,6 +162,9 @@ export function parseInvoiceText(text: string, clients: ClientLite[] = []): Invo
     issueDate,
     dueDate,
     currency: 'EUR',
+    exchangeRateToEur: null,
+    exchangeRateSource: 'Manual',
+    exchangeRateDate: null,
     notes: notes ?? '',
     internalNotes: '',
     items: [item],

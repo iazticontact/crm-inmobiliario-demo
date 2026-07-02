@@ -49,7 +49,8 @@ const VIEWS: { key: string; label: string }[] = [
 const emptyItem = (): InvoiceFormItem => ({ description: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 21, withholdingRate: 0, sortOrder: 0 })
 const emptyForm = (): InvoiceFormData => ({
   clientId: null, propertyId: null, opportunityId: null, series: 'A', issueDate: todayIso(), dueDate: null,
-  currency: 'EUR', notes: '', internalNotes: '', items: [emptyItem()],
+  currency: 'EUR', exchangeRateToEur: null, exchangeRateSource: 'Manual', exchangeRateDate: null,
+  notes: '', internalNotes: '', items: [emptyItem()],
 })
 
 const searchCls = 'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-base sm:text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500'
@@ -198,7 +199,11 @@ export default function FacturacionPage() {
     setForm({
       clientId: (inv.client_id as string) ?? null, propertyId: (inv.property_id as string) ?? null, opportunityId: (inv.opportunity_id as string) ?? null,
       series: String(inv.series ?? 'A'), issueDate: String(inv.issue_date), dueDate: (inv.due_date as string) ?? null,
-      currency: String(inv.currency ?? 'EUR'), notes: String(inv.notes ?? ''), internalNotes: String(inv.internal_notes ?? ''),
+      currency: String(inv.currency ?? 'EUR'),
+      exchangeRateToEur: inv.exchange_rate_to_eur == null ? null : Number(inv.exchange_rate_to_eur),
+      exchangeRateSource: String(inv.exchange_rate_source ?? 'Manual'),
+      exchangeRateDate: (inv.exchange_rate_date as string) ?? null,
+      notes: String(inv.notes ?? ''), internalNotes: String(inv.internal_notes ?? ''),
       items: loaded.items.length ? loaded.items.map((it, i) => ({
         id: it.id, description: it.description, quantity: it.quantity, unitPrice: it.unit_price,
         discountRate: it.discount_rate, taxRate: it.tax_rate, withholdingRate: it.withholding_rate, sortOrder: it.sort_order ?? i,
@@ -363,7 +368,7 @@ export default function FacturacionPage() {
       <button onClick={() => setShowDash((v) => !v)} className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50">
         <BarChart3 className="h-3.5 w-3.5" /> {showDash ? 'Ocultar resumen financiero' : 'Ver resumen financiero'}
       </button>
-      {showDash && <div className="mb-4"><InvoiceDashboard rows={everything} currency={kpis.currency} /></div>}
+      {showDash && <div className="mb-4"><InvoiceDashboard rows={everything} /></div>}
 
       {/* Aviso de datos fiscales del emisor incompletos */}
       {!isDemo && issuer && issuerMissing.length > 0 && (

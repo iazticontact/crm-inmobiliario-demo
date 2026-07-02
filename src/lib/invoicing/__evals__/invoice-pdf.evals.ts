@@ -43,5 +43,17 @@ export function runInvoicePdfEvals(): string[] {
   ok(es.startsWith('%PDF-1.4') && es.trimEnd().endsWith('%%EOF'), 'PDF vacío válido')
   ok(!es.includes('No consta'), 'sin "No consta"')
 
+  // Divisa extranjera con nota de tipo de cambio
+  const usd = buildInvoicePdfBytes({
+    display: 'FAC-A/2026/0002', status: 'issued', issueDate: '2026-07-02', dueDate: null, currency: 'USD',
+    subtotal: 1000, taxTotal: 0, withholdingTotal: 0, total: 1000, notes: null,
+    issuer: { legalName: 'X S.L.', taxId: 'B1', email: 'x@x.es' }, customer: { name: 'Client Inc.' },
+    exchange: { currency: 'USD', rate: 0.92, date: '2026-07-02', source: 'Manual' },
+  }, [item({ tax_rate: 0, line_tax_total: 0, line_total: 1000 })])
+  const us = dec(usd)
+  ok(us.startsWith('%PDF-1.4') && us.trimEnd().endsWith('%%EOF'), 'PDF USD válido')
+  ok(us.includes('Tipo de cambio de referencia') && us.includes('USD'), 'nota de tipo de cambio')
+  ok(!us.includes('???'), 'USD sin glifos rotos')
+
   return fail
 }

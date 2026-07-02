@@ -84,6 +84,10 @@ export function runInvoiceParseEvals(): string[] {
   r = parseInvoiceText('factura a juan perez por 400 €', clients)
   ok(r.draft.clientId === 'c2', 'cliente con acentos/mayúsculas')
 
+  // Coincidencia parcial por apellido (solo "Pérez")
+  r = parseInvoiceText('Factura para Pérez, comisión 400 €', clients)
+  ok(r.draft.clientId === 'c2', 'cliente por apellido parcial')
+
   // Cliente ambiguo → no se inventa: sin id, aviso y campo pendiente
   const dup: ClientLite[] = [{ id: 'a', name: 'Ana' }, { id: 'b', name: 'Ana' }]
   r = parseInvoiceText('Factura a Ana por servicios de 200 €', dup)

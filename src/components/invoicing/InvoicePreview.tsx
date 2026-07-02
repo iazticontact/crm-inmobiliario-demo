@@ -36,7 +36,7 @@ function Party({ label, name, lines }: { label: string; name: string; lines: str
   )
 }
 
-export function InvoicePreview({ issuer, customer, displayNumber, status, issueDate, dueDate, currency, notes, items }: {
+export function InvoicePreview({ issuer, customer, displayNumber, status, issueDate, dueDate, currency, notes, items, exchange }: {
   issuer: IssuerSnapshot | null
   customer: CustomerSnapshot | null
   displayNumber: string | null
@@ -46,6 +46,7 @@ export function InvoicePreview({ issuer, customer, displayNumber, status, issueD
   currency: string
   notes: string
   items: InvoiceFormItem[]
+  exchange?: { currency: string; rate: number; date: string | null } | null
 }) {
   const money = (n: number) => formatInvoiceCurrency(n, currency || 'EUR')
   const issuerName = has(issuer?.legalName) ? issuer!.legalName! : 'Tu empresa'
@@ -161,6 +162,12 @@ export function InvoicePreview({ issuer, customer, displayNumber, status, issueD
             <span className="text-sm font-bold text-gray-900">TOTAL</span>
             <span className="text-[15px] font-bold tabular-nums text-indigo-700">{money(total)}</span>
           </div>
+          {exchange && exchange.rate > 0 && (
+            <p className="mt-1.5 text-right text-[10px] leading-3 text-gray-400">
+              1 {exchange.currency} = {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 4 }).format(exchange.rate)} EUR{exchange.date ? ` · ${fmtDate(exchange.date)}` : ''}<br />
+              ≈ {formatInvoiceCurrency(round2(total * exchange.rate), 'EUR')}
+            </p>
+          )}
         </div>
       </div>
 
