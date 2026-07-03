@@ -354,6 +354,14 @@ export default function OpportunitiesPage() {
   const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
   const opportunitiesById = useMemo(() => Object.fromEntries(opportunities.map((o) => [o.id, o])), [opportunities])
 
+  // Permite aterrizar en una subpestaña concreta vía ?tab= (p. ej. returnTo desde Facturación → Comisiones).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t && ['pipeline', 'cases', 'properties', 'commissions', 'templates', 'automations'].includes(t)) {
+      queueMicrotask(() => setSubtab(t as Subtab))
+    }
+  }, [])
+
   // Facturas de honorarios vinculadas a operaciones (para mostrar «Facturar» vs «Factura vinculada»).
   useEffect(() => {
     if (!workspaceId || !opportunities.length) { queueMicrotask(() => setInvoiceLinks({})); return }
@@ -1541,7 +1549,7 @@ export default function OpportunitiesPage() {
                           </Link>
                         )
                       })() : o.client_id ? (
-                        <Link href={`/facturacion?fromOpportunity=${o.id}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
+                        <Link href={`/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent('/opportunities?tab=commissions')}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
                           <FileText className="h-3.5 w-3.5" /> Facturar honorarios
                         </Link>
                       ) : null}

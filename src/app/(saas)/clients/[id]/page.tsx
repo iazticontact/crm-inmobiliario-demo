@@ -51,6 +51,9 @@ import {
   type WorkspaceMember,
 } from '@/lib/supabase-queries'
 import { createOpportunity, createServiceCase, getClientVerticalSummary, updateOpportunity, updateServiceCase, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
+import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
+import { computeHonorarios } from '@/lib/invoicing/honorarios'
+import { billingStateFromInvoice, BILLING_STATE_LABEL } from '@/lib/invoicing/billing-state'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, EventType, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -265,6 +268,7 @@ export default function ClientDetailPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([])
+  const [invoiceLinks, setInvoiceLinks] = useState<Record<string, OpportunityInvoiceLink>>({})
   const [cases, setCases] = useState<ServiceCaseRow[]>([])
   const [properties, setProperties] = useState<PropertyRow[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
@@ -719,6 +723,20 @@ export default function ClientDetailPage() {
     () => opportunities.find((o) => !['won', 'lost', 'closed'].includes(o.stage)) ?? null,
     [opportunities],
   )
+
+  // Estado económico de las operaciones del cliente: factura vinculada (para chip/CTA) + honorarios base.
+  useEffect(() => {
+    if (!workspaceId || !opportunities.length) return
+    let cancelled = false
+    void loadInvoiceLinksForOpportunities(workspaceId, opportunities.map((o) => o.id)).then((m) => { if (!cancelled) setInvoiceLinks(m) })
+    return () => { cancelled = true }
+  }, [workspaceId, opportunities])
+  const propertiesById = useMemo(() => Object.fromEntries(properties.map((p) => [p.id, p])), [properties])
+  const honorariosOf = (o: OpportunityRow): number | null => {
+    const p = o.property_id ? propertiesById[o.property_id] : undefined
+    const isRental = p?.operation_type === 'alquiler' || p?.operation_type === 'alquiler_opcion_compra'
+    return computeHonorarios({ value: o.value ?? null, commissionRate: o.commission_rate ?? null, propertyPrice: p?.price ?? null, isRental, metadata: o.metadata })
+  }
 
   // Datos derivados del metadata para mostrar profesionalmente.
   const meta = useMemo(() => ({
@@ -1177,7 +1195,7 @@ export default function ClientDetailPage() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-gray-900">{o.title}</p>
                         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-                          {o.value != null && o.value > 0 && <span className="font-semibold text-gray-700">{formatEuro(o.value, o.currency ?? 'EUR')}</span>}
+                          {o.value != null && o.value > 0 && <span>Valor operación <b className="font-semibold text-gray-700">{formatEuro(o.value, o.currency ?? 'EUR')}</b></span>}
                           {o.probability != null && <span>{o.probability}% prob.</span>}
                           {o.expected_close_date && <span>cierre {formatDate(o.expected_close_date)}</span>}
                         </p>
@@ -1189,6 +1207,26 @@ export default function ClientDetailPage() {
                         <button type="button" onClick={() => setEditOp(editOp?.id === o.id ? null : { id: o.id, stage: o.stage, value: o.value != null ? String(o.value) : '', probability: o.probability != null ? String(o.probability) : '', assignedTo: o.assigned_to ?? '', expectedCloseDate: o.expected_close_date ?? '', notes: o.notes ?? '' })} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Editar</button>
                       </div>
                     </div>
+                    {(() => {
+                      const h = honorariosOf(o)
+                      if (!h || h <= 0) return null
+                      const link = invoiceLinks[o.id]
+                      const isWon = o.stage === 'won'
+                      return (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-50 pt-2 text-[11px]">
+                          <span className="text-gray-500">Honorarios <b className="text-gray-700">{formatEuro(h, 'EUR')}</b></span>
+                          {link ? (() => {
+                            const bs = billingStateFromInvoice(link.status)
+                            const tone = bs === 'collected' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : bs === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700' : bs === 'draft' ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                            return <Link href="/facturacion" className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 font-medium ${tone} hover:opacity-80`}>{BILLING_STATE_LABEL[bs]}</Link>
+                          })() : isWon ? (
+                            <Link href={`/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent(`/clients/${clientId}`)}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-0.5 font-medium text-indigo-700 transition-colors hover:bg-indigo-50">Facturar honorarios</Link>
+                          ) : (
+                            <span className="text-gray-400">Potencial · operación abierta</span>
+                          )}
+                        </div>
+                      )
+                    })()}
                     {editOp?.id === o.id && (
                       <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
                         <div className="grid gap-2 sm:grid-cols-2">

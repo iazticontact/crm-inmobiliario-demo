@@ -49,6 +49,9 @@ import {
   updateTask,
 } from '@/lib/supabase-queries'
 import { listOpportunities, listServiceCases, listProperties } from '@/lib/vertical-queries'
+import { loadInvoiceLinksForOpportunities } from '@/lib/invoicing/invoice-repo'
+import { computeHonorarios } from '@/lib/invoicing/honorarios'
+import { computeEconomicCycle, type EconomicCycle } from '@/lib/invoicing/economic-cycle'
 import {
   clients as demoClients,
   invoices as demoInvoices,
@@ -384,6 +387,7 @@ export default function DashboardPage() {
   const [reviewOp, setReviewOp] = useState<ReviewOp | null>(null)
   // Datos crudos ya cargados → snapshot derivado (cartera/comisiones/vencimientos) sin re-fetch.
   const [raw, setRaw] = useState<Omit<SnapshotInput, 'todayStr'> | null>(null)
+  const [cycle, setCycle] = useState<EconomicCycle | null>(null)
   const [period, setPeriod] = useState<PeriodKey>('month')
   // Workspace activo (solo modo real) y tarea que se está completando desde "Vencimientos críticos".
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -546,6 +550,18 @@ export default function DashboardPage() {
           events: events as SnapshotInput['events'],
           clients: clients.map((c) => ({ id: c.id, name: c.name })),
         })
+
+        // Ciclo económico (honorarios): pendiente de facturar / facturado / cobrado, derivado de la factura
+        // vinculada a cada operación. Base = comisión (computeHonorarios), nunca el precio del inmueble.
+        const links: Record<string, { status?: string }> = await loadInvoiceLinksForOpportunities(workspaceId, opps.map((o) => o.id)).catch(() => ({}))
+        const propsById: Record<string, { price?: number | null; operation_type?: string | null }> = Object.fromEntries(properties.map((p) => [p.id, p]))
+        const ecoRows = opps.map((o) => {
+          const p = o.property_id ? propsById[o.property_id] : undefined
+          const isRental = p?.operation_type === 'alquiler' || p?.operation_type === 'alquiler_opcion_compra'
+          const honorarios = computeHonorarios({ value: o.value ?? null, commissionRate: o.commission_rate ?? null, propertyPrice: p?.price ?? null, isRental, metadata: o.metadata ?? null })
+          return { honorarios, closed: o.stage === 'won', invoiceStatus: links[o.id]?.status ?? null }
+        })
+        if (!cancelled) setCycle(computeEconomicCycle(ecoRows))
       } catch {
         if (cancelled) return
         setStats(null)
@@ -825,7 +841,8 @@ export default function DashboardPage() {
                     formatValue={compactEuro}
                   />
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                      <EcoStat label="Pendiente de facturar" value={cycle && cycle.pendingInvoice > 0 ? formatEuro(cycle.pendingInvoice) : '—'} hint="Honorarios/comisión de operaciones cerradas todavía SIN factura emitida. No incluye el precio del inmueble; se calcula sobre los honorarios." tone="amber" />
                       <EcoStat label={period === 'all' ? 'Cobrada · histórico' : `Cobrada · ${snap.economics.periodLabel.toLowerCase()}`} value={snap.economics.cobradaPeriodo > 0 ? formatEuro(snap.economics.cobradaPeriodo) : '—'} variation={period === 'all' ? null : snap.economics.variationPct} hint="Comisiones marcadas como cobradas (cobros registrados a mano) en el periodo seleccionado." tone="emerald" />
                       <EcoStat label="Pendiente de cobro" value={snap.economics.pendiente > 0 ? formatEuro(snap.economics.pendiente) : '—'} hint="Comisión de operaciones vendidas/alquiladas con comisión pactada, todavía no cobrada. Estado actual." tone="amber" />
                       <EcoStat label="Potencial abierto" value={snap.economics.potencialAbierto > 0 ? formatEuro(snap.economics.potencialAbierto) : '—'} hint="Comisión prevista de operaciones abiertas, calculada solo sobre las que tienen comisión pactada. Orientativo, estado actual." tone="indigo" />

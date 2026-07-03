@@ -6,9 +6,11 @@
 // vista previa y PDF profesional. Sin n8n, sin emails, sin Asistente-write. Escrituras bajo RLS.
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, FileDown, Loader2, FileText, Eye, Pencil, MoreVertical, Send, CheckCircle2, Ban, Trash2, RotateCcw, Sparkles, BarChart3, AlertTriangle, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
+import { safeReturnTo, returnToLabel } from '@/lib/safe-return'
 import { cn } from '@/lib/utils'
 import { INVOICE_STATUS_LABEL, type InvoiceStatus, type IssuerSnapshot, type InvoiceItem } from '@/lib/invoicing/types'
 import { formatInvoiceCurrency } from '@/lib/invoicing/calc'
@@ -110,10 +112,14 @@ function RowMenu({ items }: { items: MenuItem[] }) {
 }
 
 export default function FacturacionPage() {
+  const router = useRouter()
   const { currentUser } = useWorkspaceIdentity()
   const workspaceId = currentUser.workspaceId
   const isDemo = currentUser.isDemo
   const isAdmin = currentUser.role !== 'member'
+  // Navegación contextual: si la factura se abrió desde Comisiones o una ficha de cliente, «Volver» regresa
+  // a ese origen (returnTo interno validado, anti open-redirect). Sin origen → cierra el editor.
+  const [returnTo, setReturnTo] = useState<string | null>(null)
 
   const [everything, setEverything] = useState<InvoiceListRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -161,9 +167,12 @@ export default function FacturacionPage() {
   const prefillRef = useRef(false)
   useEffect(() => {
     if (!workspaceId || prefillRef.current) return
-    const oppId = new URLSearchParams(window.location.search).get('fromOpportunity')
+    const params = new URLSearchParams(window.location.search)
+    const oppId = params.get('fromOpportunity')
     if (!oppId) return
     prefillRef.current = true
+    const rt = safeReturnTo(params.get('returnTo')) // se conserva aunque limpiemos la URL
+    queueMicrotask(() => setReturnTo(rt))
     window.history.replaceState(null, '', '/facturacion')
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para facturar operaciones reales.' }); return }
     void (async () => {
@@ -229,8 +238,19 @@ export default function FacturacionPage() {
     setEditingId(id); setEditorMode(mode); setCurrentDisplay(display); setCurrentStatus(status); setCurrentHasPdf(hasPdf); setCurrentTrashed(trashed)
   }
 
+  // Cerrar/Volver: si la factura se abrió desde otro módulo (returnTo), vuelve al origen; si no, cierra.
+  const closeEditor = useCallback(() => {
+    if (returnTo) { router.push(returnTo); return }
+    setEditorOpen(false)
+  }, [returnTo, router])
+  const afterEditorSuccess = () => {
+    if (returnTo) { router.push(returnTo); return }
+    setEditorOpen(false); void reload()
+  }
+
   const handleGenerate = (result: InvoiceParseResult) => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para crear facturas reales.' }); return }
+    setReturnTo(null)
     setForm(result.draft); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
     if (result.warnings.length) toast.warning('Propuesta lista — revísala', { description: result.warnings[0] })
     else if (result.missingFields.length) toast.info('Propuesta lista', { description: `Completa antes de guardar: ${result.missingFields.join(', ')}.` })
@@ -239,12 +259,14 @@ export default function FacturacionPage() {
 
   const openCreate = () => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para emitir facturas reales.' }); return }
+    setReturnTo(null)
     setForm(emptyForm()); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
   }
 
   // Abre una factura por id (deriva estado/número/PDF/papelera de la propia factura → una sola fuente).
   const openInvoiceById = async (id: string) => {
     if (!workspaceId) return
+    setReturnTo(null) // apertura normal desde el listado: sin origen externo
     const loaded = await loadInvoice(workspaceId, id)
     if (!loaded) { toast.error('No se pudo abrir la factura.'); return }
     const inv = loaded.invoice
@@ -262,7 +284,7 @@ export default function FacturacionPage() {
     setSavingDraft(false)
     if ('error' in res) { toast.error(res.error); return }
     toast.success('Borrador guardado')
-    setEditorOpen(false); void reload()
+    afterEditorSuccess()
   }
 
   const handleSaveAndEmit = async () => {
@@ -274,7 +296,7 @@ export default function FacturacionPage() {
     setEmitting(false)
     if ('error' in res) { toast.error(res.error); setEditingId(saved.id); setEditorMode('edit'); void reload(); return }
     toast.success('Factura emitida', { description: 'Número asignado y PDF profesional generado.' })
-    setEditorOpen(false); void reload()
+    afterEditorSuccess()
   }
 
   const doTrash = async (id: string) => {
@@ -505,7 +527,8 @@ export default function FacturacionPage() {
 
       <InvoiceEditor
         open={editorOpen}
-        onClose={() => setEditorOpen(false)}
+        onClose={closeEditor}
+        closeLabel={returnToLabel(returnTo)}
         mode={editorMode}
         trashed={currentTrashed}
         form={form}

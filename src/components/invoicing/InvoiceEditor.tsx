@@ -25,12 +25,13 @@ const has = (v: string | null | undefined): v is string => !!(v && String(v).tri
 export type InvoiceEditorMode = 'create' | 'edit' | 'view'
 
 export function InvoiceEditor({
-  open, onClose, mode, form, onChange, clients, issuer, issuerMissing,
+  open, onClose, closeLabel = 'Cerrar', mode, form, onChange, clients, issuer, issuerMissing,
   displayNumber, status, saving, emitting, regenerating, trashed, canHardDelete,
   onSaveDraft, onEmit, onDownload, onRegenerate, onTrash, onRestore, onHardDelete,
 }: {
   open: boolean
   onClose: () => void
+  closeLabel?: string
   mode: InvoiceEditorMode
   form: InvoiceFormData
   onChange: (updater: (f: InvoiceFormData) => InvoiceFormData) => void
@@ -81,7 +82,7 @@ export function InvoiceEditor({
       {/* Barra superior */}
       <header className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Cerrar"><X className="h-4.5 w-4.5" /></button>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100" aria-label={closeLabel} title={closeLabel}><X className="h-4.5 w-4.5" /></button>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-gray-900">{title}</h2>
             <p className="text-[11px] text-gray-500">{readOnly ? 'Solo lectura' : 'Se numera automáticamente al emitir'}</p>
@@ -256,7 +257,7 @@ export function InvoiceEditor({
       {/* Acciones — dependen del estado (ciclo de vida) */}
       <footer className="flex items-center justify-between gap-2 border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
         <div className="flex items-center gap-1.5">
-          <Button variant="secondary" size="sm" onClick={onClose}>Cerrar</Button>
+          <Button variant="secondary" size="sm" onClick={onClose}>{closeLabel}</Button>
           {onTrash && (
             <button onClick={onTrash} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /> Mover a papelera</button>
           )}
