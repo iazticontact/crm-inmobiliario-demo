@@ -25,13 +25,14 @@ const has = (v: string | null | undefined): v is string => !!(v && String(v).tri
 export type InvoiceEditorMode = 'create' | 'edit' | 'view'
 
 export function InvoiceEditor({
-  open, onClose, closeLabel = 'Cerrar', mode, form, onChange, clients, issuer, issuerMissing,
+  open, onClose, closeLabel = 'Cerrar', banner, mode, form, onChange, clients, issuer, issuerMissing,
   displayNumber, status, saving, emitting, regenerating, trashed, canHardDelete,
   onSaveDraft, onEmit, onDownload, onRegenerate, onTrash, onRestore, onHardDelete,
 }: {
   open: boolean
   onClose: () => void
   closeLabel?: string
+  banner?: { title: string; subtitle: string } | null
   mode: InvoiceEditorMode
   form: InvoiceFormData
   onChange: (updater: (f: InvoiceFormData) => InvoiceFormData) => void
@@ -100,7 +101,12 @@ export function InvoiceEditor({
         {/* Formulario */}
         <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:max-w-[560px] lg:border-r lg:border-gray-200', mobileView === 'preview' && 'hidden lg:block')}>
           <div className="mx-auto max-w-xl space-y-5">
-            {form.opportunityId && (
+            {banner ? (
+              <div className="flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] leading-4 text-gray-600">
+                <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                <span><b>{banner.title}</b> {banner.subtitle} Revísala y edítala antes de emitir.</span>
+              </div>
+            ) : form.opportunityId && (
               <div className="flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] leading-4 text-gray-600">
                 <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
                 <span>Factura generada desde una <b>operación inmobiliaria</b>. La base son tus <b>honorarios/comisión</b> (no el precio del inmueble). Revísala y edítala antes de emitir.</span>

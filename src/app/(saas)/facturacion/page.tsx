@@ -120,6 +120,13 @@ export default function FacturacionPage() {
   // Navegación contextual: si la factura se abrió desde Comisiones o una ficha de cliente, «Volver» regresa
   // a ese origen (returnTo interno validado, anti open-redirect). Sin origen → cierra el editor.
   const [returnTo, setReturnTo] = useState<string | null>(null)
+  // Apertura desde una operación (?fromOpportunity=): mientras se prepara el prellenado NO renderizamos el
+  // listado/dashboard normal — mostramos una pantalla limpia «Preparando factura…» y abrimos el editor al
+  // resolver. Evita el parpadeo de ver Facturación durante un segundo (P45).
+  const [prefillPending, setPrefillPending] = useState(false)
+  const [prefillError, setPrefillError] = useState<string | null>(null)
+  // Aviso contextual dentro del editor cuando la factura procede de una operación (honorarios, no precio).
+  const [contextBanner, setContextBanner] = useState<{ title: string; subtitle: string } | null>(null)
 
   const [everything, setEverything] = useState<InvoiceListRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -172,28 +179,32 @@ export default function FacturacionPage() {
     if (!oppId) return
     prefillRef.current = true
     const rt = safeReturnTo(params.get('returnTo')) // se conserva aunque limpiemos la URL
-    queueMicrotask(() => setReturnTo(rt))
     window.history.replaceState(null, '', '/facturacion')
-    if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para facturar operaciones reales.' }); return }
+    if (isDemo) { queueMicrotask(() => setReturnTo(rt)); toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para facturar operaciones reales.' }); return }
+    // Pantalla limpia de preparación: nada de listado mientras resolvemos el prellenado.
+    const banner = { title: 'Factura de honorarios de una operación inmobiliaria.', subtitle: 'El IVA se calcula sobre los honorarios, no sobre el precio del inmueble.' }
+    queueMicrotask(() => { setReturnTo(rt); setPrefillError(null); setPrefillPending(true) })
     void (async () => {
       const res = await loadOpportunityInvoicePrefill(workspaceId, oppId)
-      if ('error' in res) { toast.error('No se pudo preparar la factura', { description: res.error }); return }
+      if ('error' in res) { setPrefillPending(false); setPrefillError(res.error || 'No se pudo preparar la factura de esta operación.'); return }
       if ('existing' in res) {
         toast.info('Esta operación ya tiene una factura vinculada', { description: `${res.existing.display ?? 'Borrador'} · ${INVOICE_STATUS_LABEL[res.existing.status]}. La abro para revisarla.` })
         const loaded = await loadInvoice(workspaceId, res.existing.id)
-        if (!loaded) return
+        if (!loaded) { setPrefillPending(false); setPrefillError('La factura vinculada ya no está disponible.'); return }
         const inv = loaded.invoice
         const trashed = !!inv.deleted_at
         const status = (inv.status as InvoiceStatus) ?? 'draft'
         setForm(mapInvoiceToForm(inv, loaded.items))
         setEditingId(res.existing.id); setEditorMode(status === 'draft' && !trashed ? 'edit' : 'view')
         setCurrentDisplay((inv.invoice_number_display as string) ?? null); setCurrentStatus(status)
-        setCurrentHasPdf(Boolean(inv.pdf_file_id)); setCurrentTrashed(trashed); setEditorOpen(true)
+        setCurrentHasPdf(Boolean(inv.pdf_file_id)); setCurrentTrashed(trashed)
+        setContextBanner(banner); setPrefillPending(false); setEditorOpen(true)
         return
       }
       setForm(res.draft)
       setEditingId(null); setEditorMode('create'); setCurrentDisplay(null); setCurrentStatus('draft')
-      setCurrentHasPdf(false); setCurrentTrashed(false); setEditorOpen(true)
+      setCurrentHasPdf(false); setCurrentTrashed(false)
+      setContextBanner(banner); setPrefillPending(false); setEditorOpen(true)
       toast.success('Factura de honorarios preparada', { description: `Base: honorarios ${formatInvoiceCurrency(res.honorarios, 'EUR')}${res.propertyTitle ? ` · ${res.propertyTitle}` : ''}. Revisa y guarda.` })
     })()
   }, [workspaceId, isDemo])
@@ -250,7 +261,7 @@ export default function FacturacionPage() {
 
   const handleGenerate = (result: InvoiceParseResult) => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para crear facturas reales.' }); return }
-    setReturnTo(null)
+    setReturnTo(null); setContextBanner(null)
     setForm(result.draft); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
     if (result.warnings.length) toast.warning('Propuesta lista — revísala', { description: result.warnings[0] })
     else if (result.missingFields.length) toast.info('Propuesta lista', { description: `Completa antes de guardar: ${result.missingFields.join(', ')}.` })
@@ -259,14 +270,14 @@ export default function FacturacionPage() {
 
   const openCreate = () => {
     if (isDemo) { toast.info('Modo de ejemplo', { description: 'Conecta tu cuenta para emitir facturas reales.' }); return }
-    setReturnTo(null)
+    setReturnTo(null); setContextBanner(null)
     setForm(emptyForm()); setCurrent(null, 'create', null, 'draft', false, false); setEditorOpen(true)
   }
 
   // Abre una factura por id (deriva estado/número/PDF/papelera de la propia factura → una sola fuente).
   const openInvoiceById = async (id: string) => {
     if (!workspaceId) return
-    setReturnTo(null) // apertura normal desde el listado: sin origen externo
+    setReturnTo(null); setContextBanner(null) // apertura normal desde el listado: sin origen externo
     const loaded = await loadInvoice(workspaceId, id)
     if (!loaded) { toast.error('No se pudo abrir la factura.'); return }
     const inv = loaded.invoice
@@ -395,6 +406,35 @@ export default function FacturacionPage() {
     return items
   }
 
+  // Pantalla de preparación / error al abrir desde una operación. «Volver» respeta returnTo (Comisiones o
+  // ficha de cliente); sin origen, revela el listado normal de Facturación.
+  const dismissPrefill = () => {
+    if (returnTo) { router.push(returnTo); return }
+    setPrefillError(null); setPrefillPending(false)
+  }
+  if (prefillPending || prefillError) {
+    const backLabel = returnTo ? returnToLabel(returnTo) : 'Ir a Facturación'
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
+        {prefillError ? (
+          <>
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600"><AlertTriangle className="h-6 w-6" /></span>
+            <h1 className="mt-4 text-lg font-semibold text-gray-900">No se pudo preparar la factura</h1>
+            <p className="mt-1.5 text-sm text-gray-500">{prefillError}</p>
+            <button onClick={dismissPrefill} className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800">{backLabel}</button>
+          </>
+        ) : (
+          <>
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+            <h1 className="mt-4 text-lg font-semibold text-gray-900">Preparando factura de honorarios…</h1>
+            <p className="mt-1.5 text-sm text-gray-500">Usaremos la comisión de la operación, no el precio del inmueble.</p>
+            <p className="mt-0.5 text-xs text-gray-400">Calculando honorarios e IVA…</p>
+          </>
+        )}
+      </div>
+    )
+  }
+
   const filtering = !!search
   const emptyCopy: Record<string, { title: string; desc: string }> = {
     todas: { title: 'Empieza a facturar', desc: 'Describe la factura por texto o voz arriba, o créala manualmente. Numeración automática, IVA/IRPF y PDF con tu logo incluidos.' },
@@ -414,7 +454,7 @@ export default function FacturacionPage() {
             <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-100">Módulo extra · PRO</span>
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-gray-950 sm:text-2xl">Facturación</h1>
-          <p className="mt-0.5 max-w-lg text-sm text-gray-500">Crea, emite y cobra facturas profesionales para tu inmobiliaria: numeración automática, IVA/IRPF, PDF con tu logo y creación por texto o voz.</p>
+          <p className="mt-0.5 max-w-lg text-sm text-gray-500">Documentos oficiales por tus honorarios: base, IVA/IRPF, PDF con tu logo, numeración automática y estado de cobro. El seguimiento interno de comisiones se hace en Cartera → Comisiones.</p>
         </div>
         <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-gray-800">
           <Plus className="h-4 w-4" /> Nueva factura
@@ -529,6 +569,7 @@ export default function FacturacionPage() {
         open={editorOpen}
         onClose={closeEditor}
         closeLabel={returnToLabel(returnTo)}
+        banner={contextBanner}
         mode={editorMode}
         trashed={currentTrashed}
         form={form}

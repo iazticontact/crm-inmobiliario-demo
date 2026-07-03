@@ -53,7 +53,7 @@ import {
 import { createOpportunity, createServiceCase, getClientVerticalSummary, updateOpportunity, updateServiceCase, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
 import { computeHonorarios } from '@/lib/invoicing/honorarios'
-import { billingStateFromInvoice, BILLING_STATE_LABEL } from '@/lib/invoicing/billing-state'
+import { resolveCommissionState } from '@/lib/invoicing/commission-cta'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, EventType, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -1211,18 +1211,26 @@ export default function ClientDetailPage() {
                       const h = honorariosOf(o)
                       if (!h || h <= 0) return null
                       const link = invoiceLinks[o.id]
-                      const isWon = o.stage === 'won'
+                      const state = resolveCommissionState({
+                        closed: o.stage === 'won',
+                        commissionPaid: o.commission_status === 'cobrada',
+                        hasInvoiceLink: !!link,
+                        invoiceStatus: link?.status ?? null,
+                        invoicingEnabled: featureFlags.invoicing,
+                        hasClient: true,
+                      })
+                      const act = state.action
+                      const chipTone = state.chip.tone === 'emerald' ? 'bg-emerald-50 text-emerald-700' : state.chip.tone === 'indigo' ? 'bg-indigo-50 text-indigo-700' : state.chip.tone === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'
+                      const factUrl = `/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent(`/clients/${clientId}`)}`
                       return (
                         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-50 pt-2 text-[11px]">
                           <span className="text-gray-500">Honorarios <b className="text-gray-700">{formatEuro(h, 'EUR')}</b></span>
-                          {link ? (() => {
-                            const bs = billingStateFromInvoice(link.status)
-                            const tone = bs === 'collected' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : bs === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700' : bs === 'draft' ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                            return <Link href="/facturacion" className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 font-medium ${tone} hover:opacity-80`}>{BILLING_STATE_LABEL[bs]}</Link>
-                          })() : isWon ? (
-                            <Link href={`/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent(`/clients/${clientId}`)}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-0.5 font-medium text-indigo-700 transition-colors hover:bg-indigo-50">Facturar honorarios</Link>
-                          ) : (
-                            <span className="text-gray-400">Potencial · operación abierta</span>
+                          <span className={`rounded-full px-2 py-0.5 font-semibold ${chipTone}`}>{state.chip.label}</span>
+                          {(act.kind === 'create' || act.kind === 'create_after_collect' || act.kind === 'open_invoice') && (
+                            <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-0.5 font-medium text-indigo-700 transition-colors hover:bg-indigo-50">{act.label}</Link>
+                          )}
+                          {act.kind === 'requires_pro' && (
+                            <span title={act.helper ?? undefined} className="inline-flex cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-500">{act.label}</span>
                           )}
                         </div>
                       )

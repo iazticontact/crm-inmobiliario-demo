@@ -13,6 +13,7 @@
 
 type FlagKey =
   | 'billing'
+  | 'invoicing'
   | 'automations'
   | 'inbox'
   | 'assistant'
@@ -25,6 +26,7 @@ type FlagKey =
 
 const FLAG_ENV: Record<FlagKey, string> = {
   billing:         'NEXT_PUBLIC_ENABLE_BILLING',
+  invoicing:       'NEXT_PUBLIC_ENABLE_INVOICING',
   automations:     'NEXT_PUBLIC_ENABLE_AUTOMATIONS',
   inbox:           'NEXT_PUBLIC_ENABLE_INBOX',
   assistant:       'NEXT_PUBLIC_ENABLE_ASSISTANT',
@@ -43,6 +45,7 @@ function readFlag(envName: string, defaultEnabled: boolean): boolean {
   let raw: string | undefined
   switch (envName) {
     case 'NEXT_PUBLIC_ENABLE_BILLING':       raw = process.env.NEXT_PUBLIC_ENABLE_BILLING; break
+    case 'NEXT_PUBLIC_ENABLE_INVOICING':     raw = process.env.NEXT_PUBLIC_ENABLE_INVOICING; break
     case 'NEXT_PUBLIC_ENABLE_AUTOMATIONS':   raw = process.env.NEXT_PUBLIC_ENABLE_AUTOMATIONS; break
     case 'NEXT_PUBLIC_ENABLE_INBOX':         raw = process.env.NEXT_PUBLIC_ENABLE_INBOX; break
     case 'NEXT_PUBLIC_ENABLE_ASSISTANT':     raw = process.env.NEXT_PUBLIC_ENABLE_ASSISTANT; break
@@ -68,6 +71,7 @@ function readFlag(envName: string, defaultEnabled: boolean): boolean {
 // settings tiles, n8n editor, env checklists, etc.) for the internal team.
 const FLAG_DEFAULT: Record<FlagKey, boolean> = {
   billing:         true,
+  invoicing:       true,
   automations:     true,
   inbox:           true,
   assistant:       true,
@@ -85,6 +89,7 @@ export function isFeatureEnabled(flag: FlagKey): boolean {
 
 export const featureFlags = {
   billing:         isFeatureEnabled('billing'),
+  invoicing:       isFeatureEnabled('invoicing'),
   automations:     isFeatureEnabled('automations'),
   inbox:           isFeatureEnabled('inbox'),
   assistant:       isFeatureEnabled('assistant'),

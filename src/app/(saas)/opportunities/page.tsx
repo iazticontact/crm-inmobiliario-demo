@@ -65,7 +65,8 @@ import { propertyMatchesFilters, sortPortfolio } from '@/lib/portfolio-filter'
 import { computeHonorarios } from '@/lib/invoicing/honorarios'
 import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
 import { INVOICE_STATUS_LABEL } from '@/lib/invoicing/types'
-import { billingStateFromInvoice, BILLING_STATE_LABEL } from '@/lib/invoicing/billing-state'
+import { billingStateFromInvoice } from '@/lib/invoicing/billing-state'
+import { resolveCommissionState, type ChipTone } from '@/lib/invoicing/commission-cta'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
@@ -139,6 +140,20 @@ const ALL_SUBTABS: Array<{ key: Subtab; label: string; icon: React.ComponentType
 ]
 
 const SUBTABS = ALL_SUBTABS.filter((tab) => !tab.internal || featureFlags.nowlabsInternal)
+
+// Clases por tono para el chip de estado y el botón de acción de Comisiones (matriz P45).
+const CHIP_TONE_CLS: Record<ChipTone, string> = {
+  amber: 'bg-amber-50 text-amber-700',
+  emerald: 'bg-emerald-50 text-emerald-700',
+  indigo: 'bg-indigo-50 text-indigo-700',
+  gray: 'bg-gray-100 text-gray-600',
+}
+const ACTION_TONE_CLS: Record<ChipTone, string> = {
+  amber: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
+  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  indigo: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
+  gray: 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
+}
 
 // Etapas terminales (cerradas): no cuentan como "operación abierta" ni suman valor potencial.
 const TERMINAL_STAGES = new Set(['won', 'lost', 'resolved', 'closed'])
@@ -1485,7 +1500,7 @@ export default function OpportunitiesPage() {
       {activeSubtab === 'commissions' && (
         <SectionCard
           title="Comisiones"
-          description="Control interno de comisiones comerciales."
+          description="Control interno de honorarios por operación. Las facturas, IVA, PDF y vencimientos se gestionan en Facturación."
           action={
             <div className="flex items-center gap-3">
               {(openCommissionCount > 0 || showOpenCommissions) && (
@@ -1521,44 +1536,61 @@ export default function OpportunitiesPage() {
                 const isClosed = commStateOf(o.stage) === 'won'
                 const realAmount = paid ? (o.commission_paid_amount ?? est) : null
                 const note = typeof o.metadata?.commission_note === 'string' ? o.metadata.commission_note : ''
+                // Matriz de estados (chip + acción) centralizada, con gating del extra Facturación.
+                const state = resolveCommissionState({
+                  closed: isClosed,
+                  commissionPaid: paid,
+                  hasInvoiceLink: !!invLink,
+                  invoiceStatus: invLink?.status ?? null,
+                  invoicingEnabled: featureFlags.invoicing,
+                  hasClient: !!o.client_id,
+                })
+                const act = state.action
+                const factUrl = `/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent('/opportunities?tab=commissions')}`
+                const amountSub = state.collectedByInvoice ? 'Cobrado con factura'
+                  : paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada')
+                  : isClosed ? 'Comisión' : 'Comisión prevista'
+                const showHelper = act.helper && (act.kind === 'create_after_collect' || act.kind === 'requires_pro' || (act.kind === 'open_invoice' && act.billing === 'cancelled'))
                 return (
-                  <li key={o.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white p-3">
-                    <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
-                        {!isClosed && <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">En gestión</span>}
-                      </div>
-                      <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, commissionBasisLabel(o)].filter(Boolean).join(' · ')}</p>
-                      {paid && note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
-                    </button>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(paid ? (realAmount ?? est) : est)}</p>
-                        <p className="text-[10px] text-gray-400">{paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada') : 'Comisión prevista'}</p>
-                      </div>
-                      <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{paid ? 'Cobrada' : 'Pendiente'}</span>
-                      {invLink ? (() => {
-                        const bs = billingStateFromInvoice(invLink.status)
-                        const tone = bs === 'collected' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : bs === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                          : bs === 'draft' ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
-                          : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                        return (
-                          <Link href="/facturacion" title={`${invLink.display ?? 'Borrador'} · ${INVOICE_STATUS_LABEL[invLink.status]}`} className={cn('inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors', tone)}>
-                            <FileText className="h-3.5 w-3.5" /> {BILLING_STATE_LABEL[bs]}
+                  <li key={o.id} className="rounded-xl border border-gray-100 bg-white p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
+                          {!isClosed && <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">En gestión</span>}
+                        </div>
+                        <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, commissionBasisLabel(o)].filter(Boolean).join(' · ')}</p>
+                        {paid && note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
+                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-gray-900">{formatCurrency(paid ? (realAmount ?? est) : est)}</p>
+                          <p className="text-[10px] text-gray-400">{amountSub}</p>
+                        </div>
+                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', CHIP_TONE_CLS[state.chip.tone])}>{state.chip.label}</span>
+                        {(act.kind === 'create' || act.kind === 'create_after_collect') && (
+                          <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
+                            <FileText className="h-3.5 w-3.5" /> {act.label}
                           </Link>
-                        )
-                      })() : o.client_id ? (
-                        <Link href={`/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent('/opportunities?tab=commissions')}`} title="Crear factura de honorarios (base = comisión, IVA sobre honorarios)" className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
-                          <FileText className="h-3.5 w-3.5" /> Facturar honorarios
-                        </Link>
-                      ) : null}
-                      {paid ? (
-                        <button type="button" onClick={() => void markCommissionPending(o)} title="Volver a marcar la comisión como pendiente" className="inline-flex h-7 items-center rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Marcar pendiente</button>
-                      ) : (
-                        <button type="button" onClick={() => openCollect(o)} title="Registrar el cobro de la comisión" className="inline-flex h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100">Registrar cobro</button>
-                      )}
+                        )}
+                        {act.kind === 'open_invoice' && (
+                          <Link href={factUrl} title={`${invLink?.display ?? 'Borrador'} · ${invLink ? INVOICE_STATUS_LABEL[invLink.status] : ''}`} className={cn('inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors', ACTION_TONE_CLS[state.chip.tone])}>
+                            <FileText className="h-3.5 w-3.5" /> {act.label}
+                          </Link>
+                        )}
+                        {act.kind === 'requires_pro' && (
+                          <span title={act.helper ?? undefined} className="inline-flex h-7 cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 text-[11px] font-medium text-gray-500">
+                            <FileText className="h-3.5 w-3.5" /> {act.label}
+                          </span>
+                        )}
+                        {!state.collectedByInvoice && (paid ? (
+                          <button type="button" onClick={() => void markCommissionPending(o)} title="Volver a marcar la comisión como pendiente" className="inline-flex h-7 items-center rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Marcar pendiente</button>
+                        ) : (
+                          <button type="button" onClick={() => openCollect(o)} title="Registrar el cobro de la comisión (control interno)" className="inline-flex h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100">Registrar cobro</button>
+                        ))}
+                      </div>
                     </div>
+                    {showHelper && <p className="mt-1.5 pl-0.5 text-[10px] leading-snug text-gray-400">{act.helper}</p>}
                   </li>
                 )
               })}
@@ -1579,7 +1611,7 @@ export default function OpportunitiesPage() {
             )
           })()}
           <p className="mt-2 text-[11px] leading-snug text-gray-400">
-            Control interno de comisiones. Las facturas, cobros e IVA se gestionan en el módulo Facturación.
+            Comisiones = control interno de honorarios de operaciones. Una comisión puede estar <b className="font-medium text-gray-500">cobrada internamente</b> y aun así no tener factura vinculada. Cuando necesites una factura oficial (base, IVA, PDF y cobro), créala en <b className="font-medium text-gray-500">Facturación</b>.
           </p>
         </SectionCard>
       )}

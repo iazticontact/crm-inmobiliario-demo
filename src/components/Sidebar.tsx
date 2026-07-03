@@ -37,7 +37,9 @@ const navItems: Array<{ href: string; label: string; icon: typeof LayoutDashboar
   { href: '/billing',       label: 'Facturación',       icon: CreditCard, flag: 'billing',     internal: true },
   { href: '/settings',      label: 'Configuración',     icon: Settings },
   // Módulos extra — integrados con el CRM pero separados del core (P36A).
-  { href: '/facturacion',   label: 'Facturación',       icon: Receipt,    extra: true, badge: 'PRO' },
+  // `invoicing` gatea el extra Facturación PRO: un clon sin contratar el módulo pone
+  // NEXT_PUBLIC_ENABLE_INVOICING=false y desaparece de la navegación (P45).
+  { href: '/facturacion',   label: 'Facturación',       icon: Receipt,    flag: 'invoicing', extra: true, badge: 'PRO' },
 ]
 
 const visibleNavItems = navItems.filter((item) => {
