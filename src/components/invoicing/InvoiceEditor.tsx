@@ -27,7 +27,7 @@ export type InvoiceEditorMode = 'create' | 'edit' | 'view'
 export function InvoiceEditor({
   open, onClose, closeLabel = 'Cerrar', banner, mode, form, onChange, clients, issuer, issuerMissing,
   displayNumber, status, saving, emitting, regenerating, trashed, canHardDelete,
-  onSaveDraft, onEmit, onDownload, onRegenerate, onTrash, onRestore, onHardDelete,
+  onSaveDraft, onEmit, onDownload, onRegenerate, onTrash, onRestore, onHardDelete, onMarkPaid,
 }: {
   open: boolean
   onClose: () => void
@@ -53,6 +53,7 @@ export function InvoiceEditor({
   onTrash?: () => void
   onRestore?: () => void
   onHardDelete?: () => void
+  onMarkPaid?: () => void
 }) {
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit')
   const [confirmEmit, setConfirmEmit] = useState(false)
@@ -110,6 +111,19 @@ export function InvoiceEditor({
               <div className="flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] leading-4 text-gray-600">
                 <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
                 <span>Factura generada desde una <b>operación inmobiliaria</b>. La base son tus <b>honorarios/comisión</b> (no el precio del inmueble). Revísala y edítala antes de emitir.</span>
+              </div>
+            )}
+            {/* Siguiente paso según el estado (guía P46): emitida → cobrar; pagada → cerrada */}
+            {readOnly && (status === 'issued' || status === 'sent' || status === 'overdue') && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-4 text-amber-800">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span><b>Pendiente de cobro.</b> La factura ya está emitida. Cuando recibas el pago, pulsa «Marcar cobrada».</span>
+              </div>
+            )}
+            {readOnly && status === 'paid' && (
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-[11px] leading-4 text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                <span><b>Cobrada.</b> Esta factura ya está cerrada. No queda ninguna acción pendiente.</span>
               </div>
             )}
             {/* A · Cabecera */}
@@ -277,7 +291,8 @@ export function InvoiceEditor({
           ) : readOnly ? (
             <>
               {onRegenerate && <Button variant="secondary" size="sm" onClick={onRegenerate} loading={regenerating} disabled={regenerating}><RefreshCw className="h-3.5 w-3.5" /> Regenerar PDF</Button>}
-              {onDownload && <Button variant="primary" size="sm" onClick={onDownload}><FileDown className="h-3.5 w-3.5" /> Descargar PDF</Button>}
+              {onDownload && <Button variant="secondary" size="sm" onClick={onDownload}><FileDown className="h-3.5 w-3.5" /> Descargar PDF</Button>}
+              {onMarkPaid && <Button variant="primary" size="sm" onClick={onMarkPaid}><CheckCircle2 className="h-3.5 w-3.5" /> Marcar cobrada</Button>}
             </>
           ) : (
             <>

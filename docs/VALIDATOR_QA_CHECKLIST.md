@@ -57,6 +57,16 @@
 - **No debería pasar:** sumar monedas distintas, PDF con «???» o «No consta» por todas partes, emitir sin
       cliente o sin importe.
 
+## 6b. Comisiones — flujo por estados (P46)
+- [ ] En **Cartera → Comisiones** ves arriba el bloque **«Qué falta por hacer»** con el recuento (o «Todo al día»).
+- [ ] Las pestañas **Por hacer / Facturadas / Cobradas / Potenciales / Todas** filtran la lista.
+- [ ] Cada fila muestra **un solo botón principal** según su estado (Crear factura / Abrir factura / Ver factura…), una explicación corta y el paso del ciclo («Paso 2 de 3»).
+- [ ] Una comisión **cobrada internamente sin factura** muestra «Cobrada sin factura» y el botón **«Crear factura del cobro»** (no «Crear factura» a secas).
+- [ ] **No** aparece «Marcar pendiente» como botón; «Deshacer cobro interno» está en el menú **«Más» (⋯)** con confirmación.
+- [ ] Tras **emitir** una factura desde una comisión, esa operación deja «Pendiente de facturar» y pasa a **«Facturadas»**; al marcarla **cobrada**, pasa a **«Cobradas»** con chip verde «Cerrado».
+- [ ] El botón **«¿Cómo funciona?»** abre una guía breve del ciclo.
+- **No debería pasar:** ver una operación ya facturada como «pendiente de facturar», ni «Crear factura» cuando ya hay factura.
+
 ## 7. Móvil (repite lo esencial en el teléfono)
 - [ ] Menú lateral (drawer) se abre/cierra bien.
 - [ ] Formularios **no hacen zoom** al tocar un campo.

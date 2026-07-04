@@ -53,7 +53,7 @@ import {
 import { createOpportunity, createServiceCase, getClientVerticalSummary, updateOpportunity, updateServiceCase, type OpportunityRow, type PropertyRow, type ServiceCaseRow } from '@/lib/vertical-queries'
 import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
 import { computeHonorarios } from '@/lib/invoicing/honorarios'
-import { resolveCommissionState } from '@/lib/invoicing/commission-cta'
+import { resolveCommissionState, COMMISSION_BUCKET_DESCRIPTION } from '@/lib/invoicing/commission-cta'
 import { getPipelineForVertical, type VerticalKey } from '@/lib/demo/vertical-templates'
 import type { Activity, CalendarEvent, Client, ClientStatus, Conversation, EventType, Invoice } from '@/lib/types'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -1220,18 +1220,22 @@ export default function ClientDetailPage() {
                         hasClient: true,
                       })
                       const act = state.action
-                      const chipTone = state.chip.tone === 'emerald' ? 'bg-emerald-50 text-emerald-700' : state.chip.tone === 'indigo' ? 'bg-indigo-50 text-indigo-700' : state.chip.tone === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'
+                      const closed = state.bucket === 'collected'
+                      const chipTone = closed ? 'bg-emerald-100 text-emerald-800' : state.chip.tone === 'emerald' ? 'bg-emerald-50 text-emerald-700' : state.chip.tone === 'indigo' ? 'bg-indigo-50 text-indigo-700' : state.chip.tone === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'
                       const factUrl = `/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent(`/clients/${clientId}`)}`
                       return (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-50 pt-2 text-[11px]">
-                          <span className="text-gray-500">Honorarios <b className="text-gray-700">{formatEuro(h, 'EUR')}</b></span>
-                          <span className={`rounded-full px-2 py-0.5 font-semibold ${chipTone}`}>{state.chip.label}</span>
-                          {(act.kind === 'create' || act.kind === 'create_after_collect' || act.kind === 'open_invoice') && (
-                            <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-0.5 font-medium text-indigo-700 transition-colors hover:bg-indigo-50">{act.label}</Link>
-                          )}
-                          {act.kind === 'requires_pro' && (
-                            <span title={act.helper ?? undefined} className="inline-flex cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-500">{act.label}</span>
-                          )}
+                        <div className="mt-2 border-t border-gray-50 pt-2 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-gray-500">Honorarios <b className="text-gray-700">{formatEuro(h, 'EUR')}</b></span>
+                            <span className={`rounded-full px-2 py-0.5 font-semibold ${chipTone}`}>{closed ? 'Cerrado · cobrado' : state.chip.label}</span>
+                            {(act.kind === 'create' || act.kind === 'create_after_collect' || act.kind === 'open_invoice') && (
+                              <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700 transition-colors hover:bg-indigo-100">{act.label}</Link>
+                            )}
+                            {act.kind === 'requires_pro' && (
+                              <span title={act.helper ?? undefined} className="inline-flex cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-500">{act.label}</span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-[10px] leading-snug text-gray-400">{COMMISSION_BUCKET_DESCRIPTION[state.bucket]}</p>
                         </div>
                       )
                     })()}

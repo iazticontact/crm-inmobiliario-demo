@@ -306,7 +306,7 @@ export default function FacturacionPage() {
     const res = await emitInvoice(workspaceId, saved.id)
     setEmitting(false)
     if ('error' in res) { toast.error(res.error); setEditingId(saved.id); setEditorMode('edit'); void reload(); return }
-    toast.success('Factura emitida', { description: 'Número asignado y PDF profesional generado.' })
+    toast.success('Factura emitida', { description: 'Número y PDF generados. Ahora queda pendiente de cobro.' })
     afterEditorSuccess()
   }
 
@@ -352,6 +352,14 @@ export default function FacturacionPage() {
     toast.success('PDF actualizado', { description: 'Regenerado con los datos actuales del emisor.' })
     setCurrentHasPdf(true); void reload()
   }
+  // Siguiente paso desde el editor: marcar como cobrada una factura emitida (guía P46).
+  const handleMarkPaidCurrent = async () => {
+    if (!workspaceId || !editingId) return
+    const res = await setInvoiceStatus(workspaceId, editingId, 'paid')
+    if ('error' in res) { toast.error(res.error); return }
+    toast.success('Factura marcada como cobrada', { description: 'La operación queda cerrada económicamente.' })
+    setCurrentStatus('paid'); void reload()
+  }
   const handleDownloadCurrent = async () => {
     if (!workspaceId || !editingId) return
     const url = await getInvoicePdfUrl(workspaceId, editingId)
@@ -366,7 +374,7 @@ export default function FacturacionPage() {
     const res = await emitInvoice(workspaceId, id)
     setBusyId(null)
     if ('error' in res) { toast.error(res.error); return }
-    toast.success('Factura emitida', { description: 'Número asignado y PDF generado.' })
+    toast.success('Factura emitida', { description: 'Número y PDF generados. Ahora queda pendiente de cobro.' })
     void reload()
   }
   const listStatus = async (id: string, status: InvoiceStatus, label: string) => {
@@ -398,7 +406,7 @@ export default function FacturacionPage() {
       items.push({ label: 'Emitir factura', icon: <FileText className="h-3.5 w-3.5" />, onClick: () => listEmit(r.id) })
     } else {
       if (r.status === 'issued') items.push({ label: 'Marcar enviada', icon: <Send className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'sent', 'Factura marcada como enviada') })
-      if (r.status === 'issued' || r.status === 'sent') items.push({ label: 'Marcar cobrada', icon: <CheckCircle2 className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'paid', 'Factura marcada como cobrada') })
+      if (r.status === 'issued' || r.status === 'sent') items.push({ label: 'Marcar cobrada', icon: <CheckCircle2 className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'paid', 'Factura marcada como cobrada · operación cerrada económicamente') })
       if (r.status !== 'paid' && r.status !== 'cancelled' && r.status !== 'void') items.push({ label: 'Anular factura', icon: <Ban className="h-3.5 w-3.5" />, onClick: () => listStatus(r.id, 'cancelled', 'Factura anulada') })
       items.push(accountingToggle())
     }
@@ -590,6 +598,7 @@ export default function FacturacionPage() {
         onHardDelete={editingId && currentTrashed ? () => askPermanentDelete(editingId, currentDisplay, currentStatus) : undefined}
         onDownload={currentHasPdf ? handleDownloadCurrent : undefined}
         onRegenerate={!currentTrashed && currentStatus !== 'draft' ? handleRegenerate : undefined}
+        onMarkPaid={!currentTrashed && (currentStatus === 'issued' || currentStatus === 'sent' || currentStatus === 'overdue') ? handleMarkPaidCurrent : undefined}
       />
 
       {/* Eliminación definitiva — doble confirmación (tratamiento contable + escribir ELIMINAR) */}

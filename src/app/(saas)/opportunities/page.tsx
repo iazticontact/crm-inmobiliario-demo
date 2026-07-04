@@ -39,6 +39,8 @@ import {
   Archive,
   ChevronRight,
   Search,
+  MoreVertical,
+  HelpCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -65,8 +67,11 @@ import { propertyMatchesFilters, sortPortfolio } from '@/lib/portfolio-filter'
 import { computeHonorarios } from '@/lib/invoicing/honorarios'
 import { loadInvoiceLinksForOpportunities, type OpportunityInvoiceLink } from '@/lib/invoicing/invoice-repo'
 import { INVOICE_STATUS_LABEL } from '@/lib/invoicing/types'
-import { billingStateFromInvoice } from '@/lib/invoicing/billing-state'
-import { resolveCommissionState, type ChipTone } from '@/lib/invoicing/commission-cta'
+import {
+  resolveCommissionState, summarizeCommissions, bucketInFilter,
+  COMMISSION_BUCKETS_ORDER, COMMISSION_BUCKET_LABEL, COMMISSION_BUCKET_DESCRIPTION, COMMISSION_BUCKET_STEP, COMMISSION_EMPTY_COPY,
+  type ChipTone, type CommissionFilter, type CommissionState,
+} from '@/lib/invoicing/commission-cta'
 import {
   PROPERTY_OPERATION_LABEL,
   PROPERTY_STATUS_META,
@@ -154,6 +159,20 @@ const ACTION_TONE_CLS: Record<ChipTone, string> = {
   indigo: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
   gray: 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
 }
+const CHIP_TONE_STRONG: Record<ChipTone, string> = {
+  amber: 'bg-amber-100 text-amber-800',
+  emerald: 'bg-emerald-100 text-emerald-800',
+  indigo: 'bg-indigo-100 text-indigo-800',
+  gray: 'bg-gray-100 text-gray-600',
+}
+// Pestañas/filtros de Comisiones (P46). «Por hacer» primero: responde «¿qué tengo que hacer ahora?».
+const COMMISSION_FILTER_TABS: Array<{ key: CommissionFilter; label: string }> = [
+  { key: 'todo', label: 'Por hacer' },
+  { key: 'facturadas', label: 'Facturadas' },
+  { key: 'cobradas', label: 'Cobradas' },
+  { key: 'potenciales', label: 'Potenciales' },
+  { key: 'todas', label: 'Todas' },
+]
 
 // Etapas terminales (cerradas): no cuentan como "operación abierta" ni suman valor potencial.
 const TERMINAL_STAGES = new Set(['won', 'lost', 'resolved', 'closed'])
@@ -227,8 +246,11 @@ export default function OpportunitiesPage() {
   const [propToDelete, setPropToDelete] = useState<PropertyRow | null>(null)
   const [propDeleteBlocked, setPropDeleteBlocked] = useState<{ property: PropertyRow; opsCount: number } | null>(null)
   const [deletingProp, setDeletingProp] = useState(false)
-  // Comisiones: por defecto solo operaciones cerradas (vendidas/alquiladas) con comisión.
-  const [showOpenCommissions, setShowOpenCommissions] = useState(false)
+  // Comisiones (P46): filtro por estado del ciclo económico. «Por hacer» primero.
+  const [commFilter, setCommFilter] = useState<CommissionFilter>('todo')
+  const [undoCollectOpp, setUndoCollectOpp] = useState<OpportunityRow | null>(null) // deshacer cobro interno (confirmación)
+  const [rowMenuOpp, setRowMenuOpp] = useState<string | null>(null)                 // menú «Más» abierto por fila
+  const [showCommGuide, setShowCommGuide] = useState(false)                         // «¿Cómo funciona?»
   // Registrar cobro de comisión (fecha + importe real opcional + nota opcional).
   const [collectOpp, setCollectOpp] = useState<OpportunityRow | null>(null)
   const [collectDate, setCollectDate] = useState('')
@@ -476,22 +498,31 @@ export default function OpportunitiesPage() {
   const portfolioListed = activeProperties.filter((p) => p.status === 'listed' || p.status === 'available').length
   const portfolioActiveValue = activeProperties.reduce((s, p) => s + (p.price ?? 0), 0)
 
-  // Módulo Comisiones: operaciones con comisión prevista calculable (control interno de cobros).
-  // Por defecto solo las cerradas (vendidas/alquiladas); el toggle suma también las abiertas.
-  const allCommissionRows = visibleOpportunities.filter((o) => commissionOf(o) != null)
-  const closedCommissionRows = allCommissionRows.filter((o) => commStateOf(o.stage) === 'won')
-  const commissionRows = showOpenCommissions ? allCommissionRows : closedCommissionRows
-  const openCommissionCount = allCommissionRows.length - closedCommissionRows.length
-  const commissionTotals = (() => {
-    let estimated = 0
-    let collected = 0
-    for (const o of commissionRows) {
-      const est = commissionOf(o) ?? 0
-      estimated += est
-      if (o.commission_status === 'cobrada') collected += o.commission_paid_amount ?? est
-    }
-    return { estimated, collected, pending: Math.max(0, estimated - collected) }
-  })()
+  // Módulo Comisiones (P46): control interno de honorarios por operación. Cada operación se clasifica en un
+  // BUCKET del ciclo económico (pendiente de facturar → facturada → cobrada / cobrada sin factura / potencial)
+  // vía `resolveCommissionState`, y se agrupa/filtra por ese estado. El estado es DERIVADO de la factura
+  // vinculada (invoiceLinks), sin sincronizaciones frágiles. El precio del inmueble nunca entra aquí.
+  type CommissionEntry = { o: OpportunityRow; honorarios: number; state: CommissionState }
+  const commissionEntries: CommissionEntry[] = visibleOpportunities
+    .filter((o) => commissionOf(o) != null)
+    .map((o) => ({
+      o,
+      honorarios: commissionOf(o) ?? 0,
+      state: resolveCommissionState({
+        closed: commStateOf(o.stage) === 'won',
+        commissionPaid: o.commission_status === 'cobrada',
+        hasInvoiceLink: !!invoiceLinks[o.id],
+        invoiceStatus: invoiceLinks[o.id]?.status ?? null,
+        invoicingEnabled: featureFlags.invoicing,
+        hasClient: !!o.client_id,
+      }),
+    }))
+  const commissionSummary = summarizeCommissions(commissionEntries.map((e) => ({ honorarios: e.honorarios, bucket: e.state.bucket })))
+  const filteredCommissionEntries = commissionEntries.filter((e) => bucketInFilter(e.state.bucket, commFilter))
+  // Filas visibles agrupadas por bucket, en orden de prioridad (lo que necesita acción, primero).
+  const commissionGroups = COMMISSION_BUCKETS_ORDER
+    .map((bucket) => ({ bucket, entries: filteredCommissionEntries.filter((e) => e.state.bucket === bucket) }))
+    .filter((g) => g.entries.length > 0)
 
   // Verticales realmente presentes en los datos del workspace. Una inmobiliaria normal
   // solo tiene `real_estate` → no se muestra el selector de verticales (UI mínima). El
@@ -695,7 +726,7 @@ export default function OpportunitiesPage() {
     if (!workspaceId) { toast.error('Sin workspace activo.'); return }
     const ok = await updateOpportunity(workspaceId, opp.id, { commissionStatus: 'pendiente', commissionPaidAt: null, commissionPaidAmount: null })
     if (!ok) { toast.error('No se pudo actualizar la comisión.'); void loadData(); return }
-    toast.success('Comisión marcada como pendiente')
+    toast.success('Cobro interno deshecho', { description: 'La comisión vuelve a estar pendiente. No modifica facturas emitidas.' })
   }
 
   // Abre el modal "Registrar cobro" con la comisión prevista y la fecha de hoy por defecto.
@@ -731,7 +762,7 @@ export default function OpportunitiesPage() {
     setCollectBusy(false)
     if (!ok) { toast.error('No se pudo registrar el cobro.'); void loadData(); return }
     setCollectOpp(null)
-    toast.success('Cobro de comisión registrado')
+    toast.success('Cobro interno registrado', { description: 'Falta crear la factura oficial para cerrar la operación.' })
   }
 
   function isDemo() {
@@ -1027,32 +1058,32 @@ export default function OpportunitiesPage() {
         ) : activeSubtab === 'commissions' ? (
           <>
             <KpiCard
-              icon={<Coins className="h-4 w-4 text-teal-600" />}
-              label="Comisión prevista"
-              value={commissionTotals.estimated > 0 ? formatCurrency(commissionTotals.estimated) : '—'}
-              detail="Estimación comercial"
-              tone="border-teal-100 bg-teal-50/40"
-            />
-            <KpiCard
-              icon={<Target className="h-4 w-4 text-amber-600" />}
-              label="Pendiente de cobro"
-              value={commissionTotals.pending > 0 ? formatCurrency(commissionTotals.pending) : '—'}
-              detail="Por registrar"
+              icon={<FileText className="h-4 w-4 text-amber-600" />}
+              label="Pendiente de facturar"
+              value={commissionSummary.pendingInvoice > 0 ? formatCurrency(commissionSummary.pendingInvoice) : '—'}
+              detail="Honorarios cerrados sin factura"
               tone="border-amber-100 bg-amber-50/40"
             />
             <KpiCard
+              icon={<Target className="h-4 w-4 text-indigo-600" />}
+              label="Facturado pendiente de cobro"
+              value={commissionSummary.billed > 0 ? formatCurrency(commissionSummary.billed) : '—'}
+              detail="Facturas emitidas no pagadas"
+              tone="border-indigo-100 bg-indigo-50/40"
+            />
+            <KpiCard
               icon={<Check className="h-4 w-4 text-emerald-600" />}
-              label="Cobrada"
-              value={commissionTotals.collected > 0 ? formatCurrency(commissionTotals.collected) : '—'}
-              detail="Registrada"
+              label="Cobrado"
+              value={commissionSummary.collected > 0 ? formatCurrency(commissionSummary.collected) : '—'}
+              detail="Facturas pagadas o cobros registrados"
               tone="border-emerald-100 bg-emerald-50/40"
             />
             <KpiCard
-              icon={<FileText className="h-4 w-4 text-indigo-600" />}
-              label="Operaciones cerradas"
-              value={String(closedCommissionRows.length)}
-              detail="Con comisión pactada"
-              tone="border-indigo-100 bg-indigo-50/40"
+              icon={<Sparkles className="h-4 w-4 text-sky-600" />}
+              label="Potencial abierto"
+              value={commissionSummary.potential > 0 ? formatCurrency(commissionSummary.potential) : '—'}
+              detail="Honorarios estimados no cerrados"
+              tone="border-sky-100 bg-sky-50/40"
             />
           </>
         ) : (
@@ -1496,122 +1527,148 @@ export default function OpportunitiesPage() {
         </SectionCard>
       )}
 
-      {/* COMISIONES — control interno (no facturación fiscal) */}
+      {/* COMISIONES — control interno (no facturación fiscal). P46: flujo por estados + guía contextual. */}
       {activeSubtab === 'commissions' && (
         <SectionCard
           title="Comisiones"
-          description="Control interno de honorarios por operación. Las facturas, IVA, PDF y vencimientos se gestionan en Facturación."
+          description="Control interno de honorarios por operación. Las facturas oficiales (IVA, PDF y cobro) se crean en Facturación."
           action={
-            <div className="flex items-center gap-3">
-              {(openCommissionCount > 0 || showOpenCommissions) && (
-                <button type="button" onClick={() => setShowOpenCommissions((v) => !v)} className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
-                  {showOpenCommissions ? 'Ver solo cerradas' : `Incluir abiertas (${openCommissionCount})`}
-                </button>
-              )}
-              <Badge variant={commissionRows.length ? 'indigo' : 'default'} dot>{commissionRows.length} {commissionRows.length === 1 ? 'operación' : 'operaciones'}</Badge>
-            </div>
+            <button type="button" onClick={() => setShowCommGuide(true)} className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
+              <HelpCircle className="h-3.5 w-3.5" /> ¿Cómo funciona?
+            </button>
           }
         >
+          {/* Qué falta por hacer — resumen humano (no obliga a interpretar KPIs) */}
+          {!loading && commissionEntries.length > 0 && (
+            <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+              <p className="text-[11px] font-semibold text-gray-700">Qué falta por hacer</p>
+              {commissionSummary.todoCount === 0 ? (
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-700"><Check className="h-3.5 w-3.5" /> Todo al día. No hay honorarios pendientes de facturar ni facturas pendientes de cobro.</p>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-600">
+                  {commissionSummary.pendingInvoiceCount > 0 && <span><b className="tabular-nums text-amber-700">{commissionSummary.pendingInvoiceCount}</b> pendiente{commissionSummary.pendingInvoiceCount === 1 ? '' : 's'} de facturar</span>}
+                  {commissionSummary.billedCount > 0 && <span><b className="tabular-nums text-indigo-700">{commissionSummary.billedCount}</b> factura{commissionSummary.billedCount === 1 ? '' : 's'} pendiente{commissionSummary.billedCount === 1 ? '' : 's'} de cobrar</span>}
+                  {commissionSummary.collectedNoInvoiceCount > 0 && <span><b className="tabular-nums text-emerald-700">{commissionSummary.collectedNoInvoiceCount}</b> cobro{commissionSummary.collectedNoInvoiceCount === 1 ? '' : 's'} interno{commissionSummary.collectedNoInvoiceCount === 1 ? '' : 's'} sin factura</span>}
+                  {commissionSummary.collectedCount > 0 && <span><b className="tabular-nums text-gray-500">{commissionSummary.collectedCount}</b> cerrada{commissionSummary.collectedCount === 1 ? '' : 's'} con factura</span>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Filtros por estado del ciclo */}
+          <div className="mb-3 flex gap-1 overflow-x-auto pb-0.5">
+            {COMMISSION_FILTER_TABS.map((tab) => {
+              const count = commissionEntries.filter((e) => bucketInFilter(e.state.bucket, tab.key)).length
+              const active = commFilter === tab.key
+              return (
+                <button key={tab.key} type="button" onClick={() => setCommFilter(tab.key)} className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors', active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                  {tab.label}
+                  <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-white/20 text-white' : 'bg-white text-gray-500')}>{count}</span>
+                </button>
+              )
+            })}
+          </div>
+
           {loading ? (
             <div className="space-y-2.5 py-2">{[0, 1, 2].map((s) => <div key={s} className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />)}</div>
-          ) : commissionRows.length === 0 ? (
+          ) : commissionEntries.length === 0 ? (
             <EmptyState
               icon={<Coins className="h-6 w-6 text-gray-300" />}
-              title={showOpenCommissions ? 'Sin comisiones que controlar' : 'Aún no hay operaciones cerradas con comisión'}
-              description={
-                showOpenCommissions
-                  ? 'Añade una «comisión pactada (%)» a tus operaciones para ver aquí la comisión prevista y su estado de cobro.'
-                  : 'Cuando marques una operación como Vendida o Alquilada con comisión pactada, aparecerá aquí para registrar el cobro. Usa «Incluir abiertas» para anticipar las que siguen en gestión.'
-              }
+              title="Aún no hay operaciones con comisión"
+              description="Añade una «comisión pactada (%)» a tus operaciones para controlar aquí los honorarios y su estado de facturación y cobro."
+            />
+          ) : commissionGroups.length === 0 ? (
+            <EmptyState
+              icon={<Coins className="h-6 w-6 text-gray-300" />}
+              title={COMMISSION_EMPTY_COPY[commFilter].title}
+              description={COMMISSION_EMPTY_COPY[commFilter].description}
             />
           ) : (
-            <ul className="space-y-2">
-              {commissionRows.map((o) => {
-                const est = commissionOf(o) ?? 0
-                const invLink = invoiceLinks[o.id]
-                const paid = o.commission_status === 'cobrada'
-                const propTitle = o.property_id ? propertiesById[o.property_id]?.title : ''
-                const kind = typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : ''
-                const kindLabel = kind ? (PROPERTY_OPERATION_LABEL[kind] ?? cap(kind)) : ''
-                const isClosed = commStateOf(o.stage) === 'won'
-                const realAmount = paid ? (o.commission_paid_amount ?? est) : null
-                const note = typeof o.metadata?.commission_note === 'string' ? o.metadata.commission_note : ''
-                // Matriz de estados (chip + acción) centralizada, con gating del extra Facturación.
-                const state = resolveCommissionState({
-                  closed: isClosed,
-                  commissionPaid: paid,
-                  hasInvoiceLink: !!invLink,
-                  invoiceStatus: invLink?.status ?? null,
-                  invoicingEnabled: featureFlags.invoicing,
-                  hasClient: !!o.client_id,
-                })
-                const act = state.action
-                const factUrl = `/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent('/opportunities?tab=commissions')}`
-                const amountSub = state.collectedByInvoice ? 'Cobrado con factura'
-                  : paid ? (realAmount != null && realAmount !== est ? `Prevista ${formatCurrency(est)}` : 'Comisión cobrada')
-                  : isClosed ? 'Comisión' : 'Comisión prevista'
-                const showHelper = act.helper && (act.kind === 'create_after_collect' || act.kind === 'requires_pro' || (act.kind === 'open_invoice' && act.billing === 'cancelled'))
-                return (
-                  <li key={o.id} className="rounded-xl border border-gray-100 bg-white p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
-                          {!isClosed && <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600">En gestión</span>}
-                        </div>
-                        <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, commissionBasisLabel(o)].filter(Boolean).join(' · ')}</p>
-                        {paid && note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
-                      </button>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-gray-900">{formatCurrency(paid ? (realAmount ?? est) : est)}</p>
-                          <p className="text-[10px] text-gray-400">{amountSub}</p>
-                        </div>
-                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', CHIP_TONE_CLS[state.chip.tone])}>{state.chip.label}</span>
-                        {(act.kind === 'create' || act.kind === 'create_after_collect') && (
-                          <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-50">
-                            <FileText className="h-3.5 w-3.5" /> {act.label}
-                          </Link>
-                        )}
-                        {act.kind === 'open_invoice' && (
-                          <Link href={factUrl} title={`${invLink?.display ?? 'Borrador'} · ${invLink ? INVOICE_STATUS_LABEL[invLink.status] : ''}`} className={cn('inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors', ACTION_TONE_CLS[state.chip.tone])}>
-                            <FileText className="h-3.5 w-3.5" /> {act.label}
-                          </Link>
-                        )}
-                        {act.kind === 'requires_pro' && (
-                          <span title={act.helper ?? undefined} className="inline-flex h-7 cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 text-[11px] font-medium text-gray-500">
-                            <FileText className="h-3.5 w-3.5" /> {act.label}
-                          </span>
-                        )}
-                        {!state.collectedByInvoice && (paid ? (
-                          <button type="button" onClick={() => void markCommissionPending(o)} title="Volver a marcar la comisión como pendiente" className="inline-flex h-7 items-center rounded-lg border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50">Marcar pendiente</button>
-                        ) : (
-                          <button type="button" onClick={() => openCollect(o)} title="Registrar el cobro de la comisión (control interno)" className="inline-flex h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100">Registrar cobro</button>
-                        ))}
-                      </div>
-                    </div>
-                    {showHelper && <p className="mt-1.5 pl-0.5 text-[10px] leading-snug text-gray-400">{act.helper}</p>}
-                  </li>
-                )
-              })}
-            </ul>
+            <div className="space-y-4">
+              {commissionGroups.map((group) => (
+                <div key={group.bucket}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{COMMISSION_BUCKET_LABEL[group.bucket]}</p>
+                    <span className="rounded-full bg-gray-100 px-1.5 text-[10px] font-semibold tabular-nums text-gray-500">{group.entries.length}</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {group.entries.map(({ o, honorarios, state }) => {
+                      const invLink = invoiceLinks[o.id]
+                      const act = state.action
+                      const bucket = state.bucket
+                      const step = COMMISSION_BUCKET_STEP[bucket]
+                      const propTitle = o.property_id ? propertiesById[o.property_id]?.title : ''
+                      const kind = typeof o.metadata?.operation_kind === 'string' ? o.metadata.operation_kind : ''
+                      const kindLabel = kind ? (PROPERTY_OPERATION_LABEL[kind] ?? cap(kind)) : ''
+                      const note = typeof o.metadata?.commission_note === 'string' ? o.metadata.commission_note : ''
+                      const paid = o.commission_status === 'cobrada'
+                      const amount = paid ? (o.commission_paid_amount ?? honorarios) : honorarios
+                      const closed = bucket === 'collected'
+                      const isPending = bucket === 'pending_invoice'
+                      const hasMenu = state.canUndoInternalCollect || isPending
+                      const factUrl = `/facturacion?fromOpportunity=${o.id}&returnTo=${encodeURIComponent('/opportunities?tab=commissions')}`
+                      return (
+                        <li key={o.id} className="rounded-xl border border-gray-100 bg-white p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <button type="button" onClick={() => setEditOpp(o)} className="min-w-0 flex-1 text-left" title="Abrir operación">
+                              <p className="truncate text-sm font-medium text-gray-900">{o.title}</p>
+                              <p className="truncate text-[11px] text-gray-500">{[clientNameOf(o.client_id), propTitle, kindLabel, commissionBasisLabel(o)].filter(Boolean).join(' · ')}</p>
+                              <p className="mt-0.5 text-[11px] leading-snug text-gray-400">{COMMISSION_BUCKET_DESCRIPTION[bucket]}</p>
+                              {note && <p className="truncate text-[10px] text-gray-400">Nota: {note}</p>}
+                            </button>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <p className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</p>
+                              <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', closed ? CHIP_TONE_STRONG.emerald : CHIP_TONE_CLS[state.chip.tone])}>{closed ? 'Cerrado · cobrado' : state.chip.label}</span>
+                              {step && <span className="text-[9px] font-medium uppercase tracking-wide text-gray-400">{step}</span>}
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-end gap-2 border-t border-gray-50 pt-2">
+                            {act.kind === 'none' && bucket === 'potential' && <span className="mr-auto text-[11px] text-gray-400">Aún no cerrada · sin acción de factura</span>}
+                            {(act.kind === 'create' || act.kind === 'create_after_collect') && (
+                              <Link href={factUrl} title={act.helper ?? undefined} className="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100">
+                                <FileText className="h-3.5 w-3.5" /> {act.label}
+                              </Link>
+                            )}
+                            {act.kind === 'open_invoice' && (
+                              <Link href={factUrl} title={`${invLink?.display ?? 'Borrador'} · ${invLink ? INVOICE_STATUS_LABEL[invLink.status] : ''}`} className={cn('inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors', ACTION_TONE_CLS[state.chip.tone])}>
+                                <FileText className="h-3.5 w-3.5" /> {act.label}
+                              </Link>
+                            )}
+                            {act.kind === 'requires_pro' && (
+                              <span title={act.helper ?? undefined} className="inline-flex h-7 cursor-default items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-[11px] font-medium text-gray-500">
+                                <FileText className="h-3.5 w-3.5" /> {act.label}
+                              </span>
+                            )}
+                            {hasMenu && (
+                              <div className="relative">
+                                <button type="button" onClick={() => setRowMenuOpp(rowMenuOpp === o.id ? null : o.id)} title="Más acciones" aria-label="Más acciones" className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50"><MoreVertical className="h-3.5 w-3.5" /></button>
+                                {rowMenuOpp === o.id && (
+                                  <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setRowMenuOpp(null)} />
+                                    <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
+                                      {isPending && (
+                                        <button type="button" onClick={() => { setRowMenuOpp(null); openCollect(o) }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-gray-700 hover:bg-gray-50"><Coins className="h-3.5 w-3.5 text-emerald-600" /> Registrar cobro interno</button>
+                                      )}
+                                      {state.canUndoInternalCollect && (
+                                        <button type="button" onClick={() => { setRowMenuOpp(null); setUndoCollectOpp(o) }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-red-600 hover:bg-red-50"><RefreshCcw className="h-3.5 w-3.5" /> Deshacer cobro interno</button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
-          {(() => {
-            const closed = commissionRows.filter((o) => commStateOf(o.stage) === 'won')
-            if (!closed.length) return null
-            const pend = closed.filter((o) => !invoiceLinks[o.id]).length
-            const fact = closed.filter((o) => { const l = invoiceLinks[o.id]; return l && billingStateFromInvoice(l.status) === 'billed' }).length
-            const cob = closed.filter((o) => { const l = invoiceLinks[o.id]; return l && billingStateFromInvoice(l.status) === 'collected' }).length
-            return (
-              <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                <span><b className="text-gray-700 tabular-nums">{pend}</b> pendiente{pend === 1 ? '' : 's'} de facturar</span>
-                <span><b className="text-indigo-600 tabular-nums">{fact}</b> facturada{fact === 1 ? '' : 's'} sin cobrar</span>
-                <span><b className="text-emerald-600 tabular-nums">{cob}</b> cobrada{cob === 1 ? '' : 's'}</span>
-              </p>
-            )
-          })()}
-          <p className="mt-2 text-[11px] leading-snug text-gray-400">
-            Comisiones = control interno de honorarios de operaciones. Una comisión puede estar <b className="font-medium text-gray-500">cobrada internamente</b> y aun así no tener factura vinculada. Cuando necesites una factura oficial (base, IVA, PDF y cobro), créala en <b className="font-medium text-gray-500">Facturación</b>.
+
+          <p className="mt-3 text-[11px] leading-snug text-gray-400">
+            <b className="font-medium text-gray-500">Comisiones</b> controla los honorarios de tus operaciones. Una comisión puede estar cobrada internamente y aun así necesitar factura oficial. Los documentos (factura, IVA, PDF y cobro) se crean en <b className="font-medium text-gray-500">Facturación</b>.
           </p>
         </SectionCard>
       )}
@@ -1863,8 +1920,8 @@ export default function OpportunitiesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => { if (!collectBusy) setCollectOpp(null) }} />
           <div className="relative w-full max-w-md rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold text-gray-900">Registrar cobro de comisión</h3>
-            <p className="mt-0.5 text-[12px] text-gray-500">Guarda el cobro interno de esta comisión. No genera factura.</p>
+            <h3 className="text-base font-semibold text-gray-900">Registrar cobro interno</h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">Guarda el cobro interno de esta comisión. No genera factura: para el documento oficial, créala en Facturación.</p>
             <div className="mt-3 truncate rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
               <span className="font-medium text-gray-800">{collectOpp.title}</span> · comisión prevista {formatCurrency(commissionOf(collectOpp) ?? 0)}
             </div>
@@ -1905,8 +1962,44 @@ export default function OpportunitiesPage() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" disabled={collectBusy} onClick={() => setCollectOpp(null)} className="inline-flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
-              <button type="button" disabled={collectBusy} onClick={() => void submitCommissionCollection()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"><Check className="h-4 w-4" /> {collectBusy ? 'Guardando…' : 'Registrar cobro'}</button>
+              <button type="button" disabled={collectBusy} onClick={() => void submitCommissionCollection()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"><Check className="h-4 w-4" /> {collectBusy ? 'Guardando…' : 'Registrar cobro interno'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deshacer cobro interno — confirmación breve (solo control interno, no toca facturas) */}
+      {undoCollectOpp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => setUndoCollectOpp(null)} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900">Deshacer cobro interno</h3>
+            <p className="mt-1 text-[12px] leading-snug text-gray-500">Esto solo cambia el control interno de comisiones. No modifica facturas emitidas. La comisión volverá a estar pendiente.</p>
+            <div className="mt-2 truncate rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600"><span className="font-medium text-gray-800">{undoCollectOpp.title}</span></div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setUndoCollectOpp(null)} className="inline-flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">Cancelar</button>
+              <button type="button" onClick={() => { const op = undoCollectOpp; setUndoCollectOpp(null); void markCommissionPending(op) }} className="inline-flex h-9 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"><RefreshCcw className="h-4 w-4" /> Deshacer cobro</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ¿Cómo funciona? — guía rápida del ciclo comisión → factura → cobro */}
+      {showCommGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-gray-950/40 backdrop-blur-[1px]" onClick={() => setShowCommGuide(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <h3 className="text-base font-semibold text-gray-900">¿Cómo funciona?</h3>
+              <button type="button" onClick={() => setShowCommGuide(false)} aria-label="Cerrar" className="shrink-0 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"><X className="h-4 w-4" /></button>
+            </div>
+            <ol className="space-y-2 text-[13px] text-gray-700">
+              <li className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">1</span> Cierra una operación y calcula sus honorarios (comisión pactada).</li>
+              <li className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">2</span> Crea la factura de honorarios desde la operación.</li>
+              <li className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">3</span> Emítela: se genera el PDF y queda pendiente de cobro.</li>
+              <li className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">4</span> Márcala como cobrada en Facturación cuando recibas el pago.</li>
+            </ol>
+            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-800">El IVA se aplica sobre tus honorarios, no sobre el precio del inmueble.</p>
           </div>
         </div>
       )}
