@@ -43,6 +43,30 @@ Emite una factura → PDF → "Marcar cobrada" (mensaje "operación cerrada econ
 - `¿Cuánto he facturado este mes?` → remite a Facturación (el Asistente **no** lee facturas).
 - Documentos: el Asistente solo da **metadata** (nombre/tipo/fecha), nunca contenido.
 
+## Flujo 9 — Asistente robusto por categorías (P48)
+> El Asistente debe entender muchas formas de pedir lo mismo, mantener el hilo y no contradecirse.
+
+**Clientes**
+- Listar: `clientes`, `¿qué clientes tengo?`, `muéstrame mis clientes`, `¿cuántos clientes hay?` → misma respuesta.
+- Buscar: `busca el cliente Javier` → lo encuentra.
+- Confirmar: tras listar, `¿seguro?` / `confírmame` → confirma el resultado anterior (no lo sustituye por un error).
+
+**Inmuebles**
+- Listar: `¿qué pisos hay en cartera?`; filtrar por zona: `¿y el de Malasaña?` (mantiene el tema).
+- Características: `¿pisos con 3 habs, 2 baños y más de 80 m²?`; pedir alternativas si no hay exactos.
+
+**Operaciones / citas / tareas**
+- `mis operaciones abiertas`, `próximas citas`, `tareas pendientes` → responden con datos reales (local-first, sin depender de n8n).
+
+**Comisiones**
+- `¿cuánto he comisionado?` → remite a Cartera → Comisiones (control interno).
+
+**Facturación**
+- `¿cuánto he facturado?` / `facturas pendientes` → el Asistente **redirige** al módulo Facturación (no lee facturas).
+
+**Ambigüedad**
+- Una frase vaga (`y eso?` sin contexto) → pide aclaración (`¿clientes, inmuebles, operaciones o citas?`), nunca un error genérico.
+
 ## Señales de fallo (reportar)
 - El Asistente dice "no puedo acceder a los clientes/cartera" con datos existentes.
 - "Y el de Malasaña?" no filtra o pierde el contexto.

@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
     // tengo?" o "¿qué pisos hay en cartera?" nunca fallan aunque el cerebro n8n esté caído/mal configurado.
     // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.
     const recentContext = recentMessages.map((m) => m.content).join(' \n ')
-    const local = await tryLocalAnswer(supabase, workspaceId, message, recentContext)
+    const local = await tryLocalAnswer(supabase, workspaceId, message, { recentContext, lastResults: context.lastResults })
       .catch(() => ({ handled: false as const }))
     if (local.handled) {
       logInvoke({
@@ -362,7 +362,7 @@ export async function POST(req: NextRequest) {
         agentErrorCode: null,
         hasPreparedAction: false,
         preparedActionType: null,
-        source: 'local_reader',
+        source: `local_reader:${local.entity}`,
         toolCalls: [local.usedTool],
         durationMs: Date.now() - start,
       })
@@ -375,9 +375,10 @@ export async function POST(req: NextRequest) {
         toolCalls: [local.usedTool],
         referencedClientId: null,
         referencedClientName: null,
-        referencedList: null,
+        // Lista estructurada para el contexto conversacional (ordinales / seguimientos). Sin IDs sensibles.
+        referencedList: local.referencedList ?? null,
         referencedCalendarList: null,
-        dataPreview: null,
+        dataPreview: local.referencedList ?? null,
         preparedAction: null,
       })
     }
