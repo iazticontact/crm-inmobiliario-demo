@@ -1133,6 +1133,8 @@ export async function searchProperties(
   if (num(o.maxPrice) != null) explicit.maxPrice = num(o.maxPrice)
   if (num(o.bedrooms) != null) explicit.bedrooms = num(o.bedrooms)
   if (num(o.bathrooms) != null) explicit.bathrooms = num(o.bathrooms)
+  if (num(o.minArea) != null) explicit.minArea = num(o.minArea)
+  if (num(o.maxArea) != null) explicit.maxArea = num(o.maxArea)
 
   const criteria = buildCriteriaFromText(query, explicit)
   const localityTokens = [asString(o.locality), asString(o.area), asString(o.city)]
@@ -1201,6 +1203,8 @@ export async function searchProperties(
       maxPrice: criteria.maxPrice ?? null,
       bedrooms: criteria.bedrooms ?? null,
       bathrooms: criteria.bathrooms ?? null,
+      minArea: criteria.minArea ?? null,
+      maxArea: criteria.maxArea ?? null,
     },
     availabilityMode: availability,
     warnings,

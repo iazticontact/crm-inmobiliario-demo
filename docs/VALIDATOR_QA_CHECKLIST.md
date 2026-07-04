@@ -74,6 +74,14 @@
 - [ ] El **editor de factura** alterna «Editar / Vista previa».
 - [ ] La **descarga del PDF** funciona.
 
+## 8. Asistente e inmueble móvil (P47)
+- [ ] Asistente: **«¿Qué clientes tengo?»** → lista clientes con nombre y contacto (nunca "no puedo acceder").
+- [ ] Asistente: **«Dime qué pisos tenemos en cartera»** → lista con precio, zona, operación, m²/habs/baños.
+- [ ] Asistente: **«Y el de Malasaña?»** → mantiene contexto y muestra el de Avenida San Pedro 66.
+- [ ] Asistente: **«3 habs, 2 baños y más de 80 m²»** → filtra bien (no lo interpreta como precio).
+- [ ] Inmueble en móvil: al **editar** se ven **Superficie (m²) · Habitaciones · Baños**; el teclado es numérico y **no hace zoom** al enfocar; se guardan.
+- **No debería pasar:** que diga que no hay clientes/cartera habiendo datos; que "más de 80 m²" no filtre; que falten m²/habs/baños al editar.
+
 ---
 
 ## Cómo reportar un fallo

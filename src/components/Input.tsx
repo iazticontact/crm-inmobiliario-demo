@@ -24,7 +24,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             className={cn(
-              'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors',
+              // text-base (16px) en móvil evita el auto-zoom de iOS Safari al enfocar; text-sm en ≥sm mantiene densidad de escritorio (P47).
+              'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-base sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors',
               leftIcon && 'pl-9',
               rightIcon && 'pr-9',
               error && 'border-red-500 focus:ring-red-500',

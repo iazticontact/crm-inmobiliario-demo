@@ -49,12 +49,22 @@ function isDemoMode() {
 }
 
 const SELECT_CLS =
-  'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
+  'h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-base sm:text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
 
 const TEXTAREA_CLS =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
+  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-base sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors'
 
 const FIELD_LABEL_CLS = 'text-sm font-medium text-gray-700'
+
+// Parseo seguro de m²/habitaciones/baños (vacío o inválido → null; no negativos). Preserva 0 explícito.
+function toNonNegNumber(s: string): number | null {
+  const v = Number(s)
+  return s.trim() !== '' && Number.isFinite(v) && v >= 0 ? v : null
+}
+function toNonNegInt(s: string): number | null {
+  const v = Math.trunc(Number(s))
+  return s.trim() !== '' && Number.isFinite(v) && v >= 0 ? v : null
+}
 
 const PRIORITY_OPTIONS = [
   { id: 'low', label: 'Baja' },
@@ -452,6 +462,9 @@ function EditPropertyInner({
   const [area, setArea] = useState(() => property.area ?? '')
   const areaInputRef = useRef<HTMLInputElement>(null)
   const [price, setPrice] = useState(() => (property.price != null ? String(property.price) : ''))
+  const [areaM2, setAreaM2] = useState(() => (property.area_m2 != null ? String(property.area_m2) : ''))
+  const [bedrooms, setBedrooms] = useState(() => (property.bedrooms != null ? String(property.bedrooms) : ''))
+  const [bathrooms, setBathrooms] = useState(() => (property.bathrooms != null ? String(property.bathrooms) : ''))
   const [ownerName, setOwnerName] = useState(() => property.owner_name ?? '')
   const [ownerPhone, setOwnerPhone] = useState(() => property.owner_phone ?? '')
   const [clientId, setClientId] = useState<string | null>(() => property.client_id ?? null)
@@ -481,6 +494,9 @@ function EditPropertyInner({
         city: normalizeLocationForSave(city) || null,
         area: normalizeLocationForSave(area) || null,
         price: price === '' ? null : Number(price) || null,
+        bedrooms: toNonNegInt(bedrooms),
+        bathrooms: toNonNegInt(bathrooms),
+        areaM2: toNonNegNumber(areaM2),
         ownerName: ownerName.trim() || null,
         ownerPhone: ownerPhone.trim() || null,
         clientId,
@@ -578,7 +594,15 @@ function EditPropertyInner({
             helperText={!city.trim() ? 'Escribe primero la localidad para ver barrios sugeridos.' : undefined}
           />
         </div>
-        <Input label="Precio (€)" type="number" min="0" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value)} />
+        <Input label="Precio (€)" type="number" min="0" inputMode="decimal" placeholder="Opcional" value={price} onChange={(e) => setPrice(e.target.value)} />
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Características</p>
+          <div className="grid grid-cols-3 gap-3">
+            <Input label="Superficie (m²)" type="number" min="0" inputMode="numeric" placeholder="Opcional" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} />
+            <Input label="Habitaciones" type="number" min="0" inputMode="numeric" placeholder="Opcional" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
+            <Input label="Baños" type="number" min="0" inputMode="numeric" placeholder="Opcional" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Propietario / contacto" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
           <Input label="Teléfono" value={ownerPhone} onChange={(e) => setOwnerPhone(e.target.value)} />

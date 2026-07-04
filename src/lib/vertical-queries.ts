@@ -562,6 +562,9 @@ export type UpdatePropertyInput = {
   city?: string | null
   area?: string | null
   price?: number | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  areaM2?: number | null
   ownerName?: string | null
   ownerPhone?: string | null
   clientId?: string | null
@@ -580,6 +583,9 @@ export async function updateProperty(workspaceId: string, id: string, input: Upd
   if (input.city !== undefined) patch.city = input.city
   if (input.area !== undefined) patch.area = input.area
   if (input.price !== undefined) patch.price = input.price
+  if (input.bedrooms !== undefined) patch.bedrooms = input.bedrooms
+  if (input.bathrooms !== undefined) patch.bathrooms = input.bathrooms
+  if (input.areaM2 !== undefined) patch.area_m2 = input.areaM2
   if (input.ownerName !== undefined) patch.owner_name = input.ownerName
   if (input.ownerPhone !== undefined) patch.owner_phone = input.ownerPhone
   if (input.clientId !== undefined) patch.client_id = input.clientId

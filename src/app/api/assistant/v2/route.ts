@@ -6,6 +6,7 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
+import { tryLocalAnswer } from '@/lib/agents/local-answers'
 import { checkAssistantInput, checkRateLimit, truncateHistory, ASSISTANT_BLOCK_MESSAGES, detectCrisis, CRISIS_RESPONSE } from '@/lib/assistant-guard'
 
 export type AssistantErrorCode =
@@ -342,6 +343,43 @@ export async function POST(req: NextRequest) {
         // Control de payload/tokens: pocos mensajes, recortados, omitiendo basura gigante/bloqueada.
         recentMessages = truncateHistory(ordered)
       }
+    }
+
+    // P47 — LOCAL-FIRST para consultas básicas de lectura (clientes / inmuebles / cartera). Responde
+    // directamente con la sesión RLS del usuario, SIN depender de n8n ni de OpenAI. Así "¿qué clientes
+    // tengo?" o "¿qué pisos hay en cartera?" nunca fallan aunque el cerebro n8n esté caído/mal configurado.
+    // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.
+    const recentContext = recentMessages.map((m) => m.content).join(' \n ')
+    const local = await tryLocalAnswer(supabase, workspaceId, message, recentContext)
+      .catch(() => ({ handled: false as const }))
+    if (local.handled) {
+      logInvoke({
+        event: 'assistant.v2.invoke',
+        workspaceResolved: true,
+        openAiConfigured,
+        model: 'local:reader',
+        errorCode: null,
+        agentErrorCode: null,
+        hasPreparedAction: false,
+        preparedActionType: null,
+        source: 'local_reader',
+        toolCalls: [local.usedTool],
+        durationMs: Date.now() - start,
+      })
+      return NextResponse.json({
+        ok: true,
+        answer: local.answer,
+        debugSource: 'local_reader',
+        mode: 'local',
+        errorCode: null,
+        toolCalls: [local.usedTool],
+        referencedClientId: null,
+        referencedClientName: null,
+        referencedList: null,
+        referencedCalendarList: null,
+        dataPreview: null,
+        preparedAction: null,
+      })
     }
 
     const requestId = globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}`

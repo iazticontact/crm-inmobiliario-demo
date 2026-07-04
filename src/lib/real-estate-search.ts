@@ -79,8 +79,15 @@ function toNumberEs(raw: string): number | null {
   const v = Number(s)
   return Number.isFinite(v) ? v : null
 }
+// Elimina expresiones de superficie ("80 m²", "80 m2", "80 metros") ANTES de leer presupuesto: sin esto,
+// "más de 80 m²" se interpretaba como "más de 80 millones" (la `m` de `m²` se comía como sufijo de millón).
+const AREA_UNIT = '(?:m2|m²|mts?|metros?(?:\\s+cuadrados)?)'
+function stripAreaExpressions(n: string): string {
+  return n.replace(new RegExp(`\\d[\\d.,\\s]*\\s*${AREA_UNIT}`, 'g'), ' ')
+}
+
 export function parseBudget(text: unknown): BudgetParse {
-  const n = foldText(text)
+  const n = stripAreaExpressions(foldText(text))
   const monthly = /(\/mes|al mes|mensual|mensualidad|alquiler|renta)/.test(n)
   const scale = (numStr: string, kSuffix: string | undefined) => {
     const base = toNumberEs(numStr)
@@ -92,19 +99,19 @@ export function parseBudget(text: unknown): BudgetParse {
   const num = '(\\d{1,3}(?:[.\\s]\\d{3})*(?:[.,]\\d+)?|\\d+(?:[.,]\\d+)?)'
   let minPrice: number | null = null
   let maxPrice: number | null = null
-  const between = n.match(new RegExp(`\\bentre\\s+${num}\\s*(k|mil|m|millones?)?\\s*(?:y|a|-)\\s*${num}\\s*(k|mil|m|millones?)?`))
+  const between = n.match(new RegExp(`\\bentre\\s+${num}\\s*(k|mil|millones?)?\\s*(?:y|a|-)\\s*${num}\\s*(k|mil|millones?)?`))
   if (between) {
     // El sufijo (mil/k/millón) puede aparecer solo en un extremo y aplica a ambos: "entre 200 y 250 mil".
     minPrice = scale(between[1], between[2] ?? between[4])
     maxPrice = scale(between[3], between[4] ?? between[2])
   } else {
-    const max = n.match(new RegExp(`(?:hasta|maximo|max|menos de|por debajo de|no mas de)\\s+${num}\\s*(k|mil|m|millones?)?`))
+    const max = n.match(new RegExp(`(?:hasta|maximo|max|menos de|por debajo de|no mas de)\\s+${num}\\s*(k|mil|millones?)?`))
     if (max) maxPrice = scale(max[1], max[2])
-    const min = n.match(new RegExp(`(?:desde|minimo|min|mas de|por encima de|a partir de)\\s+${num}\\s*(k|mil|m|millones?)?`))
+    const min = n.match(new RegExp(`(?:desde|minimo|min|mas de|por encima de|a partir de)\\s+${num}\\s*(k|mil|millones?)?`))
     if (min) minPrice = scale(min[1], min[2])
     if (!max && !min) {
       // Una sola cifra + señal de presupuesto → techo aproximado.
-      const one = n.match(new RegExp(`(?:presupuesto|sobre|unos|en torno a|budget|precio)\\s+${num}\\s*(k|mil|m|millones?)?`))
+      const one = n.match(new RegExp(`(?:presupuesto|sobre|unos|en torno a|budget|precio)\\s+${num}\\s*(k|mil|millones?)?`))
       if (one) maxPrice = scale(one[1], one[2])
     }
   }
@@ -122,6 +129,30 @@ export function parseRooms(text: unknown): { bedrooms: number | null; bathrooms:
   }
 }
 
+// ── Superficie / m² ("más de 80 m²", "80 metros", "hasta 100 m2", "entre 80 y 120 m²") ─────────
+export function parseArea(text: unknown): { minArea: number | null; maxArea: number | null } {
+  const n = foldText(text)
+  const numA = '(\\d{2,4})'
+  let minArea: number | null = null
+  let maxArea: number | null = null
+  const between = n.match(new RegExp(`entre\\s+${numA}\\s*(?:${AREA_UNIT})?\\s*(?:y|a|-)\\s*${numA}\\s*${AREA_UNIT}`))
+  if (between) {
+    minArea = Number(between[1]); maxArea = Number(between[2])
+  } else {
+    const min = n.match(new RegExp(`(?:mas de|desde|minimo|min|por encima de|a partir de|\\+)\\s*${numA}\\s*${AREA_UNIT}`))
+    if (min) minArea = Number(min[1])
+    const max = n.match(new RegExp(`(?:hasta|maximo|max|menos de|por debajo de|no mas de)\\s*${numA}\\s*${AREA_UNIT}`))
+    if (max) maxArea = Number(max[1])
+    // "80 m²" a secas (sin comparador) → umbral mínimo aproximado (al menos 80).
+    if (minArea == null && maxArea == null) {
+      const plain = n.match(new RegExp(`${numA}\\s*${AREA_UNIT}`))
+      if (plain) minArea = Number(plain[1])
+    }
+  }
+  const ok = (v: number | null) => (v != null && Number.isFinite(v) && v > 0 && v < 100000 ? v : null)
+  return { minArea: ok(minArea), maxArea: ok(maxArea) }
+}
+
 // ── Criterios estructurados a partir de texto libre + parámetros explícitos ──
 export type PropertyCriteria = {
   text?: string
@@ -133,6 +164,8 @@ export type PropertyCriteria = {
   maxPrice?: number | null
   bedrooms?: number | null
   bathrooms?: number | null
+  minArea?: number | null
+  maxArea?: number | null
   availability?: AvailabilityMode
 }
 
@@ -156,9 +189,10 @@ const STOPWORDS = new Set([
   // verbos de intención (no son ubicación; la operación la infiere normalizeOperation)
   'invertir', 'inversion', 'inversiones', 'vender', 'comprar', 'valorar', 'valoracion', 'visitar', 'ensenar',
   'traspaso', 'captacion', 'reservar',
-  // atributos del inmueble (no son ubicación; el nº ya lo extrae parseRooms/parseBudget)
-  'habitacion', 'habitaciones', 'hab', 'dormitorio', 'dormitorios', 'dorm', 'bano', 'banos', 'aseo', 'aseos',
-  'metro', 'metros', 'superficie', 'planta', 'plantas', 'garaje', 'parking', 'ascensor', 'terraza', 'balcon',
+  // atributos del inmueble (no son ubicación; el nº ya lo extrae parseRooms/parseBudget/parseArea)
+  'habitacion', 'habitaciones', 'hab', 'habs', 'dormitorio', 'dormitorios', 'dorm', 'dorms', 'bano', 'banos', 'aseo', 'aseos',
+  'metro', 'metros', 'metro2', 'metros2', 'mts', 'cuadrado', 'cuadrados',
+  'superficie', 'planta', 'plantas', 'garaje', 'parking', 'ascensor', 'terraza', 'balcon',
   'piscina', 'jardin', 'trastero', 'exterior', 'interior', 'reformado', 'amueblado', 'luminoso', 'nuevo', 'obra',
 ])
 
@@ -167,13 +201,17 @@ export function buildCriteriaFromText(text: unknown, explicit: Partial<PropertyC
   const typeM = normalizePropertyType(raw)
   const budget = parseBudget(raw)
   const rooms = parseRooms(raw)
+  const areaP = parseArea(raw)
   const n = foldText(raw)
   // Tokens de ubicación: palabras "significativas" que no son taxonomía/stopwords ni números.
   const taxoWords = new Set([...Object.keys(TYPE_SYNONYMS), ...GENERIC_TYPE_TERMS, 'venta', 'compra', 'comprar', 'alquiler', 'alquilar'])
+  // Reconoce también plurales de la taxonomía ("pisos"→piso, "locales"→local) para que NO se cuelen
+  // como token de ubicación (degradaba todo a parcial: falso negativo).
+  const isTaxo = (w: string) => taxoWords.has(w) || taxoWords.has(w.replace(/s$/, '')) || taxoWords.has(w.replace(/es$/, ''))
   const locationTokens = n
     .replace(/[.,;:()€]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !taxoWords.has(w) && !/\d/.test(w))
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !isTaxo(w) && !/\d/.test(w))
   return {
     text: raw,
     types: explicit.types ?? typeM.canonical,
@@ -184,6 +222,8 @@ export function buildCriteriaFromText(text: unknown, explicit: Partial<PropertyC
     maxPrice: explicit.maxPrice ?? budget.maxPrice,
     bedrooms: explicit.bedrooms ?? rooms.bedrooms,
     bathrooms: explicit.bathrooms ?? rooms.bathrooms,
+    minArea: explicit.minArea ?? areaP.minArea,
+    maxArea: explicit.maxArea ?? areaP.maxArea,
     availability: explicit.availability ?? 'available',
   }
 }
@@ -255,6 +295,19 @@ export function scoreProperty(p: ScorableProperty, c: PropertyCriteria): Propert
     if (p.bathrooms >= c.bathrooms) { score += 1; reasons.push('baños encajan') } else exact = false
   }
 
+  // Superficie (m²)
+  if (typeof p.area_m2 === 'number') {
+    if (c.minArea != null) {
+      if (p.area_m2 >= c.minArea) { score += 2; reasons.push('superficie encaja') }
+      else if (p.area_m2 >= c.minArea * 0.9) { score += 0.5; exact = false; reasons.push('superficie algo menor') }
+      else exact = false
+    }
+    if (c.maxArea != null && p.area_m2 > c.maxArea) exact = false
+  } else if (c.minArea != null || c.maxArea != null) {
+    // Se pidió filtro de m² pero el inmueble no tiene superficie registrada → no puede ser exacto.
+    exact = false
+  }
+
   // Coincidencia en NOTAS (condiciones/precio/observaciones) — señal, citable como "según las notas".
   if (c.locationTokens && c.locationTokens.length && typeof p.notes === 'string') {
     const notesFold = foldText(p.notes)
@@ -279,7 +332,8 @@ export function rankProperties<T extends ScorableProperty>(rows: T[], c: Propert
   let excludedCount = 0
   const hasCriteria = Boolean(
     (c.types && c.types.length) || c.operation || (c.locationTokens && c.locationTokens.length) ||
-    c.maxPrice != null || c.minPrice != null || c.bedrooms != null || c.bathrooms != null,
+    c.maxPrice != null || c.minPrice != null || c.bedrooms != null || c.bathrooms != null ||
+    c.minArea != null || c.maxArea != null,
   )
   for (const item of rows) {
     const s = scoreProperty(item, c)

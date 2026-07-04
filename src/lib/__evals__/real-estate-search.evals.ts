@@ -5,7 +5,7 @@
 
 import {
   normalizePropertyType, normalizeOperation, isPropertyClosed, availabilityAllows,
-  parseBudget, parseRooms, buildCriteriaFromText, rankProperties, type ScorableProperty,
+  parseBudget, parseRooms, parseArea, buildCriteriaFromText, rankProperties, type ScorableProperty,
 } from '@/lib/real-estate-search'
 import { detectAssistantIntent } from '@/lib/ai'
 
@@ -47,6 +47,28 @@ export function runRealEstateSearchEvals(): string[] {
   // 5) Habitaciones/baños
   ok(parseRooms('piso de 3 habitaciones y 2 baños').bedrooms === 3, '3 hab')
   ok(parseRooms('piso de 3 habitaciones y 2 baños').bathrooms === 2, '2 baños')
+  ok(parseRooms('3 habs 2 baños').bedrooms === 3 && parseRooms('3 habs 2 baños').bathrooms === 2, '3 habs / 2 baños abreviado')
+  ok(parseRooms('3 dormitorios').bedrooms === 3, '3 dormitorios')
+
+  // 5.5) Superficie m² (P47) + regresión del bug: "más de 80 m²" NO debe leerse como precio (80 millones)
+  ok(parseArea('más de 80 m²').minArea === 80, 'más de 80 m² → minArea 80')
+  ok(parseArea('80 m2').minArea === 80, '80 m2 → minArea 80')
+  ok(parseArea('hasta 100 metros').maxArea === 100, 'hasta 100 metros → maxArea 100')
+  ok(parseArea('entre 80 y 120 m²').minArea === 80 && parseArea('entre 80 y 120 m²').maxArea === 120, 'entre 80 y 120 m²')
+  ok(parseArea('un piso barato').minArea === null && parseArea('un piso barato').maxArea === null, 'sin m² → null')
+  // El bug: la "m" de "m²" se comía como sufijo de millón → maxPrice/minPrice gigante. Ahora NO.
+  ok(parseBudget('más de 80 m²').minPrice === null && parseBudget('más de 80 m²').maxPrice === null, 'más de 80 m² NO es precio')
+  ok(parseBudget('hasta 315.000 y 80 m²').maxPrice === 315000, 'precio real convive con m²')
+  const cArea = buildCriteriaFromText('pisos con 3 habs, 2 baños y más de 80 m²')
+  ok(cArea.bedrooms === 3 && cArea.bathrooms === 2 && cArea.minArea === 80 && cArea.maxPrice === null && cArea.minPrice === null, 'criterio combinado hab/baño/m² sin precio fantasma')
+  // Ranking por m²: un piso de 110 m² encaja "+80 m²"; uno de 60 m² no es exacto
+  const areaStock: ScorableProperty[] = [
+    P({ title: 'Piso 110', property_type: 'piso', operation_type: 'venta', status: 'listed', area_m2: 110, bedrooms: 3, bathrooms: 2 }),
+    P({ title: 'Piso 60', property_type: 'piso', operation_type: 'venta', status: 'listed', area_m2: 60, bedrooms: 2, bathrooms: 1 }),
+  ]
+  const rArea = rankProperties(areaStock, cArea)
+  ok(rArea.exact.some((x) => x.item.title === 'Piso 110'), '110 m²/3/2 = exacto')
+  ok(!rArea.exact.some((x) => x.item.title === 'Piso 60'), '60 m²/2/1 no es exacto')
 
   // 6) Ranking: exactos vs parciales, sin falsos negativos, cerrados excluidos
   const stock: ScorableProperty[] = [
