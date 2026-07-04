@@ -16,6 +16,7 @@ import {
 import { classifyIntent, type CrmEntity } from './intent'
 import { readFailedCodeFor, humanError } from './assistant-errors'
 import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, type PriorRead } from './context-policy'
+import { classifyPragmatics, howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -258,6 +259,24 @@ export async function tryLocalAnswer(
   opts: { recentContext?: string; lastResults?: unknown[] } = {},
 ): Promise<LocalAnswer> {
   const recentContext = opts.recentContext ?? ''
+
+  // ── P49: PRIMERO el acto comunicativo (pragmática), DESPUÉS la entidad ──
+  // Mencionar una entidad NO basta para leer datos. Si el usuario pregunta una capacidad, cómo funciona
+  // algo, habla de una acción futura, saluda o pide ayuda, respondemos SIN ejecutar ninguna lectura.
+  const prag = classifyPragmatics(message)
+  const topicEntity = classifyIntent(message).entity
+  switch (prag.speechAct) {
+    case 'greeting': return { handled: true, usedTool: 'local_pragmatics', entity: 'help', answer: greetingAnswer() }
+    case 'smalltalk': return { handled: true, usedTool: 'local_pragmatics', entity: 'help', answer: smalltalkAnswer() }
+    case 'help_request': return helpAnswer()
+    case 'how_it_works_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
+    case 'capability_question':
+    case 'permission_or_can_you_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: capabilityAnswer(topicEntity) }
+    case 'hypothetical_future_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: futureAnswer(topicEntity) }
+    case 'data_write_request': return { handled: false } // escritura → cerebro general / fallback determinista
+    default: break // data_read / confirmation / correction / follow_up / ambiguous → enrutado de datos
+  }
+
   const priorEntity = recentContext ? classifyIntent(recentContext).entity : undefined
   const intent = classifyIntent(message, { priorEntity })
 

@@ -67,6 +67,17 @@ Emite una factura → PDF → "Marcar cobrada" (mensaje "operación cerrada econ
 **Ambigüedad**
 - Una frase vaga (`y eso?` sin contexto) → pide aclaración (`¿clientes, inmuebles, operaciones o citas?`), nunca un error genérico.
 
+## Flujo 10 — Preguntas sobre capacidades y funcionamiento (P49)
+> El Asistente debe distinguir entre **preguntar** y **pedir datos**. Mencionar una entidad no debe disparar un listado.
+
+- **Capacidad**: `¿tienes acceso a los clientes?`, `¿puedes acceder a los trámites?`, `¿qué puedes hacer?` → explica qué puede/no puede, **sin** listar datos.
+- **Cómo funciona**: `¿cómo funciona la cartera?`, `¿para qué sirve el módulo de comisiones?` → explica el módulo, **sin** consultar datos.
+- **Futuro**: `si creo un cliente nuevo, ¿podrás verlo?` → responde condicional (“en cuanto quede guardado…”), **sin** leer nada ahora.
+- **Facturación**: `¿puedes leer las facturas?` → redirige al módulo Facturación (no lee facturas).
+- **Contraste (sí lee)**: `muéstrame los clientes`, `¿qué inmuebles hay?`, `¿puedes mostrarme las citas?` → devuelven datos reales.
+
+**No debería pasar:** que una pregunta de capacidad/funcionamiento/futuro conteste con una lista mecánica o un “no puedo acceder”.
+
 ## Señales de fallo (reportar)
 - El Asistente dice "no puedo acceder a los clientes/cartera" con datos existentes.
 - "Y el de Malasaña?" no filtra o pierde el contexto.
