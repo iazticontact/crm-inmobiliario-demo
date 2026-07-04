@@ -16,7 +16,8 @@ import {
 import { classifyIntent, type CrmEntity } from './intent'
 import { readFailedCodeFor, humanError } from './assistant-errors'
 import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, type PriorRead } from './context-policy'
-import { classifyPragmatics, howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
+import { howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
+import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer } from './assistant-turn'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -260,42 +261,48 @@ export async function tryLocalAnswer(
 ): Promise<LocalAnswer> {
   const recentContext = opts.recentContext ?? ''
 
-  // ── P49: PRIMERO el acto comunicativo (pragmática), DESPUÉS la entidad ──
-  // Mencionar una entidad NO basta para leer datos. Si el usuario pregunta una capacidad, cómo funciona
-  // algo, habla de una acción futura, saluda o pide ayuda, respondemos SIN ejecutar ninguna lectura.
-  const prag = classifyPragmatics(message)
-  const topicEntity = classifyIntent(message).entity
-  switch (prag.speechAct) {
-    case 'greeting': return { handled: true, usedTool: 'local_pragmatics', entity: 'help', answer: greetingAnswer() }
-    case 'smalltalk': return { handled: true, usedTool: 'local_pragmatics', entity: 'help', answer: smalltalkAnswer() }
-    case 'help_request': return helpAnswer()
-    case 'how_it_works_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
-    case 'capability_question':
-    case 'permission_or_can_you_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: capabilityAnswer(topicEntity) }
-    case 'hypothetical_future_question': return { handled: true, usedTool: 'local_pragmatics', entity: topicEntity, answer: futureAnswer(topicEntity) }
-    case 'data_write_request': return { handled: false } // escritura → cerebro general / fallback determinista
-    default: break // data_read / confirmation / correction / follow_up / ambiguous → enrutado de datos
+  // ── P50: DECISIÓN ÚNICA DE TURNO — razona el acto comunicativo ANTES de leer/escribir/llamar a n8n ──
+  // Ninguna entidad del CRM provoca una consulta por sí sola. Los turnos META (el usuario habla de la
+  // respuesta del Asistente, corrige, se queja o discrepa) y los conceptuales (capacidad/cómo-funciona/
+  // futuro/social/ayuda) se responden SIN leer datos, aunque mencionen cualquier entidad.
+  const priorEntity = recentContext ? classifyIntent(recentContext).entity : undefined
+  const turn = decideTurn(message, { priorEntity, hasLastResult: Array.isArray(opts.lastResults) && opts.lastResults.length > 0 })
+  const topicEntity = classifyIntent(message, { priorEntity }).entity
+  // Traza segura por turno (sin PII ni cuerpo del mensaje): por qué se leerá o NO se leerán datos.
+  console.log('[assistant.turn]', { turnType: turn.turnType, domain: turn.domain, action: turn.action, shouldReadData: turn.shouldReadData, shouldCallN8n: turn.shouldCallN8n, reason: turn.reason })
+  switch (turn.turnType) {
+    case 'social': {
+      const isThanks = /\b(gracias|genial|perfecto|estupendo|entendido|de acuerdo|okay)\b/.test(foldText(message))
+      return { handled: true, usedTool: 'local_turn:social', entity: 'help', answer: isThanks ? smalltalkAnswer() : greetingAnswer() }
+    }
+    case 'help': return helpAnswer()
+    case 'capability': return { handled: true, usedTool: 'local_turn:capability', entity: topicEntity, answer: capabilityAnswer(topicEntity) }
+    case 'how_it_works': return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
+    case 'hypothetical': return { handled: true, usedTool: 'local_turn:future', entity: topicEntity, answer: futureAnswer(topicEntity) }
+    case 'assistant_meta': return { handled: true, usedTool: 'local_turn:meta', entity: 'help', answer: assistantMetaAnswer(turn.domain) }
+    case 'user_correction': return { handled: true, usedTool: 'local_turn:correction', entity: topicEntity, answer: userCorrectionAnswer(turn.domain) }
+    case 'user_complaint': return { handled: true, usedTool: 'local_turn:complaint', entity: 'help', answer: userComplaintAnswer() }
+    case 'disagreement': return { handled: true, usedTool: 'local_turn:disagreement', entity: 'help', answer: disagreementAnswer() }
+    case 'data_write': return { handled: false } // escritura → cerebro general / fallback determinista
+    case 'ambiguous': return { handled: false } // cerebro general (nunca lectura a ciegas)
+    default: break // data_read / data_followup → enrutado de datos
   }
 
-  const priorEntity = recentContext ? classifyIntent(recentContext).entity : undefined
+  // Facturación aislada (data_read invoicing → redirección, sin tools de lectura).
+  if (turn.domain === 'invoicing') return invoicingRedirect()
+
   const intent = classifyIntent(message, { priorEntity })
-
-  // Escrituras / ambiguo / no cubierto → deja que el cerebro general lo intente.
-  if (intent.shouldUseN8n && !intent.shouldUseLocal && intent.entity !== 'invoicing') return { handled: false }
-
-  // Facturación aislada.
-  if (intent.entity === 'invoicing') return invoicingRedirect()
-  if (intent.entity === 'help') return helpAnswer()
+  if (intent.entity === 'help' || intent.entity === 'unknown') return { handled: false }
 
   // Política de contexto / anti-contradicción para seguimientos.
   const prior: PriorRead = Array.isArray(opts.lastResults) && opts.lastResults.length
     ? { entity: priorEntity ?? intent.entity, count: opts.lastResults.length, ok: true }
     : null
-  const decision = decideFollowUp({ followUpType: intent.followUpType, prior })
-  if (decision === 'confirm_prior') {
+  const ctxDecision = decideFollowUp({ followUpType: intent.followUpType, prior })
+  if (ctxDecision === 'confirm_prior') {
     return { handled: true, usedTool: 'local_context', entity: prior?.entity ?? intent.entity, answer: confirmPriorText(prior) }
   }
-  if (decision === 'ask_clarify') {
+  if (ctxDecision === 'ask_clarify') {
     return { handled: true, usedTool: 'local_context', entity: intent.entity, answer: 'No estoy seguro de a qué te refieres. ¿Hablamos de clientes, inmuebles, operaciones o citas?' }
   }
 

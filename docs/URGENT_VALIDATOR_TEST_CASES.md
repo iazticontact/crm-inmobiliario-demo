@@ -78,6 +78,18 @@ Emite una factura → PDF → "Marcar cobrada" (mensaje "operación cerrada econ
 
 **No debería pasar:** que una pregunta de capacidad/funcionamiento/futuro conteste con una lista mecánica o un “no puedo acceder”.
 
+## Flujo 11 — El Asistente razona el turno (P50)
+> Mencionar una entidad NO debe disparar un listado. Cuando hablas del propio Asistente o lo corriges, no debe volver a consultar datos.
+
+- **Metapregunta**: `¿por qué me listas los clientes?` → explica su interpretación, **no** vuelve a listar.
+- **Corrección**: `no me refiero a los inmuebles` → repara y pregunta qué necesitas; **no** repite la lectura.
+- **Queja**: `esto está mal, no me ayudas` → se disculpa y pregunta qué esperabas; **no** lista datos.
+- **Capacidad/funcionamiento/futuro** (Flujo 10): no listan datos.
+- **Contraste (sí lee)**: `muéstrame los clientes`, `¿qué inmuebles hay?` → devuelven datos reales.
+- **Traza** (para soporte): en los logs del servidor cada turno registra `[assistant.turn] {turnType, shouldReadData…}`; si `shouldReadData=false` no debe llamarse ningún reader.
+
+**No debería pasar:** que una corrección, queja o metapregunta con una entidad dispare un listado.
+
 ## Señales de fallo (reportar)
 - El Asistente dice "no puedo acceder a los clientes/cartera" con datos existentes.
 - "Y el de Malasaña?" no filtra o pierde el contexto.

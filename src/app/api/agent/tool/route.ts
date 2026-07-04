@@ -306,11 +306,21 @@ export async function POST(request: Request) {
   }
 
   // 3. Body parse.
-  let body: { tool?: unknown; workspace_id?: unknown; input?: unknown }
+  let body: { tool?: unknown; workspace_id?: unknown; input?: unknown; turn?: unknown }
   try {
     body = await request.json() as typeof body
   } catch {
     return fail('invalid_json', 400)
+  }
+
+  // 3b. P50 — Permiso por turno (defensa en profundidad). Si el llamante (n8n bajo contrato) envía `turn`
+  // con `shouldReadData:false`, el backend BLOQUEA cualquier tool de lectura aunque n8n intente llamarla:
+  // el permiso NO se infiere del texto de la entidad. Es opt-in (no rompe a callers que no envían `turn`).
+  const turn = body.turn && typeof body.turn === 'object' && !Array.isArray(body.turn) ? body.turn as { shouldReadData?: unknown } : null
+  if (turn && turn.shouldReadData === false) {
+    return fail('tool_not_allowed_for_turn', 403, {
+      hint: 'El turno actual no autoriza lecturas de datos (pregunta conceptual, meta, corrección o ambigua). Responde sin herramientas.',
+    })
   }
 
   // 4. Tool allowlist. Retired tools → 410 with a migration hint.
