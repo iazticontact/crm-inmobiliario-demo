@@ -60,3 +60,50 @@ autorizada queda bloqueada en servidor, no solo por prompt.
 > Estado actual: la app ya garantiza que los turnos no-datos **no llaman a n8n** (enforcement primario). El
 > reenvío de `turn` desde el workflow de n8n al endpoint de tools es el paso pendiente para el enforcement
 > de defensa en profundidad; el endpoint ya lo soporta.
+
+---
+
+## 6. Turn Policy Token (P51) — enforcement real
+
+La app firma un **token** (HMAC-SHA256 con `AGENT_TOOL_SECRET`, server-only) y lo envía a n8n en el body
+(`turnPolicyToken`). El token lleva la política del turno (dominio, `read`, `write`, `allowedTools`, `exp`
+~90 s). **No contiene secretos ni PII.**
+
+### Qué recibe n8n (body del webhook `crm-agent-v2`)
+```jsonc
+{
+  "message": "…",
+  "workspaceId": "…",
+  "recentMessages": [ … ],
+  "turn": { "turnType": "data_read", "domain": "clients", "shouldReadData": true, "allowedTools": ["clients.read","clients.search"] },
+  "turnPolicyToken": "eyJ…​.aBc…"      // firmado por la app; opaco para n8n
+}
+```
+
+### Qué DEBE hacer el workflow de n8n (pasos exactos — REQUIERE ACCESO A n8n)
+1. **Backup**: exporta el workflow activo antes de tocar.
+2. En el **AI Agent / system prompt**, aplica las reglas de §4 y añade: «Respeta `turn`: si
+   `shouldReadData=false` o `allowedTools=[]`, responde SIN herramientas».
+3. En **cada nodo HTTP Request** que llama a `POST {{CRM_BASE_URL}}/api/agent/tool`, añade la cabecera:
+   `x-nowcrm-turn-policy: {{ $json.turnPolicyToken }}` (además del `x-nowcrm-secret` ya existente).
+4. Asegura que si `allowedTools=[]` el agente no invoca ninguna tool.
+5. Guarda y **activa** el workflow. Prueba (§5 de este doc / playbook).
+
+### Qué impone `/api/agent/tool` con el token
+- Verifica firma y expiración → inválido/caducado ⇒ `403 invalid_turn_policy`.
+- `read=false` ⇒ `403 tool_not_allowed_for_turn`.
+- Tool fuera de `allowedTools` (dominio) ⇒ `403 tool_not_allowed_for_turn`.
+- `get_invoices_summary` / facturación ⇒ `403 tool_forbidden_for_assistant` (SIEMPRE, con o sin token).
+
+### Envs
+| Env | Default | Efecto |
+|---|---|---|
+| `AGENT_TOOLS_REQUIRE_POLICY` | `false` (compat) | `true`: sin token ⇒ `403 turn_policy_required`. **Poner `true` en staging/prod DESPUÉS de editar n8n.** |
+| `ALLOW_UNSCOPED_AGENT_TOOLS_DEV` | `false` | Solo dev: permite tools sin token aunque `REQUIRE_POLICY=true`. Nunca en prod. |
+| `ALLOW_LEGACY_ASSISTANT` | `false` | `true`: permite el cerebro legacy V1 (`ASSISTANT_PROVIDER`). Déjalo sin poner en staging/prod. |
+
+### Transición segura
+1. Desplegar este código (endpoint ya soporta el token; app ya lo firma).
+2. Editar el workflow de n8n para reenviar `x-nowcrm-turn-policy` (pasos arriba).
+3. Verificar en logs `[agent/tool]` que dejan de aparecer `WARN unscoped_tool_call`.
+4. Poner `AGENT_TOOLS_REQUIRE_POLICY=true` en staging/prod → enforcement estricto.

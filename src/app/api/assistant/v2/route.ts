@@ -7,6 +7,10 @@ import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
 import { tryLocalAnswer } from '@/lib/agents/local-answers'
+import { decideTurn } from '@/lib/agents/assistant-turn'
+import { allowedToolsForTurn } from '@/lib/agents/assistant-tool-permissions'
+import { signTurnPolicy } from '@/lib/agents/turn-policy'
+import { resolveAssistantProvider } from '@/lib/agents/assistant-provider'
 import { checkAssistantInput, checkRateLimit, truncateHistory, ASSISTANT_BLOCK_MESSAGES, detectCrisis, CRISIS_RESPONSE } from '@/lib/assistant-guard'
 
 export type AssistantErrorCode =
@@ -283,8 +287,13 @@ export async function POST(req: NextRequest) {
   // (runNowLabsAgent + deterministic fallbacks) is reachable ONLY when an
   // operator explicitly sets ASSISTANT_PROVIDER=openai|v1|local — an explicit
   // rollback switch, NEVER a silent fallback when n8n fails.
-  const provider = (process.env.ASSISTANT_PROVIDER || 'n8n').trim().toLowerCase()
-  const useLegacyV1 = provider === 'openai' || provider === 'v1' || provider === 'local'
+  // P51 — Legacy blindado: el provider antiguo (openai/v1/local) SOLO se activa con ALLOW_LEGACY_ASSISTANT
+  // =true. Sin ese flag, ASSISTANT_PROVIDER no puede reactivar una ruta insegura: default = n8n (bajo router
+  // + contrato de tools). Evita que el legacy se salte el router / lea invoices en staging por descuido.
+  const useLegacyV1 = resolveAssistantProvider({
+    provider: process.env.ASSISTANT_PROVIDER,
+    allowLegacy: process.env.ALLOW_LEGACY_ASSISTANT,
+  }) === 'legacy'
 
   if (!useLegacyV1) {
     // Working memory (N4): persist & recall the active client of this thread in
@@ -384,6 +393,25 @@ export async function POST(req: NextRequest) {
     }
 
     const requestId = globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}`
+
+    // P51 — Turn Policy Token: la app DECIDE el turno y firma un token que n8n debe reenviar a
+    // /api/agent/tool. El backend impone la política (no confía en n8n). Si el turno no lee datos, el token
+    // lleva allowedTools=[] y el endpoint rechaza cualquier lectura. Sin AGENT_TOOL_SECRET, token vacío
+    // (modo compat). No contiene secretos ni PII.
+    const turnDecision = decideTurn(message, { priorEntity: activeEntity?.type === 'client' ? 'clients' : undefined })
+    const allowedTools = allowedToolsForTurn(turnDecision)
+    const toolSecret = process.env.AGENT_TOOL_SECRET?.trim()
+    const turnPolicyToken = toolSecret
+      ? signTurnPolicy({
+          cid: threadId || workspaceId,
+          tid: requestId,
+          domain: turnDecision.domain,
+          read: turnDecision.shouldReadData,
+          write: turnDecision.shouldWriteData,
+          tools: allowedTools,
+        }, toolSecret)
+      : undefined
+
     const n8n = await runN8nAssistant({
       message,
       workspaceId,
@@ -394,6 +422,8 @@ export async function POST(req: NextRequest) {
       activeEntity,
       recentMessages,
       requestId,
+      turn: { turnType: turnDecision.turnType, domain: turnDecision.domain, shouldReadData: turnDecision.shouldReadData, allowedTools },
+      turnPolicyToken,
     })
 
     if (n8n.ok) {

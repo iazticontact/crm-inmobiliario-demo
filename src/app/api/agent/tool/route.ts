@@ -56,6 +56,7 @@ import {
   isReaderError,
   TOOL_CONTRACT_VERSION,
 } from '@/lib/agent-tool-readers'
+import { verifyTurnPolicy, policyAllowsTool, FORBIDDEN_TOOLS } from '@/lib/agents/turn-policy'
 
 export const runtime = 'nodejs'
 // Lectura SIEMPRE fresca (fuente de verdad = Supabase). Nunca cachear: el asistente debe ver datos
@@ -336,6 +337,28 @@ export async function POST(request: Request) {
     return fail('tool_not_allowed', 400, { allowed_tools: [...ALLOWED_TOOLS] })
   }
   const tool = rawTool as AllowedTool
+
+  // 4b. P51 — Enforcement por Turn Policy Token (firmado por la app). El backend IMPONE la decisión del
+  // turno: no confía en que n8n "se porte bien". Facturación queda SIEMPRE bloqueada. Con token, se valida
+  // firma/expiración/allowedTools. Sin token: en modo estricto (staging/producción bajo contrato) se
+  // rechaza; en compat se sirve pero se registra para auditoría.
+  if (FORBIDDEN_TOOLS.has(tool)) {
+    return fail('tool_forbidden_for_assistant', 403, { hint: 'La facturación se gestiona en su módulo; el Asistente no lee facturas.' })
+  }
+  const policyToken = (request.headers.get('x-nowcrm-turn-policy')?.trim())
+    || (typeof (body as { turn_policy_token?: unknown }).turn_policy_token === 'string' ? String((body as { turn_policy_token?: unknown }).turn_policy_token).trim() : '')
+  const requirePolicy = process.env.AGENT_TOOLS_REQUIRE_POLICY === 'true'
+  const allowUnscopedDev = process.env.ALLOW_UNSCOPED_AGENT_TOOLS_DEV === 'true' && process.env.NODE_ENV !== 'production'
+  if (policyToken) {
+    const v = verifyTurnPolicy(policyToken, expectedSecret)
+    if (!v.ok) return fail('invalid_turn_policy', 403, { reason: v.reason })
+    const check = policyAllowsTool(v.payload, tool)
+    if (!check.ok) return fail('tool_not_allowed_for_turn', 403, { reason: check.reason })
+  } else if (requirePolicy && !allowUnscopedDev) {
+    return fail('turn_policy_required', 403, { hint: 'Falta el turnPolicyToken firmado por la app. Actualiza el workflow de n8n para reenviarlo (ver docs/AGENT_N8N_CONTRACT.md).' })
+  } else {
+    console.warn('[agent/tool] WARN unscoped_tool_call', { tool, requirePolicy })
+  }
 
   // 5. Workspace — required UUID.
   if (!isUuid(body.workspace_id)) {

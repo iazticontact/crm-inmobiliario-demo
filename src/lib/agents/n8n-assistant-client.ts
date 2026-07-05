@@ -35,6 +35,9 @@ export type N8nAssistantParams = {
   activeEntity: N8nAssistantActiveEntity
   recentMessages: Array<{ role: string; content: string }>
   requestId: string
+  // P51 — Contrato de turno: la app decide y firma. n8n DEBE reenviar `turnPolicyToken` a cada tool call.
+  turn?: { turnType: string; domain: string | null; shouldReadData: boolean; allowedTools: string[] }
+  turnPolicyToken?: string
 }
 
 export type N8nAssistantErrorCode =
@@ -121,6 +124,11 @@ export async function runN8nAssistant(params: N8nAssistantParams): Promise<N8nAs
     activeEntity: params.activeEntity,
     recentMessages: params.recentMessages,
     requestId: params.requestId,
+    // P51 — decisión del turno + token firmado. n8n debe: (1) respetar `turn` (si shouldReadData=false, no
+    // tools), (2) reenviar `turnPolicyToken` en la cabecera `x-nowcrm-turn-policy` de cada llamada a
+    // /api/agent/tool. Ver docs/AGENT_N8N_CONTRACT.md.
+    turn: params.turn ?? null,
+    turnPolicyToken: params.turnPolicyToken ?? null,
   }
 
   const controller = new AbortController()
