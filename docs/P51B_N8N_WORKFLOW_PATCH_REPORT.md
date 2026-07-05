@@ -61,3 +61,24 @@ Rollback a `false` si rompe (y revisar la propagación del token).
 | Node | Tool | Antes (headers) | Después (headers) | Token enviado | Test |
 |---|---|---|---|---|---|
 | … | … | x-nowcrm-secret | + x-nowcrm-turn-policy | sí | 200/403 |
+
+---
+
+## P51C — Patcher automático (Modo B: export → patch → import)
+Para no editar nodos a mano, hay un patcher que transforma el workflow EXPORTADO:
+
+```bash
+# 1) En n8n: abre el workflow → Download (exporta JSON).
+# 2) Parchéalo (local, sin tocar credenciales ni llamar a ningún sitio):
+node scripts/patch-n8n-workflow.mjs <workflow-exportado.json>
+#    → escribe <workflow-exportado>.patched.json
+# 3) En n8n: Import from File → el .patched.json → Activar.
+# 4) Actualiza el system prompt del agente a mano (§2 arriba / AGENT_N8N_CONTRACT §4).
+```
+
+Qué hace el patcher (verificado con un workflow sintético):
+- Detecta el nodo trigger/webhook y construye la expresión del token:
+  `={{ $('<Webhook>').item.json.body?.turnPolicyToken || $('<Webhook>').item.json.turnPolicyToken || $json.turnPolicyToken }}`.
+- Añade la cabecera `x-nowcrm-turn-policy` a **cada** nodo HTTP Request cuya URL contenga `/api/agent/tool`
+  (`sendHeaders=true` + `headerParameters`). No toca otros nodos ni credenciales.
+- Imprime qué nodos tocó (0 → avisa de revisar la URL).
