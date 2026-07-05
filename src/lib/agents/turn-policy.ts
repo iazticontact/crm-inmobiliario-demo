@@ -99,6 +99,35 @@ const TOOL_DOMAIN: Record<string, string | 'generic'> = {
 // Tools SIEMPRE prohibidas desde la ruta del Asistente general (Facturación aislada).
 export const FORBIDDEN_TOOLS: ReadonlySet<string> = new Set(['get_invoices_summary'])
 
+// Evaluación COMPLETA de si una llamada a tool debe servirse (PURA: recibe secreto + flags). El endpoint
+// /api/agent/tool solo aplica el resultado. Cubre: facturación siempre bloqueada, token válido + permiso,
+// token inválido/expirado/manipulado, y modo estricto (sin token → rechazo) vs compat (sin token → warn).
+export type ToolPolicyEvaluation =
+  | { action: 'allow' }
+  | { action: 'warn_unscoped' }
+  | { action: 'reject'; status: number; code: string; reason?: string }
+
+export function evaluateToolPolicy(params: {
+  tool: string
+  token: string | null | undefined
+  secret: string
+  requirePolicy: boolean
+  allowUnscopedDev: boolean
+  nowMs?: number
+}): ToolPolicyEvaluation {
+  const { tool, token, secret, requirePolicy, allowUnscopedDev, nowMs } = params
+  if (FORBIDDEN_TOOLS.has(tool)) return { action: 'reject', status: 403, code: 'tool_forbidden_for_assistant' }
+  if (token) {
+    const v = verifyTurnPolicy(token, secret, nowMs)
+    if (!v.ok) return { action: 'reject', status: 403, code: 'invalid_turn_policy', reason: v.reason }
+    const check = policyAllowsTool(v.payload, tool)
+    if (!check.ok) return { action: 'reject', status: 403, code: 'tool_not_allowed_for_turn', reason: check.reason }
+    return { action: 'allow' }
+  }
+  if (requirePolicy && !allowUnscopedDev) return { action: 'reject', status: 403, code: 'turn_policy_required' }
+  return { action: 'warn_unscoped' }
+}
+
 // ¿Autoriza esta política que se ejecute la tool física `tool`?
 export function policyAllowsTool(payload: TurnPolicyPayload, tool: string): { ok: true } | { ok: false; reason: string } {
   if (FORBIDDEN_TOOLS.has(tool)) return { ok: false, reason: 'forbidden_tool' }
