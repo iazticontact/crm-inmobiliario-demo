@@ -450,7 +450,7 @@ export async function getClient360(
   // Facturación NO se lee desde el Asistente (P35: módulo aislado). Sin query a `invoices`.
   const [tasksRes, eventsRes, convRes, docsRes, actsRes] = await Promise.all([
     supabase.from('tasks')
-      .select('id, title, description, due_date, status, priority')
+      .select('id, title, due_date, status, priority')
       .eq('workspace_id', workspaceId).eq('client_id', clientId)
       .order('due_date', { ascending: true, nullsFirst: false }).limit(10),
     supabase.from('calendar_events')
@@ -579,8 +579,10 @@ export async function getPendingTasks(
   const cid = clientIdFromInput(input)
   if (cid.error) return cid.error
 
+  // Nota: la tabla `tasks` NO tiene columna `description` (verificado P51C). Seleccionarla provocaba
+  // `query_failed` y rompía "tareas pendientes" (n8n y local-first). Se omite.
   let q = supabase.from('tasks')
-    .select('id, title, description, due_date, client_id, client_name, status, priority, created_at')
+    .select('id, title, due_date, client_id, client_name, status, priority, created_at')
     .eq('workspace_id', workspaceId)
     .eq('status', 'pending')
   if (cid.clientId) q = q.eq('client_id', cid.clientId)

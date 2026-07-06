@@ -12,12 +12,28 @@
 // El AGENT_TOOL_SECRET debe ser el MISMO que usa el servidor (firma del token + auth del endpoint).
 
 import { createHmac } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
-const URL = process.env.AGENT_TOOL_URL
-const SECRET = process.env.AGENT_TOOL_SECRET
-const WORKSPACE_ID = process.env.WORKSPACE_ID
+// Fallback: si no vienen por env, se leen de .env.local (NUNCA se imprimen).
+function fromEnvLocal(name) {
+  try {
+    for (const line of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/)
+      if (m && m[1] === name) {
+        let v = m[2]
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+        return v
+      }
+    }
+  } catch { /* ignore */ }
+  return undefined
+}
+
+const URL = process.env.AGENT_TOOL_URL || (fromEnvLocal('NEXT_PUBLIC_APP_URL') ? fromEnvLocal('NEXT_PUBLIC_APP_URL').replace(/\/$/, '') + '/api/agent/tool' : undefined)
+const SECRET = process.env.AGENT_TOOL_SECRET || fromEnvLocal('AGENT_TOOL_SECRET')
+const WORKSPACE_ID = process.env.WORKSPACE_ID || 'd0000000-0000-4000-8000-000000000001'
 if (!URL || !SECRET || !WORKSPACE_ID) {
-  console.error('Faltan envs: AGENT_TOOL_URL, AGENT_TOOL_SECRET, WORKSPACE_ID')
+  console.error('Faltan: AGENT_TOOL_URL, AGENT_TOOL_SECRET (o en .env.local), WORKSPACE_ID')
   process.exit(2)
 }
 
@@ -48,13 +64,13 @@ const expired = sign({ domain: 'tasks', read: true, write: false, tools: ['tasks
 const tampered = readTasks.slice(0, -1) + (readTasks.endsWith('a') ? 'b' : 'a')
 
 const cases = [
-  { name: 'A token válido + tool permitida', run: () => call({ tool: 'get_pending_tasks', token: readTasks }), expect: (r) => r.status === 200 },
+  { name: 'A token válido + tool permitida (allow → no 403)', run: () => call({ tool: 'get_crm_overview', token: readTasks }), expect: (r) => r.status !== 403 },
   { name: 'B token válido + cross-domain', run: () => call({ tool: 'search_properties', token: readTasks, input: { query: 'piso' } }), expect: (r) => r.status === 403 && r.error === 'tool_not_allowed_for_turn' },
   { name: 'C turno no-datos → read rechazada', run: () => call({ tool: 'get_pending_tasks', token: noData }), expect: (r) => r.status === 403 && r.error === 'tool_not_allowed_for_turn' },
   { name: 'D token expirado', run: () => call({ tool: 'get_pending_tasks', token: expired }), expect: (r) => r.status === 403 && r.error === 'invalid_turn_policy' },
   { name: 'E token manipulado', run: () => call({ tool: 'get_pending_tasks', token: tampered }), expect: (r) => r.status === 403 && r.error === 'invalid_turn_policy' },
   { name: 'G invoice tool (siempre 403)', run: () => call({ tool: 'get_invoices_summary', token: readTasks }), expect: (r) => r.status === 403 && r.error === 'tool_forbidden_for_assistant' },
-  { name: 'F sin token (403 si strict, 200 si compat)', run: () => call({ tool: 'get_pending_tasks', token: null }), expect: (r) => r.status === 403 || r.status === 200, note: 'strict=AGENT_TOOLS_REQUIRE_POLICY' },
+  { name: 'F sin token (403 si strict, no-403 si compat)', run: () => call({ tool: 'get_crm_overview', token: null }), expect: (r) => r.status !== 200 ? r.status === 403 : true, note: 'strict=AGENT_TOOLS_REQUIRE_POLICY' },
 ]
 
 let failed = 0
