@@ -70,7 +70,8 @@ const cases = [
   { name: 'D token expirado', run: () => call({ tool: 'get_pending_tasks', token: expired }), expect: (r) => r.status === 403 && r.error === 'invalid_turn_policy' },
   { name: 'E token manipulado', run: () => call({ tool: 'get_pending_tasks', token: tampered }), expect: (r) => r.status === 403 && r.error === 'invalid_turn_policy' },
   { name: 'G invoice tool (siempre 403)', run: () => call({ tool: 'get_invoices_summary', token: readTasks }), expect: (r) => r.status === 403 && r.error === 'tool_forbidden_for_assistant' },
-  { name: 'F sin token (403 si strict, no-403 si compat)', run: () => call({ tool: 'get_crm_overview', token: null }), expect: (r) => r.status !== 200 ? r.status === 403 : true, note: 'strict=AGENT_TOOLS_REQUIRE_POLICY' },
+  // Con EXPECT_STRICT=1 (tras activar AGENT_TOOLS_REQUIRE_POLICY=true) F DEBE ser 403 turn_policy_required.
+  { name: 'F sin token', run: () => call({ tool: 'get_crm_overview', token: null }), expect: (r) => (process.env.EXPECT_STRICT === '1' ? (r.status === 403 && r.error === 'turn_policy_required') : (r.status !== 200 ? r.status === 403 : true)), note: process.env.EXPECT_STRICT === '1' ? 'EXPECT_STRICT: debe ser 403 turn_policy_required' : 'compat: 200 aceptable (strict OFF)' },
 ]
 
 let failed = 0
