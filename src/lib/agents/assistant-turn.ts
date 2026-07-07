@@ -11,9 +11,12 @@
 import { foldText } from '@/lib/real-estate-search'
 import { classifyIntent, type CrmEntity } from './intent'
 import { classifyPragmatics } from './assistant-pragmatics'
+import { resolveModuleFromText, type CrmModuleId } from './crm-module-catalog'
 
 export type TurnType =
   | 'social' | 'help' | 'capability' | 'how_it_works' | 'hypothetical'
+  // P53 — guía de producto (explican, NUNCA leen datos):
+  | 'onboarding' | 'module_explanation' | 'navigation_help' | 'user_confused'
   | 'data_read' | 'data_write' | 'data_followup'
   | 'assistant_meta' | 'user_correction' | 'user_complaint' | 'disagreement'
   | 'clarification' | 'ambiguous' | 'unsupported'
@@ -23,12 +26,13 @@ export type TurnDomain =
   | 'tasks' | 'cases' | 'documents' | 'invoicing' | 'assistant' | 'general' | null
 
 export type TurnAction =
-  | 'answer' | 'explain' | 'read' | 'write_prepare' | 'clarify'
+  | 'answer' | 'explain' | 'guide' | 'read' | 'write_prepare' | 'clarify'
   | 'apologize' | 'use_context' | 'redirect' | 'handoff_n8n' | 'unsupported'
 
 export type AssistantTurnDecision = {
   turnType: TurnType
   domain: TurnDomain
+  module: CrmModuleId | null   // P53 — módulo del CRM al que se refiere el turno (para la guía de producto)
   action: TurnAction
   shouldReadData: boolean
   shouldWriteData: boolean
@@ -36,6 +40,7 @@ export type AssistantTurnDecision = {
   shouldUseLastResult: boolean
   shouldAskClarification: boolean
   shouldExplainAssistantBehavior: boolean
+  shouldExplainProduct: boolean // P53 — el turno pide guía/explicación de producto (no datos)
   confidence: number
   reason: string
 }
@@ -43,6 +48,14 @@ export type AssistantTurnDecision = {
 // ── Señales META (prioridad máxima; el usuario habla DEL Asistente / corrige / se queja) ──────────────
 const ASSISTANT_META = /\b(tu respuesta|tus respuestas|lo que (dijiste|has dicho|respondiste|pusiste)|por que (me |te |nos )?(respondes|respondiste|dices|dijiste|contestas|listas|listaste|das|muestras|pones|sacas|sacaste|hiciste|has hecho|has listado|has puesto)|que (haces|estas haciendo)|no (entiendes|razonas|piensas)|respondes mecanicamente|de forma mecanica|como un robot|no te (pedi|he pedido)|eso no es lo que|para que me (das|muestras|listas))\b/
 const USER_CORRECTION = /\b(no me refiero|me refiero a|me referia|estaba hablando de|queria decir|quiero decir|no era eso|no es eso|no,? no era|corrige|te has confundido|no es a eso)\b/
+
+// ── Señales de GUÍA DE PRODUCTO (P53): aprender/navegar/entender el CRM. NUNCA leen datos. ────────────
+const CONFUSED = /\b(no (lo |le |te )?entiendo|no entendi|no me (queda claro|entero|aclaro)|estoy perdid[oa]|me he perdido|me pierdo|esto me confunde|me confunde|no se que (es esto|significa esto|hace esto))\b/
+const ONBOARDING = /\b(soy nuev[oa]|somos nuevos|acabo de (empezar|llegar|entrar|registrarme)|primera vez que (uso|entro)|nunca he usado|recien (empiezo|llegue)|empezar a usarlo|por donde (empiezo|se empieza)|como empiezo)\b/
+const NAVIGATION = /\b(donde (esta|estan|encuentro|veo|puedo ver)|como (llego|accedo|entro|voy) a|en que (menu|apartado|pantalla|seccion|parte) (esta|estan|encuentro)|desde donde se)\b/
+// «qué muestra/resume/significa X», «para qué sirve X», «qué es este apartado», «explícame X», «cómo se usa».
+// OJO: NO incluye «qué hay en <entidad>» ni «muéstrame» (eso es lectura de datos).
+const EXPLAIN_PRODUCT = /\b(que (muestra|muestran|resume|resumen|ensena|indica|refleja|significa|significan)|para que (sirve|es|vale)|que es (este|esta|ese|esa|el|la|un|una)\b|que se ve en|que aparece en|que hay en (este|esta|el apartado|la pantalla|la seccion)|me explicas|explicame|explica (este|esta|el|la|como)|como se usa|como uso|en que consiste)\b/
 const USER_COMPLAINT = /\b(esto esta mal|no funciona|que mal|no sirve|es un desastre|otra vez lo mismo|siempre (haces|respondes|contestas) (lo mismo|igual)|muy mal|no me ayudas|vaya (fallo|desastre)|no vas bien|fatal)\b/
 const DISAGREEMENT = /\b(no estoy de acuerdo|eso no es correcto|te equivocas|estas equivocado|eso es falso|no es verdad|es incorrecto|eso esta mal|no es asi)\b/
 
@@ -64,16 +77,29 @@ function domainOf(entity: CrmEntity): TurnDomain {
 
 function base(turnType: TurnType, domain: TurnDomain, action: TurnAction, reason: string, over: Partial<AssistantTurnDecision> = {}): AssistantTurnDecision {
   return {
-    turnType, domain, action, reason, confidence: 0.8,
+    turnType, domain, module: null, action, reason, confidence: 0.8,
     shouldReadData: false, shouldWriteData: false, shouldCallN8n: false,
     shouldUseLastResult: false, shouldAskClarification: false, shouldExplainAssistantBehavior: false,
+    shouldExplainProduct: false,
     ...over,
   }
 }
 
 export function decideTurn(
   message: string,
-  ctx: { priorEntity?: CrmEntity; hasLastResult?: boolean } = {},
+  ctx: { priorEntity?: CrmEntity; hasLastResult?: boolean; priorModule?: CrmModuleId | null } = {},
+): AssistantTurnDecision {
+  const d = decideTurnInner(message, ctx)
+  // El módulo del CRM al que se refiere el mensaje se resuelve SIEMPRE (útil también para meta/corrección),
+  // con fallback al módulo del contexto en turnos de guía sin módulo propio (p. ej. «no entiendo»).
+  const own = resolveModuleFromText(message)
+  const resolvedModule = own ?? (d.shouldExplainProduct ? ctx.priorModule ?? null : null)
+  return resolvedModule ? { ...d, module: resolvedModule } : d
+}
+
+function decideTurnInner(
+  message: string,
+  ctx: { priorEntity?: CrmEntity; hasLastResult?: boolean; priorModule?: CrmModuleId | null } = {},
 ): AssistantTurnDecision {
   const n = foldText(message)
   const entity = classifyIntent(message, { priorEntity: ctx.priorEntity }).entity
@@ -85,6 +111,13 @@ export function decideTurn(
   if (USER_CORRECTION.test(n)) return base('user_correction', domain, 'clarify', 'user-correction', { shouldExplainAssistantBehavior: true, shouldAskClarification: true, confidence: 0.88 })
   if (USER_COMPLAINT.test(n)) return base('user_complaint', 'assistant', 'apologize', 'user-complaint', { shouldExplainAssistantBehavior: true, confidence: 0.85 })
   if (DISAGREEMENT.test(n)) return base('disagreement', 'assistant', 'apologize', 'disagreement', { shouldExplainAssistantBehavior: true, confidence: 0.85 })
+
+  // 1b) P53 — GUÍA DE PRODUCTO (aprender/navegar/entender): SIEMPRE explica, NUNCA lee datos, aunque el
+  //     mensaje mencione un módulo o entidad («¿qué muestra el dashboard?» ≠ «muéstrame los clientes»).
+  if (CONFUSED.test(n)) return base('user_confused', domain, 'explain', 'p53:confused', { shouldExplainProduct: true, confidence: 0.85 })
+  if (ONBOARDING.test(n)) return base('onboarding', 'general', 'guide', 'p53:onboarding', { shouldExplainProduct: true, confidence: 0.85 })
+  if (NAVIGATION.test(n)) return base('navigation_help', domain, 'guide', 'p53:navigation', { shouldExplainProduct: true })
+  if (EXPLAIN_PRODUCT.test(n)) return base('module_explanation', domain, 'explain', 'p53:explain-product', { shouldExplainProduct: true, confidence: 0.85 })
 
   // 2) Pragmática (P49): acto comunicativo antes que entidad.
   const prag = classifyPragmatics(message)

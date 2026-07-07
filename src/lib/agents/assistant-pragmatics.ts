@@ -74,7 +74,9 @@ function make(speechAct: SpeechAct, reason: string): PragmaticResult {
 }
 
 export function classifyPragmatics(message: string): PragmaticResult {
-  const n = foldText(message)
+  // Se pliega y se limpia la puntuación INICIAL («¿¡…») para que los anclajes de inicio funcionen con
+  // ortografía española: «¿Y el de Malasaña?» debe activar el conector igual que «Y el de Malasaña».
+  const n = foldText(message).replace(/^[\s¿¡!?.,;:]+/, '')
   const words = n.split(/\s+/).filter(Boolean)
   const hasRead = READ_SIGNALS.test(n)
   const hasWrite = WRITE.test(n)

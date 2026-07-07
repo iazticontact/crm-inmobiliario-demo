@@ -90,6 +90,18 @@ Emite una factura → PDF → "Marcar cobrada" (mensaje "operación cerrada econ
 
 **No debería pasar:** que una corrección, queja o metapregunta con una entidad dispare un listado.
 
+## Flujo 12 — Guía de producto (P53)
+> El Asistente distingue **aprender** de **consultar datos**. Preguntar por una pantalla no lista datos.
+
+- **Explicar módulo**: `¿qué muestra el dashboard?`, `¿para qué sirve la cartera?`, `explícame los trámites` → explica el módulo (qué es, qué muestra, qué puedes hacer) y **ofrece** mostrar datos; **no** lista nada por su cuenta.
+- **Usuario nuevo**: `soy nuevo, ¿por dónde empiezo?` → tour breve por bloques (Clientes/Cartera/Agenda/Facturación) + una pregunta.
+- **No entiendo**: `no entiendo` (tras hablar de un módulo) → lo explica más simple, **del mismo tema**, sin listar datos.
+- **Navegación**: `¿dónde está la facturación?` → dice dónde está en el menú.
+- **Cambio de módulo**: tras listar pisos, `¿qué muestra el dashboard?` → explica el dashboard, **no** vuelve a listar pisos.
+- **Contraste (sí lee)**: `muéstrame los clientes`, `¿qué pisos hay en cartera?`, `¿cuántas tareas tengo?` → datos reales.
+
+**No debería pasar:** que «¿qué muestra X?» devuelva un listado, ni que «no entiendo» repita datos.
+
 ## Señales de fallo (reportar)
 - El Asistente dice "no puedo acceder a los clientes/cartera" con datos existentes.
 - "Y el de Malasaña?" no filtra o pierde el contexto.

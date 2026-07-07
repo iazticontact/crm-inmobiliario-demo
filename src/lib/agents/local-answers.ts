@@ -18,6 +18,7 @@ import { readFailedCodeFor, humanError } from './assistant-errors'
 import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, type PriorRead } from './context-policy'
 import { howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
 import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer } from './assistant-turn'
+import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, resolveModuleFromText } from './crm-module-catalog'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -266,10 +267,13 @@ export async function tryLocalAnswer(
   // respuesta del Asistente, corrige, se queja o discrepa) y los conceptuales (capacidad/cómo-funciona/
   // futuro/social/ayuda) se responden SIN leer datos, aunque mencionen cualquier entidad.
   const priorEntity = recentContext ? classifyIntent(recentContext).entity : undefined
-  const turn = decideTurn(message, { priorEntity, hasLastResult: Array.isArray(opts.lastResults) && opts.lastResults.length > 0 })
+  // P53 — módulo del contexto: si el mensaje no nombra módulo («no entiendo»), se hereda el del hilo;
+  // si nombra uno nuevo («¿y la cartera?»), gana el nuevo (cambio de tema sin arrastre).
+  const priorModule = recentContext ? resolveModuleFromText(recentContext) : null
+  const turn = decideTurn(message, { priorEntity, priorModule, hasLastResult: Array.isArray(opts.lastResults) && opts.lastResults.length > 0 })
   const topicEntity = classifyIntent(message, { priorEntity }).entity
   // Traza segura por turno (sin PII ni cuerpo del mensaje): por qué se leerá o NO se leerán datos.
-  console.log('[assistant.turn]', { turnType: turn.turnType, domain: turn.domain, action: turn.action, shouldReadData: turn.shouldReadData, shouldCallN8n: turn.shouldCallN8n, reason: turn.reason })
+  console.log('[assistant.turn]', { turnType: turn.turnType, domain: turn.domain, module: turn.module, action: turn.action, shouldReadData: turn.shouldReadData, shouldCallN8n: turn.shouldCallN8n, reason: turn.reason })
   switch (turn.turnType) {
     case 'social': {
       const isThanks = /\b(gracias|genial|perfecto|estupendo|entendido|de acuerdo|okay)\b/.test(foldText(message))
@@ -277,7 +281,17 @@ export async function tryLocalAnswer(
     }
     case 'help': return helpAnswer()
     case 'capability': return { handled: true, usedTool: 'local_turn:capability', entity: topicEntity, answer: capabilityAnswer(topicEntity) }
-    case 'how_it_works': return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
+    case 'how_it_works':
+      // Con módulo resuelto, la explicación sale del catálogo (más rica y consistente).
+      if (turn.module) return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: explainModule(turn.module) }
+      return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
+    // P53 — guía de producto: SIEMPRE explican, NUNCA leen.
+    case 'onboarding': return { handled: true, usedTool: 'local_turn:onboarding', entity: 'help', answer: onboardingAnswer() }
+    case 'module_explanation':
+      return { handled: true, usedTool: 'local_turn:module', entity: topicEntity, answer: turn.module ? explainModule(turn.module) : confusedAnswer(null) }
+    case 'navigation_help':
+      return { handled: true, usedTool: 'local_turn:navigation', entity: topicEntity, answer: turn.module ? navigationAnswer(turn.module) : confusedAnswer(null) }
+    case 'user_confused': return { handled: true, usedTool: 'local_turn:confused', entity: 'help', answer: confusedAnswer(turn.module) }
     case 'hypothetical': return { handled: true, usedTool: 'local_turn:future', entity: topicEntity, answer: futureAnswer(topicEntity) }
     case 'assistant_meta': return { handled: true, usedTool: 'local_turn:meta', entity: 'help', answer: assistantMetaAnswer(turn.domain) }
     case 'user_correction': return { handled: true, usedTool: 'local_turn:correction', entity: topicEntity, answer: userCorrectionAnswer(turn.domain) }

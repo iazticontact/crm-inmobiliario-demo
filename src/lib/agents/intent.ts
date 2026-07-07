@@ -111,7 +111,8 @@ export function classifyIntent(
 
   // ── Seguimiento ──
   let followUpType: FollowUpType = 'none'
-  const startsWithConnector = /^\s*(y|e|ademas|tambien|aparte|luego)\b/.test(n)
+  // El anclaje de inicio ignora la puntuación inicial española («¿Y el de…?» = «Y el de…»).
+  const startsWithConnector = /^\s*(y|e|ademas|tambien|aparte|luego)\b/.test(n.replace(/^[\s¿¡!?.,;:]+/, ''))
   const shortish = words.length <= 6
   for (const [ft, rx] of Object.entries(FOLLOWUP_MARKERS) as [Exclude<FollowUpType, 'none'>, RegExp][]) {
     if (rx.test(n)) { followUpType = ft; break }
