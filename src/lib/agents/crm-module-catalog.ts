@@ -153,12 +153,14 @@ export function resolveModuleFromText(text: string): CrmModuleId | null {
 // ── Generadores de GUÍA (nunca leen datos) ────────────────────────────────────────────────────────────
 export function explainModule(id: CrmModuleId): string {
   const m = CRM_MODULES[id]
+  // Formato de explicación (regla de calidad P54): cabecera + 2-4 bullets + UN solo cierre útil.
   const parts = [
-    `**${m.name}** (${m.nav}). ${m.purpose}`,
-    `Muestra: ${m.shows}`,
-    `Desde ahí puedes: ${m.actions}`,
-    m.limits ? `Ten en cuenta: ${m.limits}` : null,
-    m.offerData ? `¿Quieres que te muestre tus datos actuales de ${m.name.toLowerCase()}?` : m.assistantCan,
+    `**${m.name}** — ${m.purpose}`,
+    `• Dónde: ${m.nav}.`,
+    `• Muestra: ${m.shows}`,
+    `• Puedes: ${m.actions}`,
+    m.limits ? `• Ten en cuenta: ${m.limits}` : null,
+    m.offerData ? '¿Quieres que te muestre tus datos actuales?' : m.assistantCan,
   ].filter(Boolean)
   return parts.join('\n')
 }
@@ -183,7 +185,8 @@ export function onboardingAnswer(): string {
 export function confusedAnswer(id: CrmModuleId | null): string {
   if (id) {
     const m = CRM_MODULES[id]
-    return `Sin problema, te lo explico más simple. ${m.name}: ${m.purpose} En resumen, ${m.shows.charAt(0).toLowerCase()}${m.shows.slice(1)} ¿Qué parte te genera duda?`
+    // Simplificar SIN cambiar de tema y sin volcar datos. (Nada de lowercasear `shows`: rompía «KPIs» → «kPIs».)
+    return `Sin problema, te lo explico más simple. ${m.name}: ${m.purpose} Ahí verás: ${m.shows} ¿Qué parte te genera duda?`
   }
   return 'Sin problema. Dime qué pantalla o apartado estás viendo (Dashboard, Clientes, Cartera, Comisiones…) y te lo explico de forma sencilla, paso a paso.'
 }

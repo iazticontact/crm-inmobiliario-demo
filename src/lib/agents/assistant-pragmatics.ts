@@ -171,7 +171,8 @@ export function greetingAnswer(): string {
 }
 
 export function smalltalkAnswer(): string {
-  return '¡A ti! ¿Quieres que consulte algo del CRM: clientes, inmuebles, operaciones o citas?'
+  // Reconocimiento neutro: vale tanto para «gracias» como para «perfecto/genial/de acuerdo».
+  return '¡Genial! Si necesitas algo más del CRM —clientes, inmuebles, citas, tareas…— aquí estoy.'
 }
 
 const ENTITY_LABEL: Record<CrmEntity, string> = {
