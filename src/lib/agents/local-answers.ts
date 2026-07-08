@@ -19,6 +19,7 @@ import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, 
 import { howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
 import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer } from './assistant-turn'
 import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, resolveModuleFromText } from './crm-module-catalog'
+import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -185,6 +186,24 @@ async function handleClients(supabase: SupabaseClient, ws: string, intent: Retur
 }
 
 async function handleProperties(supabase: SupabaseClient, ws: string, query: string): Promise<LocalAnswer> {
+  // P56 — INTENCIÓN DE ESTADO («publicados», «vendidos», «reservados», «recientes»…): respuesta de estado
+  // real con criterio explícito. NUNCA «lo más cercano» para preguntas de estado binario. La publicación
+  // existe vía `status` (listed = «Publicado» en la UI); no se inventa ningún campo.
+  const statusIntent = parseStatusIntent(query)
+  if (statusIntent) {
+    const r = await crmReadQuery(supabase, ws, { entity: 'properties', limit: 20, ...(statusIntent === 'recent' ? { orderBy: 'updated_at', orderDirection: 'desc' } : {}) })
+    if ('error' in r) return fail('properties', 'local_properties', ws)
+    const rows = (r.rows as Row[]).filter((p) => matchesStatusIntent(p.status, statusIntent))
+    const criterion = STATUS_INTENT_LABEL[statusIntent]
+    if (!rows.length) {
+      return { handled: true, usedTool: 'local_properties', entity: 'properties', answer: `No veo inmuebles con ese criterio (${criterion}). ¿Quieres que te muestre toda la cartera o los disponibles?` }
+    }
+    const shown = rows.slice(0, 8)
+    const lines = shown.map((p) => `${formatPropertyLine(p)} · ${normalizePropertyState(p.status).labelEs}`)
+    const head = rows.length === 1 ? `Tienes 1 inmueble (criterio: ${criterion}):` : `Tienes ${rows.length} inmuebles (criterio: ${criterion}):`
+    return { handled: true, usedTool: 'local_properties', entity: 'properties', answer: `${head}\n${lines.join('\n')}\n\n${followUpCTA.properties}`, referencedList: shown }
+  }
+
   const res = await searchProperties(supabase, ws, { query, availabilityMode: 'available' })
   if ('error' in res) return fail('properties', 'local_properties', ws)
   const exact = res.exactMatches
@@ -267,9 +286,18 @@ export async function tryLocalAnswer(
   // respuesta del Asistente, corrige, se queja o discrepa) y los conceptuales (capacidad/cómo-funciona/
   // futuro/social/ayuda) se responden SIN leer datos, aunque mencionen cualquier entidad.
   const priorEntity = recentContext ? classifyIntent(recentContext).entity : undefined
-  // P53 — módulo del contexto: si el mensaje no nombra módulo («no entiendo»), se hereda el del hilo;
-  // si nombra uno nuevo («¿y la cartera?»), gana el nuevo (cambio de tema sin arrastre).
-  const priorModule = recentContext ? resolveModuleFromText(recentContext) : null
+  // P53/P56 — módulo del contexto: se hereda el del ÚLTIMO mensaje del hilo que nombre un módulo (no el
+  // alias más largo de toda la conversación — evita que «no entiendo» tras hablar de Cartera salte a otro
+  // módulo mencionado antes). Si el mensaje nombra uno nuevo, gana el nuevo (sin arrastre).
+  const priorModule = (() => {
+    if (!recentContext) return null
+    const lines = recentContext.split('\n').map((l) => l.trim()).filter(Boolean)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = resolveModuleFromText(lines[i])
+      if (m) return m
+    }
+    return null
+  })()
   const turn = decideTurn(message, { priorEntity, priorModule, hasLastResult: Array.isArray(opts.lastResults) && opts.lastResults.length > 0 })
   const topicEntity = classifyIntent(message, { priorEntity }).entity
   // Traza segura por turno (sin PII ni cuerpo del mensaje): por qué se leerá o NO se leerán datos.

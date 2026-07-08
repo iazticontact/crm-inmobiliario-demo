@@ -119,6 +119,14 @@ function decideTurnInner(
   if (NAVIGATION.test(n)) return base('navigation_help', domain, 'guide', 'p53:navigation', { shouldExplainProduct: true })
   if (EXPLAIN_PRODUCT.test(n)) return base('module_explanation', domain, 'explain', 'p53:explain-product', { shouldExplainProduct: true, confidence: 0.85 })
 
+  // 1c) P56 — LECTURA FRESCA: «mira otra vez», «acabo de editar», «revisa», «cambios recientes» →
+  //     lectura EN VIVO del dominio (nunca responder desde lastResults/caché). Va ANTES de la pragmática
+  //     para que «otra vez/revisa» no se trague como confirmación del resultado anterior.
+  if (/\b(mira(lo)? otra vez|revisa(lo)?|refresca|vuelve a mirar|actualizad[oa]s?|acabo de (cambiar|editar|guardar|crear|anadir)|he (editado|cambiado|guardado|creado)|cambios recientes|ultim[oa]s cambios|recientemente)\b/.test(n)) {
+    const freshDomain = domain !== 'general' && domain !== 'assistant' ? domain : (ctx.priorEntity ? domainOf(ctx.priorEntity) : domain)
+    return base('data_read', freshDomain, 'read', 'p56:fresh-read', { shouldReadData: true, confidence: 0.85 })
+  }
+
   // 2) Pragmática (P49): acto comunicativo antes que entidad.
   const prag = classifyPragmatics(message)
   switch (prag.speechAct) {

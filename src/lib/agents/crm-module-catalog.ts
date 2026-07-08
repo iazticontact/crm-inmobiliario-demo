@@ -44,9 +44,9 @@ export const CRM_MODULES: Record<CrmModuleId, CrmModule> = {
     id: 'portfolio', name: 'Cartera (Inmuebles)', nav: 'Menú lateral → Cartera → pestaña Inmuebles',
     aliases: ['cartera', 'inmuebles', 'inmueble', 'propiedades', 'pisos', 'viviendas', 'portfolio', 'stock'],
     purpose: 'Es tu inventario de inmuebles en gestión.',
-    shows: 'Cada inmueble con tipo, operación (venta/alquiler), estado, precio, zona, superficie (m²), habitaciones, baños, propietario y fotos.',
-    actions: 'Añadir/editar inmuebles, filtrar por zona/tipo/precio/características y archivar los cerrados.',
-    assistantCan: 'Buscar en la cartera por zona, precio, tipo, m², habitaciones o baños cuando me lo pidas.',
+    shows: 'Cada inmueble con tipo, operación (venta/alquiler), estado (En preparación, Publicado, Reservado, Vendido, Alquilado o Archivado), precio, zona, superficie (m²), habitaciones, baños, propietario y fotos. «Publicado» es el estado del inmueble en tu cartera activa (no hay conexión con portales externos).',
+    actions: 'Añadir/editar inmuebles, cambiar su estado (publicar, reservar, marcar vendido/alquilado), filtrar por zona/tipo/precio/características y archivar los cerrados.',
+    assistantCan: 'Buscar en la cartera por zona, precio, tipo, m², habitaciones o baños, y filtrar por estado (publicados, disponibles, vendidos, reservados) cuando me lo pidas.',
     offerData: true,
   },
   operations: {
