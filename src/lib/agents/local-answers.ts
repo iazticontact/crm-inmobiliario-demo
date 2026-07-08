@@ -287,8 +287,12 @@ export async function tryLocalAnswer(
       return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
     // P53 — guía de producto: SIEMPRE explican, NUNCA leen.
     case 'onboarding': return { handled: true, usedTool: 'local_turn:onboarding', entity: 'help', answer: onboardingAnswer() }
-    case 'module_explanation':
-      return { handled: true, usedTool: 'local_turn:module', entity: topicEntity, answer: turn.module ? explainModule(turn.module) : confusedAnswer(null) }
+    case 'module_explanation': {
+      if (turn.module) return { handled: true, usedTool: 'local_turn:module', entity: topicEntity, answer: explainModule(turn.module) }
+      // «explícame el CRM / la aplicación» (sin módulo concreto) → visión general, no «¿qué pantalla?».
+      const general = /\b(crm|aplicacion|app|programa|sistema|herramienta|plataforma)\b/.test(foldText(message))
+      return { handled: true, usedTool: 'local_turn:module', entity: topicEntity, answer: general ? onboardingAnswer() : confusedAnswer(null) }
+    }
     case 'navigation_help':
       return { handled: true, usedTool: 'local_turn:navigation', entity: topicEntity, answer: turn.module ? navigationAnswer(turn.module) : confusedAnswer(null) }
     case 'user_confused': return { handled: true, usedTool: 'local_turn:confused', entity: 'help', answer: confusedAnswer(turn.module) }

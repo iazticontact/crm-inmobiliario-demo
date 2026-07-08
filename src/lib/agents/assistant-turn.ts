@@ -46,8 +46,8 @@ export type AssistantTurnDecision = {
 }
 
 // ── Señales META (prioridad máxima; el usuario habla DEL Asistente / corrige / se queja) ──────────────
-const ASSISTANT_META = /\b(tu respuesta|tus respuestas|lo que (dijiste|has dicho|respondiste|pusiste)|por que (me |te |nos )?(respondes|respondiste|dices|dijiste|contestas|listas|listaste|das|muestras|pones|sacas|sacaste|hiciste|has hecho|has listado|has puesto)|que (haces|estas haciendo)|no (entiendes|razonas|piensas)|respondes mecanicamente|de forma mecanica|como un robot|no te (pedi|he pedido)|eso no es lo que|para que me (das|muestras|listas))\b/
-const USER_CORRECTION = /\b(no me refiero|me refiero a|me referia|estaba hablando de|queria decir|quiero decir|no era eso|no es eso|no,? no era|corrige|te has confundido|no es a eso)\b/
+const ASSISTANT_META = /\b(tu respuesta|tus respuestas|lo que (dijiste|has dicho|respondiste|pusiste)|por que (me |te |nos )?(respondes|respondiste|dices|dijiste|contestas|listas|listaste|das|muestras|pones|sacas|sacaste|hiciste|has hecho|has listado|has puesto)|que (haces|estas haciendo)|no (entiendes|razonas|piensas)|respondes mecanicamente|de forma mecanica|como un robot|no te (pedi|he pedido)|eso no es lo que|para que me (das|muestras|listas)|no (me )?(listes|muestres|ensenes|saques|des) (datos|listas|nada|mas datos))\b/
+const USER_CORRECTION = /\b(no me refiero|me refiero a|me referia|estaba hablando de|queria decir|quiero decir|no era eso|no es eso|no,? no era|corrige|te has (confundido|liado|equivocado)|no es a eso)\b/
 
 // ── Señales de GUÍA DE PRODUCTO (P53): aprender/navegar/entender el CRM. NUNCA leen datos. ────────────
 const CONFUSED = /\b(no (lo |le |te )?entiendo|no entendi|no me (queda claro|entero|aclaro)|estoy perdid[oa]|me he perdido|me pierdo|esto me confunde|me confunde|no se que (es esto|significa esto|hace esto))\b/
@@ -55,7 +55,7 @@ const ONBOARDING = /\b(soy nuev[oa]|somos nuevos|acabo de (empezar|llegar|entrar
 const NAVIGATION = /\b(donde (esta|estan|encuentro|veo|puedo ver)|como (llego|accedo|entro|voy) a|en que (menu|apartado|pantalla|seccion|parte) (esta|estan|encuentro)|desde donde se)\b/
 // «qué muestra/resume/significa X», «para qué sirve X», «qué es este apartado», «explícame X», «cómo se usa».
 // OJO: NO incluye «qué hay en <entidad>» ni «muéstrame» (eso es lectura de datos).
-const EXPLAIN_PRODUCT = /\b(que (muestra|muestran|resume|resumen|ensena|indica|refleja|significa|significan)|para que (sirve|es|vale)|que es (este|esta|ese|esa|el|la|un|una)\b|que se ve en|que aparece en|que hay en (este|esta|el apartado|la pantalla|la seccion)|me explicas|explicame|explica (este|esta|el|la|como)|como se usa|como uso|en que consiste)\b/
+const EXPLAIN_PRODUCT = /\b(que (muestra|muestran|resume|resumen|ensena|indica|refleja|significa|significan)|para que (sirve|es|vale)|que es (este|esta|ese|esa|el|la|un|una)\b|que son (los|las|estos|estas)|que hacen?\b(?! falta)|que se ve en|que aparece en|que hay en (este|esta|el apartado|la pantalla|la seccion)|me explicas|explicame|explica (este|esta|el|la|como)|como se usa|como uso|en que consiste)\b/
 const USER_COMPLAINT = /\b(esto esta mal|no funciona|que mal|no sirve|es un desastre|otra vez lo mismo|siempre (haces|respondes|contestas) (lo mismo|igual)|muy mal|no me ayudas|vaya (fallo|desastre)|no vas bien|fatal)\b/
 const DISAGREEMENT = /\b(no estoy de acuerdo|eso no es correcto|te equivocas|estas equivocado|eso es falso|no es verdad|es incorrecto|eso esta mal|no es asi)\b/
 
@@ -151,6 +151,13 @@ function decideTurnInner(
     }
     default:
       break
+  }
+
+  // 2b) P55 — cambio de tema con SOLO el nombre del módulo («ahora cartera», «vale, y clientes»,
+  //     «facturas»): mensaje corto sin verbo de datos → explicar ese módulo (nunca lectura a ciegas).
+  const shortWords = n.replace(/[¿?¡!.,;:]/g, ' ').split(/\s+/).filter(Boolean)
+  if (shortWords.length <= 3 && resolveModuleFromText(message)) {
+    return base('module_explanation', domain, 'explain', 'p55:module-switch', { shouldExplainProduct: true, confidence: 0.7 })
   }
 
   // 3) Nada claro → aclaración / cerebro general (nunca lectura a ciegas).
