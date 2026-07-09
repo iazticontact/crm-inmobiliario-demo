@@ -21,7 +21,7 @@ import {
 // Versión del CONTRATO de salida de las tools read-only (P24). Se incluye en `meta.toolVersion` de cada
 // respuesta y la expone /api/agent/diag, para que se pueda verificar que el backend desplegado al que
 // llama n8n (CRM_BASE_URL) es el esperado. Súbela cuando cambie el contrato de forma incompatible.
-export const TOOL_CONTRACT_VERSION = '2026-07-01.p24'
+export const TOOL_CONTRACT_VERSION = '2026-07-09.p56'
 
 type Row = Record<string, unknown>
 type Json = unknown
@@ -1355,7 +1355,8 @@ const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   service_cases: { table: 'service_cases', cols: 'id, title, case_type, status, priority, due_date, notes, client_id, property_id, opportunity_id', search: ['title', 'notes'], filters: ['status', 'priority', 'case_type'], dateCol: 'due_date', orderCol: 'updated_at', soft: true },
   tasks: { table: 'tasks', cols: 'id, title, status, priority, due_date, client_id, client_name, property_id, opportunity_id', search: ['title'], filters: ['status', 'priority'], dateCol: 'due_date', orderCol: 'due_date' },
   calendar_events: { table: 'calendar_events', cols: 'id, title, type, date, start_at, end_at, location, notes, status, client_id, client_name, property_id, opportunity_id, case_id', search: ['title', 'location'], filters: ['type', 'status'], dateCol: 'date', orderCol: 'date' },
-  properties: { table: 'properties', cols: 'id, title, reference, property_type, operation_type, status, city, area, address, price, currency, area_m2, bedrooms, bathrooms, owner_name, owner_phone, notes', search: ['title', 'city', 'area', 'address', 'notes', 'reference'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at' },
+  // P56B: `soft: true` — la UI de Cartera filtra deleted_at; el Asistente debe leer LO MISMO (reconciliación).
+  properties: { table: 'properties', cols: 'id, title, reference, property_type, operation_type, status, city, area, address, price, currency, area_m2, bedrooms, bathrooms, owner_name, owner_phone, notes', search: ['title', 'city', 'area', 'address', 'notes', 'reference'], filters: ['status', 'property_type', 'operation_type', 'city'], orderCol: 'updated_at', soft: true },
   activities: { table: 'activities', cols: 'id, type, title, description, created_at, client_id', search: ['title', 'description'], filters: ['type'], dateCol: 'created_at', orderCol: 'created_at' },
 }
 
