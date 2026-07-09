@@ -17,9 +17,10 @@ import { classifyIntent, type CrmEntity } from './intent'
 import { readFailedCodeFor, humanError } from './assistant-errors'
 import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, type PriorRead } from './context-policy'
 import { howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
-import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer } from './assistant-turn'
+import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer, type TurnType } from './assistant-turn'
 import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, resolveModuleFromText } from './crm-module-catalog'
 import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
+import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -272,6 +273,81 @@ function commissionsRedirectFallback(): LocalAnswer {
   }
 }
 
+// ── P58 · VENTAS/VENDIDOS transversal (Cartera + Operaciones) con fallback PARCIAL ───────────────────
+async function handleSales(supabase: SupabaseClient, ws: string, intent: SalesQueryIntent): Promise<LocalAnswer> {
+  // Explicación (diferencia inmueble vendido vs operación cerrada): NO lee datos.
+  if (intent.asksExplanation) {
+    return { handled: true, usedTool: 'local_sales:explain', entity: 'operations', answer: SALES_DIFFERENCE_EXPLANATION }
+  }
+  const wantPortfolio = intent.scope === 'portfolio_only' || intent.scope === 'both'
+  const wantOps = intent.scope === 'operations_only' || intent.scope === 'both'
+
+  // Lecturas VIVAS (crmReadQuery = endpoint/reader real, RLS del usuario; nunca lastResults).
+  let sold: Row[] | null = null, rented: Row[] | null = null, portfolioErr = false
+  if (wantPortfolio) {
+    const r = await crmReadQuery(supabase, ws, { entity: 'properties', limit: 100 })
+    if ('error' in r) portfolioErr = true
+    else { const rows = r.rows as Row[]; sold = rows.filter((p) => matchesStatusIntent(p.status, 'sold')); rented = rows.filter((p) => matchesStatusIntent(p.status, 'rented')) }
+  }
+  let won: Row[] | null = null, opsErr = false
+  if (wantOps) {
+    const r = await crmReadQuery(supabase, ws, { entity: 'opportunities', limit: 100, filters: { stage: 'won' } })
+    if ('error' in r) opsErr = true
+    else won = r.rows as Row[]
+  }
+
+  // Fallback PARCIAL: solo si TODAS las fuentes pedidas fallaron devolvemos error; si una responde,
+  // damos la parcial (nunca el «fallo temporal total» del transcript cuando una fuente sí funciona).
+  const anyOk = (wantPortfolio && !portfolioErr) || (wantOps && !opsErr)
+  if (!anyOk) return fail(wantOps ? 'operations' : 'properties', 'local_sales', ws)
+
+  const parts: string[] = []
+  const refs: Row[] = []
+  const n = (arr: Row[] | null) => (arr ? arr.length : 0)
+
+  // — Cartera —
+  if (wantPortfolio) {
+    if (portfolioErr) parts.push('• Cartera: no he podido consultarla ahora mismo (puedes pedirme «mira otra vez»).')
+    else if (intent.operationType === 'rent') {
+      parts.push(`• Cartera: **${n(rented)}** ${n(rented) === 1 ? 'inmueble alquilado' : 'inmuebles alquilados'}.`)
+      if (rented) refs.push(...rented.slice(0, 6))
+    } else {
+      const extra = n(rented) ? ` (y ${n(rented)} ${n(rented) === 1 ? 'alquilado' : 'alquilados'})` : ''
+      parts.push(`• Cartera: **${n(sold)}** ${n(sold) === 1 ? 'inmueble con estado Vendido' : 'inmuebles con estado Vendido'}${extra}.`)
+      if (sold) refs.push(...sold.slice(0, 6))
+    }
+  }
+  // — Operaciones —
+  if (wantOps) {
+    if (opsErr) parts.push('• Operaciones: no he podido consultarlas ahora mismo (puedes pedirme «mira otra vez»).')
+    else parts.push(`• Operaciones: **${n(won)}** ${n(won) === 1 ? 'operación ganada' : 'operaciones ganadas'} (cerradas con éxito).`)
+  }
+
+  // Listado concreto si lo pidió y hay inmuebles vendidos/alquilados (los ítems «listables»).
+  const listBlock = intent.asksList && refs.length
+    ? '\n' + refs.map((p) => `${formatPropertyLine(p)} · ${normalizePropertyState(p.status).labelEs}`).join('\n')
+    : ''
+
+  // Cabecera según el acto (sí/no, cuenta, resumen), honesta cuando todo es 0.
+  const totalSold = n(sold), totalWon = n(won), totalRented = n(rented)
+  const nothing = (!wantPortfolio || (totalSold === 0 && totalRented === 0)) && (!wantOps || totalWon === 0) && !portfolioErr && !opsErr
+  let head: string
+  if (nothing) {
+    head = intent.scope === 'operations_only'
+      ? 'No veo operaciones ganadas (cerradas) todavía.'
+      : intent.scope === 'portfolio_only'
+        ? `No veo inmuebles ${intent.operationType === 'rent' ? 'alquilados' : 'con estado Vendido'} en tu cartera.`
+        : 'De momento no consta nada vendido: ni inmuebles en estado Vendido ni operaciones ganadas.'
+    return { handled: true, usedTool: 'local_sales', entity: 'operations', answer: `${head} ¿Quieres que revise los inmuebles disponibles o las operaciones abiertas?` }
+  }
+  head = intent.scope === 'both'
+    ? '«Vendido» puede referirse a dos cosas y te doy las dos:'
+    : intent.scope === 'operations_only'
+      ? 'En Operaciones:' : 'En tu cartera:'
+  const cta = intent.scope === 'both' ? '\n\n¿Quieres que te liste los inmuebles vendidos o las operaciones ganadas?' : `\n\n${followUpCTA.properties ?? ''}`.trimEnd()
+  return { handled: true, usedTool: 'local_sales', entity: intent.scope === 'operations_only' ? 'operations' : 'properties', answer: `${head}\n${parts.join('\n')}${listBlock}${cta}`, referencedList: refs.length ? refs : undefined }
+}
+
 // ── Punto de entrada ─────────────────────────────────────────────────────────
 export async function tryLocalAnswer(
   supabase: SupabaseClient,
@@ -302,6 +378,20 @@ export async function tryLocalAnswer(
   const topicEntity = classifyIntent(message, { priorEntity }).entity
   // Traza segura por turno (sin PII ni cuerpo del mensaje): por qué se leerá o NO se leerán datos.
   console.log('[assistant.turn]', { turnType: turn.turnType, domain: turn.domain, module: turn.module, action: turn.action, shouldReadData: turn.shouldReadData, shouldCallN8n: turn.shouldCallN8n, reason: turn.reason })
+
+  // P58 — VENTAS/VENDIDOS transversal: se resuelve ANTES del enrutado por entidad porque «vendido/ventas/
+  // he vendido» no tiene vocab de módulo → el clasificador lo marcaba unknown/ambiguous y caía a n8n (que
+  // alucinaba «no consta ninguna operación vendida»). Solo en turnos de datos/ambiguo (nunca meta/guía/
+  // social/corrección, que no leen), y nunca en Facturación.
+  const SALES_TURNS = new Set<TurnType>(['data_read', 'data_followup', 'ambiguous'])
+  if (SALES_TURNS.has(turn.turnType) && turn.domain !== 'invoicing') {
+    // priorWasSales: si la respuesta anterior fue de ventas, una corrección de solo alcance
+    // («te he preguntado por cartera») se reinterpreta como ventas con ese alcance.
+    const priorWasSales = /\b(vendid|ventas|operaciones ganadas|estado vendido|operacion(es)? ganad|cerradas con exito)\b/.test(foldText(recentContext))
+    const sales = parseSalesIntent(message, { priorWasSales })
+    if (sales) return handleSales(supabase, workspaceId, sales)
+  }
+
   switch (turn.turnType) {
     case 'social': {
       const isThanks = /\b(gracias|genial|perfecto|estupendo|entendido|de acuerdo|okay)\b/.test(foldText(message))
