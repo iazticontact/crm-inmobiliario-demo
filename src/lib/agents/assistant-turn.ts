@@ -12,6 +12,7 @@ import { foldText } from '@/lib/real-estate-search'
 import { classifyIntent, type CrmEntity } from './intent'
 import { classifyPragmatics } from './assistant-pragmatics'
 import { resolveModuleFromText, type CrmModuleId } from './crm-module-catalog'
+import { classifySummaryIntent, isLearningContext } from '@/lib/summary-intent'
 
 export type TurnType =
   | 'social' | 'help' | 'capability' | 'how_it_works' | 'hypothetical'
@@ -118,6 +119,19 @@ function decideTurnInner(
   if (ONBOARDING.test(n)) return base('onboarding', 'general', 'guide', 'p53:onboarding', { shouldExplainProduct: true, confidence: 0.85 })
   if (NAVIGATION.test(n)) return base('navigation_help', domain, 'guide', 'p53:navigation', { shouldExplainProduct: true })
   if (EXPLAIN_PRODUCT.test(n)) return base('module_explanation', domain, 'explain', 'p53:explain-product', { shouldExplainProduct: true, confidence: 0.85 })
+
+  // 1b-P60) RESUMEN conceptual vs operativo + LEARNING CONTEXT. «resumen»/«para entender»/«soy nuevo/
+  //   estamos valorando» NO pueden leer datos a ciegas: conceptual/aprendizaje → tour de producto (explica,
+  //   NUNCA lee); resumen ambiguo («hazme un resumen» a secas) → pide aclaración; resumen OPERATIVO
+  //   («del día/con mis datos/qué tengo pendiente») cae al data_read normal. Va DESPUÉS de meta/corrección
+  //   (esos ganan) y de la guía por módulo (p. ej. «¿qué muestra el dashboard?»).
+  const summaryKind = classifySummaryIntent(message)
+  if (isLearningContext(message) || summaryKind === 'conceptual') {
+    return base('onboarding', 'general', 'guide', 'p60:learning-tour', { shouldExplainProduct: true, confidence: 0.85 })
+  }
+  if (summaryKind === 'ambiguous') {
+    return base('ambiguous', 'general', 'clarify', 'p60:ambiguous-summary', { shouldAskClarification: true, confidence: 0.6 })
+  }
 
   // 1c) P56 — LECTURA FRESCA: «mira otra vez», «acabo de editar», «revisa», «cambios recientes» →
   //     lectura EN VIVO del dominio (nunca responder desde lastResults/caché). Va ANTES de la pragmática

@@ -182,6 +182,23 @@ export function onboardingAnswer(): string {
   ].join('\n')
 }
 
+// P60 — Recorrido COMPLETO del producto (tour). Explica todos los módulos SIN leer datos: nunca dice
+// «no hay tareas/operaciones» — solo describe. Cierra invitando a pedir datos reales explícitamente.
+export function generateFullCrmTour(startModule?: CrmModuleId): string {
+  const order: CrmModuleId[] = ['dashboard', 'clients', 'portfolio', 'operations', 'calendar', 'tasks', 'cases', 'documents', 'commissions', 'invoicing', 'settings', 'assistant']
+  if (startModule && order.includes(startModule)) {
+    order.splice(order.indexOf(startModule), 1)
+    order.unshift(startModule)
+  }
+  const lines = order.map((id, i) => `${i + 1}. **${CRM_MODULES[id].name}** — ${CRM_MODULES[id].purpose}`)
+  return [
+    startModule ? `Te hago un recorrido del CRM empezando por ${CRM_MODULES[startModule].name}:` : 'Te hago un recorrido rápido del CRM, módulo a módulo:',
+    ...lines,
+    'La **Facturación** (facturas, IVA, PDF) es un módulo aparte y no se consulta desde el Asistente general.',
+    'Cuando quieras datos reales, pídemelos con «muéstrame», «cuántos» o «lista» (por ejemplo, «muéstrame mis tareas»). ¿Por dónde quieres profundizar?',
+  ].join('\n')
+}
+
 export function confusedAnswer(id: CrmModuleId | null): string {
   if (id) {
     const m = CRM_MODULES[id]

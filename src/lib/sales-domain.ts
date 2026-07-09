@@ -40,6 +40,9 @@ const PORTFOLIO_WORD = /\b(cartera|inmueble|inmuebles|piso|pisos|propiedad|propi
 // Corrección de SOLO alcance («te he preguntado por cartera/operaciones»), sin palabra de venta: solo
 // tiene sentido como seguimiento de una respuesta de ventas previa (opts.priorWasSales).
 const SCOPE_CORRECTION = /\b(te he (preguntado|pedido) por (cartera|operaciones|inmuebles)|no te he (preguntado|pedido) por (cartera|operaciones))\b/
+// Seguimiento de SOLO alcance tras una respuesta de ventas: «en cartera o en operaciones», «y en
+// operaciones», «en la cartera», «ambas», «las dos» — refina el «vendido» anterior.
+const SCOPE_ONLY = /^(y |pues |bueno )?(en |de )?(la |las |los )?(cartera|inmuebles|operaciones|ambas|las dos|los dos|ambos)\b/
 
 export function parseSalesIntent(text: string, opts: { priorWasSales?: boolean } = {}): SalesQueryIntent | null {
   const n = foldText(text)
@@ -47,8 +50,8 @@ export function parseSalesIntent(text: string, opts: { priorWasSales?: boolean }
   const hasRentClosed = RENT_CLOSED.test(n)
   const hasOpsClosed = (OPS_WORD.test(n) && CLOSED_WORD.test(n)) || HE_CERRADO.test(n)
   if (!hasSold && !hasRentClosed && !hasOpsClosed) {
-    // Solo se acepta como ventas si es una corrección de alcance TRAS una respuesta de ventas.
-    if (!(opts.priorWasSales && SCOPE_CORRECTION.test(n))) return null
+    // Solo se acepta como ventas si es una corrección o un seguimiento de alcance TRAS una resp. de ventas.
+    if (!(opts.priorWasSales && (SCOPE_CORRECTION.test(n) || SCOPE_ONLY.test(n)))) return null
   }
 
   const mentionsPortfolio = PORTFOLIO_WORD.test(n)

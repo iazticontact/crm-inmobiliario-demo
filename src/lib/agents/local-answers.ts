@@ -18,7 +18,8 @@ import { readFailedCodeFor, humanError } from './assistant-errors'
 import { decideFollowUp, shouldAnswerFromPrior, confirmPriorText, stalePreface, type PriorRead } from './context-policy'
 import { howItWorksAnswer, capabilityAnswer, futureAnswer, greetingAnswer, smalltalkAnswer } from './assistant-pragmatics'
 import { decideTurn, assistantMetaAnswer, userCorrectionAnswer, userComplaintAnswer, disagreementAnswer, type TurnType } from './assistant-turn'
-import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, resolveModuleFromText } from './crm-module-catalog'
+import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, resolveModuleFromText, generateFullCrmTour } from './crm-module-catalog'
+import { wantsFullTour } from '@/lib/summary-intent'
 import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
 import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
 
@@ -403,8 +404,13 @@ export async function tryLocalAnswer(
       // Con módulo resuelto, la explicación sale del catálogo (más rica y consistente).
       if (turn.module) return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: explainModule(turn.module) }
       return { handled: true, usedTool: 'local_turn:how', entity: topicEntity, answer: howItWorksAnswer(topicEntity) }
-    // P53 — guía de producto: SIEMPRE explican, NUNCA leen.
-    case 'onboarding': return { handled: true, usedTool: 'local_turn:onboarding', entity: 'help', answer: onboardingAnswer() }
+    // P53/P60 — guía de producto: SIEMPRE explican, NUNCA leen. Tour completo si lo pide («resumen de
+    // todo el CRM», «tour»); si no, bienvenida corta. El módulo resuelto («empezando por Dashboard») es
+    // el punto de partida del recorrido.
+    case 'onboarding':
+      return wantsFullTour(message)
+        ? { handled: true, usedTool: 'local_turn:tour', entity: 'help', answer: generateFullCrmTour(turn.module ?? undefined) }
+        : { handled: true, usedTool: 'local_turn:onboarding', entity: 'help', answer: onboardingAnswer() }
     case 'module_explanation': {
       if (turn.module) return { handled: true, usedTool: 'local_turn:module', entity: topicEntity, answer: explainModule(turn.module) }
       // «explícame el CRM / la aplicación» (sin módulo concreto) → visión general, no «¿qué pantalla?».
@@ -420,7 +426,12 @@ export async function tryLocalAnswer(
     case 'user_complaint': return { handled: true, usedTool: 'local_turn:complaint', entity: 'help', answer: userComplaintAnswer() }
     case 'disagreement': return { handled: true, usedTool: 'local_turn:disagreement', entity: 'help', answer: disagreementAnswer() }
     case 'data_write': return { handled: false } // escritura → cerebro general / fallback determinista
-    case 'ambiguous': return { handled: false } // cerebro general (nunca lectura a ciegas)
+    case 'ambiguous':
+      // P60 — «hazme un resumen» a secas: NO se lee a ciegas; se pregunta conceptual vs datos.
+      if (turn.reason === 'p60:ambiguous-summary') {
+        return { handled: true, usedTool: 'local_turn:summary-clarify', entity: 'help', answer: '¿Quieres un resumen para **entender** el CRM (cómo funciona) o un resumen con **tus datos actuales** (tareas, citas y operaciones de hoy)?' }
+      }
+      return { handled: false } // cerebro general (nunca lectura a ciegas)
     default: break // data_read / data_followup → enrutado de datos
   }
 
