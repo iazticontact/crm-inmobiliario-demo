@@ -31,11 +31,15 @@ export type IntentResult = {
 // Señales por entidad. Raíces en singular; el matcher tolera plural (…s/…es) por regex.
 const ENTITY_SIGNALS: Record<Exclude<CrmEntity, 'unknown'>, string[]> = {
   clients: ['cliente', 'clienta', 'comprador', 'compradora', 'vendedor', 'vendedora', 'contacto', 'lead', 'inquilino', 'arrendatario'],
-  properties: ['inmueble', 'piso', 'apartamento', 'casa', 'chalet', 'villa', 'adosado', 'pareado', 'atico', 'duplex', 'estudio', 'local', 'garaje', 'parking', 'trastero', 'terreno', 'parcela', 'nave', 'oficina', 'vivienda', 'propiedad', 'cartera', 'inmobiliario'],
+  // P63: estados de inmueble («publicados», «reservados»…) son señales de properties — «muéstrame los
+  // publicados» debe resolver Cartera aunque no diga «inmueble». (sold/rented los cubre sales-domain.)
+  properties: ['inmueble', 'piso', 'apartamento', 'casa', 'chalet', 'villa', 'adosado', 'pareado', 'atico', 'duplex', 'estudio', 'local', 'garaje', 'parking', 'trastero', 'terreno', 'parcela', 'nave', 'oficina', 'vivienda', 'propiedad', 'cartera', 'inmobiliario', 'publicado', 'anunciado', 'reservado', 'archivado'],
   operations: ['operacion', 'oportunidad', 'pipeline', 'etapa', 'trato', 'negociacion', 'embudo'],
   commissions: ['comision', 'comisionado', 'comisionar', 'honorario'],
   calendar: ['cita', 'agenda', 'calendario', 'visita', 'reunion', 'evento', 'vencimiento'],
-  tasks: ['tarea', 'recordatorio', 'todo', 'checklist'],
+  // P63: PROHIBIDO 'todo' como señal de tasks — es la palabra española más común («lístame TODO lo que
+  // tengo en inmuebles») y secuestraba cualquier petición hacia Tareas. Solo el anglicismo real to-do.
+  tasks: ['tarea', 'recordatorio', 'to-do', 'checklist', 'pendiente'],
   service_cases: ['tramite', 'expediente', 'gestion', 'caso', 'diligencia'],
   documents: ['documento', 'archivo', 'fichero', 'nota simple', 'contrato', 'escritura', 'adjunto'],
   invoicing: ['factura', 'facturado', 'facturar', 'facturacion', 'iva', 'irpf', 'abono', 'ticket'],

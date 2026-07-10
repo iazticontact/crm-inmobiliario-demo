@@ -52,6 +52,9 @@ export function parseStatusIntent(text: string): StatusIntent | null {
   if (/\b(disponibles?|libres?|activ[oa]s?)\b/.test(n)) return 'available'
   if (/\b(actualizad[oa]s? recientemente|recientes?|ultim[oa]s? (cambios|actualizaciones)|cambios recientes)\b/.test(n)) return 'recent'
   if (/\btod[oa]s? (los |las )?(inmuebles|propiedades|pisos|viviendas)\b/.test(n)) return 'all'
+  // P63: «todo lo que tengo en inmuebles», «todo lo de cartera/propiedades» → listado completo.
+  if (/\btodo lo (que tengo |de |en )?(de |en )?(inmuebles|cartera|propiedades|pisos)\b/.test(n)) return 'all'
+  if (/\b(listame|lista|muestrame|ensename|dame|dime)\b.*\btodo\b.*\b(inmuebles|cartera|propiedades|pisos)\b/.test(n)) return 'all'
   return null
 }
 

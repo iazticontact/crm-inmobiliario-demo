@@ -616,14 +616,24 @@ export async function tryLocalAnswer(
     // P61 — AGENDA (citas + tareas), RESUMEN de módulo con datos, y FICHA de entidad — resueltos localmente
     // y en vivo, ANTES del enrutado por entidad (para no caer a n8n en preguntas binarias/multi-fuente/detalle).
     const nmsg = foldText(message)
-    const mentionsCitas = /\b(citas?|calendario|agenda|reunion(es)?|visitas?)\b/.test(nmsg)
-    const mentionsTareas = /\b(tareas?|pendientes?|to ?do)\b/.test(nmsg)
-    const agendaGeneric = /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
+    // P63: PROHIBIDO `to ?do` — hacía match con la palabra española «todo» («lístame TODO lo que tengo en
+    // inmuebles» → secuestro por Tareas). Además, el módulo EXPLÍCITO del mensaje actual manda: si nombra
+    // inmuebles/cartera, los gates de agenda NO aplican salvo consulta combinada expresa.
+    const mentionsPortfolio = PROPERTY_VOCAB.test(nmsg)
+    const mentionsCitas = !mentionsPortfolio && /\b(citas?|calendario|agenda|reunion(es)?|visitas?)\b/.test(nmsg)
+    const mentionsTareas = !mentionsPortfolio && /\b(tareas?|pendientes?|to-do|checklist)\b/.test(nmsg)
+    const agendaGeneric = !mentionsPortfolio && /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
     // Existencia O verbo de lectura («en el calendario me puedes mirar?» debe leer, answer-first).
     const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no|mira(me|lo|la)?|mirar|muestra(me)?|ensename|ver|consulta|revisa|lee|dime)\b/.test(nmsg)
     if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true })
     if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false })
     if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true })
+
+    // P63 — Cartera con intención de ESTADO en turno ambiguo («todo lo de propiedades»): la resuelve el
+    // handler de properties (listado por estado), nunca n8n ni otro módulo.
+    if (parseStatusIntent(message) && PROPERTY_VOCAB.test(nmsg)) {
+      return handleProperties(supabase, workspaceId, message)
+    }
 
     // Resumen de Cartera con datos: «resumen de mi cartera», «cómo está mi cartera», «qué tengo en cartera».
     const portfolioSummary = /\b(cartera|inmuebles|propiedades)\b/.test(nmsg)
