@@ -12,7 +12,7 @@ import { foldText } from '@/lib/real-estate-search'
 import { classifyIntent, type CrmEntity } from './intent'
 import { classifyPragmatics } from './assistant-pragmatics'
 import { resolveModuleFromText, type CrmModuleId } from './crm-module-catalog'
-import { classifySummaryIntent, isLearningContext } from '@/lib/summary-intent'
+import { classifySummaryIntent, isLearningContext, wantsFullTour } from '@/lib/summary-intent'
 
 export type TurnType =
   | 'social' | 'help' | 'capability' | 'how_it_works' | 'hypothetical'
@@ -112,6 +112,13 @@ function decideTurnInner(
   if (USER_CORRECTION.test(n)) return base('user_correction', domain, 'clarify', 'user-correction', { shouldExplainAssistantBehavior: true, shouldAskClarification: true, confidence: 0.88 })
   if (USER_COMPLAINT.test(n)) return base('user_complaint', 'assistant', 'apologize', 'user-complaint', { shouldExplainAssistantBehavior: true, confidence: 0.85 })
   if (DISAGREEMENT.test(n)) return base('disagreement', 'assistant', 'apologize', 'disagreement', { shouldExplainAssistantBehavior: true, confidence: 0.85 })
+
+  // 1a-P62) ALCANCE GLOBAL explícito («todo el CRM», «explícame todo», «en general»): SIEMPRE gana al
+  //     módulo del contexto — una petición global no puede quedar atrapada en el módulo anterior
+  //     (incidente: «explícame todo el crm resumido» tras Calendario explicaba solo Calendario).
+  if (wantsFullTour(message) || /\b(en general|el crm entero|todo el sistema)\b/.test(n)) {
+    return base('onboarding', 'general', 'guide', 'p62:global-scope', { shouldExplainProduct: true, confidence: 0.85 })
+  }
 
   // 1b) P53 — GUÍA DE PRODUCTO (aprender/navegar/entender): SIEMPRE explica, NUNCA lee datos, aunque el
   //     mensaje mencione un módulo o entidad («¿qué muestra el dashboard?» ≠ «muéstrame los clientes»).

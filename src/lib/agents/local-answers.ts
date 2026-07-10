@@ -287,6 +287,91 @@ function commissionsRedirectFallback(): LocalAnswer {
   }
 }
 
+// ── P62 · OFERTAS Y ACEPTACIÓN («ofréceme algo» → oferta; «sí/venga/muéstramela» → ejecutar) ─────────
+// El estado de la oferta se deriva del propio texto del asistente en el hilo (marcadores estables), sin
+// canal nuevo. Una aceptación NUNCA vuelve a explicar la pantalla ni cae a n8n sin plan: ejecuta la
+// lectura ofrecida o hace UNA aclaración concreta.
+
+export function detectOfferRequest(message: string): boolean {
+  const n = foldText(message)
+  return /\b(ofreceme|ofrece algo|proponme|propon algo|sugiereme|sugiere algo|recomiendame|que (hacemos|podemos hacer|me recomiendas|me ofreces|me propones)|dame (opciones|ideas)|a que podemos)\b/.test(n)
+}
+
+export function suggestionsAnswer(): string {
+  return [
+    'Te propongo tres cosas que puedo mirarte ahora mismo:',
+    '• La cartera activa (tus inmuebles y su estado).',
+    '• Las operaciones abiertas (tu pipeline).',
+    '• Las citas próximas del calendario.',
+    '¿Cuál te muestro?',
+  ].join('\n')
+}
+
+// Aceptación breve («sí», «vale», «venga va», «muéstramela», «dale», «a ver») — solo mensajes cortos.
+export function detectAcceptance(message: string): { fem: boolean; sing: boolean } | null {
+  const n = foldText(message).replace(/[¿?¡!.,;:]/g, ' ').trim()
+  const words = n.split(/\s+/).filter(Boolean)
+  if (words.length > 7) return null
+  if (!/^(si|vale|venga( va)?|ok|okey|okay|dale|claro( que si)?|hazlo|adelante|va|perfecto|genial|por favor|muestramel[oa]|ensenamel[oa]|a ver)\b/.test(n)) return null
+  // No es aceptación si pide explicación u otra cosa explícita («sí explícame», «sí pero cuéntame»).
+  if (/\b(explica|explicame|como funciona|que es|no\b)\b/.test(n)) return null
+  const fem = /\bmuestramela|ensenamela|la\b/.test(n) && !/\blo\b/.test(n)
+  const sing = /muestramela|ensenamela|esa\b|la primera\b/.test(n)
+  return { fem, sing }
+}
+
+// Resuelve QUÉ se ofreció: busca la ÚLTIMA línea del hilo con marcador de oferta y extrae los módulos de
+// esa línea o de las líneas anteriores del mismo mensaje del asistente.
+const OFFER_MARKER = /(quieres que te muestre|quieres que te liste|puedo mostrarte|te propongo|cual te muestro|quieres que revise|te muestro)/
+export function resolveOfferedModules(recentContext: string): ReturnType<typeof resolveModuleFromText>[] {
+  // Limpia prefijos de hablante para que «asistente:» no se resuelva como módulo Asistente.
+  const lines = recentContext.split('\n')
+    .map((l) => l.trim().replace(/^(usuario|asistente|user|assistant)\s*:\s*/i, ''))
+    .filter(Boolean)
+  let offerIdx = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (OFFER_MARKER.test(foldText(lines[i]))) { offerIdx = i; break }
+  }
+  if (offerIdx === -1) return []
+  const mods: ReturnType<typeof resolveModuleFromText>[] = []
+  const push = (l: string) => { const m = resolveModuleFromText(l); if (m && !mods.includes(m)) mods.push(m) }
+  push(lines[offerIdx])
+  // Hacia atrás SOLO dentro del mismo mensaje del asistente: bullets («•»), numeradas o cabecera («**…»).
+  // Al encontrar una línea de otro formato (p. ej. el mensaje del usuario) se corta — así una oferta de
+  // Calendario no absorbe la Cartera de un mensaje anterior.
+  for (let i = offerIdx - 1; i >= Math.max(0, offerIdx - 8); i--) {
+    if (!/^([•\-\d]|\*\*)/.test(lines[i])) break
+    // Cabecera de explicación de módulo («**Calendario** — …»): ese módulo manda EN EXCLUSIVA (las líneas
+    // internas mencionan otros módulos de pasada: «vincularlas a clientes/inmuebles»).
+    if (/^\*\*/.test(lines[i])) {
+      const header = resolveModuleFromText(lines[i])
+      if (header) return [header]
+    }
+    push(lines[i])
+  }
+  return mods
+}
+
+// Ejecuta la lectura ofrecida para un módulo (siempre EN VIVO).
+async function executeOfferedModule(supabase: SupabaseClient, ws: string, mod: NonNullable<ReturnType<typeof resolveModuleFromText>>): Promise<LocalAnswer> {
+  switch (mod) {
+    case 'portfolio': return handlePortfolioSummary(supabase, ws)
+    case 'calendar': return handleAgenda(supabase, ws, { calendar: true, tasks: false })
+    case 'tasks': return handleAgenda(supabase, ws, { calendar: false, tasks: true })
+    case 'dashboard': return handleAgenda(supabase, ws, { calendar: true, tasks: true })
+    case 'clients': return handleClients(supabase, ws, classifyIntent('muéstrame los clientes'))
+    case 'operations':
+      return handleList(supabase, ws, 'operations', 'local_operations',
+        async () => { const r = await crmReadQuery(supabase, ws, { entity: 'opportunities', limit: 10 }); return 'error' in r ? { error: true } : { rows: r.rows } },
+        formatOperationLine, 'operación', 'operaciones')
+    case 'cases':
+      return handleList(supabase, ws, 'service_cases', 'local_cases',
+        async () => { const r = await crmReadQuery(supabase, ws, { entity: 'service_cases', limit: 10 }); return 'error' in r ? { error: true } : { rows: r.rows } },
+        formatCaseLine, 'trámite', 'trámites')
+    default: return handlePortfolioSummary(supabase, ws)
+  }
+}
+
 // ── P61 · AGENDA combinada (citas + tareas) con respuesta ANSWER-FIRST (sí/no) y multi-fuente ─────────
 // «¿tengo citas o tareas?», «¿qué tengo pendiente/próximo?», «¿tengo algo en el calendario?». Consulta las
 // DOS fuentes reales (calendar_events + tasks, tablas distintas), responde sí/no por cada una y nunca
@@ -460,9 +545,12 @@ export async function tryLocalAnswer(
   // P53/P56 — módulo del contexto: se hereda el del ÚLTIMO mensaje del hilo que nombre un módulo (no el
   // alias más largo de toda la conversación — evita que «no entiendo» tras hablar de Cartera salte a otro
   // módulo mencionado antes). Si el mensaje nombra uno nuevo, gana el nuevo (sin arrastre).
+  // P62: se limpia el prefijo de hablante («asistente:», «usuario:») — si no, la palabra «asistente» del
+  // propio hilo se resolvía como módulo Asistente y contaminaba el contexto.
+  const stripSpeaker = (l: string) => l.replace(/^(usuario|asistente|user|assistant)\s*:\s*/i, '')
   const priorModule = (() => {
     if (!recentContext) return null
-    const lines = recentContext.split('\n').map((l) => l.trim()).filter(Boolean)
+    const lines = recentContext.split('\n').map((l) => stripSpeaker(l.trim())).filter(Boolean)
     for (let i = lines.length - 1; i >= 0; i--) {
       const m = resolveModuleFromText(lines[i])
       if (m) return m
@@ -484,6 +572,35 @@ export async function tryLocalAnswer(
     return handleAgenda(supabase, workspaceId, { calendar: wantCal || !wantTsk, tasks: wantTsk })
   }
 
+  // P62 — OFERTA → ACEPTACIÓN. «ofréceme algo» → propuesta concreta. «sí/venga/muéstramela» tras una
+  // oferta → ejecutar la lectura ofrecida (nunca re-explicar, nunca n8n sin plan). Referencia ambigua con
+  // varias opciones → UNA aclaración concreta. Solo en turnos sin objetivo explícito propio.
+  if ((turn.turnType === 'ambiguous' || turn.turnType === 'social' || turn.turnType === 'data_followup') && turn.domain !== 'invoicing') {
+    if (detectOfferRequest(message)) {
+      return { handled: true, usedTool: 'local_offer:suggest', entity: 'help', answer: suggestionsAnswer() }
+    }
+    const acc = detectAcceptance(message)
+    if (acc) {
+      const offered = resolveOfferedModules(recentContext)
+      if (offered.length === 1 && offered[0]) {
+        return executeOfferedModule(supabase, workspaceId, offered[0])
+      }
+      if (offered.length > 1) {
+        // Referencia por módulo explícito en la aceptación («venga, las citas»).
+        const explicit = resolveModuleFromText(message)
+        if (explicit && offered.includes(explicit)) return executeOfferedModule(supabase, workspaceId, explicit)
+        // «muéstramela» (singular femenino) → la cartera es la única opción singular femenina de la oferta.
+        if (acc.sing && acc.fem && offered.includes('portfolio')) return executeOfferedModule(supabase, workspaceId, 'portfolio')
+        const labels: Record<string, string> = { portfolio: 'la cartera', operations: 'las operaciones', calendar: 'las citas', clients: 'los clientes', tasks: 'las tareas', cases: 'los trámites', dashboard: 'el resumen del día' }
+        const opts = offered.filter(Boolean).map((m) => labels[m as string] ?? m).join(', ')
+        return { handled: true, usedTool: 'local_offer:clarify', entity: 'help', answer: `¿Cuál te muestro: ${opts}?` }
+      }
+      // No hay oferta previa: si el mensaje trae módulo explícito («venga, la cartera»), ejecutarlo.
+      const explicit = resolveModuleFromText(message)
+      if (explicit) return executeOfferedModule(supabase, workspaceId, explicit)
+    }
+  }
+
   // P58 — VENTAS/VENDIDOS transversal: se resuelve ANTES del enrutado por entidad porque «vendido/ventas/
   // he vendido» no tiene vocab de módulo → el clasificador lo marcaba unknown/ambiguous y caía a n8n (que
   // alucinaba «no consta ninguna operación vendida»). Solo en turnos de datos/ambiguo (nunca meta/guía/
@@ -502,7 +619,8 @@ export async function tryLocalAnswer(
     const mentionsCitas = /\b(citas?|calendario|agenda|reunion(es)?|visitas?)\b/.test(nmsg)
     const mentionsTareas = /\b(tareas?|pendientes?|to ?do)\b/.test(nmsg)
     const agendaGeneric = /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
-    const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no)\b/.test(nmsg)
+    // Existencia O verbo de lectura («en el calendario me puedes mirar?» debe leer, answer-first).
+    const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no|mira(me|lo|la)?|mirar|muestra(me)?|ensename|ver|consulta|revisa|lee|dime)\b/.test(nmsg)
     if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true })
     if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false })
     if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true })

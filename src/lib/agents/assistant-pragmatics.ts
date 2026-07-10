@@ -45,7 +45,7 @@ const CONFIRM = /\b(seguro|de verdad|confirma|confirmame|estas seguro|revisa|rep
 const CORRECTION = /\b(no me refiero|mejor los|en realidad|quiero decir|me referia|corrige|te equivocaste)\b/
 const FOLLOWUP_DETAIL = /\b(dime mas|mas detalle|mas detalles|detalles|sus datos|su ficha|amplia|dame mas)\b/
 const FOLLOWUP_FILTER = /\b(solo|unicamente|filtra|quita|sin los|con mas|con menos|mas de|menos de|en venta|en alquiler|disponibles|baratos|caros|abiertas|cerradas)\b/
-const READ_SIGNALS = /\b(lista|listado|listame|muestra|muestrame|ensename|dame|dime|cuantos|cuantas|cuales|busca|buscame|encuentra|que (tengo|hay|tenemos|existen)|tengo|tenemos|hay|resumen|resume|proximas|proximos|pendientes|abiertas|disponibles)\b/
+const READ_SIGNALS = /\b(lista|listado|listame|muestra|muestrame|ensename|dame|dime|cuantos|cuantas|cuales|busca|buscame|encuentra|que (tengo|hay|tenemos|existen)|tengo|tenemos|hay|resumen|resume|proximas|proximos|pendientes|abiertas|disponibles|mira(me|lo|la)?|mirar|echa un vistazo|vistazo)\b/
 const WRITE = /\b(crea|crear|añad|anad|agrega|agregar|nuev[oa]s?\s+(cliente|inmueble|operacion|cita|tarea|tramite)|elimina|borra|borrar|actualiza|modifica|edita|editar|marca|mueve|programa|agenda(r| una| la)|asigna|apunta|guarda|envia|manda)\b/
 
 function make(speechAct: SpeechAct, reason: string): PragmaticResult {
@@ -84,7 +84,7 @@ export function classifyPragmatics(message: string): PragmaticResult {
   // 1) Saludo puro (no si además pide/hace algo).
   //    Idioma coloquial: «hola que hay», «que tal», «que pasa» son saludos aunque «hay» parezca lectura —
   //    solo cuando el mensaje ENTERO son fórmulas de saludo (no «hola muéstrame clientes»).
-  const greetingFull = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|holi|saludos)?[\s,]*(que hay|que tal|que pasa|que hubo|que cuentas|como estas|como va|todo bien|buenas)?[\s?!¿¡.]*$/.exec(n)
+  const greetingFull = /^(hola|hello|hi|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|holi|saludos)?[\s,]*(que hay|que tal|que pasa|que hubo|que cuentas|como estas|como va|todo bien|buenas)?[\s?!¿¡.]*$/.exec(n)
   if (greetingFull && (greetingFull[1] || greetingFull[2])) return make('greeting', 'greeting-full')
   if (GREETING.test(n) && !hasRead && !hasWrite && words.length <= 4) return make('greeting', 'greeting-only')
   // 2) Agradecimiento / reconocimiento breve.
