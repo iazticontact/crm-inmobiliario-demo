@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { foldText } from '@/lib/real-estate-search'
 import {
   searchProperties, searchClients, crmReadQuery, getCalendarSummary, getPendingTasks, getDocumentsMetadata,
-  type SearchPropertyItem,
+  getClient360, type SearchPropertyItem,
 } from '@/lib/agent-tool-readers'
 import { classifyIntent, type CrmEntity } from './intent'
 import { readFailedCodeFor, humanError } from './assistant-errors'
@@ -125,6 +125,19 @@ export function detectClientSearch(message: string): { name: string } | null {
   const needle = n.replace(/[¿?¡!.,;:]/g, ' ').split(/\s+/).filter((w) => w && !CLIENT_STOP.has(w) && !/^\d+$/.test(w)).join(' ').trim()
   if (needle.length < 2) return null
   return { name: needle.slice(0, 60) }
+}
+
+// P61 — Nombre para una FICHA/detalle de cliente: «ficha completa de David Iglesias», «imprime toda la
+// ficha de David», «todo sobre David Iglesias». Devuelve el nombre (tras «de …»), o null si no es detalle.
+export function extractDetailName(message: string): string | null {
+  const n = foldText(message)
+  if (!/\b(ficha|detalle|expediente|todo sobre|toda la (informacion|ficha)|imprime|imprimas|dame la ficha|abre la ficha|ver la ficha|ver a)\b/.test(n)) return null
+  const m = message.match(/\bde\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ'.-]*(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ'.-]*){0,3})\s*[?.!]*\s*$/)
+  const name = m?.[1]?.trim()
+  if (!name || name.length < 2) return null
+  // Excluye palabras genéricas que no son nombres propios.
+  if (/^(clientes?|inmuebles?|cartera|operaciones|tareas|citas|todo|eso|esto)$/i.test(name)) return null
+  return name.slice(0, 60)
 }
 
 export function detectPropertiesIntent(message: string, recentContext = ''): { query: string } | null {
@@ -274,6 +287,87 @@ function commissionsRedirectFallback(): LocalAnswer {
   }
 }
 
+// ── P61 · AGENDA combinada (citas + tareas) con respuesta ANSWER-FIRST (sí/no) y multi-fuente ─────────
+// «¿tengo citas o tareas?», «¿qué tengo pendiente/próximo?», «¿tengo algo en el calendario?». Consulta las
+// DOS fuentes reales (calendar_events + tasks, tablas distintas), responde sí/no por cada una y nunca
+// convierte un vacío en «no hay nada en el CRM».
+async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calendar: boolean; tasks: boolean }): Promise<LocalAnswer> {
+  let calN: number | null = null, calRows: Row[] = [], calErr = false
+  let taskN: number | null = null, taskRows: Row[] = [], taskErr = false
+  if (want.calendar) {
+    const r = await getCalendarSummary(supabase, ws, {}) // desde hoy (próximas ~2 semanas)
+    if ('error' in r) calErr = true; else { calRows = r.events as unknown as Row[]; calN = calRows.length }
+  }
+  if (want.tasks) {
+    const r = await getPendingTasks(supabase, ws, {})
+    if ('error' in r) taskErr = true; else { taskRows = r.tasks as unknown as Row[]; taskN = taskRows.length }
+  }
+  // Fallback parcial: solo error si TODO lo pedido falló.
+  if ((want.calendar && calErr && (!want.tasks || taskErr)) && (want.tasks ? taskErr : true) && !(want.calendar && !calErr) && !(want.tasks && !taskErr)) {
+    return fail('calendar', 'local_agenda', ws)
+  }
+  const lines: string[] = []
+  if (want.calendar) {
+    lines.push(calErr ? '• Citas próximas: no he podido consultarlas ahora mismo.'
+      : calN ? `• Citas próximas: **sí**, tienes ${calN}.` : '• Citas próximas: **no**, no tienes ninguna registrada de aquí en adelante.')
+  }
+  if (want.tasks) {
+    lines.push(taskErr ? '• Tareas pendientes: no he podido consultarlas ahora mismo.'
+      : taskN ? `• Tareas pendientes: **sí**, tienes ${taskN}.` : '• Tareas pendientes: **no**, no tienes ninguna.')
+  }
+  const detail: string[] = []
+  if (want.calendar && calN) detail.push(...calRows.slice(0, 5).map(formatEventLine))
+  if (want.tasks && taskN) detail.push(...taskRows.slice(0, 5).map(formatTaskLine))
+  const both = want.calendar && want.tasks
+  const head = both ? 'Te lo dejo claro, mirando calendario y tareas:' : ''
+  const answer = [head, lines.join('\n'), detail.length ? '\n' + detail.join('\n') : ''].filter(Boolean).join('\n')
+  return { handled: true, usedTool: 'local_agenda', entity: want.tasks && !want.calendar ? 'tasks' : 'calendar', answer, referencedList: detail.length ? [...calRows.slice(0, 5), ...taskRows.slice(0, 5)] : undefined }
+}
+
+// ── P61 · Resumen con DATOS de Cartera (conteo por estado, en vivo) ───────────────────────────────────
+async function handlePortfolioSummary(supabase: SupabaseClient, ws: string): Promise<LocalAnswer> {
+  const r = await crmReadQuery(supabase, ws, { entity: 'properties', limit: 200 })
+  if ('error' in r) return fail('properties', 'local_portfolio_summary', ws)
+  const rows = r.rows as Row[]
+  if (!rows.length) return { handled: true, usedTool: 'local_portfolio_summary', entity: 'properties', answer: 'Tu cartera está vacía por ahora: no hay inmuebles registrados. Cuando añadas alguno, te lo resumo aquí.' }
+  const by: Record<string, number> = {}
+  for (const p of rows) { const l = normalizePropertyState(p.status).labelEs; by[l] = (by[l] ?? 0) + 1 }
+  const parts = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `• ${k}: ${v}`)
+  const head = `Tu cartera tiene **${rows.length}** ${rows.length === 1 ? 'inmueble' : 'inmuebles'} en total:`
+  return { handled: true, usedTool: 'local_portfolio_summary', entity: 'properties', answer: `${head}\n${parts.join('\n')}\n\n${followUpCTA.properties}`, referencedList: rows.slice(0, 6) }
+}
+
+// ── P61 · Ficha (detalle) de cliente con DEGRADACIÓN PARCIAL: core primero, secciones opcionales aparte ─
+async function handleClientDetail(supabase: SupabaseClient, ws: string, name: string): Promise<LocalAnswer> {
+  const found = await searchClients(supabase, ws, { query: name, limit: 5 })
+  if ('error' in found) return found.error === 'invalid_input' ? { handled: false } : fail('clients', 'local_client_detail', ws)
+  if (!found.results.length) return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${name}». ¿Quieres que te liste todos los clientes?` }
+  if (found.results.length > 1) {
+    const names = found.results.map((c) => `• ${str(c.name)}`).join('\n')
+    return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `Hay varios clientes que coinciden con «${name}»:\n${names}\n¿De cuál quieres la ficha?` }
+  }
+  const target = found.results[0] as Row
+  const cid = str(target.id)
+  const r = await getClient360(supabase, ws, { clientId: cid })
+  if ('error' in r) {
+    // El core no se pudo leer: mostramos al menos la tarjeta que ya teníamos (nunca «no tengo acceso»).
+    return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `Ficha de ${str(target.name)}:\n${formatClientLine(target)}\n(No he podido cargar el resto de la ficha ahora mismo.)`, referencedList: [target] }
+  }
+  const c = r.client
+  const core = [
+    `**Ficha de ${c.name}**`,
+    [c.company, c.email, c.phone].filter(Boolean).join(' · ') || null,
+    c.status ? `Estado: ${cap(c.status)}` : null,
+    c.notes ? `Notas: ${c.notes}` : null,
+  ].filter(Boolean)
+  const sections: string[] = []
+  sections.push(r.tasks.length ? `• Tareas: ${r.tasks.length}` : '• Tareas: ninguna')
+  sections.push(r.calendarEvents.length ? `• Citas: ${r.calendarEvents.length}` : '• Citas: ninguna')
+  sections.push(r.documents.length ? `• Documentos: ${r.documents.length}` : '• Documentos: ninguno')
+  sections.push(r.activity.length ? `• Actividad reciente: ${r.activity.length} eventos` : '• Actividad reciente: sin registros')
+  return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `${core.join('\n')}\n${sections.join('\n')}`, referencedList: [target] }
+}
+
 // ── P58 · VENTAS/VENDIDOS transversal (Cartera + Operaciones) con fallback PARCIAL ───────────────────
 async function handleSales(supabase: SupabaseClient, ws: string, intent: SalesQueryIntent): Promise<LocalAnswer> {
   // Explicación (diferencia inmueble vendido vs operación cerrada): NO lee datos.
@@ -380,6 +474,16 @@ export async function tryLocalAnswer(
   // Traza segura por turno (sin PII ni cuerpo del mensaje): por qué se leerá o NO se leerán datos.
   console.log('[assistant.turn]', { turnType: turn.turnType, domain: turn.domain, module: turn.module, action: turn.action, shouldReadData: turn.shouldReadData, shouldCallN8n: turn.shouldCallN8n, reason: turn.reason })
 
+  // P61 — CONFIRMACIÓN de un resultado vacío previo: «¿no tengo nada?», «entonces no?», «me quieres decir
+  // que no?». NO es smalltalk social: reconsulta y RE-AFIRMA la agenda (citas/tareas) del turno anterior.
+  const ctxAgenda = /\b(cita|citas|tarea|tareas|agenda|calendario)\b/.test(foldText(recentContext))
+  const isEmptyConfirm = /\b(no tengo nada|entonces no|o sea que no|no hay nada|me quieres decir|son cero|es cero|ninguna\b|no tengo ni)\b/.test(foldText(message))
+  if (ctxAgenda && isEmptyConfirm && turn.turnType !== 'module_explanation' && turn.turnType !== 'user_correction' && turn.domain !== 'invoicing') {
+    const wantTsk = /\btarea/.test(foldText(recentContext))
+    const wantCal = /\bcita|calendario|agenda\b/.test(foldText(recentContext))
+    return handleAgenda(supabase, workspaceId, { calendar: wantCal || !wantTsk, tasks: wantTsk })
+  }
+
   // P58 — VENTAS/VENDIDOS transversal: se resuelve ANTES del enrutado por entidad porque «vendido/ventas/
   // he vendido» no tiene vocab de módulo → el clasificador lo marcaba unknown/ambiguous y caía a n8n (que
   // alucinaba «no consta ninguna operación vendida»). Solo en turnos de datos/ambiguo (nunca meta/guía/
@@ -391,6 +495,27 @@ export async function tryLocalAnswer(
     const priorWasSales = /\b(vendid|ventas|operaciones ganadas|estado vendido|operacion(es)? ganad|cerradas con exito)\b/.test(foldText(recentContext))
     const sales = parseSalesIntent(message, { priorWasSales })
     if (sales) return handleSales(supabase, workspaceId, sales)
+
+    // P61 — AGENDA (citas + tareas), RESUMEN de módulo con datos, y FICHA de entidad — resueltos localmente
+    // y en vivo, ANTES del enrutado por entidad (para no caer a n8n en preguntas binarias/multi-fuente/detalle).
+    const nmsg = foldText(message)
+    const mentionsCitas = /\b(citas?|calendario|agenda|reunion(es)?|visitas?)\b/.test(nmsg)
+    const mentionsTareas = /\b(tareas?|pendientes?|to ?do)\b/.test(nmsg)
+    const agendaGeneric = /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
+    const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no)\b/.test(nmsg)
+    if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true })
+    if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false })
+    if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true })
+
+    // Resumen de Cartera con datos: «resumen de mi cartera», «cómo está mi cartera», «qué tengo en cartera».
+    const portfolioSummary = /\b(cartera|inmuebles|propiedades)\b/.test(nmsg)
+      && /\b(resumen|como (esta|va|van)|que tengo en|estado de|todo (lo que hay|eso)|de inmuebles)\b/.test(nmsg)
+      && !parseStatusIntent(message)
+    if (portfolioSummary) return handlePortfolioSummary(supabase, workspaceId)
+
+    // Ficha/detalle de un cliente concreto: «ficha (completa) de X», «imprime toda la ficha de X».
+    const detailName = extractDetailName(message)
+    if (detailName) return handleClientDetail(supabase, workspaceId, detailName)
   }
 
   switch (turn.turnType) {

@@ -447,47 +447,39 @@ export async function getClient360(
   // Escape commas in the name for PostgREST `.or()` filter syntax.
   const safeName = clientName.replace(/[,()]/g, '')
 
-  // Facturación NO se lee desde el Asistente (P35: módulo aislado). Sin query a `invoices`.
-  const [tasksRes, eventsRes, convRes, docsRes, actsRes] = await Promise.all([
-    supabase.from('tasks')
+  // P61 — DEGRADACIÓN PARCIAL: el core del cliente YA se leyó arriba. Las secciones opcionales se leen de
+  // forma INDEPENDIENTE: si una falla (tabla/relación/schema), devuelve [] y NO tira abajo la ficha entera.
+  // (Antes un Promise.all rechazaba todo por una sección; p. ej. las tablas `conversations`/`messages` no
+  // existen en este modelo → se eliminan.) Facturación nunca se lee (módulo aislado).
+  const safeRows = async (q: PromiseLike<{ data: unknown; error: unknown }>): Promise<Row[]> => {
+    try { const { data, error } = await q; return error ? [] : ((data ?? []) as Row[]) } catch { return [] }
+  }
+  const [tasksRows, eventsRows, docsRows, actsRows] = await Promise.all([
+    safeRows(supabase.from('tasks')
       .select('id, title, due_date, status, priority')
       .eq('workspace_id', workspaceId).eq('client_id', clientId)
-      .order('due_date', { ascending: true, nullsFirst: false }).limit(10),
-    supabase.from('calendar_events')
+      .order('due_date', { ascending: true, nullsFirst: false }).limit(10)),
+    safeRows(supabase.from('calendar_events')
       .select('id, title, date, start_at, end_at, status')
       .eq('workspace_id', workspaceId)
       .or(safeName ? `client_id.eq.${clientId},client_name.eq.${safeName}` : `client_id.eq.${clientId}`)
       .neq('status', 'cancelled')
-      .order('date', { ascending: false }).limit(10),
-    supabase.from('conversations')
-      .select('id, channel, status, sentiment, intent, ai_summary, updated_at')
-      .eq('workspace_id', workspaceId).eq('client_id', clientId)
-      .order('updated_at', { ascending: false }).limit(5),
+      .order('date', { ascending: false }).limit(10)),
     // Documentos = tabla real `entity_files` (no existe tabla `documents`). Solo metadata; nunca contenido.
-    supabase.from('entity_files')
+    safeRows(supabase.from('entity_files')
       .select('id, file_name, mime_type, size_bytes, created_at')
       .eq('workspace_id', workspaceId).eq('entity_type', 'client').eq('entity_id', clientId).eq('category', 'document')
-      .order('created_at', { ascending: false }).limit(10),
-    supabase.from('activities')
+      .order('created_at', { ascending: false }).limit(10)),
+    safeRows(supabase.from('activities')
       .select('id, type, description, created_at')
       .eq('workspace_id', workspaceId)
       .or(safeName ? `client_id.eq.${clientId},client_name.eq.${safeName}` : `client_id.eq.${clientId}`)
-      .order('created_at', { ascending: false }).limit(10),
+      .order('created_at', { ascending: false }).limit(10)),
   ])
-
-  const convRows = (convRes.data ?? []) as Row[]
-  const convIds = convRows.map((c) => String(c.id))
-  let msgRows: Row[] = []
-  if (convIds.length) {
-    const { data: msgs } = await supabase
-      .from('messages')
-      .select('id, conversation_id, sender, body, is_ai, created_at')
-      .eq('workspace_id', workspaceId)
-      .in('conversation_id', convIds)
-      .order('created_at', { ascending: false })
-      .limit(10)
-    msgRows = (msgs ?? []) as Row[]
-  }
+  const tasksRes = { data: tasksRows }
+  const eventsRes = { data: eventsRows }
+  const docsRes = { data: docsRows }
+  const actsRes = { data: actsRows }
 
   const c = clientRow as Row
   return {
@@ -520,23 +512,9 @@ export async function getClient360(
       end_at: typeof e.end_at === 'string' ? e.end_at : null,
       status: clampString(e.status, 40),
     })),
-    conversations: convRows.map((cv) => ({
-      id: String(cv.id),
-      channel: clampString(cv.channel, 40),
-      status: clampString(cv.status, 40),
-      sentiment: clampString(cv.sentiment, 40),
-      intent: clampString(cv.intent, 60),
-      ai_summary: clampString(cv.ai_summary, 280),
-      updated_at: typeof cv.updated_at === 'string' ? cv.updated_at : null,
-    })),
-    recentMessages: msgRows.map((m) => ({
-      id: String(m.id),
-      conversation_id: m.conversation_id ? String(m.conversation_id) : null,
-      sender: clampString(m.sender, 40),
-      is_ai: m.is_ai === true,
-      body: clampString(m.body, 280),
-      created_at: typeof m.created_at === 'string' ? m.created_at : null,
-    })),
+    // Tablas `conversations`/`messages` no existen en este modelo (P61): secciones vacías, sin romper la ficha.
+    conversations: [],
+    recentMessages: [],
     documents: ((docsRes.data ?? []) as Row[]).map((d) => ({
       id: String(d.id),
       file_name: clampString(d.file_name, 200) ?? '',

@@ -82,6 +82,10 @@ export function classifyPragmatics(message: string): PragmaticResult {
   const hasWrite = WRITE.test(n)
 
   // 1) Saludo puro (no si además pide/hace algo).
+  //    Idioma coloquial: «hola que hay», «que tal», «que pasa» son saludos aunque «hay» parezca lectura —
+  //    solo cuando el mensaje ENTERO son fórmulas de saludo (no «hola muéstrame clientes»).
+  const greetingFull = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|holi|saludos)?[\s,]*(que hay|que tal|que pasa|que hubo|que cuentas|como estas|como va|todo bien|buenas)?[\s?!¿¡.]*$/.exec(n)
+  if (greetingFull && (greetingFull[1] || greetingFull[2])) return make('greeting', 'greeting-full')
   if (GREETING.test(n) && !hasRead && !hasWrite && words.length <= 4) return make('greeting', 'greeting-only')
   // 2) Agradecimiento / reconocimiento breve.
   if (THANKS.test(n) && !hasRead && !hasWrite && words.length <= 5) return make('smalltalk', 'thanks-ack')

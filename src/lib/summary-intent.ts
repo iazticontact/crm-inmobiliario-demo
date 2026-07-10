@@ -12,7 +12,9 @@ export type SummaryKind = 'conceptual' | 'operational' | 'ambiguous'
 
 const IS_SUMMARY = /\b(resumen|resumeme|resumir|resumeme|panorama|vision general|vista general|overview|ponme al dia|puesta al dia)\b/
 const CONCEPTUAL = /\b(para entender|entenderlo|entenderla|entender (el|la|esto|como)|de todo el crm|de como (va|funciona)|como funciona|del producto|del sistema|de la (app|aplicacion|herramienta|plataforma)|para aprender|para conocer|guia|tour|recorrido|que es (esto|el crm)|generales del crm)\b/
-const OPERATIONAL = /\b(del dia|de hoy|de la semana|semanal|con mis datos|de mis datos|mis (tareas|citas|operaciones|clientes|ventas)|pendiente|pendientes|actividad|agenda de hoy|que tengo|proximas)\b/
+// Operativo = datos actuales. El POSESIVO sobre una entidad del CRM («mi cartera», «mis clientes», «mi
+// agenda») indica datos actuales del módulo, no explicación de producto (P61: «resumen de MI cartera»).
+const OPERATIONAL = /\b(del dia|de hoy|de la semana|semanal|con mis datos|de mis datos|mi(s)? (cartera|inmuebles|clientes|operaciones|ventas|agenda|negocio|cuenta|tareas|citas|pipeline)|pendiente|pendientes|actividad|agenda de hoy|que tengo|proximas|como (esta|van|va) (mi|la|el|las|los))\b/
 
 export function classifySummaryIntent(text: string): SummaryKind | null {
   const n = foldText(text)
