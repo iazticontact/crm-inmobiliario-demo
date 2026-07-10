@@ -22,6 +22,8 @@ import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, reso
 import { wantsFullTour } from '@/lib/summary-intent'
 import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
 import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
+import { isUpcoming, isPast, isPendingTask, isOverdueTask } from '@/lib/assistant-temporal'
+import { classifySummaryIntent } from '@/lib/summary-intent'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -287,6 +289,61 @@ function commissionsRedirectFallback(): LocalAnswer {
   }
 }
 
+// ── P64 · RESUMEN EJECUTIVO multi-fuente (Cartera + Operaciones + Agenda + Tareas + Trámites) ─────────
+// Datos VIVOS de todas las fuentes autorizadas, en paralelo, con degradación parcial (una fuente caída no
+// tumba el resumen). Sin Facturación. Cada cifra procede de un reader real; prioridades = reglas objetivas.
+async function handleExecutiveSummary(supabase: SupabaseClient, ws: string): Promise<LocalAnswer> {
+  const safe = async <T>(p: Promise<T>): Promise<T | null> => { try { return await p } catch { return null } }
+  const [props, ops, cal, tsk, cases] = await Promise.all([
+    safe(crmReadQuery(supabase, ws, { entity: 'properties', limit: 200 })),
+    safe(crmReadQuery(supabase, ws, { entity: 'opportunities', limit: 200 })),
+    safe(getCalendarSummary(supabase, ws, {})),
+    safe(getPendingTasks(supabase, ws, {})),
+    safe(crmReadQuery(supabase, ws, { entity: 'service_cases', limit: 100 })),
+  ])
+  const blocks: string[] = ['Resumen ejecutivo (datos consultados ahora mismo):']
+  let anyOk = false
+  // Cartera
+  if (props && !('error' in props)) {
+    anyOk = true
+    const rows = props.rows as Row[]
+    const by: Record<string, number> = {}
+    for (const p of rows) { const l = normalizePropertyState(p.status).labelEs; by[l] = (by[l] ?? 0) + 1 }
+    blocks.push(`• Cartera: ${rows.length} inmuebles (${Object.entries(by).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ') || 'sin inmuebles'}).`)
+  } else blocks.push('• Cartera: no disponible ahora mismo.')
+  // Operaciones
+  if (ops && !('error' in ops)) {
+    anyOk = true
+    const rows = ops.rows as Row[]
+    const won = rows.filter((o) => str(o.stage) === 'won').length
+    const lost = rows.filter((o) => str(o.stage) === 'lost').length
+    const open = rows.length - won - lost
+    blocks.push(`• Operaciones: ${rows.length} en total — ${open} abiertas, ${won} ganadas, ${lost} perdidas.`)
+  } else blocks.push('• Operaciones: no disponibles ahora mismo.')
+  // Agenda
+  if (cal && !('error' in cal)) { anyOk = true; blocks.push(`• Citas próximas: ${cal.events.length}.`) } else blocks.push('• Citas: no disponibles.')
+  let overdueN = 0
+  if (tsk && !('error' in tsk)) {
+    anyOk = true
+    overdueN = (tsk.tasks as Array<{ due_date: string | null; status: string | null }>).filter((t) => isOverdueTask(t.due_date, t.status)).length
+    blocks.push(`• Tareas pendientes: ${tsk.tasks.length}${overdueN ? ` (${overdueN} vencidas)` : ''}.`)
+  } else blocks.push('• Tareas: no disponibles.')
+  // Trámites
+  if (cases && !('error' in cases)) {
+    anyOk = true
+    const rows = cases.rows as Row[]
+    const openC = rows.filter((c) => !/closed|done|resuelto|cerrado/i.test(str(c.status))).length
+    blocks.push(`• Trámites: ${rows.length} (${openC} abiertos).`)
+  } else blocks.push('• Trámites: no disponibles.')
+  if (!anyOk) return fail('operations', 'local_exec_summary', ws)
+  // Prioridades objetivas (solo hechos leídos arriba).
+  const prios: string[] = []
+  if (overdueN) prios.push(`revisar las ${overdueN} tareas vencidas`)
+  if (cal && !('error' in cal) && cal.events.length) prios.push('preparar las citas próximas')
+  if (prios.length) blocks.push(`Sugerencia (basada en lo anterior): ${prios.join(' y ')}.`)
+  return { handled: true, usedTool: 'local_exec_summary', entity: 'operations', answer: blocks.join('\n') }
+}
+
 // ── P62 · OFERTAS Y ACEPTACIÓN («ofréceme algo» → oferta; «sí/venga/muéstramela» → ejecutar) ─────────
 // El estado de la oferta se deriva del propio texto del asistente en el hilo (marcadores estables), sin
 // canal nuevo. Una aceptación NUNCA vuelve a explicar la pantalla ni cae a n8n sin plan: ejecuta la
@@ -339,15 +396,17 @@ export function resolveOfferedModules(recentContext: string): ReturnType<typeof 
   // Hacia atrás SOLO dentro del mismo mensaje del asistente: bullets («•»), numeradas o cabecera («**…»).
   // Al encontrar una línea de otro formato (p. ej. el mensaje del usuario) se corta — así una oferta de
   // Calendario no absorbe la Cartera de un mensaje anterior.
+  // Cabecera de explicación de módulo: «**Calendario** — …» o, tras el sanitizador P64 (sin asteriscos),
+  // «Calendario — …». Ese módulo manda EN EXCLUSIVA (las líneas internas mencionan otros de pasada).
+  const isHeader = (l: string) => /^(\*\*)?[A-ZÁÉÍÓÚÑ]/.test(l) && / — /.test(l) && resolveModuleFromText(l.split(' — ')[0]) !== null
   for (let i = offerIdx - 1; i >= Math.max(0, offerIdx - 8); i--) {
-    if (!/^([•\-\d]|\*\*)/.test(lines[i])) break
-    // Cabecera de explicación de módulo («**Calendario** — …»): ese módulo manda EN EXCLUSIVA (las líneas
-    // internas mencionan otros módulos de pasada: «vincularlas a clientes/inmuebles»).
-    if (/^\*\*/.test(lines[i])) {
-      const header = resolveModuleFromText(lines[i])
+    const l = lines[i]
+    if (isHeader(l)) {
+      const header = resolveModuleFromText(l.split(' — ')[0])
       if (header) return [header]
     }
-    push(lines[i])
+    if (!/^([•\-\d]|\*\*|\d+\.)/.test(l)) break
+    push(l)
   }
   return mods
 }
@@ -445,9 +504,20 @@ async function handleClientDetail(supabase: SupabaseClient, ws: string, name: st
     c.status ? `Estado: ${cap(c.status)}` : null,
     c.notes ? `Notas: ${c.notes}` : null,
   ].filter(Boolean)
+  // P64 — VERDAD TEMPORAL en la ficha: una cita pasada NUNCA se presenta como próxima; una tarea
+  // completada NUNCA como pendiente/vencida (evidencia del incidente: cita 24/06 mostrada como próxima).
+  const pendingTasks = r.tasks.filter((t) => isPendingTask(t.status))
+  const overdue = r.tasks.filter((t) => isOverdueTask(t.due_date, t.status))
+  const doneTasks = r.tasks.length - pendingTasks.length
+  const upcomingEv = r.calendarEvents.filter((e) => isUpcoming(e.date ?? e.start_at, e.status))
+  const pastEv = r.calendarEvents.filter((e) => isPast(e.date ?? e.start_at) && String(e.status ?? '').toLowerCase() !== 'cancelled')
   const sections: string[] = []
-  sections.push(r.tasks.length ? `• Tareas: ${r.tasks.length}` : '• Tareas: ninguna')
-  sections.push(r.calendarEvents.length ? `• Citas: ${r.calendarEvents.length}` : '• Citas: ninguna')
+  sections.push(pendingTasks.length
+    ? `• Tareas pendientes: ${pendingTasks.length}${overdue.length ? ` (${overdue.length} vencida${overdue.length === 1 ? '' : 's'})` : ''}${doneTasks ? ` · completadas: ${doneTasks}` : ''}`
+    : `• Tareas pendientes: ninguna${doneTasks ? ` (completadas: ${doneTasks})` : ''}`)
+  sections.push(upcomingEv.length
+    ? `• Citas próximas: ${upcomingEv.length}${pastEv.length ? ` · pasadas: ${pastEv.length}` : ''}`
+    : `• Citas próximas: ninguna${pastEv.length ? ` (pasadas: ${pastEv.length})` : ''}`)
   sections.push(r.documents.length ? `• Documentos: ${r.documents.length}` : '• Documentos: ninguno')
   sections.push(r.activity.length ? `• Actividad reciente: ${r.activity.length} eventos` : '• Actividad reciente: sin registros')
   return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `${core.join('\n')}\n${sections.join('\n')}`, referencedList: [target] }
@@ -529,7 +599,19 @@ async function handleSales(supabase: SupabaseClient, ws: string, intent: SalesQu
 }
 
 // ── Punto de entrada ─────────────────────────────────────────────────────────
+// P64 — SANITIZADOR de respuesta visible: sin dobles asteriscos (markdown crudo en el chat). Se aplica a
+// TODA respuesta local en un único punto; los generadores internos pueden seguir usando **…** como énfasis.
 export async function tryLocalAnswer(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  message: string,
+  opts: { recentContext?: string; lastResults?: unknown[] } = {},
+): Promise<LocalAnswer> {
+  const r = await tryLocalAnswerInner(supabase, workspaceId, message, opts)
+  return r.handled ? { ...r, answer: r.answer.replace(/\*\*/g, '') } : r
+}
+
+async function tryLocalAnswerInner(
   supabase: SupabaseClient,
   workspaceId: string,
   message: string,
@@ -616,6 +698,15 @@ export async function tryLocalAnswer(
     // P61 — AGENDA (citas + tareas), RESUMEN de módulo con datos, y FICHA de entidad — resueltos localmente
     // y en vivo, ANTES del enrutado por entidad (para no caer a n8n en preguntas binarias/multi-fuente/detalle).
     const nmsg = foldText(message)
+    // P64 — RESUMEN OPERATIVO GLOBAL («resumen del día con mis datos», «resumen ejecutivo», «cómo va el
+    // negocio», «ponme al día»): antes caía a n8n (entity unknown). Multi-fuente local con degradación
+    // parcial. Solo si NO nombra un módulo concreto (eso lo maneja su handler).
+    const summaryKind = classifySummaryIntent(message)
+    const explicitExec = /\b(resumen (ejecutivo|del negocio|general de (mis datos|todo))|como va (el negocio|todo el negocio)|estado general del crm|ponme al dia con mis datos)\b/.test(foldText(message))
+    if (explicitExec || (summaryKind === 'operational' && (!resolveModuleFromText(message) || resolveModuleFromText(message) === 'dashboard'))) {
+      return handleExecutiveSummary(supabase, workspaceId)
+    }
+
     // P63: PROHIBIDO `to ?do` — hacía match con la palabra española «todo» («lístame TODO lo que tengo en
     // inmuebles» → secuestro por Tareas). Además, el módulo EXPLÍCITO del mensaje actual manda: si nombra
     // inmuebles/cartera, los gates de agenda NO aplican salvo consulta combinada expresa.
