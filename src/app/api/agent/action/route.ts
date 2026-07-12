@@ -82,8 +82,9 @@ async function prepare(supabase: SupabaseClient, ws: string, body: Row, secret: 
     const p = Number(changes.price)
     if (!Number.isFinite(p) || p <= 0) return err(422, 'ACTION_VALIDATION_ERROR', 'Precio inválido.')
   }
-  if (def.id === 'tasks.complete' && changes.status !== 'completed') {
-    return err(422, 'ACTION_VALIDATION_ERROR', 'tasks.complete solo admite status=completed.')
+  // El modelo REAL de tasks solo admite 'pending' | 'done' (check constraint verificado en BD).
+  if (def.id === 'tasks.complete' && changes.status !== 'done') {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'tasks.complete solo admite status=done.')
   }
 
   const previewHash = previewHashOf(current, changes)

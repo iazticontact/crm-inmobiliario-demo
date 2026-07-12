@@ -42,9 +42,9 @@ check('doble confirm → duplicate:true (sin segunda escritura)', conf2.status =
 // ── 4. COMPLETE la tarea QA (update con optimistic lock) + verificación ──
 let completed = false
 if (taskId) {
-  const prep2 = await call({ operation: 'prepare', action_type: 'tasks.complete', entity_id: taskId, proposed_changes: { status: 'completed' } })
+  const prep2 = await call({ operation: 'prepare', action_type: 'tasks.complete', entity_id: taskId, proposed_changes: { status: 'done' } })
   const conf3 = prep2.status === 200 ? await call({ operation: 'confirm', action_token: prep2.json.action_token }) : { status: 0, json: {} }
-  completed = conf3.status === 200 && conf3.json.result?.verified?.status === 'completed'
+  completed = conf3.status === 200 && conf3.json.result?.verified?.status === 'done'
   check('tasks.complete → verificado (fixture cerrado)', completed, `(${prep2.status}/${conf3.status})`)
 }
 
