@@ -7,7 +7,7 @@ function makeBuilder(rows: Row[]) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b: any = {}
   const chain = () => b
-  b.select = chain; b.order = chain; b.range = chain; b.limit = chain; b.neq = chain; b.gte = chain; b.lte = chain; b.is = chain
+  b.select = chain; b.order = chain; b.range = chain; b.limit = chain; b.neq = chain; b.gte = chain; b.lte = chain; b.gt = chain; b.is = chain
   b.eq = (c: string, v: unknown) => { cur = cur.filter((r) => String(r[c] ?? '') === String(v)); return b }
   b.ilike = chain; b.or = chain; b.in = chain
   b.maybeSingle = () => Promise.resolve({ data: cur[0] ?? null, error: null })

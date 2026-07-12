@@ -21,7 +21,7 @@ function makeBuilder(rows: Row[]) {
   const b: any = {}
   const chain = () => b
   b.select = chain; b.order = chain; b.range = chain; b.limit = chain; b.neq = chain
-  b.gte = chain; b.lte = chain; b.is = chain
+  b.gte = chain; b.lte = chain; b.gt = chain; b.is = chain
   b.eq = (col: string, val: unknown) => { cur = cur.filter((r) => String(r[col] ?? '') === String(val)); return b }
   b.ilike = (col: string, pat: unknown) => { const p = String(pat).replace(/%/g, '').toLowerCase(); cur = cur.filter((r) => String(r[col] ?? '').toLowerCase().includes(p)); return b }
   b.or = (s: unknown) => { cur = cur.filter((r) => matchesOr(r, String(s))); return b }

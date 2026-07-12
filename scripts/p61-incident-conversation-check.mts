@@ -23,7 +23,7 @@ function makeBuilder(rows: Row[]) {
   const b: any = {}
   const chain = () => b
   b.select = chain; b.order = chain; b.range = chain; b.limit = chain; b.neq = chain
-  b.gte = chain; b.lte = chain; b.is = chain
+  b.gte = chain; b.lte = chain; b.gt = chain; b.is = chain
   b.eq = (col: string, val: unknown) => { cur = cur.filter((r) => String(r[col] ?? '') === String(val)); return b }
   b.ilike = (col: string, pat: unknown) => { const p = String(pat).replace(/%/g, '').toLowerCase(); cur = cur.filter((r) => String(r[col] ?? '').toLowerCase().includes(p)); return b }
   b.or = (s: unknown) => { cur = cur.filter((r) => matchesOr(r, String(s))); return b }
@@ -39,17 +39,17 @@ const properties: Row[] = [
   { id: 'p-listed', workspace_id: WS, title: 'Av. San Pedro 66', status: 'listed', city: 'Madrid', operation_type: 'venta', deleted_at: null },
   { id: 'p-rented', workspace_id: WS, title: 'Av. Puerto 8', status: 'rented', city: 'Valencia', operation_type: 'alquiler', deleted_at: null },
 ]
-const fixtures: Record<string, Row[]> = { clients, properties, calendar_events: [], tasks: [], opportunities: [], entity_files: [], activities: [] }
+const fixtures: Record<string, Row[]> = { clients, properties, calendar_events: [], tasks: [], opportunities: [], entity_files: [], activities: [], assistant_actions: [] }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const supabase: any = { from: (t: string) => makeBuilder(fixtures[t] ?? []) }
 
 type Check = { say: string; must: (a: string) => boolean; desc: string }
 const convo: Check[] = [
   { say: 'Hola que hay', must: (a) => /hola|qué tal|aquí estoy|encantad/i.test(a), desc: 'saludo social' },
-  { say: 'Pues ahora quiero que me digas si tengo citas proximas en el calendario', must: (a) => /citas próximas:\s*\*\*no\*\*|no tienes ninguna/i.test(a) && !/no hay citas para mostrar/i.test(a), desc: 'citas answer-first NO' },
+  { say: 'Pues ahora quiero que me digas si tengo citas proximas en el calendario', must: (a) => /no tienes ninguna/i.test(a) && !/no hay citas para mostrar/i.test(a), desc: 'citas answer-first NO' },
   { say: 'No tengo nada me quieres decir?', must: (a) => /no\b/i.test(a) && !/aquí esperando|nada especial|para ayudarte/i.test(a), desc: 'confirmación NO es social' },
   { say: 'Pero tengo citas o tareas en el calendario o no?', must: (a) => /citas próximas/i.test(a) && /tareas pendientes/i.test(a), desc: 'DOS fuentes (citas + tareas)' },
-  { say: 'Hazme un resumen de mi cartera', must: (a) => /cartera tiene\s*\*\*8\*\*|8 inmuebles/i.test(a) && !/entender el CRM|con tus datos actuales/i.test(a), desc: 'resumen cartera con datos, sin clarify' },
+  { say: 'Hazme un resumen de mi cartera', must: (a) => /8 inmuebles/i.test(a) && !/entender el CRM|con tus datos actuales/i.test(a), desc: 'resumen cartera con datos, sin clarify' },
   { say: 'Los clientes que tengo me los puedes mostrar?', must: (a) => /9 clientes/i.test(a), desc: 'lista 9 clientes' },
   { say: 'Si, quiero que me imprimas toda la ficha de David Iglesias', must: (a) => /ficha de david iglesias/i.test(a) && !/no puedo acceder|no tengo acceso/i.test(a), desc: 'ficha David (core, sin «no puedo acceder»)' },
 ]

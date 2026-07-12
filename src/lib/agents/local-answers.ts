@@ -24,6 +24,9 @@ import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_
 import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
 import { isUpcoming, isPast, isPendingTask, isOverdueTask } from '@/lib/assistant-temporal'
 import { classifySummaryIntent } from '@/lib/summary-intent'
+import { parseActionIntent, type AssistantActionIntent } from './assistant-action-intent'
+import { signActionToken } from './action-policy'
+import { getActionDefinition } from './action-registry'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
@@ -287,6 +290,125 @@ function commissionsRedirectFallback(): LocalAnswer {
     handled: true, usedTool: 'local_commissions', entity: 'commissions',
     answer: 'El control de comisiones y honorarios (pendiente de facturar, facturado, cobrado y potencial) está en **Cartera → Comisiones**, con su resumen y filtros. ¿Quieres que te liste las operaciones cerradas con comisión?',
   }
+}
+
+// ── P66 · WIRING DEL CHAT AL PLANO DE ACCIONES P65 (reutiliza /api/agent/action; cero duplicación) ────
+// Frase natural → prepare (preview, NUNCA ejecuta) → «sí, confirma» → confirm (execute+verify) → resultado
+// verificado. La pending action vive en la tabla assistant_actions (persistente); el token se re-firma
+// server-side desde la fila (el chat es la parte de confianza que posee AGENT_TOOL_SECRET).
+
+const FIELD_LABEL: Record<string, string> = { price: 'Precio', phone: 'Teléfono', title: 'Título', due_date: 'Fecha límite', priority: 'Prioridad', status: 'Estado' }
+const fmtVal = (k: string, v: unknown): string => k === 'price' && typeof v === 'number' ? euro(v) : v == null || v === '' ? '—' : String(v)
+
+function actionApiUrl(): string {
+  return `${(process.env.AGENT_ACTION_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')}/api/agent/action`
+}
+async function actionApi(body: Record<string, unknown>): Promise<{ status: number; json: Row }> {
+  const secret = process.env.AGENT_TOOL_SECRET
+  if (!secret) return { status: 0, json: { error: 'no_secret' } }
+  try {
+    const r = await fetch(actionApiUrl(), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-nowcrm-secret': secret }, body: JSON.stringify(body) })
+    return { status: r.status, json: (await r.json().catch(() => ({}))) as Row }
+  } catch { return { status: 0, json: { error: 'unreachable' } } }
+}
+
+async function latestPendingAction(supabase: SupabaseClient, ws: string): Promise<Row | null> {
+  const { data } = await supabase.from('assistant_actions').select('*')
+    .eq('workspace_id', ws).eq('status', 'prepared').gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false }).limit(1)
+  return (data?.[0] as Row) ?? null
+}
+
+function renderPreview(preview: Row): string {
+  const current = (preview.current ?? {}) as Row
+  const changes = (preview.changes ?? {}) as Row
+  const lines = Object.entries(changes).map(([k, v]) => {
+    const label = FIELD_LABEL[k] ?? k
+    const cur = current[k]
+    return cur != null && cur !== '' ? `• ${label}: ${fmtVal(k, cur)} → ${fmtVal(k, v)}` : `• ${label}: ${fmtVal(k, v)}`
+  })
+  return `Cambio preparado\n${lines.join('\n')}\n\nTodavía no se ha aplicado. ¿Confirmo el cambio? (también puedes decir «cancela»)`
+}
+
+async function handleChatAction(supabase: SupabaseClient, ws: string, intent: AssistantActionIntent, conversationId?: string): Promise<LocalAnswer> {
+  const T = 'local_action'
+  // — CONFIRM / CANCEL / MODIFY / STATUS: exigen pending action válida (si no hay, el caller sigue su flujo) —
+  if (intent.act !== 'prepare') {
+    const row = await latestPendingAction(supabase, ws)
+    if (!row) return { handled: false }
+    if (intent.act === 'status') {
+      return { handled: true, usedTool: T, entity: 'help', answer: `Tienes un cambio pendiente de confirmar (${getActionDefinition(String(row.action_type))?.description ?? row.action_type}). Di «confirma» para aplicarlo o «cancela» para descartarlo.` }
+    }
+    if (intent.act === 'cancel') {
+      const r = await actionApi({ operation: 'cancel', workspace_id: ws, action_id: row.id })
+      return { handled: true, usedTool: T, entity: 'help', answer: r.status === 200 ? 'Hecho, he descartado el cambio pendiente. No se ha aplicado nada.' : 'No he podido cancelar la acción (puede que ya estuviera cerrada).' }
+    }
+    if (intent.act === 'modify') {
+      await actionApi({ operation: 'cancel', workspace_id: ws, action_id: row.id })
+      const r = await actionApi({ operation: 'prepare', workspace_id: ws, action_type: row.action_type, entity_id: row.entity_id, proposed_changes: intent.proposedChanges, conversation_id: conversationId })
+      if (r.status !== 200) return { handled: true, usedTool: T, entity: 'help', answer: 'No he podido preparar el nuevo cambio. ¿Lo intentamos de nuevo indicando el valor?' }
+      return { handled: true, usedTool: T, entity: 'help', answer: renderPreview((r.json.preview ?? {}) as Row) }
+    }
+    // CONFIRM: re-firmar token desde la fila (server-side) y ejecutar. Nunca reconstruir la acción del texto.
+    const secret = process.env.AGENT_TOOL_SECRET
+    if (!secret) return { handled: false }
+    const token = signActionToken({
+      actionId: String(row.id), actionType: String(row.action_type), workspaceId: ws,
+      entityId: row.entity_id ? String(row.entity_id) : null,
+      previewHash: String(row.preview_hash), idempotencyKey: String(row.idempotency_key), confirmed: true,
+    }, secret)
+    const r = await actionApi({ operation: 'confirm', workspace_id: ws, action_token: token })
+    if (r.status === 200 && (r.json.status === 'completed')) {
+      const verified = ((r.json.result as Row | undefined)?.verified ?? {}) as Row
+      const lines = Object.entries(verified).map(([k, v]) => `• ${FIELD_LABEL[k] ?? k}: ${fmtVal(k, v)}`)
+      const dup = r.json.duplicate === true ? ' (ya estaba aplicado)' : ''
+      return { handled: true, usedTool: T, entity: 'help', answer: `Cambio aplicado y verificado${dup}\n${lines.join('\n')}\n\nLo he vuelto a consultar en el CRM y ya aparece así.` }
+    }
+    if (r.json.error === 'ACTION_CONFLICT') {
+      return { handled: true, usedTool: T, entity: 'help', answer: 'No he aplicado el cambio: el registro fue modificado después de preparar la acción. Dime si quieres que lo prepare de nuevo con los datos actuales.' }
+    }
+    if (r.json.error === 'ACTION_EXPIRED') {
+      return { handled: true, usedTool: T, entity: 'help', answer: 'La confirmación ha caducado. Pídeme el cambio otra vez y te preparo un preview con los datos actuales.' }
+    }
+    return { handled: true, usedTool: T, entity: 'help', answer: 'No he podido aplicar el cambio. No se ha modificado nada; puedes pedírmelo de nuevo.' }
+  }
+
+  // — PREPARE —
+  if (intent.missingFields.length) {
+    return { handled: true, usedTool: T, entity: 'help', answer: `Para preparar el cambio necesito: ${intent.missingFields.join(', ')}. Dímelo y te enseño el preview antes de tocar nada.` }
+  }
+  let entityId: string | null = null
+  if (intent.actionType === 'portfolio.update_price') {
+    const res = await searchProperties(supabase, ws, { query: intent.entityText ?? '', availabilityMode: 'all' })
+    if ('error' in res) return fail('properties', T, ws)
+    const hits = [...res.exactMatches, ...res.partialMatches]
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'properties', answer: `No encuentro ningún inmueble que coincida con «${intent.entityText}».` }
+    if (hits.length > 1 && res.exactMatches.length !== 1) {
+      return { handled: true, usedTool: T, entity: 'properties', answer: `Hay varios inmuebles que coinciden:\n${hits.slice(0, 4).map((p) => `• ${p.title}`).join('\n')}\n¿Cuál quieres modificar?` }
+    }
+    entityId = String((res.exactMatches[0] ?? hits[0]).id)
+  }
+  if (intent.actionType === 'clients.update_phone') {
+    const res = await searchClients(supabase, ws, { query: intent.entityText ?? '', limit: 5 })
+    if ('error' in res) return fail('clients', T, ws)
+    if (!res.results.length) return { handled: true, usedTool: T, entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${intent.entityText}».` }
+    if (res.results.length > 1) return { handled: true, usedTool: T, entity: 'clients', answer: `Hay varios clientes que coinciden:\n${res.results.map((c) => `• ${str(c.name)}`).join('\n')}\n¿Cuál quieres modificar?` }
+    entityId = String(res.results[0].id)
+  }
+  if (intent.actionType === 'tasks.complete') {
+    const res = await getPendingTasks(supabase, ws, {})
+    if ('error' in res) return fail('tasks', T, ws)
+    const needle = foldText(intent.entityText ?? '')
+    const hits = (res.tasks as Array<{ id: string; title: string }>).filter((t) => foldText(t.title).includes(needle))
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'tasks', answer: `No encuentro una tarea pendiente que coincida con «${intent.entityText}».` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál doy por hecha?` }
+    entityId = hits[0].id
+  }
+  const r = await actionApi({ operation: 'prepare', workspace_id: ws, action_type: intent.actionType, ...(entityId ? { entity_id: entityId } : {}), proposed_changes: intent.proposedChanges, conversation_id: conversationId })
+  if (r.status !== 200) {
+    return { handled: true, usedTool: T, entity: 'help', answer: 'No he podido preparar el cambio ahora mismo. No se ha modificado nada.' }
+  }
+  return { handled: true, usedTool: T, entity: 'help', answer: renderPreview((r.json.preview ?? {}) as Row) }
 }
 
 // ── P64 · RESUMEN EJECUTIVO multi-fuente (Cartera + Operaciones + Agenda + Tareas + Trámites) ─────────
@@ -652,6 +774,18 @@ async function tryLocalAnswerInner(
     const wantTsk = /\btarea/.test(foldText(recentContext))
     const wantCal = /\bcita|calendario|agenda\b/.test(foldText(recentContext))
     return handleAgenda(supabase, workspaceId, { calendar: wantCal || !wantTsk, tasks: wantTsk })
+  }
+
+  // P66 — ACCIONES DE ESCRITURA (plano P65 desde el chat). Prioridad: cancel > modify > status > confirm >
+  // prepare. Confirm/cancel solo actúan si EXISTE una pending action válida en BD (si no, se sigue el flujo
+  // normal: un «sí» sin acción pendiente puede ser aceptación de oferta, nunca ejecuta escrituras).
+  // Nunca en turnos meta/corrección/queja ni en Facturación.
+  if (turn.domain !== 'invoicing' && !['user_correction', 'user_complaint', 'assistant_meta', 'disagreement'].includes(turn.turnType)) {
+    const actionIntent = parseActionIntent(message)
+    if (actionIntent) {
+      const handled = await handleChatAction(supabase, workspaceId, actionIntent)
+      if (handled.handled) return handled
+    }
   }
 
   // P62 — OFERTA → ACEPTACIÓN. «ofréceme algo» → propuesta concreta. «sí/venga/muéstramela» tras una
