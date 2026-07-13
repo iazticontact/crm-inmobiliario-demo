@@ -7,6 +7,7 @@ import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
 import { tryLocalAnswer } from '@/lib/agents/local-answers'
+import { validateAssistantUi } from '@/lib/assistant/ui-contract'
 import { decideTurn } from '@/lib/agents/assistant-turn'
 import { allowedToolsForTurn } from '@/lib/agents/assistant-tool-permissions'
 import { signTurnPolicy } from '@/lib/agents/turn-policy'
@@ -389,6 +390,8 @@ export async function POST(req: NextRequest) {
         referencedCalendarList: null,
         dataPreview: local.referencedList ?? null,
         preparedAction: null,
+        // P70 Wave A — bloque estructurado (validado en runtime; si es inválido → null y la UI usa el texto).
+        ui: validateAssistantUi(local.ui ?? null),
       })
     }
 

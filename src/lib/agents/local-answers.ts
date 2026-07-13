@@ -28,8 +28,10 @@ import { parseActionIntent, type AssistantActionIntent } from './assistant-actio
 import { signActionToken } from './action-policy'
 import { getActionDefinition } from './action-registry'
 
+import type { AssistantUiPayload } from '@/lib/assistant/ui-contract'
+
 export type LocalAnswer =
-  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>> }
+  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload }
   | { handled: false }
 
 type Row = Record<string, unknown>
@@ -372,7 +374,16 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
       const verified = ((r.json.result as Row | undefined)?.verified ?? {}) as Row
       const lines = Object.entries(verified).map(([k, v]) => `• ${FIELD_LABEL[k] ?? k}: ${fmtVal(k, v)}`)
       const dup = r.json.duplicate === true ? ' (ya estaba aplicado)' : ''
-      return { handled: true, usedTool: T, entity: 'help', answer: `Cambio aplicado y verificado${dup}\n${lines.join('\n')}\n\nLo he vuelto a consultar en el CRM y ya aparece así.` }
+      const ui: AssistantUiPayload = {
+        kind: 'action_result',
+        action: {
+          actionId: String(row.id), actionType: String(row.action_type), status: 'completed',
+          title: getActionDefinition(String(row.action_type))?.description ?? 'Cambio aplicado',
+          fields: Object.entries(verified).map(([k, v]) => ({ key: k, label: FIELD_LABEL[k] ?? k, proposedValue: fmtVal(k, v) })),
+          verified: true, allowedUiActions: ['open_entity'],
+        },
+      }
+      return { handled: true, usedTool: T, entity: 'help', answer: `Cambio aplicado y verificado${dup}\n${lines.join('\n')}\n\nLo he vuelto a consultar en el CRM y ya aparece así.`, ui }
     }
     if (r.json.error === 'ACTION_CONFLICT') {
       return { handled: true, usedTool: T, entity: 'help', answer: 'No he aplicado el cambio: el registro fue modificado después de preparar la acción. Dime si quieres que lo prepare de nuevo con los datos actuales.' }
@@ -437,7 +448,21 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
   if (r.status !== 200) {
     return { handled: true, usedTool: T, entity: 'help', answer: 'No he podido preparar el cambio ahora mismo. No se ha modificado nada.' }
   }
-  return { handled: true, usedTool: T, entity: 'help', answer: renderPreview((r.json.preview ?? {}) as Row) }
+  // P70 Wave A — bloque estructurado para la UI (las tarjetas consumen esto, nunca el texto).
+  const prev = (r.json.preview ?? {}) as Row
+  const current = (prev.current ?? {}) as Row
+  const changes = (prev.changes ?? {}) as Row
+  const ui: AssistantUiPayload = {
+    kind: 'action_preview',
+    action: {
+      actionId: String(r.json.action_id ?? ''), actionType: intent.actionType, status: 'prepared',
+      title: getActionDefinition(intent.actionType)?.description ?? 'Cambio preparado',
+      fields: Object.entries(changes).map(([k, v]) => ({ key: k, label: FIELD_LABEL[k] ?? k, currentValue: current[k] != null && current[k] !== '' ? fmtVal(k, current[k]) : undefined, proposedValue: fmtVal(k, v) })),
+      expiresAt: typeof r.json.expires_at === 'string' ? r.json.expires_at : undefined,
+      verified: false, allowedUiActions: ['confirm', 'cancel', 'modify'],
+    },
+  }
+  return { handled: true, usedTool: T, entity: 'help', answer: renderPreview(prev), ui }
 }
 
 // ── P64 · RESUMEN EJECUTIVO multi-fuente (Cartera + Operaciones + Agenda + Tareas + Trámites) ─────────

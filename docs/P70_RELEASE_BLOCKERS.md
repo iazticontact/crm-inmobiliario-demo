@@ -11,6 +11,16 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
 | **TEST_SESSION_MISSING (P1 histórico)** | ✅ **RESUELTO**: `scripts/p70-create-qa-session.mjs` — usuario QA idempotente (`qa.p70.assistant@nowcrm-qa.test`) vía service-role **solo en script local**, membresía `workspace_members` rol `comercial` (descubierto: el RLS real usa `current_workspace_ids()` → workspace_members, NO profiles), sesión real emitida (`signInWithPassword`), **RLS verificado con la sesión QA (clients=9)**, storage en `.auth/` **git-ignored** (añadido a .gitignore), sin credenciales impresas ni commiteadas |
 | Hallazgo de auditoría documentado | El rol de membresía tiene CHECK (`owner/admin/comercial/solo_lectura`); `profiles.workspace_id` NO gobierna el RLS de datos |
 
+## ✅ Wave A (parcial) — sesión de continuación 2026-07-14
+- **Contrato UI compartido** `src/lib/assistant/ui-contract.ts` (kinds/estados/acciones + validador
+  runtime; inválido → null → fallback textual, el chat nunca rompe).
+- **Emisión estructurada backend**: `LocalAnswer.ui` poblado en `handleChatAction`
+  (`action_preview` con campos actual→propuesto + expiración + allowedUiActions; `action_result`
+  verificado) y la route `/api/assistant/v2` expone `ui` validado.
+- Verificado: tsc/lint/build ✅ · P66 chat-action E2E **11/11** intacto.
+- **Pendiente de Wave A**: componentes frontend (cards+botones con actionId), findings center,
+  refresh/multitab, persistencia de `ui` en assistant_messages. Ver `P70_UI_RUNTIME_MAP.md` (plan exacto).
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
