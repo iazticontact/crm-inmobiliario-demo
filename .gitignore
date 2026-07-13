@@ -47,3 +47,6 @@ next-env.d.ts
 
 # agent memory (internal Claude notes — not part of the repo)
 /memory/
+
+# P70 - QA auth artifacts (nunca commitear)
+.auth/
