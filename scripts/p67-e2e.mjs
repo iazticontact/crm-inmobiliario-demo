@@ -45,9 +45,13 @@ if (listed) {
   const canc = await api('action', { operation: 'cancel', action_id: okp.json.action_id })
   check('cancelada sin mutar', canc.status === 200)
 }
-// 3) EMAIL: formato inválido rechazado.
-const badEmail = await api('action', { operation: 'prepare', action_type: 'clients.update_email', entity_id: rows[0]?.id ?? '00000000-0000-4000-8000-000000000000', proposed_changes: { email: 'no-es-email' } })
-check('email inválido → 422', badEmail.status === 422)
+// 3) EMAIL: formato inválido rechazado (con un CLIENTE real — la validación semántica va tras resolver entidad).
+const pay2 = b64(JSON.stringify({ v: 1, cid: 'p67', tid: 'p67', domain: 'clients', read: true, write: false, tools: ['clients.read'], iat: Date.now(), exp: Date.now() + 90000 }))
+const token2 = `${pay2}.${createHmac('sha256', SECRET).update(pay2).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`
+const cli = await fetch(`${BASE}/api/agent/tool`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-nowcrm-secret': SECRET, 'x-nowcrm-turn-policy': token2 }, body: JSON.stringify({ tool: 'crm_read_query', workspace_id: WS, input: { entity: 'clients', limit: 1 } }) }).then((r) => r.json())
+const clientId = cli.result?.rows?.[0]?.id
+const badEmail = await api('action', { operation: 'prepare', action_type: 'clients.update_email', entity_id: clientId, proposed_changes: { email: 'no-es-email' } })
+check('email inválido → 422 (cliente real)', badEmail.status === 422, `(${badEmail.status} ${badEmail.json.error})`)
 
 console.log(fail === 0 ? `\nP67 E2E: ${pass}/${pass + fail} TODO PASS` : `\nP67 E2E: ${fail} FALLOS`)
 process.exit(fail === 0 ? 0 : 1)
