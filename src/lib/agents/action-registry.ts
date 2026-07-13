@@ -1,7 +1,25 @@
 // Registro CENTRAL de acciones del Asistente (P65) — PURO. Ninguna escritura fuera de este registro.
 // Cada acción declara sus campos permitidos/prohibidos, expiración y verificación. Facturación NUNCA.
 
-export type AssistantActionId = 'tasks.create' | 'tasks.complete' | 'portfolio.update_price' | 'clients.update_phone'
+export type AssistantActionId =
+  | 'tasks.create' | 'tasks.complete' | 'tasks.update_due_date'
+  | 'portfolio.update_price' | 'portfolio.update_status'
+  | 'clients.update_phone' | 'clients.update_email'
+
+// P67 — Matriz de TRANSICIONES de estado de Cartera (según producto real). Una transición fuera de la
+// matriz NO se prepara: se explica el estado actual y las transiciones válidas.
+export const PORTFOLIO_TRANSITIONS: Record<string, string[]> = {
+  prospecting: ['listed', 'archived'],
+  listed: ['under_contract', 'sold', 'rented', 'prospecting', 'archived'],
+  available: ['under_contract', 'sold', 'rented', 'archived'],
+  under_contract: ['sold', 'rented', 'listed', 'archived'],
+  sold: ['archived'],
+  rented: ['listed', 'archived'],
+  archived: ['prospecting', 'listed'],
+}
+export function isValidPortfolioTransition(from: string, to: string): boolean {
+  return (PORTFOLIO_TRANSITIONS[from] ?? []).includes(to)
+}
 
 export type AssistantActionDefinition = {
   id: AssistantActionId
@@ -42,6 +60,25 @@ export const ASSISTANT_ACTIONS: Record<AssistantActionId, AssistantActionDefinit
     table: 'clients', kind: 'update', requiredEntity: true, allowedFields: ['phone'],
     forbiddenFields: ['workspace_id', 'id', 'email', 'name'],
     confirmationRequired: true, idempotent: true, supportsOptimisticLock: true, expiryMinutes: 10, risk: 'low',
+  },
+  // ── P67 · Ampliación ──
+  'clients.update_email': {
+    id: 'clients.update_email', module: 'clients', description: 'Actualizar el email de un cliente',
+    table: 'clients', kind: 'update', requiredEntity: true, allowedFields: ['email'],
+    forbiddenFields: ['workspace_id', 'id', 'phone', 'name'],
+    confirmationRequired: true, idempotent: true, supportsOptimisticLock: true, expiryMinutes: 10, risk: 'low',
+  },
+  'tasks.update_due_date': {
+    id: 'tasks.update_due_date', module: 'tasks', description: 'Cambiar la fecha límite de una tarea',
+    table: 'tasks', kind: 'update', requiredEntity: true, allowedFields: ['due_date'],
+    forbiddenFields: ['workspace_id', 'id', 'title', 'status'],
+    confirmationRequired: true, idempotent: true, supportsOptimisticLock: true, expiryMinutes: 10, risk: 'low',
+  },
+  'portfolio.update_status': {
+    id: 'portfolio.update_status', module: 'portfolio', description: 'Cambiar el estado de un inmueble',
+    table: 'properties', kind: 'update', requiredEntity: true, allowedFields: ['status'],
+    forbiddenFields: ['workspace_id', 'id', 'price', 'title'],
+    confirmationRequired: true, idempotent: true, supportsOptimisticLock: true, expiryMinutes: 10, risk: 'medium',
   },
 }
 

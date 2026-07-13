@@ -15,7 +15,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { timingSafeEqual } from 'node:crypto'
-import { getActionDefinition, findDeniedField } from '@/lib/agents/action-registry'
+import { getActionDefinition, findDeniedField, isValidPortfolioTransition, PORTFOLIO_TRANSITIONS } from '@/lib/agents/action-registry'
 import { signActionToken, verifyActionToken, previewHashOf, newIdempotencyKey } from '@/lib/agents/action-policy'
 
 export const runtime = 'nodejs'
@@ -85,6 +85,22 @@ async function prepare(supabase: SupabaseClient, ws: string, body: Row, secret: 
   // El modelo REAL de tasks solo admite 'pending' | 'done' (check constraint verificado en BD).
   if (def.id === 'tasks.complete' && changes.status !== 'done') {
     return err(422, 'ACTION_VALIDATION_ERROR', 'tasks.complete solo admite status=done.')
+  }
+  // P67 — validaciones semánticas de las acciones ampliadas.
+  if (def.id === 'clients.update_email') {
+    const e = String(changes.email ?? '')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) return err(422, 'ACTION_VALIDATION_ERROR', 'Email inválido.')
+  }
+  if (def.id === 'tasks.update_due_date') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(changes.due_date ?? ''))) return err(422, 'ACTION_VALIDATION_ERROR', 'due_date debe ser YYYY-MM-DD.')
+  }
+  if (def.id === 'portfolio.update_status') {
+    const from = String(current.status ?? '')
+    const to = String(changes.status ?? '')
+    if (!(to in PORTFOLIO_TRANSITIONS)) return err(422, 'ACTION_VALIDATION_ERROR', `Estado desconocido: ${to}.`)
+    if (!isValidPortfolioTransition(from, to)) {
+      return err(422, 'ACTION_TRANSITION_INVALID', `Transición no permitida: ${from} → ${to}. Válidas desde ${from}: ${(PORTFOLIO_TRANSITIONS[from] ?? []).join(', ') || 'ninguna'}.`)
+    }
   }
 
   const previewHash = previewHashOf(current, changes)

@@ -297,11 +297,21 @@ function commissionsRedirectFallback(): LocalAnswer {
 // verificado. La pending action vive en la tabla assistant_actions (persistente); el token se re-firma
 // server-side desde la fila (el chat es la parte de confianza que posee AGENT_TOOL_SECRET).
 
-const FIELD_LABEL: Record<string, string> = { price: 'Precio', phone: 'Teléfono', title: 'Título', due_date: 'Fecha límite', priority: 'Prioridad', status: 'Estado' }
+const FIELD_LABEL: Record<string, string> = { price: 'Precio', phone: 'Teléfono', email: 'Email', title: 'Título', due_date: 'Fecha límite', priority: 'Prioridad', status: 'Estado' }
 const fmtVal = (k: string, v: unknown): string => k === 'price' && typeof v === 'number' ? euro(v) : v == null || v === '' ? '—' : String(v)
 
 function actionApiUrl(): string {
   return `${(process.env.AGENT_ACTION_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')}/api/agent/action`
+}
+// P67 — llamada genérica a los endpoints server-to-server del agente (action | automation).
+async function actionApi2(kind: 'action' | 'automation', body: Record<string, unknown>): Promise<{ status: number; json: Row }> {
+  const secret = process.env.AGENT_TOOL_SECRET
+  if (!secret) return { status: 0, json: { error: 'no_secret' } }
+  const base = (process.env.AGENT_ACTION_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
+  try {
+    const r = await fetch(`${base}/api/agent/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-nowcrm-secret': secret }, body: JSON.stringify(body) })
+    return { status: r.status, json: (await r.json().catch(() => ({}))) as Row }
+  } catch { return { status: 0, json: { error: 'unreachable' } } }
 }
 async function actionApi(body: Record<string, unknown>): Promise<{ status: number; json: Row }> {
   const secret = process.env.AGENT_TOOL_SECRET
@@ -388,7 +398,26 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
     }
     entityId = String((res.exactMatches[0] ?? hits[0]).id)
   }
-  if (intent.actionType === 'clients.update_phone') {
+  if (intent.actionType === 'portfolio.update_status') {
+    const res = await searchProperties(supabase, ws, { query: intent.entityText ?? '', availabilityMode: 'all' })
+    if ('error' in res) return fail('properties', T, ws)
+    const hits = [...res.exactMatches, ...res.partialMatches]
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'properties', answer: `No encuentro ningún inmueble que coincida con «${intent.entityText}».` }
+    if (hits.length > 1 && res.exactMatches.length !== 1) {
+      return { handled: true, usedTool: T, entity: 'properties', answer: `Hay varios inmuebles que coinciden:\n${hits.slice(0, 4).map((p) => `• ${p.title}`).join('\n')}\n¿Cuál quieres modificar?` }
+    }
+    entityId = String((res.exactMatches[0] ?? hits[0]).id)
+  }
+  if (intent.actionType === 'tasks.update_due_date') {
+    const res = await getPendingTasks(supabase, ws, {})
+    if ('error' in res) return fail('tasks', T, ws)
+    const needle = foldText(intent.entityText ?? '')
+    const hits = (res.tasks as Array<{ id: string; title: string }>).filter((t) => foldText(t.title).includes(needle))
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'tasks', answer: `No encuentro una tarea pendiente que coincida con «${intent.entityText}».` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál cambio de fecha?` }
+    entityId = hits[0].id
+  }
+  if (intent.actionType === 'clients.update_email' || intent.actionType === 'clients.update_phone') {
     const res = await searchClients(supabase, ws, { query: intent.entityText ?? '', limit: 5 })
     if ('error' in res) return fail('clients', T, ws)
     if (!res.results.length) return { handled: true, usedTool: T, entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${intent.entityText}».` }
@@ -839,6 +868,23 @@ async function tryLocalAnswerInner(
     const explicitExec = /\b(resumen (ejecutivo|del negocio|general de (mis datos|todo))|como va (el negocio|todo el negocio)|estado general del crm|ponme al dia con mis datos)\b/.test(foldText(message))
     if (explicitExec || (summaryKind === 'operational' && (!resolveModuleFromText(message) || resolveModuleFromText(message) === 'dashboard'))) {
       return handleExecutiveSummary(supabase, workspaceId)
+    }
+
+    // P67 — INTELIGENCIA PROACTIVA: «¿qué requiere atención?», «¿qué incidencias hay?», «auditoría de
+    // calidad» → auditoría VIVA (reglas objetivas con criterio) + findings abiertos, con dedupe.
+    if (/\b(que requiere atencion|que necesita atencion|incidencias|auditoria de (calidad|datos)|revisa la calidad|problemas de datos|que deberia revisar)\b/.test(nmsg)) {
+      const secretOk = !!process.env.AGENT_TOOL_SECRET
+      if (secretOk) {
+        const r = await actionApi2('automation', { operation: 'run_data_quality', workspace_id: workspaceId })
+        if (r.status === 200) {
+          const open = (r.json.open_findings ?? []) as Array<{ title: string; summary: string; severity: string }>
+          if (!open.length) return { handled: true, usedTool: 'local_findings', entity: 'help', answer: 'He revisado la calidad de tus datos ahora mismo y no hay incidencias abiertas. Todo cuadra: operaciones, inmuebles, precios y tareas.' }
+          const sev = (s: string) => s === 'critical' ? 'CRÍTICO' : s === 'warning' ? 'aviso' : 'info'
+          const lines = open.slice(0, 8).map((f) => `• [${sev(f.severity)}] ${f.title}`)
+          return { handled: true, usedTool: 'local_findings', entity: 'help', answer: `He revisado tus datos ahora mismo. Incidencias abiertas: ${open.length}\n${lines.join('\n')}\n\nCada una tiene su criterio registrado; dime cuál quieres revisar y te doy el detalle.` }
+        }
+      }
+      return { handled: true, usedTool: 'local_findings', entity: 'help', answer: 'No he podido ejecutar la auditoría ahora mismo. Puedes pedírmelo de nuevo en un momento.' }
     }
 
     // P63: PROHIBIDO `to ?do` — hacía match con la palabra española «todo» («lístame TODO lo que tengo en

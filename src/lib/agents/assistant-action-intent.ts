@@ -100,6 +100,27 @@ export function parseActionIntent(message: string): AssistantActionIntent | null
     if (title.length < 3) return { act: 'prepare', actionType: 'tasks.create', entityText: null, proposedChanges: {}, missingFields: ['title'] }
     return { act: 'prepare', actionType: 'tasks.create', entityText: null, proposedChanges: { title: title.slice(0, 160), ...(due ? { due_date: due } : {}) }, missingFields: [] }
   }
+  // P67 — email de cliente: «cambia el email de David a x@y.com».
+  if (MUTATE_VERB.test(n) && /\b(email|correo|e-mail|mail)\b/.test(n)) {
+    const email = raw.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/)?.[0] ?? null
+    const name = extractName(raw.replace(/[\w.+-]+@[\w-]+\.[\w.]{2,}/, '').trim())
+    return { act: 'prepare', actionType: 'clients.update_email', entityText: name, proposedChanges: email ? { email } : {}, missingFields: [...(email ? [] : ['email']), ...(name ? [] : ['cliente'])] }
+  }
+  // P67 — fecha de tarea: «cambia la fecha de la tarea X a mañana/el viernes».
+  if (MUTATE_VERB.test(n) && /\b(fecha|vencimiento)\b/.test(n) && /\btarea\b/.test(n)) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date())
+    const due = parseDueDateEs(raw, today) ?? raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null
+    const m = raw.match(/tarea\s+(?:de\s+)?(.+?)\s+(?:a|para)\s+(mañana|manana|hoy|el \w+|\d{4}-\d{2}-\d{2})/i)
+    return { act: 'prepare', actionType: 'tasks.update_due_date', entityText: m ? m[1].trim() : null, proposedChanges: due ? { due_date: due } : {}, missingFields: [...(due ? [] : ['fecha']), ...(m ? [] : ['tarea'])] }
+  }
+  // P67 — estado de inmueble: «marca San Pedro 66 como vendido/reservado/publicado/archivado/alquilado».
+  const stateWord = n.match(/\bcomo (vendid[oa]|alquilad[oa]|reservad[oa]|publicad[oa]|archivad[oa]|en preparacion)\b/)
+  if (stateWord && (MUTATE_VERB.test(n) || /\bmarca\b/.test(n)) && !/\btarea\b/.test(n) && !/\boperacion\b/.test(n)) {
+    const map: Record<string, string> = { vendid: 'sold', alquilad: 'rented', reservad: 'under_contract', publicad: 'listed', archivad: 'archived', 'en preparacion': 'prospecting' }
+    const key = Object.keys(map).find((k) => stateWord[1].startsWith(k)) ?? null
+    const ref = raw.match(/\b(?:marca|pon|cambia|actualiza)\s+(?:el inmueble\s+|el piso\s+|la propiedad\s+)?(.+?)\s+(?:como|a)\s/i)?.[1]?.trim() ?? null
+    return { act: 'prepare', actionType: 'portfolio.update_status', entityText: ref, proposedChanges: key ? { status: map[key] } : {}, missingFields: [...(key ? [] : ['estado']), ...(ref ? [] : ['inmueble'])] }
+  }
   // Completar tarea: «marca como hecha…», «da por hecha/terminada la tarea de…», «completa la tarea…».
   if (/\b(marca|da por|completa|termina|finaliza)\b.*\b(hecha|hecho|completada|terminada|tarea)\b/.test(n)) {
     const m = raw.match(/tarea\s+(?:de\s+)?(.{3,80})$/i)
