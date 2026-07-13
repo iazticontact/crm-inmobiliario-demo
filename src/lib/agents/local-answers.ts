@@ -870,6 +870,54 @@ async function tryLocalAnswerInner(
       return handleExecutiveSummary(supabase, workspaceId)
     }
 
+    // P69 — AUTOMATIZACIONES DESDE EL CHAT (opt-in con preview + confirmación; endpoint P68 real).
+    // «activa un resumen diario a las 8» → preview; «sí, confirma» tras el preview → create_rule
+    // confirmed:true. «lista mis automatizaciones» / «desactiva …» también soportados.
+    const autoIntent = (() => {
+      if (/\b(lista|muestra|ver|cuales son)\b.*\bautomatizacion(es)?\b/.test(nmsg) || /\bmis automatizaciones\b/.test(nmsg)) return { kind: 'list' as const }
+      const activate = /\b(activa|crea|programa|configura|quiero)\b.*\b(resumen diario|auditoria (de calidad|de datos)|aviso de tareas vencidas|tareas vencidas|revision (diaria|de datos))\b/.test(nmsg)
+      if (activate) {
+        const hour = Number(nmsg.match(/a las (\d{1,2})/)?.[1] ?? 8)
+        const type = /auditoria|calidad|revision de datos/.test(nmsg) ? 'data_quality_watch' : /vencidas/.test(nmsg) ? 'overdue_tasks_watch' : 'daily_executive_brief'
+        return { kind: 'activate' as const, type, hour: hour >= 0 && hour <= 23 ? hour : 8 }
+      }
+      if (/\bdesactiva\b.*\b(resumen|auditoria|automatizacion|aviso)\b/.test(nmsg)) return { kind: 'disable' as const }
+      return null
+    })()
+    if (autoIntent) {
+      const labels: Record<string, string> = { data_quality_watch: 'auditoría de calidad de datos', overdue_tasks_watch: 'aviso de tareas vencidas', daily_executive_brief: 'resumen ejecutivo diario' }
+      if (autoIntent.kind === 'list') {
+        const r = await actionApi2('automation', { operation: 'list_rules', workspace_id: workspaceId })
+        const rules = (r.json.rules ?? []) as Array<{ type: string; name: string; enabled: boolean; next_run_at: string | null }>
+        if (!rules.length) return { handled: true, usedTool: 'local_automation', entity: 'help', answer: 'No tienes automatizaciones configuradas. Puedes decirme, por ejemplo: «activa una auditoría de calidad diaria a las 8».' }
+        const lines = rules.map((x) => `• ${x.name} — ${x.enabled ? 'activa' : 'desactivada'}${x.enabled && x.next_run_at ? ` · próxima: ${String(x.next_run_at).slice(0, 16).replace('T', ' ')}` : ''}`)
+        return { handled: true, usedTool: 'local_automation', entity: 'help', answer: `Tus automatizaciones:\n${lines.join('\n')}` }
+      }
+      if (autoIntent.kind === 'disable') {
+        const r = await actionApi2('automation', { operation: 'list_rules', workspace_id: workspaceId })
+        const rules = (r.json.rules ?? []) as Array<{ id: string; name: string; enabled: boolean }>
+        const on = rules.filter((x) => x.enabled)
+        if (!on.length) return { handled: true, usedTool: 'local_automation', entity: 'help', answer: 'No hay automatizaciones activas que desactivar.' }
+        const off = await actionApi2('automation', { operation: 'set_rule_enabled', workspace_id: workspaceId, rule_id: on[0].id, enabled: false })
+        return { handled: true, usedTool: 'local_automation', entity: 'help', answer: off.status === 200 ? `Hecho: «${on[0].name}» queda desactivada. No se ejecutará más hasta que la reactives.` : 'No he podido desactivarla ahora mismo.' }
+      }
+      // activate → PREVIEW (opt-in: nunca se crea sin confirmación).
+      return { handled: true, usedTool: 'local_automation:preview', entity: 'help', answer: `Automatización preparada\n• Tipo: ${labels[autoIntent.type]}\n• Horario: todos los días a las ${autoIntent.hour}:00 (Europe/Madrid)\n• Resultado: incidencias/resumen internos en el CRM (sin emails ni mensajes externos)\n\nAún no está activada. ¿Confirmo la activación? [AUTO:${autoIntent.type}:${autoIntent.hour}]` }
+    }
+    // Confirmación de una automatización previamente previsualizada (marcador [AUTO:type:hour] en el hilo).
+    if (/^(si|sí)?[\s,]*(confirma(lo)?|confirmo|adelante|activa(la)?|dale|hazlo)\b/.test(nmsg.trim()) && /\[AUTO:([a-z_]+):(\d{1,2})\]/.test(recentContext)) {
+      // Último marcador del hilo (sin flag dotAll por compatibilidad de target).
+      const all = recentContext.match(/\[AUTO:[a-z_]+:\d{1,2}\]/g)
+      const m = all?.length ? all[all.length - 1].match(/\[AUTO:([a-z_]+):(\d{1,2})\]/) : null
+      if (m) {
+        const r = await actionApi2('automation', { operation: 'create_rule', workspace_id: workspaceId, type: m[1], name: `Automatización (${m[1]})`, confirmed: true, schedule: { hour: Number(m[2]) } })
+        if (r.status === 200) {
+          return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: `Automatización activada y programada.\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')} (Europe/Madrid)\nEl planificador la ejecutará automáticamente; los resultados aparecerán como incidencias. Puedes decir «lista mis automatizaciones» o «desactívala» cuando quieras.` }
+        }
+        return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: 'No he podido activar la automatización ahora mismo. No se ha creado nada; inténtalo de nuevo.' }
+      }
+    }
+
     // P67 — INTELIGENCIA PROACTIVA: «¿qué requiere atención?», «¿qué incidencias hay?», «auditoría de
     // calidad» → auditoría VIVA (reglas objetivas con criterio) + findings abiertos, con dedupe.
     if (/\b(que requiere atencion|que necesita atencion|incidencias|auditoria de (calidad|datos)|revisa la calidad|problemas de datos|que deberia revisar)\b/.test(nmsg)) {
