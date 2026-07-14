@@ -299,7 +299,43 @@ function commissionsRedirectFallback(): LocalAnswer {
 // verificado. La pending action vive en la tabla assistant_actions (persistente); el token se re-firma
 // server-side desde la fila (el chat es la parte de confianza que posee AGENT_TOOL_SECRET).
 
-const FIELD_LABEL: Record<string, string> = { price: 'Precio', phone: 'Teléfono', email: 'Email', title: 'Título', due_date: 'Fecha límite', priority: 'Prioridad', status: 'Estado' }
+const FIELD_LABEL: Record<string, string> = {
+  price: 'Precio', phone: 'Teléfono', email: 'Email', title: 'Título', due_date: 'Fecha límite',
+  priority: 'Prioridad', status: 'Estado', name: 'Nombre', notes: 'Notas', area: 'Zona',
+  stage: 'Etapa', value: 'Valor', date: 'Fecha', start_hour: 'Hora', start_minute: 'Minutos',
+  duration: 'Duración (min)', client_name: 'Cliente', location: 'Lugar', type: 'Tipo',
+  start_at: 'Comienzo', end_at: 'Fin',
+}
+// P70 Wave C — etiquetas humanas de los VALORES de enums (sin colisión: los literales difieren por dominio).
+const VALUE_LABEL: Record<string, string> = {
+  sold: 'Vendido', listed: 'Publicado', rented: 'Alquilado', under_contract: 'Reservado',
+  prospecting: 'En preparación', archived: 'Archivado', available: 'Disponible',
+  pending: 'Pendiente', done: 'Completada',
+  high: 'Alta', normal: 'Normal', low: 'Baja',
+  active: 'Activo', lead: 'Lead', inactive: 'Inactivo', churned: 'Perdido',
+  open: 'Abierto', documentation_pending: 'Documentación pendiente', in_review: 'En revisión',
+  in_follow_up: 'En seguimiento', submitted: 'Presentado', resolved: 'Resuelto', closed: 'Cerrado',
+  new: 'Nueva', contacted: 'En gestión', qualified: 'Cualificada', visit_scheduled: 'Visita programada',
+  offer: 'Oferta', negotiation: 'Negociación', reserved: 'Reserva', won: 'Ganada', lost: 'Perdida',
+  visit: 'Visita', call: 'Llamada', meeting: 'Reunión', 'follow-up': 'Seguimiento',
+  signing: 'Firma', valuation: 'Valoración', demo: 'Demo', other: 'Otro',
+}
+
+// P70 Wave C — composición de tiempos de calendario en Europe/Madrid (la app escribe SIEMPRE
+// start_at/end_at además de date/start_hour/start_minute; las listas filtran por start_at).
+function madridOffset(dateIso: string): string {
+  const probe = new Date(`${dateIso}T12:00:00Z`)
+  const tz = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Madrid', timeZoneName: 'longOffset' })
+    .formatToParts(probe).find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+01:00'
+  const m = tz.match(/GMT([+-]\d{2}):?(\d{2})?/)
+  return m ? `${m[1]}:${m[2] ?? '00'}` : '+01:00'
+}
+export function composeCalendarTimes(dateIso: string, hour: number, minute: number, durationMin: number): { startAt: string; endAt: string } {
+  const off = madridOffset(dateIso)
+  const start = new Date(`${dateIso}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00${off}`)
+  const end = new Date(start.getTime() + durationMin * 60_000)
+  return { startAt: start.toISOString(), endAt: end.toISOString() }
+}
 // P69/P70 — nombres humanos de los tipos de automatización (una sola fuente para texto y cards).
 const AUTOMATION_LABELS: Record<string, string> = { data_quality_watch: 'auditoría de calidad de datos', overdue_tasks_watch: 'aviso de tareas vencidas', daily_executive_brief: 'resumen ejecutivo diario' }
 
@@ -311,7 +347,16 @@ export function lastLiveAutoPreview(recentContext: string): { type: string; hour
   const m = last ? last.match(/^\[AUTO:([a-z_]+):(\d{1,2})\]$/) : null
   return m ? { type: m[1], hour: Number(m[2]) } : null
 }
-const fmtVal = (k: string, v: unknown): string => k === 'price' && typeof v === 'number' ? euro(v) : v == null || v === '' ? '—' : String(v)
+const fmtVal = (k: string, v: unknown): string => {
+  if ((k === 'price' || k === 'value') && typeof v === 'number') return euro(v)
+  if (v == null || v === '') return '—'
+  // Los ISO internos (start_at/end_at) nunca se muestran crudos: hora local Europe/Madrid.
+  if ((k === 'start_at' || k === 'end_at') && /^\d{4}-\d{2}-\d{2}T/.test(String(v))) {
+    const d = new Date(String(v))
+    if (!Number.isNaN(d.getTime())) return d.toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+  return VALUE_LABEL[String(v)] ?? String(v)
+}
 
 function actionApiUrl(): string {
   return `${(process.env.AGENT_ACTION_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')}/api/agent/action`
@@ -410,7 +455,9 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
     return { handled: true, usedTool: T, entity: 'help', answer: `Para preparar el cambio necesito: ${intent.missingFields.join(', ')}. Dímelo y te enseño el preview antes de tocar nada.` }
   }
   let entityId: string | null = null
-  if (intent.actionType === 'portfolio.update_price') {
+  // ── Cartera (precio, estado, notas, zona) ──
+  const PORTFOLIO_ACTIONS = new Set(['portfolio.update_price', 'portfolio.update_status', 'portfolio.update_notes', 'portfolio.update_zone'])
+  if (PORTFOLIO_ACTIONS.has(intent.actionType)) {
     const res = await searchProperties(supabase, ws, { query: intent.entityText ?? '', availabilityMode: 'all' })
     if ('error' in res) return fail('properties', T, ws)
     const hits = [...res.exactMatches, ...res.partialMatches]
@@ -420,40 +467,107 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
     }
     entityId = String((res.exactMatches[0] ?? hits[0]).id)
   }
-  if (intent.actionType === 'portfolio.update_status') {
-    const res = await searchProperties(supabase, ws, { query: intent.entityText ?? '', availabilityMode: 'all' })
-    if ('error' in res) return fail('properties', T, ws)
-    const hits = [...res.exactMatches, ...res.partialMatches]
-    if (!hits.length) return { handled: true, usedTool: T, entity: 'properties', answer: `No encuentro ningún inmueble que coincida con «${intent.entityText}».` }
-    if (hits.length > 1 && res.exactMatches.length !== 1) {
-      return { handled: true, usedTool: T, entity: 'properties', answer: `Hay varios inmuebles que coinciden:\n${hits.slice(0, 4).map((p) => `• ${p.title}`).join('\n')}\n¿Cuál quieres modificar?` }
-    }
-    entityId = String((res.exactMatches[0] ?? hits[0]).id)
-  }
-  if (intent.actionType === 'tasks.update_due_date') {
+  // ── Tareas PENDIENTES (fecha, completar, prioridad, título) ──
+  const PENDING_TASK_ACTIONS = new Set(['tasks.update_due_date', 'tasks.complete', 'tasks.update_priority', 'tasks.update_title'])
+  if (PENDING_TASK_ACTIONS.has(intent.actionType)) {
     const res = await getPendingTasks(supabase, ws, {})
     if ('error' in res) return fail('tasks', T, ws)
     const needle = foldText(intent.entityText ?? '')
     const hits = (res.tasks as Array<{ id: string; title: string }>).filter((t) => foldText(t.title).includes(needle))
     if (!hits.length) return { handled: true, usedTool: T, entity: 'tasks', answer: `No encuentro una tarea pendiente que coincida con «${intent.entityText}».` }
-    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál cambio de fecha?` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál?` }
     entityId = hits[0].id
   }
-  if (intent.actionType === 'clients.update_email' || intent.actionType === 'clients.update_phone') {
+  // ── Tareas COMPLETADAS (reabrir): la búsqueda es sobre status=done, no sobre pendientes ──
+  if (intent.actionType === 'tasks.reopen') {
+    const needle = `%${(intent.entityText ?? '').replace(/[\\%_]/g, '')}%`
+    const { data, error } = await supabase.from('tasks').select('id, title')
+      .eq('workspace_id', ws).eq('status', 'done').ilike('title', needle).limit(5)
+    if (error) return fail('tasks', T, ws)
+    const hits = (data ?? []) as Array<{ id: string; title: string }>
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'tasks', answer: `No encuentro una tarea completada que coincida con «${intent.entityText}».` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas completadas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál reabro?` }
+    entityId = hits[0].id
+  }
+  // ── Clientes (teléfono, email, nombre, nota, estado) ──
+  const CLIENT_ACTIONS = new Set(['clients.update_email', 'clients.update_phone', 'clients.update_name', 'clients.update_note', 'clients.update_status'])
+  if (CLIENT_ACTIONS.has(intent.actionType)) {
     const res = await searchClients(supabase, ws, { query: intent.entityText ?? '', limit: 5 })
     if ('error' in res) return fail('clients', T, ws)
     if (!res.results.length) return { handled: true, usedTool: T, entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${intent.entityText}».` }
     if (res.results.length > 1) return { handled: true, usedTool: T, entity: 'clients', answer: `Hay varios clientes que coinciden:\n${res.results.map((c) => `• ${str(c.name)}`).join('\n')}\n¿Cuál quieres modificar?` }
     entityId = String(res.results[0].id)
   }
-  if (intent.actionType === 'tasks.complete') {
-    const res = await getPendingTasks(supabase, ws, {})
-    if ('error' in res) return fail('tasks', T, ws)
-    const needle = foldText(intent.entityText ?? '')
-    const hits = (res.tasks as Array<{ id: string; title: string }>).filter((t) => foldText(t.title).includes(needle))
-    if (!hits.length) return { handled: true, usedTool: T, entity: 'tasks', answer: `No encuentro una tarea pendiente que coincida con «${intent.entityText}».` }
-    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'tasks', answer: `Hay varias tareas que coinciden:\n${hits.slice(0, 4).map((t) => `• ${t.title}`).join('\n')}\n¿Cuál doy por hecha?` }
+  // ── Operaciones (etapa, valor): por título; si no, por cliente ──
+  if (intent.actionType === 'operations.change_stage' || intent.actionType === 'operations.update_value') {
+    const raw = (intent.entityText ?? '').replace(/[\\%_]/g, '').trim()
+    let hits: Array<{ id: string; title: string; stage: string }> = []
+    if (raw) {
+      const { data } = await supabase.from('opportunities').select('id, title, stage')
+        .eq('workspace_id', ws).is('deleted_at', null).ilike('title', `%${raw}%`).limit(5)
+      hits = (data ?? []) as typeof hits
+      if (!hits.length) {
+        // «la operación de David» → resolver cliente y buscar sus operaciones.
+        const cli = await searchClients(supabase, ws, { query: raw, limit: 3 })
+        if (!('error' in cli) && cli.results.length === 1) {
+          const { data: byClient } = await supabase.from('opportunities').select('id, title, stage')
+            .eq('workspace_id', ws).is('deleted_at', null).eq('client_id', String(cli.results[0].id)).limit(5)
+          hits = (byClient ?? []) as typeof hits
+        }
+      }
+    }
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'operations', answer: `No encuentro ninguna operación que coincida con «${intent.entityText}».` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'operations', answer: `Hay varias operaciones que coinciden:\n${hits.slice(0, 4).map((o) => `• ${o.title} (${VALUE_LABEL[o.stage] ?? o.stage})`).join('\n')}\n¿Cuál?` }
     entityId = hits[0].id
+  }
+  // ── Trámites (estado, fecha límite): por título ──
+  if (intent.actionType === 'cases.update_status' || intent.actionType === 'cases.update_due_date') {
+    const raw = (intent.entityText ?? '').replace(/[\\%_]/g, '').trim()
+    const { data, error } = await supabase.from('service_cases').select('id, title, status')
+      .eq('workspace_id', ws).is('deleted_at', null).ilike('title', `%${raw}%`).limit(5)
+    if (error) return fail('service_cases', T, ws)
+    const hits = (data ?? []) as Array<{ id: string; title: string }>
+    if (!hits.length) return { handled: true, usedTool: T, entity: 'service_cases', answer: `No encuentro ningún trámite que coincida con «${intent.entityText}».` }
+    if (hits.length > 1) return { handled: true, usedTool: T, entity: 'service_cases', answer: `Hay varios trámites que coinciden:\n${hits.slice(0, 4).map((c) => `• ${c.title}`).join('\n')}\n¿Cuál?` }
+    entityId = hits[0].id
+  }
+  // ── Calendario · crear: componer start_at/end_at (Europe/Madrid) desde fecha+hora del parser ──
+  if (intent.actionType === 'calendar.create' && !intent.missingFields.length) {
+    const c = intent.proposedChanges as Record<string, unknown>
+    const t = composeCalendarTimes(String(c.date), Number(c.start_hour), Number(c.start_minute ?? 0), Number(c.duration ?? 60))
+    c.start_at = t.startAt
+    c.end_at = t.endAt
+  }
+  // ── Calendario · reprogramar: resolver la cita (próximas, editables) y completar fecha/hora del
+  //    estado actual antes de componer start_at/end_at. Eventos de Google (read-only) se excluyen. ──
+  if (intent.actionType === 'calendar.reschedule') {
+    const raw = (intent.entityText ?? '').replace(/[\\%_]/g, '').trim()
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    const { data, error } = await supabase.from('calendar_events')
+      .select('id, title, client_name, date, start_hour, start_minute, duration, start_at, is_read_only')
+      .eq('workspace_id', ws).neq('status', 'cancelled').eq('is_read_only', false)
+      .gte('start_at', since).order('start_at', { ascending: true }).limit(25)
+    if (error) return fail('calendar', T, ws)
+    const needle = foldText(raw)
+    const rows = ((data ?? []) as Array<Record<string, unknown>>)
+      .filter((e) => !needle || foldText(String(e.title ?? '')).includes(needle) || foldText(String(e.client_name ?? '')).includes(needle))
+    if (!rows.length) return { handled: true, usedTool: T, entity: 'calendar', answer: `No encuentro una cita próxima que coincida con «${intent.entityText}».` }
+    if (rows.length > 1) return { handled: true, usedTool: T, entity: 'calendar', answer: `Hay varias citas que coinciden:\n${rows.slice(0, 4).map((e) => `• ${e.title} (${String(e.date ?? String(e.start_at ?? '').slice(0, 10))})`).join('\n')}\n¿Cuál reprogramo?` }
+    const ev = rows[0]
+    entityId = String(ev.id)
+    const c = intent.proposedChanges as Record<string, unknown>
+    // Derivar la parte no indicada del estado ACTUAL del evento (fecha o hora), en Europe/Madrid.
+    const curStart = ev.start_at ? new Date(String(ev.start_at)) : null
+    const curDate = String(ev.date ?? (curStart ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(curStart) : ''))
+    const curHour = Number(ev.start_hour ?? (curStart ? Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', hour12: false }).format(curStart)) : 10))
+    const curMinute = Number(ev.start_minute ?? (curStart ? curStart.getUTCMinutes() : 0))
+    const date = String(c.date ?? curDate)
+    const hour = Number(c.start_hour ?? curHour)
+    const minute = Number(c.start_minute ?? curMinute)
+    const duration = Number(ev.duration ?? 60)
+    const t = composeCalendarTimes(date, hour, minute, duration)
+    c.date = date; c.start_hour = hour; c.start_minute = minute
+    c.start_at = t.startAt; c.end_at = t.endAt
   }
   const r = await actionApi({ operation: 'prepare', workspace_id: ws, action_type: intent.actionType, ...(entityId ? { entity_id: entityId } : {}), proposed_changes: intent.proposedChanges, conversation_id: conversationId })
   if (r.status !== 200) {

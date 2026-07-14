@@ -15,7 +15,10 @@
 import { NextResponse } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { timingSafeEqual } from 'node:crypto'
-import { getActionDefinition, findDeniedField, isValidPortfolioTransition, PORTFOLIO_TRANSITIONS } from '@/lib/agents/action-registry'
+import {
+  getActionDefinition, findDeniedField, isValidPortfolioTransition, PORTFOLIO_TRANSITIONS,
+  isValidOperationTransition, OPERATION_TRANSITIONS, CLIENT_STATUSES, TASK_PRIORITIES, CALENDAR_TYPES, CASE_STATUSES,
+} from '@/lib/agents/action-registry'
 import { signActionToken, verifyActionToken, previewHashOf, newIdempotencyKey } from '@/lib/agents/action-policy'
 
 export const runtime = 'nodejs'
@@ -66,6 +69,7 @@ async function prepare(supabase: SupabaseClient, ws: string, body: Row, secret: 
   if (denied) return err(403, 'ACTION_FIELD_DENIED', `Campo no permitido: ${denied}.`)
 
   let current: Row = {}
+  let fullRow: Row = {}
   let entityId: string | null = null
   if (def.requiredEntity) {
     entityId = String(body.entity_id ?? '')
@@ -74,6 +78,7 @@ async function prepare(supabase: SupabaseClient, ws: string, body: Row, secret: 
     if (error) return err(500, 'ACTION_EXECUTION_ERROR', 'No pude leer la entidad.')
     if (!data) return err(404, 'ACTION_ENTITY_MISMATCH', 'Entidad no encontrada en este workspace.')
     if ((data as Row).deleted_at) return err(409, 'ACTION_ENTITY_MISMATCH', 'La entidad está eliminada.')
+    fullRow = data as Row
     current = Object.fromEntries(def.allowedFields.map((f) => [f, (data as Row)[f] ?? null]))
     current.updated_at = (data as Row).updated_at ?? null
   }
@@ -101,6 +106,80 @@ async function prepare(supabase: SupabaseClient, ws: string, body: Row, secret: 
     if (!isValidPortfolioTransition(from, to)) {
       return err(422, 'ACTION_TRANSITION_INVALID', `Transición no permitida: ${from} → ${to}. Válidas desde ${from}: ${(PORTFOLIO_TRANSITIONS[from] ?? []).join(', ') || 'ninguna'}.`)
     }
+  }
+  // ── P70 Wave C · validaciones semánticas del catálogo multimódulo (contra el modelo REAL de la BD) ──
+  const nonEmptyText = (v: unknown, max: number) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= max
+  const isIsoDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ''))
+  if (def.id === 'clients.update_name' && !nonEmptyText(changes.name, 120)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'Nombre inválido (1-120 caracteres).')
+  }
+  if ((def.id === 'clients.update_note' && !nonEmptyText(changes.notes, 1000)) ||
+      (def.id === 'portfolio.update_notes' && !nonEmptyText(changes.notes, 1000))) {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'Nota inválida (1-1000 caracteres).')
+  }
+  if (def.id === 'clients.update_status' && !CLIENT_STATUSES.includes(String(changes.status) as never)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', `Estado de cliente inválido. Válidos: ${CLIENT_STATUSES.join(', ')}.`)
+  }
+  if (def.id === 'portfolio.update_zone' && !nonEmptyText(changes.area, 80)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'Zona inválida (1-80 caracteres).')
+  }
+  // El modelo REAL de tasks solo admite pending|done: reopen = done → pending, nunca otro literal.
+  if (def.id === 'tasks.reopen') {
+    if (changes.status !== 'pending') return err(422, 'ACTION_VALIDATION_ERROR', 'tasks.reopen solo admite status=pending.')
+    if (String(current.status ?? '') !== 'done') return err(422, 'ACTION_TRANSITION_INVALID', 'Solo se puede reabrir una tarea completada.')
+  }
+  if (def.id === 'tasks.update_priority' && !TASK_PRIORITIES.includes(String(changes.priority) as never)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', `Prioridad inválida. Válidas: ${TASK_PRIORITIES.join(', ')}.`)
+  }
+  if (def.id === 'tasks.update_title' && !nonEmptyText(changes.title, 160)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'Título inválido (1-160 caracteres).')
+  }
+  if (def.id === 'calendar.create' || def.id === 'calendar.reschedule') {
+    if (def.id === 'calendar.create') {
+      if (!nonEmptyText(changes.title, 160)) return err(422, 'ACTION_VALIDATION_ERROR', 'Título de cita requerido.')
+      if (!CALENDAR_TYPES.includes(String(changes.type) as never)) return err(422, 'ACTION_VALIDATION_ERROR', 'Tipo de cita inválido.')
+    }
+    if (def.id === 'calendar.reschedule') {
+      // Eventos sincronizados de Google son de SOLO LECTURA; una cita cancelada no se reprograma.
+      if (fullRow.is_read_only === true) return err(409, 'ACTION_ENTITY_MISMATCH', 'Evento sincronizado de Google: solo lectura desde el CRM.')
+      if (String(fullRow.status ?? '') === 'cancelled') return err(409, 'ACTION_TRANSITION_INVALID', 'La cita está cancelada; crea una nueva en su lugar.')
+    }
+    if ('date' in changes && !isIsoDate(changes.date)) return err(422, 'ACTION_VALIDATION_ERROR', 'date debe ser YYYY-MM-DD.')
+    if ('start_hour' in changes && !(Number.isInteger(changes.start_hour) && Number(changes.start_hour) >= 0 && Number(changes.start_hour) <= 23)) {
+      return err(422, 'ACTION_VALIDATION_ERROR', 'start_hour debe ser 0-23.')
+    }
+    if ('start_minute' in changes && !(Number.isInteger(changes.start_minute) && Number(changes.start_minute) >= 0 && Number(changes.start_minute) <= 59)) {
+      return err(422, 'ACTION_VALIDATION_ERROR', 'start_minute debe ser 0-59.')
+    }
+    if ('duration' in changes && !(Number.isInteger(changes.duration) && Number(changes.duration) >= 15 && Number(changes.duration) <= 480)) {
+      return err(422, 'ACTION_VALIDATION_ERROR', 'duration debe ser 15-480 minutos.')
+    }
+    // start_at/end_at los compone el SERVIDOR (parser) a partir de date+hora; deben ser ISO coherentes.
+    if ('start_at' in changes || def.id === 'calendar.create') {
+      const s = Date.parse(String(changes.start_at ?? '')), e = Date.parse(String(changes.end_at ?? ''))
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return err(422, 'ACTION_VALIDATION_ERROR', 'start_at/end_at inválidos.')
+    }
+  }
+  if (def.id === 'operations.change_stage') {
+    const from = String(current.stage ?? '')
+    const to = String(changes.stage ?? '')
+    if (!(to in OPERATION_TRANSITIONS)) return err(422, 'ACTION_VALIDATION_ERROR', `Etapa desconocida: ${to}.`)
+    if (!isValidOperationTransition(from, to)) {
+      return err(422, 'ACTION_TRANSITION_INVALID', `Transición no permitida: ${from} → ${to}. Válidas desde ${from}: ${(OPERATION_TRANSITIONS[from] ?? []).join(', ') || 'ninguna (etapa final)'}.`)
+    }
+  }
+  if (def.id === 'operations.update_value') {
+    const v = Number(changes.value)
+    if (!Number.isFinite(v) || v <= 0) return err(422, 'ACTION_VALIDATION_ERROR', 'Valor inválido.')
+    // El valor de una operación cerrada alimenta comisiones: nunca se cambia en silencio.
+    const st = String(fullRow.stage ?? '')
+    if (st === 'won' || st === 'lost') return err(422, 'ACTION_TRANSITION_INVALID', 'La operación está cerrada; su valor no se modifica desde el Asistente.')
+  }
+  if (def.id === 'cases.update_status' && !CASE_STATUSES.includes(String(changes.status) as never)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', `Estado de trámite inválido. Válidos: ${CASE_STATUSES.join(', ')}.`)
+  }
+  if (def.id === 'cases.update_due_date' && !isIsoDate(changes.due_date)) {
+    return err(422, 'ACTION_VALIDATION_ERROR', 'due_date debe ser YYYY-MM-DD.')
   }
 
   const previewHash = previewHashOf(current, changes)
@@ -203,12 +282,23 @@ async function confirm(supabase: SupabaseClient, ws: string, body: Row, secret: 
   }
 
   // READ-AFTER-WRITE: releer y verificar cada campo antes de declarar completed.
+  // Igualdad normalizada: los timestamps vuelven de PostgREST con otro formato textual que el ISO
+  // propuesto (p. ej. +00:00 vs .000Z) — mismo instante = verificado.
+  const fieldEquals = (a: unknown, b: unknown): boolean => {
+    if (String(a ?? '') === String(b ?? '')) return true
+    const sa = String(a ?? ''), sb = String(b ?? '')
+    if (/^\d{4}-\d{2}-\d{2}T/.test(sa) && /^\d{4}-\d{2}-\d{2}T/.test(sb)) {
+      const da = Date.parse(sa), db = Date.parse(sb)
+      return Number.isFinite(da) && Number.isFinite(db) && da === db
+    }
+    return false
+  }
   const { data: fresh } = await supabase.from(def.table).select('*').eq('workspace_id', ws).eq('id', entityId!).maybeSingle()
   const verified: Record<string, unknown> = {}
   let verifyOk = !!fresh
   for (const [k, v] of Object.entries(changes)) {
     verified[k] = fresh ? (fresh as Row)[k] ?? null : null
-    if (!fresh || String((fresh as Row)[k] ?? '') !== String(v ?? '')) verifyOk = false
+    if (!fresh || !fieldEquals((fresh as Row)[k], v)) verifyOk = false
   }
   const result = { entity_id: entityId, verified, verify_ok: verifyOk, verified_at: new Date().toISOString() }
   await supabase.from('assistant_actions').update({

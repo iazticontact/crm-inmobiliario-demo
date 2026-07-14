@@ -57,16 +57,36 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
   3. Rate limit real 10 req/min incluye botones — pacing global de 7s entre peticiones en la suite.
 - **Deploy**: staging sirve `2026-07-14.p70` (verificado vía /api/agent/diag).
 
+## ✅ Wave C COMPLETA — 2026-07-14 (catálogo multimódulo: 21 acciones, 6 módulos editables)
+- **Registro ampliado** (`action-registry.ts`): 7 → **21 acciones supported** — clients (5: phone, email,
+  name, note, status), portfolio (4: price, status, notes, zone), tasks (6: create, complete, reopen,
+  due_date, priority, title), calendar (2: create, reschedule), operations (2: change_stage,
+  update_value), cases (2: update_status, update_due_date). Matriz OPERATION_TRANSITIONS (won final,
+  lost reactivable) + enums REALES auditados en BD (CHECKs de clients.status, tasks.status,
+  calendar_events.type; vocabulario canónico del resto).
+- **Unsupported con causa**: clients.update_tax_id y update_nationality (columnas inexistentes,
+  auditado information_schema). Ver `P70_ACTION_CATALOG.md`.
+- **Executor endurecido**: validaciones semánticas por acción (rangos, enums, transiciones, evento
+  Google read-only rechazado, valor de operación cerrada bloqueado por comisiones, reopen solo
+  done→pending) + verify read-after-write con igualdad normalizada de timestamps.
+- **Parsers composicionales** con orden anticolisión (operations antes que precio; reopen antes que
+  complete) + calendario con composición server-side de start_at/end_at en Europe/Madrid (la app
+  filtra por start_at — auditado en supabase-queries).
+- **Suites nuevas**: parser tests **48/48** (incl. 13 lecturas que jamás se convierten en acción) ·
+  action catalog E2E **46/46** (ciclo completo por módulo + invariantes + cleanup verificado) ·
+  **grants check 12/12** con sesión authenticated real (check permanente anti-regresión del GRANT) ·
+  Playwright `assistant-actions-modules.spec.ts` (calendar/operations/cases por UI).
+- Regresiones: P66 11/11 · P70 UI 15/15 · tsc/lint/build ✅.
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
-| 1 | Catálogo ≥15 acciones + ≥1 por módulo editable (hoy 7; faltan calendar/operations/cases) | P1 |
-| 2 | Cambio conversacional de horario («cámbialo a las 9») + runners de más tipos de automatización | P1 |
-| 3 | Benchmark 750+ con held-out + metamórficos + mutation checks | P1 |
-| 4 | Fábrica de regresiones (manifest) + chaos + red-team 75+ | P1 |
-| 5 | N8N runtime map nodo a nodo + limpieza + [P70] prompt | P2 |
-| 6 | Observabilidad/diagnóstico, rendimiento, mantenimiento, rollback runbook | P2 |
-| 7 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat | P2 |
+| 1 | Wave D: gestión conversacional de automatizaciones + runners completos + scheduler chaos | P1 |
+| 2 | Wave E: n8n control tower (runtime map, tools, marker P70, drift) | P1 |
+| 3 | Wave F: benchmark 750+ con held-out + metamórficos + mutation + manifest regresiones | P1 |
+| 4 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
+| 5 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
+| 6 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat | P2 |
 
 ## Cómo continuar (siguiente sesión)
 1. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo, con su card ya gratis
