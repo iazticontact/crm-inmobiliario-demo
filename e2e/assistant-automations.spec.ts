@@ -55,7 +55,7 @@ test('automatización: crear + cambiar horario con preview + próxima ejecución
   await sendChat(page, 'activa un resumen diario a las 8')
   await expect(autoCard(page).first().getByText('Pendiente de confirmación')).toBeVisible()
   await paceRequest(page)
-  await autoCard(page).first().getByRole('button', { name: 'Confirmar' }).click()
+  await autoCard(page).first().getByRole('button', { name: 'Activar' }).click()
   await expect(page.getByText(/Automatización activada y programada/)).toBeVisible({ timeout: 30_000 })
   const activeCard = autoCard(page).filter({ hasText: 'Activa' }).last()
   await expect(activeCard).toBeVisible()
@@ -100,7 +100,7 @@ test('automatización: ejecutar ahora, ver ejecuciones, pausar y reactivar (boto
 
   // Pausar por chat → card Desactivada con botón Reactivar
   await sendChat(page, 'pausa el resumen diario')
-  await expect(page.getByText(/queda en pausa/)).toBeVisible()
+  await expect(page.getByText(/queda desactivada \(en pausa\)/)).toBeVisible()
   const pausedCard = autoCard(page).filter({ hasText: 'Desactivada' }).last()
   await expect(pausedCard).toBeVisible()
   await paceRequest(page)

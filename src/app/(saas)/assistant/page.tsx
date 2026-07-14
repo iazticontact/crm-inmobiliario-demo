@@ -1133,8 +1133,9 @@ function AssistantAutomationCard({ auto, disabled, onQuickReply }: {
       {typeof auto.findingCount === 'number' && <p className="mt-0.5 text-xs text-gray-500">Incidencias nuevas: {auto.findingCount}</p>}
       {awaiting && auto.allowedUiActions.includes('confirm') && (
         <div className="mt-3 flex flex-wrap gap-2">
+          {/* Creación (sin ruleId) = «Activar»; edición de una regla existente (con ruleId) = «Confirmar». */}
           <Button size="sm" disabled={disabled} onClick={() => onQuickReply('Sí, confirma')}>
-            <CheckCircle className="h-3.5 w-3.5" /> {auto.status === 'awaiting_confirmation' ? 'Confirmar' : 'Activar'}
+            <CheckCircle className="h-3.5 w-3.5" /> {auto.ruleId ? 'Confirmar' : 'Activar'}
           </Button>
           <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onQuickReply('Mejor no, descártala')}>
             <X className="h-3.5 w-3.5" /> Descartar
