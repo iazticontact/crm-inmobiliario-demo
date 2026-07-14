@@ -36,23 +36,43 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
 - **Verificado**: tsc/lint/build ✅ · P66 11/11 ✅ · P67 8/8 ✅ · P68 7/7 ✅ · P69 8/8 ✅ ·
   **nuevo P70 UI-contract E2E 15/15** (`scripts/p70-ui-contract-e2e.mts`).
 
+## ✅ Wave B COMPLETA — 2026-07-14 (Playwright E2E real contra staging, 9/9 PASS)
+- **Infra**: `playwright.config.ts` (workers=1, staging por defecto, `E2E_BASE_URL` overrideable),
+  proyecto `setup` (login REAL por UI con credenciales QA de `.auth/`, storage state con las cookies
+  exactas de @supabase/ssr), proyectos `chromium` (desktop) y `mobile` (Pixel 7). `npm run test:e2e`.
+- **Specs** (`e2e/`): smoke sesión real · card de acción preview→Cancelar (BD intacta) ·
+  Confirmar→aplicado y verificado (BD real cambia; restauración fixture) · persistencia tras refresh
+  (card desde metadata.ui con botones activos) · **multitab** (2ª pestaña ve card y su resolución SIN
+  recargar, vía BroadcastChannel) · automatización Descartar (neutraliza, cero `[AUTO:` visible) y
+  Activar (regla real programada) · findings (card → centro con filtros aria-pressed y carga RLS ok) ·
+  móvil (card operable, sin scroll horizontal). Fixtures QA server-side + cleanup verificado por SQL
+  (precio restaurado, 0 reglas residuales, 0 pending actions, hilos QA borrados).
+- **Bugs reales encontrados y corregidos por la suite**:
+  1. **GRANT faltante** (migración `20260714_p70_grant_authenticated_assistant_agentic_tables.sql`,
+     aplicada al proyecto real): las policies RLS de SELECT existían pero `authenticated` no tenía GRANT
+     en `assistant_actions/findings/automation_rules/automation_runs` → `executeUiAction` no encontraba
+     la fila, el centro de findings no cargaba y el confirm textual P66 desde navegador estaba roto
+     (latente: los E2E previos usaban service key).
+  2. Carrera al crear consulta (mensaje al hilo viejo) — cubierta en spec (espera del toast de creación).
+  3. Rate limit real 10 req/min incluye botones — pacing global de 7s entre peticiones en la suite.
+- **Deploy**: staging sirve `2026-07-14.p70` (verificado vía /api/agent/diag).
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
-| 1 | Wave B: Playwright E2E con `.auth/qa-session.json` (smoke staging + cards/refresh/multitab/mobile) | P1 |
-| 2 | Catálogo ≥15 acciones + ≥1 por módulo editable (hoy 7; faltan calendar/operations/cases) | P1 |
-| 3 | Cambio conversacional de horario («cámbialo a las 9») + runners de más tipos de automatización | P1 |
-| 4 | Benchmark 750+ con held-out + metamórficos + mutation checks | P1 |
-| 5 | Fábrica de regresiones (manifest) + chaos + red-team 75+ | P1 |
-| 6 | N8N runtime map nodo a nodo + limpieza + [P70] prompt | P2 |
-| 7 | Observabilidad/diagnóstico, rendimiento, mantenimiento, rollback runbook | P2 |
-| 8 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat | P2 |
+| 1 | Catálogo ≥15 acciones + ≥1 por módulo editable (hoy 7; faltan calendar/operations/cases) | P1 |
+| 2 | Cambio conversacional de horario («cámbialo a las 9») + runners de más tipos de automatización | P1 |
+| 3 | Benchmark 750+ con held-out + metamórficos + mutation checks | P1 |
+| 4 | Fábrica de regresiones (manifest) + chaos + red-team 75+ | P1 |
+| 5 | N8N runtime map nodo a nodo + limpieza + [P70] prompt | P2 |
+| 6 | Observabilidad/diagnóstico, rendimiento, mantenimiento, rollback runbook | P2 |
+| 7 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat | P2 |
 
 ## Cómo continuar (siguiente sesión)
-1. Wave B: `node scripts/p70-create-qa-session.mjs` (regenera sesión si expiró) → `npm i -D @playwright/test`
-   → specs con `storageState: '.auth/qa-session.json'` contra staging (cards, botones, refresh, multitab,
-   mobile, automatizaciones, findings) + fixtures QA con cleanup.
-2. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo.
-3. Runners de automatización adicionales sobre el dispatcher P68.
+1. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo, con su card ya gratis
+   (el contrato UI y las cards son genéricos por action_type).
+2. Runners de automatización adicionales sobre el dispatcher P68 + cambio conversacional de horario.
+3. Benchmark/regresiones/red-team (waves C-D).
 
-**Verdes previos re-verificados hoy:** n8n 15/15+5 con policy, staging `2026-07-14.p69`.
+**Verdes hoy:** tsc/lint/build · P66 11/11 · P67 8/8 · P68 7/7 · P69 8/8 · P70 ui-contract 15/15 ·
+**Playwright 9/9 contra staging p70** · n8n 15/15+5 con policy.

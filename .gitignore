@@ -50,3 +50,7 @@ next-env.d.ts
 
 # P70 - QA auth artifacts (nunca commitear)
 .auth/
+
+# P70 - Playwright artifacts
+/test-results/
+/playwright-report/
