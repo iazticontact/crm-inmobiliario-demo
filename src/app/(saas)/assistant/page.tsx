@@ -1037,9 +1037,10 @@ function safeErrorMessage(error: unknown) {
 // Componentes PUROS: consumen el bloque validado del contrato compartido (ui-contract). Nunca parsean
 // texto, nunca muestran IDs/JSON/tokens; el texto del mensaje queda siempre como fallback.
 
-// El chat nunca muestra marcadores internos ([AUTO:…]) ni markdown crudo (**) del asistente.
+// El chat nunca muestra marcadores internos ([AUTO:…]/[AUTOEDIT:…], que pueden llevar ids) ni
+// markdown crudo (**) del asistente.
 function displayAssistantText(content: string): string {
-  return content.replace(/\s*\[AUTO:(?:cancelled|done|[a-z_]+:\d{1,2})\]/g, '').replace(/\*\*/g, '').trimEnd()
+  return content.replace(/\s*\[AUTO(?:EDIT)?:[^\]]{1,120}\]/g, '').replace(/\*\*/g, '').trimEnd()
 }
 
 function formatMadridDateTime(iso?: string): string | null {
@@ -1129,14 +1130,40 @@ function AssistantAutomationCard({ auto, disabled, onQuickReply }: {
       </div>
       {auto.scheduleLabel && <p className="mt-0.5 text-xs text-gray-500">{auto.scheduleLabel} · {auto.timezone}</p>}
       {nextRun && <p className="mt-0.5 text-xs text-gray-500">Próxima ejecución: {nextRun}</p>}
+      {typeof auto.findingCount === 'number' && <p className="mt-0.5 text-xs text-gray-500">Incidencias nuevas: {auto.findingCount}</p>}
       {awaiting && auto.allowedUiActions.includes('confirm') && (
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" disabled={disabled} onClick={() => onQuickReply('Sí, confirma')}>
-            <CheckCircle className="h-3.5 w-3.5" /> Activar
+            <CheckCircle className="h-3.5 w-3.5" /> {auto.status === 'awaiting_confirmation' ? 'Confirmar' : 'Activar'}
           </Button>
           <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onQuickReply('Mejor no, descártala')}>
             <X className="h-3.5 w-3.5" /> Descartar
           </Button>
+        </div>
+      )}
+      {/* P70 Wave D — gestión desde la card: quick replies del flujo conversacional probado (un solo plano). */}
+      {!awaiting && (auto.allowedUiActions.includes('run_now') || auto.allowedUiActions.includes('view_runs') || auto.allowedUiActions.includes('disable') || auto.allowedUiActions.includes('enable')) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {auto.allowedUiActions.includes('run_now') && (
+            <Button size="sm" disabled={disabled} onClick={() => onQuickReply(`Ejecuta ahora la automatización de ${auto.name}`)}>
+              <Zap className="h-3.5 w-3.5" /> Ejecutar ahora
+            </Button>
+          )}
+          {auto.allowedUiActions.includes('view_runs') && (
+            <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onQuickReply(`Muéstrame las ejecuciones de ${auto.name}`)}>
+              Ver ejecuciones
+            </Button>
+          )}
+          {auto.allowedUiActions.includes('disable') && (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onQuickReply(`Pausa la automatización de ${auto.name}`)}>
+              Pausar
+            </Button>
+          )}
+          {auto.allowedUiActions.includes('enable') && (
+            <Button size="sm" disabled={disabled} onClick={() => onQuickReply(`Reactiva la automatización de ${auto.name}`)}>
+              <CheckCircle className="h-3.5 w-3.5" /> Reactivar
+            </Button>
+          )}
         </div>
       )}
     </div>

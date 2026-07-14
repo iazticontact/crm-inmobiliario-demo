@@ -29,6 +29,9 @@ import { signActionToken } from './action-policy'
 import { getActionDefinition } from './action-registry'
 
 import type { AssistantUiPayload } from '@/lib/assistant/ui-contract'
+import { AUTOMATION_RULES } from './findings-engine'
+import { parseSchedule as parseScheduleJson, scheduleLabelOf, type ScheduleJson } from './automation-schedule'
+import { parseTimeEs } from './assistant-action-intent'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload }
@@ -336,16 +339,47 @@ export function composeCalendarTimes(dateIso: string, hour: number, minute: numb
   const end = new Date(start.getTime() + durationMin * 60_000)
   return { startAt: start.toISOString(), endAt: end.toISOString() }
 }
-// P69/P70 — nombres humanos de los tipos de automatización (una sola fuente para texto y cards).
-const AUTOMATION_LABELS: Record<string, string> = { data_quality_watch: 'auditoría de calidad de datos', overdue_tasks_watch: 'aviso de tareas vencidas', daily_executive_brief: 'resumen ejecutivo diario' }
+// P69/P70 — nombres humanos de los tipos de automatización: derivados del REGISTRY único (Wave D).
+const AUTOMATION_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(AUTOMATION_RULES).map((d) => [d.type, d.label]),
+)
 
-// P70 — Último preview de automatización VIVO del hilo. Los marcadores [AUTO:cancelled] / [AUTO:done]
-// neutralizan previews anteriores: tras cancelar o activar, un «confirma» posterior no re-activa nada.
-export function lastLiveAutoPreview(recentContext: string): { type: string; hour: number } | null {
-  const all = recentContext.match(/\[AUTO:(?:cancelled|done|[a-z_]+:\d{1,2})\]/g)
+// P70 Wave D — resolución de TIPO de automatización desde el lenguaje (vocabulario canónico).
+export function detectAutomationType(n: string): string | null {
+  if (/\b(auditoria|calidad de (los )?datos|revision de datos)\b/.test(n) && !/\bcartera\b/.test(n)) return 'data_quality_watch'
+  if (/\bresumen (ejecutivo )?(diario|del dia)\b/.test(n) || /\bresumen diario\b/.test(n)) return 'daily_executive_brief'
+  if (/\bagenda de la manana\b/.test(n) || /\bbrief matinal\b/.test(n)) return 'morning_agenda_brief'
+  if (/\btareas vencidas\b/.test(n)) return 'overdue_tasks_watch'
+  if (/\bcitas proximas\b/.test(n) || /\baviso de citas\b/.test(n)) return 'upcoming_appointments_watch'
+  if (/\b(vencimientos? de tramites|tramites (vencidos|proximos))\b/.test(n)) return 'case_deadline_watch'
+  if (/\b(calidad|datos) de (la )?cartera\b/.test(n) || /\bcartera\b.*\bcalidad\b/.test(n)) return 'portfolio_data_quality_watch'
+  if (/\b(reconciliacion|operaciones ganadas)\b/.test(n)) return 'won_operation_reconciliation_watch'
+  if (/\bacciones fallidas\b/.test(n)) return 'action_failure_watch'
+  if (/\boperaciones (sin movimiento|paradas|estancadas)\b/.test(n)) return 'stale_operations_watch'
+  if (/\b(clientes inactivos|seguimiento de clientes)\b/.test(n)) return 'inactive_client_followup_watch'
+  return null
+}
+
+// P70 — Marcadores de flujo de automatización en el hilo. [AUTO:type:hour] = preview de CREACIÓN;
+// [AUTOEDIT:ruleId:hash:h<hour>:f<freq>:w<weekday>] = preview de EDICIÓN. cancelled/done neutralizan.
+// Un «confirma» actúa SOLO sobre el último marcador VIVO (creación o edición, el más reciente).
+export type LiveAutoMarker =
+  | { kind: 'create'; type: string; hour: number; minute: number; frequency: 'daily' | 'weekdays' | 'weekly'; weekday?: number }
+  | { kind: 'edit'; ruleId: string; hash: string; hour: number; minute: number; frequency: string; weekday?: number }
+export function lastLiveAutoMarker(recentContext: string): LiveAutoMarker | null {
+  const all = recentContext.match(/\[AUTO(?:EDIT)?:[^\]]{1,120}\]/g)
   const last = all?.length ? all[all.length - 1] : null
-  const m = last ? last.match(/^\[AUTO:([a-z_]+):(\d{1,2})\]$/) : null
-  return m ? { type: m[1], hour: Number(m[2]) } : null
+  if (!last) return null
+  const create = last.match(/^\[AUTO:([a-z_]+):(\d{1,2})(?::m(\d{1,2}))?(?::f(daily|weekdays|weekly))?(?::w(\d))?\]$/)
+  if (create) return { kind: 'create', type: create[1], hour: Number(create[2]), minute: create[3] ? Number(create[3]) : 0, frequency: (create[4] ?? 'daily') as 'daily', weekday: create[5] ? Number(create[5]) : undefined }
+  const edit = last.match(/^\[AUTOEDIT:([0-9a-f-]{36}):([0-9a-f]{16}):h(\d{1,2})(?::m(\d{1,2}))?:f(daily|weekdays|weekly)(?::w(\d))?\]$/)
+  if (edit) return { kind: 'edit', ruleId: edit[1], hash: edit[2], hour: Number(edit[3]), minute: edit[4] ? Number(edit[4]) : 0, frequency: edit[5], weekday: edit[6] ? Number(edit[6]) : undefined }
+  return null // cancelled / done / malformado → no hay preview vivo
+}
+// Compat: preview de creación vivo (usado por la confirmación P69).
+export function lastLiveAutoPreview(recentContext: string): { type: string; hour: number } | null {
+  const m = lastLiveAutoMarker(recentContext)
+  return m && m.kind === 'create' ? { type: m.type, hour: m.hour } : null
 }
 const fmtVal = (k: string, v: unknown): string => {
   if ((k === 'price' || k === 'value') && typeof v === 'number') return euro(v)
@@ -627,6 +661,26 @@ export async function executeUiAction(
         : 'No he podido aplicar el cambio. No se ha modificado nada.'
   const ui: AssistantUiPayload = { kind: 'action_status', action: { actionId, actionType: String(row.action_type), status: code === 'ACTION_CONFLICT' ? 'conflict' : code === 'ACTION_EXPIRED' ? 'expired' : code === 'ACTION_CANCELLED' ? 'cancelled' : 'failed', title: getActionDefinition(String(row.action_type))?.description ?? 'Cambio', fields: [], verified: false, allowedUiActions: [], safeErrorCode: code || undefined } }
   return { handled: true, usedTool: T, entity: 'help', answer: msg, ui }
+}
+
+// ── P70 Wave D · Preview de CREACIÓN de automatización (opt-in; compartido entre el atajo pre-ventas
+//    y el flujo estándar). Solo construye el preview: NADA se crea sin confirmación. ──────────────────
+export function handleAutomationCreatePreview(nmsg: string): LocalAnswer | null {
+  const type = detectAutomationType(nmsg)
+  if (!type) return null
+  const def = AUTOMATION_RULES[type as keyof typeof AUTOMATION_RULES]
+  const t = parseTimeEs(nmsg)
+  const weeklyDay = nmsg.match(/\btodos los (lunes|martes|miercoles|jueves|viernes|sabados?|domingos?)\b/)?.[1] ?? null
+  const WD: Record<string, number> = { lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6, sabados: 6, domingo: 7, domingos: 7 }
+  const frequency = weeklyDay ? 'weekly' as const : /\blunes a viernes\b|\bentre semana\b/.test(nmsg) ? 'weekdays' as const : 'daily' as const
+  const hour = t ? t.hour : def.defaultHour
+  const minute = t ? t.minute : 0
+  const weekday = weeklyDay ? (WD[weeklyDay] ?? 1) : undefined
+  const schPrev: ScheduleJson = { frequency, hour, ...(minute ? { minute } : {}), ...(frequency === 'weekly' ? { weekday: weekday ?? 1 } : {}) }
+  const schLabel = scheduleLabelOf(schPrev)
+  const marker = `[AUTO:${type}:${hour}${minute ? `:m${minute}` : ''}${frequency !== 'daily' ? `:f${frequency}` : ''}${frequency === 'weekly' ? `:w${weekday ?? 1}` : ''}]`
+  const ui: AssistantUiPayload = { kind: 'automation_preview', automation: { type, name: def.label, status: 'awaiting_confirmation', scheduleLabel: schLabel, timezone: 'Europe/Madrid', allowedUiActions: ['confirm', 'cancel'] } }
+  return { handled: true, usedTool: 'local_automation:preview', entity: 'help', answer: `Automatización preparada\n• Tipo: ${def.label}\n• Qué vigila: ${def.criterion}\n• Horario: ${schLabel} (Europe/Madrid)\n• Resultado: incidencias/resumen internos en el CRM (sin emails ni mensajes externos)\n\nAún no está activada. ¿Confirmo la activación? ${marker}`, ui }
 }
 
 // ── P64 · RESUMEN EJECUTIVO multi-fuente (Cartera + Operaciones + Agenda + Tareas + Trámites) ─────────
@@ -1015,10 +1069,134 @@ async function tryLocalAnswerInner(
     const nmWords = nm.replace(/[¿?¡!.,;:]/g, ' ').split(/\s+/).filter(Boolean)
     // Solo frases CORTAS de rechazo (o mención explícita): «no quiero ver los clientes» nunca se secuestra.
     const wantsAutoCancel = (nmWords.length <= 5 && /^(no( gracias)?|mejor no|cancela(la|lo)?|descarta(la|lo)?|dejalo|olvidalo)\b/.test(nm))
-      || /\b(cancela|descarta|no (la )?actives?)\b.*\bautomatizacion/.test(nm)
-    if (wantsAutoCancel && lastLiveAutoPreview(recentContext) && !(await latestPendingAction(supabase, workspaceId))) {
+      || /\b(cancela|descarta|no (la )?actives?|no (lo )?cambies)\b.*\b(automatizacion|horario)/.test(nm)
+    const liveMarker = lastLiveAutoMarker(recentContext)
+    if (wantsAutoCancel && liveMarker && !(await latestPendingAction(supabase, workspaceId))) {
       const ui: AssistantUiPayload = { kind: 'automation_status', automation: { type: 'automation', name: 'Automatización', status: 'disabled', scheduleLabel: '', timezone: 'Europe/Madrid', allowedUiActions: [] } }
-      return { handled: true, usedTool: 'local_automation:cancel', entity: 'help', answer: 'Vale, no activo la automatización. No se ha creado nada; pídemela de nuevo cuando quieras. [AUTO:cancelled]', ui }
+      const answer = liveMarker.kind === 'edit'
+        ? 'Vale, no cambio el horario. La automatización sigue como estaba. [AUTO:cancelled]'
+        : 'Vale, no activo la automatización. No se ha creado nada; pídemela de nuevo cuando quieras. [AUTO:cancelled]'
+      return { handled: true, usedTool: 'local_automation:cancel', entity: 'help', answer, ui }
+    }
+  }
+
+  // ── P70 Wave D · GESTIÓN CONVERSACIONAL de automatizaciones ──────────────────────────────────────
+  // Editar horario (SIEMPRE preview antes→después + confirmación; nunca escritura directa), pausar,
+  // reactivar, ejecutar ahora, «¿cuándo toca?», configuración, última ejecución e historial.
+  {
+    const nm = foldText(message)
+    const AUTO_CTX = /\b(automatizacion(es)?|resumen (ejecutivo )?diario|auditoria|agenda de la manana|tareas vencidas|citas proximas|vencimientos de tramites|reconciliacion|acciones fallidas|operaciones sin movimiento|clientes inactivos|planificador)\b/
+    const mentionsAutomation = AUTO_CTX.test(nm) || detectAutomationType(nm) !== null
+    const contextHasAutomation = AUTO_CTX.test(foldText(recentContext)) || /\[AUTO(EDIT)?:/.test(recentContext)
+    const inScope = mentionsAutomation || contextHasAutomation
+    const timeReq = parseTimeEs(message)
+    const freqWeekdays = /\b(solo )?(de )?lunes a viernes\b|\bentre semana\b/.test(nm)
+    const freqDaily = /\btodos los dias\b|\bcada dia\b/.test(nm)
+    const weeklyDay = nm.match(/\btodos los (lunes|martes|miercoles|jueves|viernes|sabados?|domingos?)\b/)?.[1] ?? null
+    const WEEKDAY_NUM: Record<string, number> = { lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6, sabados: 6, domingo: 7, domingos: 7 }
+    const wantsReschedule = /\b(cambia(lo|la)?|pon(lo|la)?|mueve(lo|la)?|pasa(lo|la)?|ajusta(lo|la)?)\b/.test(nm)
+      && (timeReq !== null || freqWeekdays || freqDaily || weeklyDay !== null)
+      && !/\b(cita|visita|reunion|llamada|tarea|tramite|expediente|precio|valor|zona|nota|cliente|inmueble|operacion)\b/.test(nm)
+    const wantsPause = /\b(pausa(la)?|pausar|apaga(la)?|desactiva(la)?|deten(la)?)\b/.test(nm) && mentionsAutomation
+    const wantsResume = /\b(reactiva(la)?|reanuda(la)?|enciende(la)?|activa(la)? (otra vez|de nuevo)|vuelve a activar(la)?)\b/.test(nm)
+    const wantsRunNow = /\b(ejecuta(la|lo)?|lanza(la|lo)?|corre(la|lo)?)\b/.test(nm) && /\b(ahora|ya)\b/.test(nm)
+    const wantsWhen = /\bcuando (se ejecuta|toca|corre|se lanza|sera la proxima)\b/.test(nm) || /\bproxima ejecucion\b/.test(nm)
+    const wantsConfig = (/\b(muestrame|ver|ensename|dime|cual es)\b.*\bconfiguracion\b/.test(nm) || /\bcomo esta configurad[oa]\b/.test(nm)) && inScope
+    const wantsLastRun = (/\b(que (encontro|detecto)|resultado)\b/.test(nm) && /\b(ultima|ultimo|anoche|ayer)\b/.test(nm)) || /\bultima ejecucion\b/.test(nm)
+    const wantsRuns = /\b(muestrame|ver|lista|ensename)\b.*\b(ejecuciones|historial)\b/.test(nm) || /\bsus ejecuciones\b/.test(nm)
+    const anyIntent = wantsReschedule || wantsPause || wantsResume || wantsRunNow || wantsWhen || wantsConfig || wantsLastRun || wantsRuns
+
+    if (inScope && anyIntent) {
+      const T = 'local_automation:manage'
+      const fmtWhen = (iso: unknown) => iso ? new Date(String(iso)).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+      const RUN_STATUS_ES: Record<string, string> = { success: 'correcta', partial: 'parcial', error: 'con error', skipped: 'ventanas omitidas', skipped_duplicate: 'duplicada (omitida)', running: 'en curso' }
+      const rulesRes = await actionApi2('automation', { operation: 'list_rules', workspace_id: workspaceId })
+      if (rulesRes.status !== 200) return { handled: true, usedTool: T, entity: 'help', answer: 'No he podido consultar tus automatizaciones ahora mismo. Inténtalo de nuevo en un momento.' }
+      const rules = (rulesRes.json.rules ?? []) as Array<{ id: string; type: string; name: string; enabled: boolean; schedule_json?: Row; schedule_label?: string; next_run_at: string | null; last_run_at: string | null }>
+      if (!rules.length) return { handled: true, usedTool: T, entity: 'help', answer: 'No tienes automatizaciones configuradas todavía. Puedes decirme, por ejemplo: «activa un resumen diario a las 8».' }
+      const wantedType = detectAutomationType(nm) ?? (contextHasAutomation ? detectAutomationType(foldText(recentContext)) : null)
+      let target = wantedType ? rules.filter((r) => r.type === wantedType) : [...rules]
+      if (target.length > 1) { const on = target.filter((r) => r.enabled); if (on.length === 1) target = on }
+      if (!target.length) return { handled: true, usedTool: T, entity: 'help', answer: `No tienes una automatización de ${AUTOMATION_LABELS[wantedType ?? ''] ?? 'ese tipo'}. Di «lista mis automatizaciones» para ver las que hay.` }
+      if (target.length > 1) {
+        return { handled: true, usedTool: T, entity: 'help', answer: `Tienes varias automatizaciones:\n${target.slice(0, 5).map((r) => `• ${r.name}`).join('\n')}\n¿A cuál te refieres?` }
+      }
+      const rule = target[0]
+      const curSchedule = parseScheduleJson(rule.schedule_json) ?? { frequency: 'daily' as const, hour: 8 }
+      const cardBase = { ruleId: rule.id, type: rule.type, name: AUTOMATION_LABELS[rule.type] ?? rule.name, timezone: 'Europe/Madrid' as const }
+
+      if (wantsReschedule) {
+        const after: ScheduleJson = {
+          frequency: weeklyDay ? 'weekly' : freqWeekdays ? 'weekdays' : freqDaily ? 'daily' : curSchedule.frequency,
+          hour: timeReq ? timeReq.hour : curSchedule.hour,
+          ...(timeReq && timeReq.minute ? { minute: timeReq.minute } : !timeReq && curSchedule.minute ? { minute: curSchedule.minute } : {}),
+          ...(weeklyDay ? { weekday: WEEKDAY_NUM[weeklyDay] ?? 1 } : curSchedule.frequency === 'weekly' && !freqWeekdays && !freqDaily ? { weekday: curSchedule.weekday } : {}),
+        }
+        const prep = await actionApi2('automation', { operation: 'prepare_update_rule', workspace_id: workspaceId, rule_id: rule.id, schedule: after })
+        if (prep.status !== 200) {
+          const code = String(prep.json.error ?? '')
+          return { handled: true, usedTool: T, entity: 'help', answer: code === 'AUTOMATION_INVALID_SCHEDULE' ? String(prep.json.message ?? 'Ese horario no es válido para esta automatización.') : 'No he podido preparar el cambio de horario. No se ha modificado nada.' }
+        }
+        const before = (prep.json.before ?? {}) as { label?: string }
+        const afterJ = (prep.json.after ?? {}) as { label?: string; next_run_at?: string; schedule?: ScheduleJson }
+        const hash = String(prep.json.update_hash ?? '')
+        const marker = `[AUTOEDIT:${rule.id}:${hash}:h${after.hour}${after.minute ? `:m${after.minute}` : ''}:f${after.frequency}${after.frequency === 'weekly' ? `:w${after.weekday ?? 1}` : ''}]`
+        const ui: AssistantUiPayload = { kind: 'automation_preview', automation: { ...cardBase, status: 'awaiting_confirmation', scheduleLabel: String(afterJ.label ?? ''), nextRunAt: afterJ.next_run_at, allowedUiActions: ['confirm', 'cancel'] } }
+        return {
+          handled: true, usedTool: 'local_automation:edit_preview', entity: 'help',
+          answer: `Cambio de horario preparado\n• Automatización: ${cardBase.name}\n• Antes: ${before.label ?? scheduleLabelOf(curSchedule)}\n• Después: ${afterJ.label}\n• Próxima ejecución: ${fmtWhen(afterJ.next_run_at)} (Europe/Madrid)\n\nAún no lo he cambiado. ¿Confirmo? ${marker}`, ui,
+        }
+      }
+      if (wantsPause) {
+        const r = await actionApi2('automation', { operation: 'set_rule_enabled', workspace_id: workspaceId, rule_id: rule.id, enabled: false })
+        const ok = r.status === 200
+        const ui: AssistantUiPayload = { kind: 'automation_status', automation: { ...cardBase, status: ok ? 'disabled' : 'failed', scheduleLabel: String(rule.schedule_label ?? scheduleLabelOf(curSchedule)), allowedUiActions: ok ? ['enable'] : [] } }
+        return { handled: true, usedTool: T, entity: 'help', answer: ok ? `Hecho: «${cardBase.name}» queda desactivada (en pausa). Conserva su historial y puedes reactivarla cuando quieras («reactívala»).` : 'No he podido pausarla ahora mismo.', ui }
+      }
+      if (wantsResume) {
+        const r = await actionApi2('automation', { operation: 'set_rule_enabled', workspace_id: workspaceId, rule_id: rule.id, enabled: true })
+        const ok = r.status === 200
+        const ui: AssistantUiPayload = { kind: 'automation_status', automation: { ...cardBase, status: ok ? 'enabled' : 'failed', scheduleLabel: String(r.json.schedule_label ?? scheduleLabelOf(curSchedule)), nextRunAt: typeof r.json.next_run_at === 'string' ? r.json.next_run_at : undefined, allowedUiActions: ok ? ['run_now', 'view_runs', 'disable'] : [] } }
+        return { handled: true, usedTool: T, entity: 'help', answer: ok ? `«${cardBase.name}» vuelve a estar activa.\n• Próxima ejecución: ${fmtWhen(r.json.next_run_at)} (Europe/Madrid; recalculada, nunca una ventana antigua).` : 'No he podido reactivarla ahora mismo.', ui }
+      }
+      if (wantsRunNow) {
+        const r = await actionApi2('automation', { operation: 'run_rule_now', workspace_id: workspaceId, rule_id: rule.id })
+        if (r.status !== 200) {
+          const code = String(r.json.error ?? '')
+          return { handled: true, usedTool: T, entity: 'help', answer: code === 'AUTOMATION_DISABLED' ? `«${cardBase.name}» está en pausa; dime «reactívala» y luego la ejecuto.` : 'No he podido ejecutarla ahora mismo. No se ha registrado ninguna ejecución.' }
+        }
+        if (r.json.status === 'skipped_duplicate') {
+          return { handled: true, usedTool: T, entity: 'help', answer: 'Ya hay una ejecución en marcha de hace unos segundos; no la duplico. Pide «muéstrame sus ejecuciones» para ver el resultado.' }
+        }
+        const newN = Number(r.json.new_findings ?? 0)
+        const dupN = Number(r.json.duplicates ?? 0)
+        const st = String(r.json.status ?? 'success')
+        const ui: AssistantUiPayload = { kind: 'automation_result', automation: { ...cardBase, status: st === 'success' ? 'completed' : st === 'partial' ? 'partial' : 'failed', scheduleLabel: String(rule.schedule_label ?? scheduleLabelOf(curSchedule)), findingCount: newN, allowedUiActions: ['view_runs'] } }
+        const partialNote = st === 'partial' ? ' (alguna fuente no respondió; resultado parcial)' : ''
+        return { handled: true, usedTool: 'local_automation:run_now', entity: 'help', answer: `Ejecutada ahora mismo${partialNote}.\n• ${String(r.json.summary ?? '')}\n• Incidencias nuevas: ${newN}${dupN ? ` · ya registradas (no duplicadas): ${dupN}` : ''}`, ui }
+      }
+      if (wantsWhen || wantsConfig) {
+        const def = AUTOMATION_RULES[rule.type as keyof typeof AUTOMATION_RULES]
+        const ui: AssistantUiPayload = { kind: 'automation_status', automation: { ...cardBase, status: rule.enabled ? 'enabled' : 'disabled', scheduleLabel: String(rule.schedule_label ?? scheduleLabelOf(curSchedule)), nextRunAt: rule.enabled ? rule.next_run_at ?? undefined : undefined, lastRunAt: rule.last_run_at ?? undefined, allowedUiActions: rule.enabled ? ['run_now', 'view_runs', 'disable'] : ['enable'] } }
+        const lines = [
+          `«${cardBase.name}» — ${rule.enabled ? 'activa' : 'en pausa'}.`,
+          `• Horario: ${rule.schedule_label ?? scheduleLabelOf(curSchedule)} (Europe/Madrid)`,
+          rule.enabled ? `• Próxima ejecución: ${fmtWhen(rule.next_run_at)}` : '• No se ejecutará hasta que la reactives.',
+          ...(wantsConfig && def ? [`• Qué vigila: ${def.criterion}`] : []),
+        ]
+        return { handled: true, usedTool: T, entity: 'help', answer: lines.join('\n'), ui }
+      }
+      if (wantsLastRun || wantsRuns) {
+        const r = await actionApi2('automation', { operation: 'list_runs', workspace_id: workspaceId, rule_id: rule.id, limit: wantsRuns ? 5 : 1 })
+        const runs = (r.json.runs ?? []) as Array<{ status: string; scheduled_for: string; started_at: string; finished_at: string | null; result_count: number | null }>
+        if (!runs.length) return { handled: true, usedTool: T, entity: 'help', answer: `«${cardBase.name}» todavía no se ha ejecutado. Puedes decirme «ejecútala ahora».` }
+        if (wantsLastRun) {
+          const lr = runs[0]
+          return { handled: true, usedTool: T, entity: 'help', answer: `Última ejecución de «${cardBase.name}»: ${fmtWhen(lr.started_at)} — ${RUN_STATUS_ES[lr.status] ?? lr.status}.\n• Incidencias nuevas: ${lr.result_count ?? 0}.\nPide «¿qué incidencias hay?» para ver el detalle.` }
+        }
+        const lines = runs.map((x) => `• ${fmtWhen(x.started_at)} — ${RUN_STATUS_ES[x.status] ?? x.status}${x.result_count != null ? ` · ${x.result_count} incidencia(s)` : ''}`)
+        return { handled: true, usedTool: T, entity: 'help', answer: `Ejecuciones de «${cardBase.name}»:\n${lines.join('\n')}` }
+      }
     }
   }
 
@@ -1057,6 +1235,14 @@ async function tryLocalAnswerInner(
   // social/corrección, que no leen), y nunca en Facturación.
   const SALES_TURNS = new Set<TurnType>(['data_read', 'data_followup', 'ambiguous'])
   if (SALES_TURNS.has(turn.turnType) && turn.domain !== 'invoicing') {
+    // P70 Wave D — CREACIÓN de automatización ANTES del parser de ventas: «activa la reconciliación de
+    // operaciones ganadas» es un imperativo de automatización inequívoco (verbo de activación + tipo
+    // del registry), no una consulta de ventas.
+    const nmsgAuto = foldText(message)
+    if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsgAuto) && !/\botra vez\b|\bde nuevo\b/.test(nmsgAuto) && detectAutomationType(nmsgAuto) !== null) {
+      const early = handleAutomationCreatePreview(nmsgAuto)
+      if (early) return early
+    }
     // priorWasSales: si la respuesta anterior fue de ventas, una corrección de solo alcance
     // («te he preguntado por cartera») se reinterpreta como ventas con ese alcance.
     const priorWasSales = /\b(vendid|ventas|operaciones ganadas|estado vendido|operacion(es)? ganad|cerradas con exito)\b/.test(foldText(recentContext))
@@ -1080,11 +1266,9 @@ async function tryLocalAnswerInner(
     // confirmed:true. «lista mis automatizaciones» / «desactiva …» también soportados.
     const autoIntent = (() => {
       if (/\b(lista|muestra|ver|cuales son)\b.*\bautomatizacion(es)?\b/.test(nmsg) || /\bmis automatizaciones\b/.test(nmsg)) return { kind: 'list' as const }
-      const activate = /\b(activa|crea|programa|configura|quiero)\b.*\b(resumen diario|auditoria (de calidad|de datos)|aviso de tareas vencidas|tareas vencidas|revision (diaria|de datos))\b/.test(nmsg)
-      if (activate) {
-        const hour = Number(nmsg.match(/a las (\d{1,2})/)?.[1] ?? 8)
-        const type = /auditoria|calidad|revision de datos/.test(nmsg) ? 'data_quality_watch' : /vencidas/.test(nmsg) ? 'overdue_tasks_watch' : 'daily_executive_brief'
-        return { kind: 'activate' as const, type, hour: hour >= 0 && hour <= 23 ? hour : 8 }
+      // P70 Wave D — creación para CUALQUIER tipo del registry (vocabulario canónico) + frecuencia.
+      if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsg) && !/\botra vez\b|\bde nuevo\b/.test(nmsg) && detectAutomationType(nmsg) !== null) {
+        return { kind: 'activate' as const }
       }
       if (/\bdesactiva\b.*\b(resumen|auditoria|automatizacion|aviso)\b/.test(nmsg)) return { kind: 'disable' as const }
       return null
@@ -1109,22 +1293,39 @@ async function tryLocalAnswerInner(
       }
       // activate → PREVIEW (opt-in: nunca se crea sin confirmación). El bloque `ui` alimenta la card;
       // el marcador [AUTO:…] queda en el texto persistido (la UI lo oculta al renderizar).
-      const previewUi: AssistantUiPayload = { kind: 'automation_preview', automation: { type: autoIntent.type, name: AUTOMATION_LABELS[autoIntent.type] ?? 'Automatización', status: 'awaiting_confirmation', scheduleLabel: `Todos los días a las ${autoIntent.hour}:00`, timezone: 'Europe/Madrid', allowedUiActions: ['confirm', 'cancel'] } }
-      return { handled: true, usedTool: 'local_automation:preview', entity: 'help', answer: `Automatización preparada\n• Tipo: ${AUTOMATION_LABELS[autoIntent.type]}\n• Horario: todos los días a las ${autoIntent.hour}:00 (Europe/Madrid)\n• Resultado: incidencias/resumen internos en el CRM (sin emails ni mensajes externos)\n\nAún no está activada. ¿Confirmo la activación? [AUTO:${autoIntent.type}:${autoIntent.hour}]`, ui: previewUi }
+      const preview = handleAutomationCreatePreview(nmsg)
+      if (preview) return preview
     }
-    // Confirmación de una automatización previamente previsualizada. Solo si el ÚLTIMO marcador del hilo
-    // es un preview VIVO ([AUTO:cancelled]/[AUTO:done] lo neutralizan). Tras activar, la respuesta deja
-    // [AUTO:done] para que un «confirma» posterior no re-active nada.
+    // Confirmación de una automatización previamente previsualizada (CREACIÓN o EDICIÓN de horario).
+    // Solo si el ÚLTIMO marcador del hilo es un preview VIVO ([AUTO:cancelled]/[AUTO:done] neutralizan).
+    // Tras aplicar, la respuesta deja [AUTO:done] para que un «confirma» posterior no re-aplique nada.
     if (/^(si|sí)?[\s,]*(confirma(lo)?|confirmo|adelante|activa(la)?|dale|hazlo)\b/.test(nmsg.trim())) {
-      const live = lastLiveAutoPreview(recentContext)
-      if (live) {
-        const r = await actionApi2('automation', { operation: 'create_rule', workspace_id: workspaceId, type: live.type, name: `Automatización (${live.type})`, confirmed: true, schedule: { hour: live.hour } })
+      const live = lastLiveAutoMarker(recentContext)
+      if (live?.kind === 'create') {
+        const schedule = { hour: live.hour, ...(live.minute ? { minute: live.minute } : {}), frequency: live.frequency, ...(live.frequency === 'weekly' ? { weekday: live.weekday ?? 1 } : {}) }
+        const r = await actionApi2('automation', { operation: 'create_rule', workspace_id: workspaceId, type: live.type, confirmed: true, schedule })
         if (r.status === 200) {
           const nextRunAt = typeof r.json.next_run_at === 'string' ? r.json.next_run_at : undefined
-          const ui: AssistantUiPayload = { kind: 'automation_result', automation: { ruleId: typeof r.json.rule_id === 'string' ? r.json.rule_id : undefined, type: live.type, name: AUTOMATION_LABELS[live.type] ?? 'Automatización', status: 'enabled', scheduleLabel: `Todos los días a las ${live.hour}:00`, timezone: 'Europe/Madrid', nextRunAt, allowedUiActions: [] } }
-          return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: `Automatización activada y programada.\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')} (Europe/Madrid)\nEl planificador la ejecutará automáticamente; los resultados aparecerán como incidencias. Puedes decir «lista mis automatizaciones» o «desactívala» cuando quieras. [AUTO:done]`, ui }
+          const schLabel = String(r.json.schedule_label ?? scheduleLabelOf(schedule as ScheduleJson))
+          const ui: AssistantUiPayload = { kind: 'automation_result', automation: { ruleId: typeof r.json.rule_id === 'string' ? r.json.rule_id : undefined, type: live.type, name: AUTOMATION_LABELS[live.type] ?? 'Automatización', status: 'enabled', scheduleLabel: schLabel, timezone: 'Europe/Madrid', nextRunAt, allowedUiActions: ['run_now', 'view_runs', 'disable'] } }
+          return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: `Automatización activada y programada.\n• Horario: ${schLabel} (Europe/Madrid)\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')}\nEl planificador la ejecutará automáticamente; los resultados aparecerán como incidencias. Puedes decir «lista mis automatizaciones», «cámbiala a las 9», «ejecútala ahora» o «desactívala». [AUTO:done]`, ui }
         }
         return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: 'No he podido activar la automatización ahora mismo. No se ha creado nada; inténtalo de nuevo.' }
+      }
+      if (live?.kind === 'edit') {
+        const schedule = { hour: live.hour, ...(live.minute ? { minute: live.minute } : {}), frequency: live.frequency, ...(live.frequency === 'weekly' ? { weekday: live.weekday ?? 1 } : {}) }
+        const r = await actionApi2('automation', { operation: 'confirm_update_rule', workspace_id: workspaceId, rule_id: live.ruleId, update_hash: live.hash, confirmed: true, schedule })
+        if (r.status === 200) {
+          const schLabel = String(r.json.schedule_label ?? '')
+          const nextRunAt = typeof r.json.next_run_at === 'string' ? r.json.next_run_at : undefined
+          const name = AUTOMATION_LABELS[String(r.json.type ?? '')] ?? String(r.json.name ?? 'Automatización')
+          const ui: AssistantUiPayload = { kind: 'automation_status', automation: { ruleId: live.ruleId, type: String(r.json.type ?? 'automation'), name, status: r.json.enabled === true ? 'enabled' : 'disabled', scheduleLabel: schLabel, timezone: 'Europe/Madrid', nextRunAt, allowedUiActions: ['run_now', 'view_runs', 'disable'] } }
+          return { handled: true, usedTool: 'local_automation:edit_confirm', entity: 'help', answer: `Horario actualizado y verificado.\n• Nuevo horario: ${schLabel} (Europe/Madrid)\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')} [AUTO:done]`, ui }
+        }
+        if (String(r.json.error ?? '') === 'AUTOMATION_UPDATE_CONFLICT') {
+          return { handled: true, usedTool: 'local_automation:edit_confirm', entity: 'help', answer: 'La automatización cambió después del preview y no he aplicado nada. Pídeme el cambio de horario otra vez. [AUTO:cancelled]' }
+        }
+        return { handled: true, usedTool: 'local_automation:edit_confirm', entity: 'help', answer: 'No he podido cambiar el horario. La automatización sigue como estaba. [AUTO:cancelled]' }
       }
     }
 

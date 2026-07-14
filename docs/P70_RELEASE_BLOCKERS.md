@@ -80,7 +80,33 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
 - **Verificado contra STAGING desplegado** (commit `7ea02be`): action catalog E2E **46/46** con el plano
   remoto + Playwright módulos nuevos **4/4** (calendar/operations/cases por UI real, BD verificada).
 
-## 🔶 Wave D EN CURSO — checkpoint exacto (2026-07-14)
+## ✅ Wave D COMPLETA — 2026-07-14 (automation catalog + scheduler hardening)
+- **Registry único** (`findings-engine.ts` · `AUTOMATION_RULES`): **11 tipos con runner REAL** cada uno
+  (fuentes reales, partial handling, resultado estructurado, findings con dedupe por fingerprint
+  compartido — data_quality_watch es la auditoría canónica, sin alias duplicados). QA filtrado de
+  findings de negocio. Ver `P70_AUTOMATION_CATALOG.md`.
+- **Scheduler endurecido** (`/api/agent/automation` + `automation-schedule.ts`): claim atómico por
+  ventana (unique verificado), catch-up anti-tormenta (1 ventana + run `skipped` auditado),
+  recuperación de colgados (>15min → AUTOMATION_TIMEOUT), `computeNextRunMadrid` con offset REAL por
+  fecha (DST primavera/otoño verificados), daily/weekdays/weekly + minutos («a las 8:30»), enable
+  recalcula next_run_at. Ver `P70_SCHEDULER_HARDENING.md`.
+- **Edición conversacional con preview**: prepare/confirm_update_rule (hash liga confirmación al estado
+  leído; conflicto → 409). «Cámbialo a las 9» · «ponlo a las 8:30» · «solo de lunes a viernes» ·
+  «todos los lunes» (o rechazo honesto si la frecuencia no está permitida) · pausa/reactiva ·
+  «ejecuta ahora» (idempotente por minuto; en pausa → bloqueado) · «¿cuándo se ejecuta?» ·
+  configuración · última ejecución · historial (sin UUIDs). Botones de card: Ejecutar ahora / Ver
+  ejecuciones / Pausar / Reactivar (quick replies del mismo plano).
+- **Migración aplicada+commiteada**: CHECK 3→11 tipos + status `skipped`.
+- **Suites**: automation catalog **33/33** (11 tipos ciclo completo + conversacional) · scheduler chaos
+  **32/32** (DST, concurrencia, catch-up, colgados, cross-workspace) · Playwright
+  `assistant-automations.spec.ts` (staging tras deploy). Regresiones: P66 11/11 · P68 7/7 · P69 8/8 ·
+  P70 UI 15/15 · parser 48/48 · action catalog 46/46 · grants 12/12 · tsc/lint/build ✅.
+- **Bugs reales cazados por las suites**: skew reloj local vs now() de Postgres que dejaba residuos
+  fuera del cleanup (margen 2min + deletes con error-check) · handler de ventas secuestraba «activa la
+  reconciliación de operaciones ganadas» (creación de automatización ahora va antes del parser de
+  ventas) · residuo enabled rompía la resolución type-less (limpieza total de reglas QA del ws demo).
+
+## 🔶 Wave D — checkpoint histórico (superado)
 **Hecho:**
 - Auditoría BD completa: `aarun_idem UNIQUE(rule_id, scheduled_for)` EXISTE (idempotencia por ventana
   intacta) · `assistant_findings_fp UNIQUE(workspace_id, fingerprint)` EXISTE (dedupe intacto).
