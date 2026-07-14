@@ -77,6 +77,43 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
   **grants check 12/12** con sesión authenticated real (check permanente anti-regresión del GRANT) ·
   Playwright `assistant-actions-modules.spec.ts` (calendar/operations/cases por UI).
 - Regresiones: P66 11/11 · P70 UI 15/15 · tsc/lint/build ✅.
+- **Verificado contra STAGING desplegado** (commit `7ea02be`): action catalog E2E **46/46** con el plano
+  remoto + Playwright módulos nuevos **4/4** (calendar/operations/cases por UI real, BD verificada).
+
+## 🔶 Wave D EN CURSO — checkpoint exacto (2026-07-14)
+**Hecho:**
+- Auditoría BD completa: `aarun_idem UNIQUE(rule_id, scheduled_for)` EXISTE (idempotencia por ventana
+  intacta) · `assistant_findings_fp UNIQUE(workspace_id, fingerprint)` EXISTE (dedupe intacto).
+- **Migración aplicada al proyecto real y commiteada**
+  (`supabase/migrations/20260714_p70_wave_d_automation_types_and_skipped.sql`): CHECK de
+  `assistant_automation_rules.type` ampliado de 3 → **11 tipos** (añade morning_agenda_brief,
+  upcoming_appointments_watch, case_deadline_watch, portfolio_data_quality_watch,
+  won_operation_reconciliation_watch, action_failure_watch, stale_operations_watch,
+  inactive_client_followup_watch) y status `skipped` en runs (ventanas omitidas auditables).
+
+**Siguiente (en orden):**
+1. `src/lib/agents/findings-engine.ts` — registry `AUTOMATION_RULE_TYPES` (nombre, criterio, fuentes,
+   defaultHour) + `runAutomationRule(supabase, ws, type)` con un runner REAL por tipo y partial
+   handling (fuente caída ≠ run caído). Los 3 existentes se mapean; data_quality_watch = detectFindings.
+2. `src/app/api/agent/automation/route.ts` — create_rule valida contra el registry (no lista hardcoded);
+   `update_rule` (confirmed:true, hour/frequency daily|weekdays, recalcula next_run_at, reread);
+   `set_rule_enabled` al ACTIVAR recalcula next_run_at (evita ventana rancia); `run_rule_now`;
+   `list_runs`; `run_due` despacha por runner + recuperación de runs colgados (>15 min) + política de
+   catch-up: máx 1 ventana recuperada (la más reciente), las omitidas → UN run `skipped` con
+   result_count = nº ventanas; `nextRunAtMadrid` con offset REAL por fecha (DST) + weekdays.
+3. `src/lib/agents/local-answers.ts` — gestión conversacional: «cámbialo a las 9» / «solo de lunes a
+   viernes» → resolver regla + preview antes/después + marcador `[AUTOEDIT:…]` + confirmación →
+   update_rule → verify; «pausa/reactívala» (reversible, recalcula next_run_at); «ejecuta ahora»;
+   «¿cuándo se ejecuta?»; «¿qué encontró la última vez?»; «muéstrame sus ejecuciones».
+   Neutralización: extender `lastLiveAutoPreview`/cancel a los marcadores AUTOEDIT.
+4. `src/app/(saas)/assistant/page.tsx` — ampliar el regex de `displayAssistantText` a
+   `\[AUTO[A-Z]*:[^\]]{1,80}\]` (los marcadores AUTOEDIT llevan ruleId y NUNCA deben verse).
+5. Scripts: `scripts/p70-automation-catalog-e2e.mts` (11 tipos: create→run_now→dedupe→disable→cleanup +
+   flujos conversacionales) y `scripts/p70-scheduler-chaos-e2e.mts` (run_due concurrente, misma ventana,
+   future/disabled skip, DST invierno/verano, catch-up con skipped, run colgado, cross-workspace).
+   Validar contra local (`npx next start -p 3211` + AGENT_ACTION_URL) antes del push, como en Wave C.
+6. Ejecutar P69 8/8 (regresión del flujo existente) + P68 7/7 + suites nuevas → commit
+   `P70 wave D automation catalog and scheduler hardening` → push → verificar staging.
 
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
