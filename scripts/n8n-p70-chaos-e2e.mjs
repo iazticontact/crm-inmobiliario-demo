@@ -12,8 +12,8 @@ function loadEnv(path) {
   return env
 }
 const env = loadEnv('.env.local')
-const WEBHOOK = (env.N8N_ASSISTANT_V2_WEBHOOK_URL ?? '').trim()
-const SECRET = (env.N8N_ASSISTANT_V2_SECRET ?? '').trim()
+const WEBHOOK = (env.N8N_ASSISTANT_V2_WEBHOOK_URL ?? (env.N8N_BASE_URL ? env.N8N_BASE_URL.replace(/\/$/, '') + '/webhook/crm-agent-v2' : '')).trim()
+const SECRET = (env.N8N_ASSISTANT_V2_SECRET ?? env.N8N_WEBHOOK_SECRET ?? '').trim()
 const WS = 'd0000000-0000-4000-8000-000000000001'
 if (!WEBHOOK || !SECRET) { console.error('Faltan N8N_ASSISTANT_V2_WEBHOOK_URL / N8N_ASSISTANT_V2_SECRET'); process.exit(2) }
 

@@ -38,10 +38,19 @@ async function apiPut(p, body) { const r = await fetch(`${API}${p}`, { method: '
 async function apiPost(p, body) { const r = await fetch(`${API}${p}`, { method: 'POST', headers: H, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => ({})) } }
 
 // ── Código de tool (patrón crm_action_*: workspace del Normalize input; NUNCA del modelo) ────────────
+// Parse BLINDADO del input del agente: LangChain puede pasar string JSON, objeto, {query:"..."} o vacío.
+// Un input raro jamás rompe la tool (el endpoint valida los ids con códigos claros).
+const SAFE_PARSE = `let input = {};
+try {
+  let q = query;
+  if (q && typeof q === 'object' && 'query' in q) q = q.query;
+  if (typeof q === 'string') { input = q.trim() ? JSON.parse(q) : {}; }
+  else if (q && typeof q === 'object') { input = q; }
+} catch (e) { input = {}; }
+if (!input || typeof input !== 'object' || Array.isArray(input)) input = {};`
 function automationToolCode(operation, extra = '') {
   return `const ws = $('Normalize input').first().json.workspaceId;
-let input = {};
-try { input = typeof query === 'string' ? JSON.parse(query || '{}') : (query ?? {}); } catch (e) { return JSON.stringify({ ok: false, error: 'invalid_input' }); }
+${SAFE_PARSE}
 ${extra}
 let res;
 try {
@@ -62,8 +71,7 @@ return JSON.stringify(res);`
 // crm_automation_update es BIFÁSICA: sin confirmed → prepare (preview + update_hash); con confirmed
 // true + update_hash → confirm. El prompt prohíbe confirmed sin confirmación explícita del usuario.
 const UPDATE_TOOL_CODE = `const ws = $('Normalize input').first().json.workspaceId;
-let input = {};
-try { input = typeof query === 'string' ? JSON.parse(query || '{}') : (query ?? {}); } catch (e) { return JSON.stringify({ ok: false, error: 'invalid_input' }); }
+${SAFE_PARSE}
 const confirmed = input.confirmed === true && typeof input.update_hash === 'string' && input.update_hash;
 const operation = confirmed ? 'confirm_update_rule' : 'prepare_update_rule';
 const body = { operation, workspace_id: ws, rule_id: input.rule_id, schedule: input.schedule ?? {} };
@@ -125,8 +133,13 @@ console.log(`Workflow: ${wf.name} · nodos: ${wf.nodes.length} · active: ${wf.a
 console.log(`Backup (fuera del repo): ${backupPath}`)
 console.log(`Hash actual: ${workflowHash(wf)}`)
 
-const existingNames = new Set(wf.nodes.map((n) => n.name))
-const toAdd = NEW_TOOLS.filter((t) => !existingNames.has(t.name))
+const existingByName = new Map(wf.nodes.map((n) => [n.name, n]))
+const toAdd = NEW_TOOLS.filter((t) => !existingByName.has(t.name))
+// Update-in-place: si una tool P70 ya existe pero su código/descripción difiere del deseado, se actualiza.
+const toUpdate = NEW_TOOLS.filter((t) => {
+  const n = existingByName.get(t.name)
+  return n && (String(n.parameters?.jsCode ?? '') !== t.code || String(n.parameters?.description ?? '') !== t.description)
+})
 const agent = wf.nodes.find((n) => n.name === 'CRM Agent')
 if (!agent) { console.error('No encuentro el nodo CRM Agent'); process.exit(1) }
 const prompt = String(agent.parameters?.options?.systemMessage ?? '')
@@ -134,9 +147,10 @@ const needsMarker = !prompt.includes(P70_MARKER)
 
 console.log(`\n── DIFF ──`)
 console.log(`Tools nuevas a añadir: ${toAdd.length ? toAdd.map((t) => t.name).join(', ') : '(ninguna, ya presentes)'}`)
+console.log(`Tools a actualizar (código difiere): ${toUpdate.length ? toUpdate.map((t) => t.name).join(', ') : '(ninguna)'}`)
 console.log(`Marker ${P70_MARKER}: ${needsMarker ? 'FALTA → se añade' : 'ya presente'}`)
 if (!APPLY) { console.log('\nDRY-RUN (sin cambios). Ejecuta con --apply para aplicar.'); process.exit(0) }
-if (!toAdd.length && !needsMarker) { console.log('\nNada que aplicar (idempotente).'); process.exit(0) }
+if (!toAdd.length && !needsMarker && !toUpdate.length) { console.log('\nNada que aplicar (idempotente).'); process.exit(0) }
 
 // Construcción de nodos nuevos (rejilla a la derecha de las tools existentes).
 const baseX = 2300
@@ -150,9 +164,14 @@ const newConnections = { ...wf.connections }
 for (const t of toAdd) {
   newConnections[t.name] = { ai_tool: [[{ node: 'CRM Agent', type: 'ai_tool', index: 0 }]] }
 }
+const updateByName = new Map(toUpdate.map((t) => [t.name, t]))
 const newNodesList = wf.nodes.map((n) => {
-  if (n.name !== 'CRM Agent' || !needsMarker) return n
-  return { ...n, parameters: { ...n.parameters, options: { ...n.parameters.options, systemMessage: prompt + P70_BLOCK } } }
+  if (n.name === 'CRM Agent' && needsMarker) {
+    return { ...n, parameters: { ...n.parameters, options: { ...n.parameters.options, systemMessage: prompt + P70_BLOCK } } }
+  }
+  const upd = updateByName.get(n.name)
+  if (upd) return { ...n, parameters: { ...n.parameters, description: upd.description, jsCode: upd.code } }
+  return n
 }).concat(newNodes)
 
 const put = await apiPut(`/workflows/${WF_ID}`, { name: wf.name, nodes: newNodesList, connections: newConnections, settings: wf.settings ?? {} })

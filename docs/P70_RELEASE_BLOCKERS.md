@@ -141,15 +141,31 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
 6. Ejecutar P69 8/8 (regresión del flujo existente) + P68 7/7 + suites nuevas → commit
    `P70 wave D automation catalog and scheduler hardening` → push → verificar staging.
 
+## ✅ Wave E COMPLETA — 2026-07-15 (n8n control tower)
+- **Playwright FULL 14/14** contra staging (cierre definitivo Wave D: base 9 + módulos 3 + automations 2).
+- **Runtime map nodo a nodo** (`P70_N8N_RUNTIME_MAP.md`): 41 nodos, rutas HTTP y cron, upstream/
+  downstream, clasificación — **cero nodos muertos/redundantes** (auditado con conexiones y tráfico;
+  15 ejecuciones recientes success).
+- **10 tools nuevas con runtime real** (`/api/agent/automation`, workspace SIEMPRE de Normalize input):
+  automation list/update(bifásica preview+hash)/enable/disable/run/last_run + findings
+  list/acknowledge/resolve/dismiss (las ops acknowledge/dismiss añadidas al endpoint — lifecycle
+  completo open→acknowledged→resolved/dismissed, sin hard delete). Parse de input BLINDADO (bug real:
+  el input `{}` del agente rompía el JSON.parse → invalid_input).
+- **Marker `[P70 FINAL RELEASE CANDIDATE]`** añadido al prompt (markers P64–P68 intactos): contrato
+  local manda, prepare nunca ejecuta, éxito solo con evidencia (verify/run), findings con hechos +
+  criterio, verdad temporal, sin Facturación, higiene de salida, empty/error/partial separados.
+- **Scripts**: n8n-p70-{inspect, patch(dry-run/diff/PUT/reread/verify/activate + update-in-place),
+  verify(17/17), drift-check(hash commiteado), e2e(.mts, firma turnPolicyToken real — 11/11),
+  chaos-e2e(9/9: secreto malo, JSON roto, workspace ajeno en texto, payload gigante, duplicados)}.
+- Prohibiciones verificadas: sin HTTP genérico/SQL/tabla/campo/workspace libres/invoices.
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
-| 1 | Wave D: gestión conversacional de automatizaciones + runners completos + scheduler chaos | P1 |
-| 2 | Wave E: n8n control tower (runtime map, tools, marker P70, drift) | P1 |
-| 3 | Wave F: benchmark 750+ con held-out + metamórficos + mutation + manifest regresiones | P1 |
-| 4 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
-| 5 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
-| 6 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat | P2 |
+| 1 | Wave F: benchmark 750+ con held-out + metamórficos + mutation + manifest regresiones | P1 |
+| 2 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
+| 3 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
+| 4 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat (los flujos existen vía chat/n8n tools) | P2 |
 
 ## Cómo continuar (siguiente sesión)
 1. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo, con su card ya gratis
