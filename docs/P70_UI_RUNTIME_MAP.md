@@ -1,21 +1,28 @@
-# P70 — UI Runtime Map (Wave A)
+# P70 — UI Runtime Map (Wave A COMPLETA)
 
 ## Flujo real
 - **Route**: `POST /api/assistant/v2` → responde JSON `{ ok, answer, mode, toolCalls, referencedList,
-  dataPreview, preparedAction, ui }`. El campo **`ui`** (P70) es el bloque ESTRUCTURADO del contrato
+  dataPreview, preparedAction, ui }`. El campo **`ui`** es el bloque ESTRUCTURADO del contrato
   compartido, validado en runtime (`validateAssistantUi`); si es inválido → `null` y la UI usa `answer`.
-- **Motor**: `tryLocalAnswer` devuelve `LocalAnswer` extendido con `ui?: AssistantUiPayload`.
-  Emisores actuales: `handleChatAction` → `action_preview` (prepare) y `action_result` (confirm verificado),
-  con `actionId`, campos actual→propuesto, expiración y `allowedUiActions` (confirm/cancel/modify).
+  La route acepta además **peticiones de botón** `{ uiAction: 'confirm'|'cancel', actionId, threadId }`
+  → `executeUiAction` server-side (fila real por RLS, token re-firmado, plano P65). Un `[ui:*]`
+  sintético NUNCA sigue hacia n8n: si la acción no se resuelve, respuesta segura y fin.
+- **Motor**: `tryLocalAnswer` devuelve `LocalAnswer` con `ui?: AssistantUiPayload`. Emisores:
+  `handleChatAction` (`action_preview`/`action_result`), `executeUiAction` (`action_result`/
+  `action_status` con safeErrorCode), automatizaciones P69 (`automation_preview` opt-in /
+  `automation_result` / `automation_status`; neutralización con `[AUTO:cancelled]`/`[AUTO:done]` vía
+  `lastLiveAutoPreview`) y findings (`finding` con criterio separado del resumen).
 - **Contrato**: `src/lib/assistant/ui-contract.ts` — ÚNICA definición para route y frontend
   (kinds, estados, acciones UI, validador). Prohibido duplicar enums o parsear texto para tarjetas.
-- **Frontend**: `src/app/(saas)/assistant/page.tsx` renderiza hoy solo `answer` (texto). **Pendiente**:
-  leer `ui` de la respuesta y renderizar `AssistantActionCard` (+ automation/finding cards), con botones
-  que envíen `actionId` a la route (nunca reconstruir la acción del texto).
-
-## Cambios mínimos pendientes (frontend)
-1. Tipar la respuesta del fetch con `AssistantUiPayload`.
-2. `AssistantActionCard` (estados prepared/completed/…; botones Confirmar/Cancelar/Modificar → nueva
-   operación en la route que reciba `{uiAction, actionId}` y reuse `handleChatAction`-equivalente server-side).
-3. Persistir `ui` junto al mensaje en `assistant_messages` para recuperación tras refresh.
-4. Cards de automatización y findings (mismo patrón; emisores backend pendientes de poblar `ui`).
+- **Frontend** (`src/app/(saas)/assistant/page.tsx`): componentes puros `AssistantActionCard`,
+  `AssistantAutomationCard`, `AssistantFindingsCard` bajo `AssistantUiCards`, renderizados desde
+  `msg.metadata.ui` validado. Botones de acción → `sendUiAction` (solo `{uiAction, actionId}`);
+  botones de automatización → quick-reply del flujo P69; Modificar → composer (flujo modify P66).
+  El texto visible se sanea (`displayAssistantText`): sin `[AUTO:…]` ni `**`.
+- **Persistencia**: `ui` en `assistant_messages.metadata.ui` (insert browser RLS); recuperación tras
+  refresh vía `listThreadMessages`. Mensajes antiguos o `ui` inválido → solo texto (fallback garantizado).
+- **Multitab**: BroadcastChannel `nowcrm-assistant-threads` con `{threadId}`; la pestaña receptora relee
+  el hilo de BD con su sesión. `resolvedActionIds` oculta botones de previews ya resueltos; el doble
+  confirm es idempotente (probado en `scripts/p70-ui-contract-e2e.mts`, 15/15).
+- **Centro de findings**: `/assistant/findings` (client page, RLS select directo) — dashboard de conteos,
+  filtros estado/severidad, criterio en claro. Linkado desde la card de findings del chat.

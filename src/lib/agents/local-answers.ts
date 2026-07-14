@@ -300,6 +300,17 @@ function commissionsRedirectFallback(): LocalAnswer {
 // server-side desde la fila (el chat es la parte de confianza que posee AGENT_TOOL_SECRET).
 
 const FIELD_LABEL: Record<string, string> = { price: 'Precio', phone: 'Teléfono', email: 'Email', title: 'Título', due_date: 'Fecha límite', priority: 'Prioridad', status: 'Estado' }
+// P69/P70 — nombres humanos de los tipos de automatización (una sola fuente para texto y cards).
+const AUTOMATION_LABELS: Record<string, string> = { data_quality_watch: 'auditoría de calidad de datos', overdue_tasks_watch: 'aviso de tareas vencidas', daily_executive_brief: 'resumen ejecutivo diario' }
+
+// P70 — Último preview de automatización VIVO del hilo. Los marcadores [AUTO:cancelled] / [AUTO:done]
+// neutralizan previews anteriores: tras cancelar o activar, un «confirma» posterior no re-activa nada.
+export function lastLiveAutoPreview(recentContext: string): { type: string; hour: number } | null {
+  const all = recentContext.match(/\[AUTO:(?:cancelled|done|[a-z_]+:\d{1,2})\]/g)
+  const last = all?.length ? all[all.length - 1] : null
+  const m = last ? last.match(/^\[AUTO:([a-z_]+):(\d{1,2})\]$/) : null
+  return m ? { type: m[1], hour: Number(m[2]) } : null
+}
 const fmtVal = (k: string, v: unknown): string => k === 'price' && typeof v === 'number' ? euro(v) : v == null || v === '' ? '—' : String(v)
 
 function actionApiUrl(): string {
@@ -463,6 +474,45 @@ async function handleChatAction(supabase: SupabaseClient, ws: string, intent: As
     },
   }
   return { handled: true, usedTool: T, entity: 'help', answer: renderPreview(prev), ui }
+}
+
+// ── P70 Wave A · UI ACTION por botón (Confirmar/Cancelar con actionId; el server resuelve TODO) ───────
+// El navegador solo envía uiAction+actionId. Aquí se carga la fila real (RLS/workspace), se re-firma el
+// token server-side y se reutiliza el plano P65. Nunca se aceptan proposedChanges/entidad del cliente.
+export async function executeUiAction(
+  supabase: SupabaseClient, ws: string, uiAction: 'confirm' | 'cancel', actionId: string,
+): Promise<LocalAnswer> {
+  const T = 'local_ui_action'
+  const { data: row } = await supabase.from('assistant_actions').select('*')
+    .eq('workspace_id', ws).eq('id', actionId).maybeSingle()
+  if (!row) return { handled: true, usedTool: T, entity: 'help', answer: 'No encuentro ese cambio (puede ser de otro espacio o haber caducado).' }
+  const secret = process.env.AGENT_TOOL_SECRET
+  if (!secret) return { handled: true, usedTool: T, entity: 'help', answer: 'No puedo procesar la acción ahora mismo.' }
+  if (uiAction === 'cancel') {
+    const r = await actionApi({ operation: 'cancel', workspace_id: ws, action_id: actionId })
+    const ok = r.status === 200
+    const ui: AssistantUiPayload = { kind: 'action_status', action: { actionId, actionType: String(row.action_type), status: ok ? 'cancelled' : 'failed', title: getActionDefinition(String(row.action_type))?.description ?? 'Cambio', fields: [], verified: false, allowedUiActions: [] } }
+    return { handled: true, usedTool: T, entity: 'help', answer: ok ? 'Cambio descartado. No se ha aplicado nada.' : 'No he podido cancelarlo (puede que ya estuviera cerrado).', ui }
+  }
+  const token = signActionToken({
+    actionId, actionType: String(row.action_type), workspaceId: ws,
+    entityId: row.entity_id ? String(row.entity_id) : null,
+    previewHash: String(row.preview_hash), idempotencyKey: String(row.idempotency_key), confirmed: true,
+  }, secret)
+  const r = await actionApi({ operation: 'confirm', workspace_id: ws, action_token: token })
+  if (r.status === 200 && r.json.status === 'completed') {
+    const verified = ((r.json.result as Row | undefined)?.verified ?? {}) as Row
+    const lines = Object.entries(verified).map(([k, v]) => `• ${FIELD_LABEL[k] ?? k}: ${fmtVal(k, v)}`)
+    const ui: AssistantUiPayload = { kind: 'action_result', action: { actionId, actionType: String(row.action_type), status: 'completed', title: getActionDefinition(String(row.action_type))?.description ?? 'Cambio aplicado', fields: Object.entries(verified).map(([k, v]) => ({ key: k, label: FIELD_LABEL[k] ?? k, proposedValue: fmtVal(k, v) })), verified: true, allowedUiActions: [] } }
+    return { handled: true, usedTool: T, entity: 'help', answer: `Cambio aplicado y verificado${r.json.duplicate === true ? ' (ya estaba aplicado)' : ''}\n${lines.join('\n')}`, ui }
+  }
+  const code = String(r.json.error ?? '')
+  const msg = code === 'ACTION_CONFLICT' ? 'No lo he aplicado: el registro cambió después del preview. Pídeme el cambio de nuevo.'
+    : code === 'ACTION_EXPIRED' ? 'La confirmación ha caducado. Pídeme el cambio otra vez.'
+      : code === 'ACTION_CANCELLED' ? 'Ese cambio estaba cancelado; no se ha aplicado.'
+        : 'No he podido aplicar el cambio. No se ha modificado nada.'
+  const ui: AssistantUiPayload = { kind: 'action_status', action: { actionId, actionType: String(row.action_type), status: code === 'ACTION_CONFLICT' ? 'conflict' : code === 'ACTION_EXPIRED' ? 'expired' : code === 'ACTION_CANCELLED' ? 'cancelled' : 'failed', title: getActionDefinition(String(row.action_type))?.description ?? 'Cambio', fields: [], verified: false, allowedUiActions: [], safeErrorCode: code || undefined } }
+  return { handled: true, usedTool: T, entity: 'help', answer: msg, ui }
 }
 
 // ── P64 · RESUMEN EJECUTIVO multi-fuente (Cartera + Operaciones + Agenda + Tareas + Trámites) ─────────
@@ -842,6 +892,22 @@ async function tryLocalAnswerInner(
     }
   }
 
+  // P70 Wave A — CANCELAR un preview de automatización pendiente («mejor no, descártala», botón de la
+  // card). Deterministra e independiente del turno: exige marcador [AUTO:…] en el hilo. La respuesta deja
+  // el marcador [AUTO:cancelled] en el hilo para NEUTRALIZAR el preview: un «confirma» posterior ya no
+  // activa nada (la confirmación exige que el último marcador sea un preview, no una cancelación).
+  {
+    const nm = foldText(message).trim()
+    const nmWords = nm.replace(/[¿?¡!.,;:]/g, ' ').split(/\s+/).filter(Boolean)
+    // Solo frases CORTAS de rechazo (o mención explícita): «no quiero ver los clientes» nunca se secuestra.
+    const wantsAutoCancel = (nmWords.length <= 5 && /^(no( gracias)?|mejor no|cancela(la|lo)?|descarta(la|lo)?|dejalo|olvidalo)\b/.test(nm))
+      || /\b(cancela|descarta|no (la )?actives?)\b.*\bautomatizacion/.test(nm)
+    if (wantsAutoCancel && lastLiveAutoPreview(recentContext) && !(await latestPendingAction(supabase, workspaceId))) {
+      const ui: AssistantUiPayload = { kind: 'automation_status', automation: { type: 'automation', name: 'Automatización', status: 'disabled', scheduleLabel: '', timezone: 'Europe/Madrid', allowedUiActions: [] } }
+      return { handled: true, usedTool: 'local_automation:cancel', entity: 'help', answer: 'Vale, no activo la automatización. No se ha creado nada; pídemela de nuevo cuando quieras. [AUTO:cancelled]', ui }
+    }
+  }
+
   // P62 — OFERTA → ACEPTACIÓN. «ofréceme algo» → propuesta concreta. «sí/venga/muéstramela» tras una
   // oferta → ejecutar la lectura ofrecida (nunca re-explicar, nunca n8n sin plan). Referencia ambigua con
   // varias opciones → UNA aclaración concreta. Solo en turnos sin objetivo explícito propio.
@@ -910,7 +976,6 @@ async function tryLocalAnswerInner(
       return null
     })()
     if (autoIntent) {
-      const labels: Record<string, string> = { data_quality_watch: 'auditoría de calidad de datos', overdue_tasks_watch: 'aviso de tareas vencidas', daily_executive_brief: 'resumen ejecutivo diario' }
       if (autoIntent.kind === 'list') {
         const r = await actionApi2('automation', { operation: 'list_rules', workspace_id: workspaceId })
         const rules = (r.json.rules ?? []) as Array<{ type: string; name: string; enabled: boolean; next_run_at: string | null }>
@@ -920,24 +985,30 @@ async function tryLocalAnswerInner(
       }
       if (autoIntent.kind === 'disable') {
         const r = await actionApi2('automation', { operation: 'list_rules', workspace_id: workspaceId })
-        const rules = (r.json.rules ?? []) as Array<{ id: string; name: string; enabled: boolean }>
+        const rules = (r.json.rules ?? []) as Array<{ id: string; type?: string; name: string; enabled: boolean }>
         const on = rules.filter((x) => x.enabled)
         if (!on.length) return { handled: true, usedTool: 'local_automation', entity: 'help', answer: 'No hay automatizaciones activas que desactivar.' }
         const off = await actionApi2('automation', { operation: 'set_rule_enabled', workspace_id: workspaceId, rule_id: on[0].id, enabled: false })
-        return { handled: true, usedTool: 'local_automation', entity: 'help', answer: off.status === 200 ? `Hecho: «${on[0].name}» queda desactivada. No se ejecutará más hasta que la reactives.` : 'No he podido desactivarla ahora mismo.' }
+        const ok = off.status === 200
+        const ui: AssistantUiPayload = { kind: 'automation_status', automation: { ruleId: on[0].id, type: String(on[0].type ?? 'automation'), name: on[0].name, status: ok ? 'disabled' : 'failed', scheduleLabel: '', timezone: 'Europe/Madrid', allowedUiActions: [] } }
+        return { handled: true, usedTool: 'local_automation', entity: 'help', answer: ok ? `Hecho: «${on[0].name}» queda desactivada. No se ejecutará más hasta que la reactives.` : 'No he podido desactivarla ahora mismo.', ui }
       }
-      // activate → PREVIEW (opt-in: nunca se crea sin confirmación).
-      return { handled: true, usedTool: 'local_automation:preview', entity: 'help', answer: `Automatización preparada\n• Tipo: ${labels[autoIntent.type]}\n• Horario: todos los días a las ${autoIntent.hour}:00 (Europe/Madrid)\n• Resultado: incidencias/resumen internos en el CRM (sin emails ni mensajes externos)\n\nAún no está activada. ¿Confirmo la activación? [AUTO:${autoIntent.type}:${autoIntent.hour}]` }
+      // activate → PREVIEW (opt-in: nunca se crea sin confirmación). El bloque `ui` alimenta la card;
+      // el marcador [AUTO:…] queda en el texto persistido (la UI lo oculta al renderizar).
+      const previewUi: AssistantUiPayload = { kind: 'automation_preview', automation: { type: autoIntent.type, name: AUTOMATION_LABELS[autoIntent.type] ?? 'Automatización', status: 'awaiting_confirmation', scheduleLabel: `Todos los días a las ${autoIntent.hour}:00`, timezone: 'Europe/Madrid', allowedUiActions: ['confirm', 'cancel'] } }
+      return { handled: true, usedTool: 'local_automation:preview', entity: 'help', answer: `Automatización preparada\n• Tipo: ${AUTOMATION_LABELS[autoIntent.type]}\n• Horario: todos los días a las ${autoIntent.hour}:00 (Europe/Madrid)\n• Resultado: incidencias/resumen internos en el CRM (sin emails ni mensajes externos)\n\nAún no está activada. ¿Confirmo la activación? [AUTO:${autoIntent.type}:${autoIntent.hour}]`, ui: previewUi }
     }
-    // Confirmación de una automatización previamente previsualizada (marcador [AUTO:type:hour] en el hilo).
-    if (/^(si|sí)?[\s,]*(confirma(lo)?|confirmo|adelante|activa(la)?|dale|hazlo)\b/.test(nmsg.trim()) && /\[AUTO:([a-z_]+):(\d{1,2})\]/.test(recentContext)) {
-      // Último marcador del hilo (sin flag dotAll por compatibilidad de target).
-      const all = recentContext.match(/\[AUTO:[a-z_]+:\d{1,2}\]/g)
-      const m = all?.length ? all[all.length - 1].match(/\[AUTO:([a-z_]+):(\d{1,2})\]/) : null
-      if (m) {
-        const r = await actionApi2('automation', { operation: 'create_rule', workspace_id: workspaceId, type: m[1], name: `Automatización (${m[1]})`, confirmed: true, schedule: { hour: Number(m[2]) } })
+    // Confirmación de una automatización previamente previsualizada. Solo si el ÚLTIMO marcador del hilo
+    // es un preview VIVO ([AUTO:cancelled]/[AUTO:done] lo neutralizan). Tras activar, la respuesta deja
+    // [AUTO:done] para que un «confirma» posterior no re-active nada.
+    if (/^(si|sí)?[\s,]*(confirma(lo)?|confirmo|adelante|activa(la)?|dale|hazlo)\b/.test(nmsg.trim())) {
+      const live = lastLiveAutoPreview(recentContext)
+      if (live) {
+        const r = await actionApi2('automation', { operation: 'create_rule', workspace_id: workspaceId, type: live.type, name: `Automatización (${live.type})`, confirmed: true, schedule: { hour: live.hour } })
         if (r.status === 200) {
-          return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: `Automatización activada y programada.\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')} (Europe/Madrid)\nEl planificador la ejecutará automáticamente; los resultados aparecerán como incidencias. Puedes decir «lista mis automatizaciones» o «desactívala» cuando quieras.` }
+          const nextRunAt = typeof r.json.next_run_at === 'string' ? r.json.next_run_at : undefined
+          const ui: AssistantUiPayload = { kind: 'automation_result', automation: { ruleId: typeof r.json.rule_id === 'string' ? r.json.rule_id : undefined, type: live.type, name: AUTOMATION_LABELS[live.type] ?? 'Automatización', status: 'enabled', scheduleLabel: `Todos los días a las ${live.hour}:00`, timezone: 'Europe/Madrid', nextRunAt, allowedUiActions: [] } }
+          return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: `Automatización activada y programada.\n• Próxima ejecución: ${String(r.json.next_run_at ?? '').slice(0, 16).replace('T', ' ')} (Europe/Madrid)\nEl planificador la ejecutará automáticamente; los resultados aparecerán como incidencias. Puedes decir «lista mis automatizaciones» o «desactívala» cuando quieras. [AUTO:done]`, ui }
         }
         return { handled: true, usedTool: 'local_automation:confirm', entity: 'help', answer: 'No he podido activar la automatización ahora mismo. No se ha creado nada; inténtalo de nuevo.' }
       }
@@ -950,11 +1021,25 @@ async function tryLocalAnswerInner(
       if (secretOk) {
         const r = await actionApi2('automation', { operation: 'run_data_quality', workspace_id: workspaceId })
         if (r.status === 200) {
-          const open = (r.json.open_findings ?? []) as Array<{ title: string; summary: string; severity: string }>
-          if (!open.length) return { handled: true, usedTool: 'local_findings', entity: 'help', answer: 'He revisado la calidad de tus datos ahora mismo y no hay incidencias abiertas. Todo cuadra: operaciones, inmuebles, precios y tareas.' }
+          const open = (r.json.open_findings ?? []) as Array<{ id?: string; finding_type?: string; entity_type?: string | null; title: string; summary: string; severity: string; detected_at?: string }>
+          // P70 Wave A — bloque estructurado de findings (la card y el centro los consumen; el texto queda de fallback).
+          const toUiFinding = (f: typeof open[number]) => {
+            const [sum, crit] = String(f.summary ?? '').split(/\s*Criterio:\s*/)
+            return {
+              findingId: String(f.id ?? f.title), severity: (f.severity === 'critical' || f.severity === 'warning' ? f.severity : 'info') as 'critical' | 'warning' | 'info',
+              status: 'open' as const, title: String(f.title), summary: (sum ?? '').trim(),
+              criterion: (crit ?? 'Regla objetiva registrada en el CRM').trim(), module: f.entity_type ? String(f.entity_type) : undefined,
+              detectedAt: String(f.detected_at ?? ''), allowedUiActions: [],
+            }
+          }
+          if (!open.length) {
+            const ui: AssistantUiPayload = { kind: 'finding', findings: [] }
+            return { handled: true, usedTool: 'local_findings', entity: 'help', answer: 'He revisado la calidad de tus datos ahora mismo y no hay incidencias abiertas. Todo cuadra: operaciones, inmuebles, precios y tareas.', ui }
+          }
           const sev = (s: string) => s === 'critical' ? 'CRÍTICO' : s === 'warning' ? 'aviso' : 'info'
           const lines = open.slice(0, 8).map((f) => `• [${sev(f.severity)}] ${f.title}`)
-          return { handled: true, usedTool: 'local_findings', entity: 'help', answer: `He revisado tus datos ahora mismo. Incidencias abiertas: ${open.length}\n${lines.join('\n')}\n\nCada una tiene su criterio registrado; dime cuál quieres revisar y te doy el detalle.` }
+          const ui: AssistantUiPayload = { kind: 'finding', findings: open.slice(0, 8).map(toUiFinding) }
+          return { handled: true, usedTool: 'local_findings', entity: 'help', answer: `He revisado tus datos ahora mismo. Incidencias abiertas: ${open.length}\n${lines.join('\n')}\n\nCada una tiene su criterio registrado; dime cuál quieres revisar y te doy el detalle.`, ui }
         }
       }
       return { handled: true, usedTool: 'local_findings', entity: 'help', answer: 'No he podido ejecutar la auditoría ahora mismo. Puedes pedírmelo de nuevo en un momento.' }

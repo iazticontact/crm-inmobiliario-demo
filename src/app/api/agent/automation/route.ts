@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     const findings = await detectFindings(supabase, ws)
     const { created, duplicates } = await persistFindings(supabase, ws, findings)
     const { data: open } = await supabase.from('assistant_findings')
-      .select('finding_type, title, summary, severity, status, detected_at')
+      .select('id, finding_type, entity_type, title, summary, severity, status, detected_at')
       .eq('workspace_id', ws).eq('status', 'open').order('severity').order('detected_at', { ascending: false }).limit(20)
     return NextResponse.json({ ok: true, operation: op, detected: findings.length, created, duplicates, open_findings: open ?? [] })
   }

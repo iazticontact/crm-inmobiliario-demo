@@ -15,6 +15,7 @@ const pageLabels: Record<string, { title: string; description: string }> = {
   '/dashboard':     { title: 'Dashboard',     description: 'Resumen del día y estado del negocio' },
   '/inbox':         { title: 'Inbox',         description: 'Conversaciones entrantes y borradores' },
   '/assistant':     { title: 'Asistente IA',  description: 'Consulta el CRM y prepara acciones con confirmación' },
+  '/assistant/findings': { title: 'Centro de incidencias', description: 'Hallazgos del Asistente sobre la calidad de tus datos' },
   '/clients':       { title: 'Clientes',      description: 'Compradores, propietarios y leads' },
   '/opportunities': { title: 'Cartera',       description: 'Inmuebles, operaciones y trámites' },
   '/automations':   { title: 'Automatizaciones', description: 'Flujos internos' },

@@ -6,7 +6,7 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
-import { tryLocalAnswer } from '@/lib/agents/local-answers'
+import { tryLocalAnswer, executeUiAction } from '@/lib/agents/local-answers'
 import { validateAssistantUi } from '@/lib/assistant/ui-contract'
 import { decideTurn } from '@/lib/agents/assistant-turn'
 import { allowedToolsForTurn } from '@/lib/agents/assistant-tool-permissions'
@@ -210,10 +210,14 @@ export async function POST(req: NextRequest) {
   let message: string
   let context: AgentContext
   let threadId = ''
+  // P70 Wave A — petición de botón de acción (solo uiAction+actionId; nada más del cliente es verdad).
+  let uiActionReqBody: { uiAction: 'confirm' | 'cancel'; actionId: string } | null = null
   try {
     const body = await req.json() as {
       message?: unknown
       threadId?: unknown
+      uiAction?: unknown
+      actionId?: unknown
       lastReferencedClientId?: unknown
       lastReferencedClientName?: unknown
       lastResults?: unknown
@@ -225,6 +229,10 @@ export async function POST(req: NextRequest) {
     }
     message = typeof body.message === 'string' ? body.message.trim() : ''
     threadId = typeof body.threadId === 'string' ? body.threadId.trim() : ''
+    if ((body.uiAction === 'confirm' || body.uiAction === 'cancel') && typeof body.actionId === 'string' && body.actionId) {
+      uiActionReqBody = { uiAction: body.uiAction, actionId: body.actionId }
+      if (!message) message = `[ui:${body.uiAction}]` // pasa las guardas de mensaje vacío; nunca se interpreta
+    }
     const rawFullName = (profile as { full_name?: unknown } | null)?.full_name
     const rawRole = (profile as { role?: unknown } | null)?.role
     const displayName = typeof rawFullName === 'string' && rawFullName.trim() ? rawFullName.trim() : undefined
@@ -358,6 +366,19 @@ export async function POST(req: NextRequest) {
     // P47 — LOCAL-FIRST para consultas básicas de lectura (clientes / inmuebles / cartera). Responde
     // directamente con la sesión RLS del usuario, SIN depender de n8n ni de OpenAI. Así "¿qué clientes
     // tengo?" o "¿qué pisos hay en cartera?" nunca fallan aunque el cerebro n8n esté caído/mal configurado.
+    // P70 Wave A — UI ACTION por botón: el navegador envía SOLO {uiAction, actionId}; el server resuelve
+    // workspace/actor/fila desde la sesión y assistant_actions. Nunca se acepta payload como verdad.
+    if (uiActionReqBody) {
+      const res = await executeUiAction(supabase, workspaceId, uiActionReqBody.uiAction, uiActionReqBody.actionId)
+        .catch(() => ({ handled: false as const }))
+      if (res.handled) {
+        return NextResponse.json({ ok: true, answer: res.answer, debugSource: 'ui_action', mode: 'local', errorCode: null, toolCalls: [res.usedTool], referencedClientId: null, referencedClientName: null, referencedList: null, referencedCalendarList: null, dataPreview: null, preparedAction: null, ui: validateAssistantUi(res.ui ?? null) })
+      }
+      // Una petición de botón NUNCA sigue hacia el cerebro general: el mensaje sintético [ui:*] no es
+      // lenguaje del usuario. Respuesta segura y fin (no se ha modificado nada).
+      return NextResponse.json({ ok: true, answer: 'No he podido procesar la acción ahora mismo. No se ha modificado nada; vuelve a intentarlo.', debugSource: 'ui_action', mode: 'local', errorCode: null, toolCalls: null, referencedClientId: null, referencedClientName: null, referencedList: null, referencedCalendarList: null, dataPreview: null, preparedAction: null, ui: null })
+    }
+
     // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.
     const recentContext = recentMessages.map((m) => m.content).join(' \n ')
     const local = await tryLocalAnswer(supabase, workspaceId, message, { recentContext, lastResults: context.lastResults })

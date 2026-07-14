@@ -1,8 +1,9 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { ArrowRight, Bot, CalendarDays, CheckCircle, FileText, Loader2, Mail, MessageSquare, Pencil, Phone, Plus, Search, Send, Target, X, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bot, CalendarDays, CheckCircle, FileText, Loader2, Mail, MessageSquare, Pencil, Phone, Plus, Search, Send, Target, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
@@ -38,6 +39,7 @@ import {
 import type { AssistantMode, Channel, Conversation, ConversationSentiment, Message, MessageSender, N8nFlowStatus } from '@/lib/types'
 import { listAssistantThreads, createAssistantThread, listThreadMessages, appendThreadMessage, renameAssistantThread, deleteAssistantThread } from '@/lib/assistant-threads'
 import { getCachedThreads, setCachedThreads, getCachedMessages, setCachedMessages, removeCachedMessages } from '@/lib/assistant-cache'
+import { validateAssistantUi, type AssistantUiPayload, type AssistantActionUiState, type AssistantAutomationUiState, type AssistantFindingUiState } from '@/lib/assistant/ui-contract'
 
 const SHOW_ASSISTANT_DEBUG = process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL === 'true'
 const OFFLINE_FORCE_DEV = process.env.NEXT_PUBLIC_FORCE_OFFLINE_DEV === 'true'
@@ -1031,6 +1033,170 @@ function safeErrorMessage(error: unknown) {
   return String(error || 'Error desconocido')
 }
 
+// ── P70 Wave A · Cards estructuradas del Asistente ────────────────────────────────────────────────────
+// Componentes PUROS: consumen el bloque validado del contrato compartido (ui-contract). Nunca parsean
+// texto, nunca muestran IDs/JSON/tokens; el texto del mensaje queda siempre como fallback.
+
+// El chat nunca muestra marcadores internos ([AUTO:…]) ni markdown crudo (**) del asistente.
+function displayAssistantText(content: string): string {
+  return content.replace(/\s*\[AUTO:(?:cancelled|done|[a-z_]+:\d{1,2})\]/g, '').replace(/\*\*/g, '').trimEnd()
+}
+
+function formatMadridDateTime(iso?: string): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const ACTION_STATUS_LABEL: Record<string, string> = { prepared: 'Pendiente de confirmación', confirmed: 'Confirmado', executing: 'Aplicando…', completed: 'Aplicado y verificado', cancelled: 'Cancelado', expired: 'Caducado', superseded: 'Sustituido', conflict: 'Conflicto', partial: 'Parcial', failed: 'No aplicado' }
+// Estados terminales: una preview cuya acción ya se resolvió en un mensaje posterior oculta sus botones
+// (tras refresh o desde otra pestaña nunca se re-ofrece confirmar algo ya cerrado).
+const TERMINAL_ACTION_STATUSES = new Set(['completed', 'cancelled', 'expired', 'superseded', 'conflict', 'failed'])
+
+function actionBadgeVariant(status: string): 'success' | 'warning' | 'danger' | 'indigo' | 'default' {
+  if (status === 'completed') return 'success'
+  if (status === 'prepared' || status === 'executing' || status === 'confirmed') return 'indigo'
+  if (status === 'failed' || status === 'conflict') return 'danger'
+  if (status === 'expired' || status === 'partial') return 'warning'
+  return 'default'
+}
+
+function AssistantActionCard({ act, busy, resolvedElsewhere, onUiAction, onModify }: {
+  act: AssistantActionUiState
+  busy: boolean
+  resolvedElsewhere: boolean
+  onUiAction: (uiAction: 'confirm' | 'cancel', actionId: string) => void
+  onModify: () => void
+}) {
+  const showButtons = act.status === 'prepared' && !resolvedElsewhere && act.allowedUiActions.includes('confirm')
+  const expires = formatMadridDateTime(act.expiresAt)
+  return (
+    <div role="group" aria-label={`Acción: ${act.title}`} className={cn('mt-2 max-w-full rounded-xl border p-3 text-sm shadow-sm', act.status === 'completed' ? 'border-emerald-200 bg-emerald-50/70' : act.status === 'prepared' ? 'border-violet-200 bg-violet-50/60' : 'border-gray-200 bg-gray-50')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold text-gray-900">{act.title}</span>
+        <Badge variant={actionBadgeVariant(act.status)}>{ACTION_STATUS_LABEL[act.status] ?? act.status}</Badge>
+      </div>
+      {act.entityLabel && <p className="mt-0.5 text-xs text-gray-500">{act.entityLabel}</p>}
+      {act.fields.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {act.fields.map((f) => (
+            <li key={f.key} className="text-xs text-gray-700">
+              <span className="font-medium">{f.label}:</span>{' '}
+              {f.currentValue != null ? <><span className="line-through opacity-60">{f.currentValue}</span> → </> : null}
+              <span className="font-semibold">{f.proposedValue ?? '—'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {showButtons && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onUiAction('confirm', act.actionId)}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Confirmar
+          </Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onUiAction('cancel', act.actionId)}>
+            <X className="h-3.5 w-3.5" /> Cancelar
+          </Button>
+          {act.allowedUiActions.includes('modify') && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onModify}>
+              <Pencil className="h-3.5 w-3.5" /> Modificar
+            </Button>
+          )}
+        </div>
+      )}
+      {showButtons && expires && <p className="mt-2 text-[10px] text-gray-400">La confirmación caduca el {expires}.</p>}
+      {act.status === 'prepared' && resolvedElsewhere && <p className="mt-2 text-[10px] text-gray-400">Este cambio ya se gestionó más abajo.</p>}
+      {act.status === 'completed' && act.verified && <p className="mt-2 text-[10px] text-emerald-700">Verificado: releído del CRM tras aplicar.</p>}
+    </div>
+  )
+}
+
+const AUTOMATION_STATUS_LABEL: Record<string, string> = { prepared: 'Preparada', awaiting_confirmation: 'Pendiente de confirmación', enabled: 'Activa', disabled: 'Desactivada', running: 'Ejecutando…', completed: 'Completada', partial: 'Parcial', failed: 'Fallida', skipped_duplicate: 'Omitida (duplicada)' }
+
+function AssistantAutomationCard({ auto, disabled, onQuickReply }: {
+  auto: AssistantAutomationUiState
+  disabled: boolean
+  onQuickReply: (text: string) => void
+}) {
+  const nextRun = formatMadridDateTime(auto.nextRunAt)
+  const awaiting = auto.status === 'awaiting_confirmation' || auto.status === 'prepared'
+  const title = auto.name ? auto.name.charAt(0).toUpperCase() + auto.name.slice(1) : 'Automatización'
+  return (
+    <div role="group" aria-label={`Automatización: ${title}`} className={cn('mt-2 max-w-full rounded-xl border p-3 text-sm shadow-sm', auto.status === 'enabled' ? 'border-emerald-200 bg-emerald-50/70' : awaiting ? 'border-indigo-200 bg-indigo-50/60' : 'border-gray-200 bg-gray-50')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 font-semibold text-gray-900"><Zap className="h-3.5 w-3.5 text-indigo-500" />{title}</span>
+        <Badge variant={auto.status === 'enabled' ? 'success' : awaiting ? 'indigo' : auto.status === 'failed' ? 'danger' : 'default'}>{AUTOMATION_STATUS_LABEL[auto.status] ?? auto.status}</Badge>
+      </div>
+      {auto.scheduleLabel && <p className="mt-0.5 text-xs text-gray-500">{auto.scheduleLabel} · {auto.timezone}</p>}
+      {nextRun && <p className="mt-0.5 text-xs text-gray-500">Próxima ejecución: {nextRun}</p>}
+      {awaiting && auto.allowedUiActions.includes('confirm') && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" disabled={disabled} onClick={() => onQuickReply('Sí, confirma')}>
+            <CheckCircle className="h-3.5 w-3.5" /> Activar
+          </Button>
+          <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onQuickReply('Mejor no, descártala')}>
+            <X className="h-3.5 w-3.5" /> Descartar
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const FINDING_SEVERITY: Record<string, { label: string; variant: 'danger' | 'warning' | 'info' }> = {
+  critical: { label: 'Crítico', variant: 'danger' },
+  warning: { label: 'Aviso', variant: 'warning' },
+  info: { label: 'Info', variant: 'info' },
+}
+
+function AssistantFindingsCard({ findings }: { findings: AssistantFindingUiState[] }) {
+  return (
+    <div role="group" aria-label="Incidencias detectadas" className={cn('mt-2 max-w-full rounded-xl border p-3 text-sm shadow-sm', findings.length ? 'border-amber-200 bg-amber-50/50' : 'border-emerald-200 bg-emerald-50/60')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 font-semibold text-gray-900">
+          <AlertTriangle className={cn('h-3.5 w-3.5', findings.length ? 'text-amber-500' : 'text-emerald-500')} />
+          {findings.length ? `Incidencias abiertas: ${findings.length}` : 'Sin incidencias abiertas'}
+        </span>
+        {findings.length === 0 && <Badge variant="success">Todo en orden</Badge>}
+      </div>
+      {findings.length > 0 && (
+        <ul className="mt-2 space-y-2">
+          {findings.map((f) => (
+            <li key={f.findingId} className="rounded-lg bg-white/80 p-2 ring-1 ring-amber-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={(FINDING_SEVERITY[f.severity] ?? FINDING_SEVERITY.info).variant}>{(FINDING_SEVERITY[f.severity] ?? FINDING_SEVERITY.info).label}</Badge>
+                <span className="text-xs font-medium text-gray-900">{f.title}</span>
+              </div>
+              {f.criterion && <p className="mt-1 text-[11px] text-gray-500">Criterio: {f.criterion}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link href="/assistant/findings" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+        Ver centro de incidencias <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  )
+}
+
+function AssistantUiCards({ ui, busyId, actionResolvedElsewhere, sendDisabled, onUiAction, onModify, onQuickReply }: {
+  ui: AssistantUiPayload
+  busyId: string | null
+  actionResolvedElsewhere: boolean
+  sendDisabled: boolean
+  onUiAction: (uiAction: 'confirm' | 'cancel', actionId: string) => void
+  onModify: () => void
+  onQuickReply: (text: string) => void
+}) {
+  return (
+    <>
+      {ui.action && <AssistantActionCard act={ui.action} busy={busyId === ui.action.actionId} resolvedElsewhere={actionResolvedElsewhere} onUiAction={onUiAction} onModify={onModify} />}
+      {ui.automation && <AssistantAutomationCard auto={ui.automation} disabled={sendDisabled} onQuickReply={onQuickReply} />}
+      {ui.findings && <AssistantFindingsCard findings={ui.findings} />}
+    </>
+  )
+}
+
 export default function AssistantPage() {
   // Identity from the shared S3 provider (already resolved at the authenticated
   // layout, survives page navigation) instead of a per-mount useCurrentUser
@@ -1405,6 +1571,52 @@ export default function AssistantPage() {
 
   const msgs = useMemo(() => selected ? localMessages[selected.id] ?? [] : [], [localMessages, selected])
 
+  // P70 Wave A — acciones ya resueltas en algún mensaje del hilo (confirmada/cancelada/caducada…): las
+  // cards de preview anteriores ocultan sus botones. Cubre refresh, historial y multitab.
+  const resolvedActionIds = useMemo(() => {
+    const out = new Set<string>()
+    for (const m of msgs) {
+      if (m.sender !== 'ai') continue
+      const ui = validateAssistantUi((m.metadata as { ui?: unknown } | undefined)?.ui ?? null)
+      if (ui?.action && TERMINAL_ACTION_STATUSES.has(ui.action.status)) out.add(ui.action.actionId)
+    }
+    return out
+  }, [msgs])
+
+  // P70 Wave A — «Modificar» de la card: no reconstruye prompts; lleva al usuario al composer para que
+  // escriba el nuevo valor (el server re-prepara con preview; flujo modify de P66 ya probado).
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const handleModifyRequest = () => {
+    composerRef.current?.focus()
+    toast.info('Escribe el nuevo valor', { description: 'Por ejemplo: «mejor 250.000 €». Te enseño el preview antes de aplicar nada.' })
+  }
+
+  // P70 Wave A — sincronización multitab SEGURA: al persistir un mensaje se avisa por BroadcastChannel;
+  // la pestaña receptora RELEE el hilo de BD con su propia sesión (RLS). Nunca se copia estado entre
+  // pestañas ni se confía en el payload recibido (solo se usa el threadId como señal de refetch).
+  const syncChannelRef = useRef<BroadcastChannel | null>(null)
+  const notifyThreadUpdated = (threadId: string) => {
+    try { syncChannelRef.current?.postMessage({ threadId }) } catch { /* canal cerrado: sin efecto */ }
+  }
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined' || !isRealMode || !workspaceId || !currentUser.id) return
+    const channel = new BroadcastChannel('nowcrm-assistant-threads')
+    syncChannelRef.current = channel
+    channel.onmessage = (event: MessageEvent) => {
+      const threadId = typeof (event.data as { threadId?: unknown } | null)?.threadId === 'string' ? (event.data as { threadId: string }).threadId : ''
+      if (!threadId || !isUuid(threadId)) return
+      void listThreadMessages(threadId).then((realMessages) => {
+        if (!realMessages.length) return
+        setLocalMessages((prev) => ({ ...prev, [threadId]: realMessages }))
+        setCachedMessages(currentUser.id, workspaceId, threadId, realMessages)
+      })
+    }
+    return () => {
+      channel.close()
+      if (syncChannelRef.current === channel) syncChannelRef.current = null
+    }
+  }, [isRealMode, workspaceId, currentUser.id])
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, isTyping])
@@ -1547,7 +1759,7 @@ export default function AssistantPage() {
     return created
   }
 
-  const appendAssistantMessage = async (conversationId: string, content: string, clientName?: string) => {
+  const appendAssistantMessage = async (conversationId: string, content: string, clientName?: string, uiPayload?: AssistantUiPayload | null) => {
     if (!OFFLINE_FORCE_DEV && isRealMode && (!workspaceId || !isUuid(conversationId))) {
       const message = !workspaceId
         ? 'No se ha podido resolver el workspace real. Revisa profile.workspace_id.'
@@ -1555,11 +1767,14 @@ export default function AssistantPage() {
       updateDiagnostics({ lastCreateMessageStatus: 'Bloqueado', lastSupabaseError: message })
       throw new Error(message)
     }
-    const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime() }
+    // P70 Wave A — el bloque estructurado (validado server-side) viaja en metadata; la card lo consume.
+    const aiMsg: Message = { id: `ai-${Date.now()}`, conversationId, content, sender: 'ai', timestamp: nowTime(), metadata: uiPayload ? { ui: uiPayload } : undefined }
     appendLocalMessage(conversationId, aiMsg)
-    // Persistencia REAL del copiloto (assistant_messages), fail-soft.
+    // Persistencia REAL del copiloto (assistant_messages), fail-soft. El bloque `ui` viaja en metadata
+    // para sobrevivir al refresh; tras guardar se avisa a las demás pestañas (releen de BD, RLS).
     if (isRealMode && workspaceId && assistantMode === 'copilot' && isUuid(conversationId)) {
-      void appendThreadMessage(workspaceId, conversationId, { sender: 'ai', content })
+      void appendThreadMessage(workspaceId, conversationId, { sender: 'ai', content, metadata: uiPayload ? { ui: uiPayload } : null })
+        .then(() => notifyThreadUpdated(conversationId))
     }
     if (!OFFLINE_FORCE_DEV && isRealMode && workspaceId && ASSISTANT_CONVERSATION_PERSISTENCE) {
       let saved: Message
@@ -1582,6 +1797,29 @@ export default function AssistantPage() {
       if (workspaceId) {
         await createActivity(workspaceId, { type: 'message', description: `${assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant'}: ${content.slice(0, 90)}`, clientName })
       }
+    }
+  }
+
+  // P70 Wave A — botón de acción: envía SOLO {uiAction, actionId} a la route; el server resuelve todo.
+  const [uiActionBusy, setUiActionBusy] = useState<string | null>(null)
+  const sendUiAction = async (uiAction: 'confirm' | 'cancel', actionId: string) => {
+    if (uiActionBusy || !selected) return
+    setUiActionBusy(actionId)
+    try {
+      const res = await fetch('/api/assistant/v2', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uiAction, actionId, threadId: selected.id }),
+      })
+      const data = await res.json() as { ok?: boolean; answer?: string; ui?: unknown }
+      if (data.ok && data.answer) {
+        await appendAssistantMessage(selected.id, data.answer, selected.clientName, validateAssistantUi(data.ui ?? null))
+      } else {
+        toast.error('No se ha podido procesar la acción.')
+      }
+    } catch {
+      toast.error('No se ha podido procesar la acción.')
+    } finally {
+      setUiActionBusy(null)
     }
   }
 
@@ -1618,6 +1856,7 @@ export default function AssistantPage() {
     // Persistencia REAL del copiloto (assistant_messages), fail-soft.
     if (isRealMode && workspaceId && assistantMode === 'copilot' && isUuid(conversationId)) {
       void appendThreadMessage(workspaceId, conversationId, { sender: userSender, content, metadata: { detected_intent: operationalIntent.intent } })
+        .then(() => notifyThreadUpdated(conversationId))
       if (isFirstUserMessage) void renameAssistantThread(conversationId, generateAutoTitle(content, lastReferencedClientName))
     }
     setInput('')
@@ -1901,7 +2140,7 @@ export default function AssistantPage() {
               }
               setPreparedAction(frontendAction)
             }
-            await appendAssistantMessage(conversationId, v2Data.answer, activeConversation.clientName)
+            await appendAssistantMessage(conversationId, v2Data.answer, activeConversation.clientName, validateAssistantUi((v2Data as { ui?: unknown }).ui ?? null))
             setLastResponseSource('supabase')
             return
           }
@@ -3469,8 +3708,25 @@ export default function AssistantPage() {
                           isUser && 'rounded-tr-sm bg-slate-900 text-white shadow-slate-950/15',
                           isAI && 'rounded-tl-sm border border-indigo-100 bg-gradient-to-br from-white via-indigo-50 to-violet-50 text-gray-900 shadow-indigo-950/[0.045]'
                         )}>
-                          {msg.content}
+                          {isAI ? displayAssistantText(msg.content) : msg.content}
                         </div>
+                        {(() => {
+                          // P70 Wave A — cards estructuradas (acción / automatización / findings): consumen el
+                          // bloque validado del contrato compartido; si es inválido o antiguo → solo texto.
+                          const uiBlock = isAI ? validateAssistantUi((msg.metadata as { ui?: unknown } | undefined)?.ui ?? null) : null
+                          if (!uiBlock) return null
+                          return (
+                            <AssistantUiCards
+                              ui={uiBlock}
+                              busyId={uiActionBusy}
+                              actionResolvedElsewhere={uiBlock.action ? resolvedActionIds.has(uiBlock.action.actionId) : false}
+                              sendDisabled={isTyping}
+                              onUiAction={(uiAction, actionId) => void sendUiAction(uiAction, actionId)}
+                              onModify={handleModifyRequest}
+                              onQuickReply={(text) => void sendMessage(text)}
+                            />
+                          )
+                        })()}
                         <p className={cn('mt-1 text-[9px] text-gray-400', isUser ? 'text-right' : 'text-left')}>{humanTimeShort(msg.timestamp)}</p>
                       </div>
                     </div>
@@ -3874,7 +4130,7 @@ export default function AssistantPage() {
                   </div>
                 )}
                 <div className="flex items-end gap-2">
-                  <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pregunta por clientes, inmuebles, citas o comisiones…'} rows={1} className={cn('max-h-28 flex-1 resize-none rounded-xl border bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:bg-white focus:outline-none focus:ring-2', input.length > ASSISTANT_LIMITS.maxInputChars ? 'border-rose-300 focus:ring-rose-400' : 'border-gray-200 focus:border-transparent focus:ring-indigo-500')} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
+                  <textarea ref={composerRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder={assistantMode === 'inbox' ? 'Escribe tu mensaje...' : 'Pregunta por clientes, inmuebles, citas o comisiones…'} rows={1} className={cn('max-h-28 flex-1 resize-none rounded-xl border bg-white px-4 py-2.5 text-sm placeholder:text-gray-400 shadow-sm shadow-gray-950/[0.025] transition-all focus:bg-white focus:outline-none focus:ring-2', input.length > ASSISTANT_LIMITS.maxInputChars ? 'border-rose-300 focus:ring-rose-400' : 'border-gray-200 focus:border-transparent focus:ring-indigo-500')} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }} />
                   <Button size="sm" className="h-10 w-10 shrink-0 p-0" onClick={() => void sendMessage()} disabled={isTyping || !input.trim() || input.length > ASSISTANT_LIMITS.maxInputChars} loading={isTyping} aria-label="Enviar mensaje">
                     <Send className="h-4 w-4" />
                   </Button>
