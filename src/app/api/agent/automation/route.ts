@@ -86,14 +86,19 @@ export async function POST(req: Request) {
       .eq('workspace_id', ws).eq('status', 'open').order('severity').order('detected_at', { ascending: false }).limit(50)
     return NextResponse.json({ ok: true, operation: op, findings: data ?? [] })
   }
-  if (op === 'resolve_finding') {
+  if (op === 'resolve_finding' || op === 'acknowledge_finding' || op === 'dismiss_finding') {
+    // P70 Wave E — lifecycle completo de findings (open → acknowledged → resolved/dismissed). Sin hard
+    // delete: dismissed conserva el registro y su fingerprint (no reaparece sin cambio material).
     const id = String(body.finding_id ?? '')
     if (!UUID_RE.test(id)) return err(422, 'invalid_input', 'finding_id requerido.')
+    const target = op === 'resolve_finding' ? 'resolved' : op === 'acknowledge_finding' ? 'acknowledged' : 'dismissed'
+    const fromStates = target === 'acknowledged' ? ['open'] : ['open', 'acknowledged']
+    const patch: Row = { status: target, updated_at: new Date().toISOString() }
+    if (target === 'resolved') patch.resolved_at = new Date().toISOString()
     const { data } = await supabase.from('assistant_findings')
-      .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('id', id).eq('workspace_id', ws).in('status', ['open', 'acknowledged']).select('id')
-    if (!data?.length) return err(404, 'finding_not_found', 'No hay finding abierto con ese id.')
-    return NextResponse.json({ ok: true, operation: op, finding_id: id, status: 'resolved' })
+      .update(patch).eq('id', id).eq('workspace_id', ws).in('status', fromStates).select('id')
+    if (!data?.length) return err(404, 'finding_not_found', 'No hay finding en estado transicionable con ese id.')
+    return NextResponse.json({ ok: true, operation: op, finding_id: id, status: target })
   }
 
   // ── Reglas (P68 + Wave D) ──
