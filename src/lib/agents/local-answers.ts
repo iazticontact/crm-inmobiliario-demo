@@ -32,10 +32,17 @@ import type { AssistantUiPayload } from '@/lib/assistant/ui-contract'
 import { AUTOMATION_RULES } from './findings-engine'
 import { parseSchedule as parseScheduleJson, scheduleLabelOf, type ScheduleJson } from './automation-schedule'
 import { parseTimeEs } from './assistant-action-intent'
+// P71 — estado conversacional unificado + resolución estructural de referencias.
+import { type ConversationState, type StateUpdate, type ConvEntityType, emptyState } from './conversation-state'
+import { detectReference, resolveAnchor, type AnchorResolution } from './conversation-references'
+import { getClientOpportunities } from '@/lib/agent-tool-readers'
 
 export type LocalAnswer =
-  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload }
+  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload; stateUpdate?: StateUpdate }
   | { handled: false }
+
+// P71 — opciones del motor local (recentContext = apoyo lingüístico; state = memoria estructurada real).
+export type LocalOpts = { recentContext?: string; lastResults?: unknown[]; state?: ConversationState; turnId?: string }
 
 type Row = Record<string, unknown>
 
@@ -995,23 +1002,223 @@ async function handleSales(supabase: SupabaseClient, ws: string, intent: SalesQu
 // ── Punto de entrada ─────────────────────────────────────────────────────────
 // P64 — SANITIZADOR de respuesta visible: sin dobles asteriscos (markdown crudo en el chat). Se aplica a
 // TODA respuesta local en un único punto; los generadores internos pueden seguir usando **…** como énfasis.
+// ── P71 · MAPEOS entidad↔tipo↔módulo + construcción de referencias ligeras (ids, no datos) ────────────
+const ENTITY_TO_CONV: Partial<Record<CrmEntity, ConvEntityType>> = {
+  clients: 'client', properties: 'property', operations: 'opportunity',
+  calendar: 'calendar_event', tasks: 'task', service_cases: 'service_case', documents: 'document',
+}
+const ENTITY_TO_MODULE: Partial<Record<CrmEntity, string>> = {
+  clients: 'clients', properties: 'portfolio', operations: 'operations',
+  calendar: 'calendar', tasks: 'tasks', service_cases: 'cases', documents: 'documents', commissions: 'commissions',
+}
+function refSortValue(entityType: ConvEntityType | null, row: Row): number | undefined {
+  if (entityType === 'property') return numOrNull(row.price) ?? undefined
+  if (entityType === 'opportunity') return numOrNull(row.value) ?? undefined
+  const d = str(row.start_at) || str(row.date) || str(row.due_date) || str(row.created_at)
+  return d ? Date.parse(d) || undefined : undefined
+}
+function toResultRefs(entityType: ConvEntityType | null, list: Array<Record<string, unknown>>): Array<{ entityId: string; label: string; sortValue?: number }> {
+  const out: Array<{ entityId: string; label: string; sortValue?: number }> = []
+  for (const row of list.slice(0, 25)) {
+    const id = str(row.id)
+    if (!/^[0-9a-f-]{36}$/i.test(id)) continue
+    const label = str(row.title) || str(row.name) || str(row.file_name) || 'elemento'
+    const sv = refSortValue(entityType, row)
+    out.push({ entityId: id, label, ...(sv !== undefined ? { sortValue: sv } : {}) })
+  }
+  return out
+}
+
+// Enriquecer el stateUpdate de CUALQUIER lectura con la última consulta (referencias ligeras) + módulo.
+// Si el handler ya emitió stateUpdate (p. ej. contextual), se respeta y solo se completa lo que falte.
+function enrichReadStateUpdate(r: Extract<LocalAnswer, { handled: true }>, message: string, turnId: string): Extract<LocalAnswer, { handled: true }> {
+  const convType = ENTITY_TO_CONV[r.entity] ?? null
+  const moduleId = ENTITY_TO_MODULE[r.entity] ?? null
+  const isRead = r.usedTool.startsWith('local_') && !r.usedTool.startsWith('local_turn') && !r.usedTool.startsWith('local_automation') && !r.usedTool.startsWith('local_action') && !r.usedTool.startsWith('local_ui_action')
+  const base: StateUpdate = r.stateUpdate ?? {}
+  const update: StateUpdate = { ...base }
+  if (update.resolvedModule === undefined && moduleId) update.resolvedModule = moduleId
+  // Entidad activa: una lectura que resuelve UNA sola entidad la deja disponible para el siguiente turno
+  // («busca X» / ficha / búsqueda con 1 resultado). Un listado con varias NO fija entidad activa.
+  if (update.resolvedEntities === undefined && isRead && convType && r.referencedList && r.referencedList.length === 1) {
+    const row = r.referencedList[0]
+    const id = str(row.id)
+    if (/^[0-9a-f-]{36}$/i.test(id)) update.resolvedEntities = [{ entityType: convType, entityId: id, displayLabel: str(row.name) || str(row.title) || '', confidence: 0.8, sourceTurnId: turnId }]
+  }
+  // Última consulta: CUALQUIER lectura (incluso un conteo sin lista) → permite «otra vez» (grounding);
+  // los ordinales/extremos requieren además resultRefs (que solo existen si hubo lista).
+  if (update.lastDataQueryUpdate === undefined && isRead && moduleId) {
+    update.lastDataQueryUpdate = { module: moduleId, capability: r.usedTool, entityType: convType, resultRefs: r.referencedList ? toResultRefs(convType, r.referencedList) : [], executedAt: new Date().toISOString() }
+  }
+  if (update.lastAssistantResultUpdate === undefined) {
+    const type: 'explanation' | 'read' | 'action' | 'automation' = r.usedTool.startsWith('local_turn') ? 'explanation' : r.usedTool.startsWith('local_automation') ? 'automation' : r.usedTool.startsWith('local_action') || r.usedTool.startsWith('local_ui_action') ? 'action' : 'read'
+    update.lastAssistantResultUpdate = { type, module: moduleId, capability: r.usedTool, entityIds: (update.resolvedEntities ?? []).map((e) => e.entityId), turnId }
+  }
+  return { ...r, stateUpdate: update }
+}
+
+// ── P71 · RESOLUCIÓN CONTEXTUAL: referencia → ancla → RECONSULTA de la fuente real ────────────────────
+async function handleContextualFollowup(supabase: SupabaseClient, ws: string, message: string, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const n = foldText(message)
+  // Nunca sobre una escritura/confirmación de acción (eso es del plano de acciones): verbos mutadores
+  // generales + confirmación/cancelación. La resolución contextual es SOLO de lectura.
+  if (/\b(cambia|cambiale|actualiza|modifica|pon(le|lo)?|sube|baja|edita|corrige|crea|anade|añade|marca|mueve|pasa|reprograma|activa|programa|elimina|borra|confirma|confirmo|cancela|descarta|adelante|hazlo)\b/.test(n)) return null
+  const ref = detectReference(message)
+  let anchor = ref ? resolveAnchor(ref, state) : null
+  // ELISIÓN de 3ª persona: «¿qué operaciones tiene?», «¿cuántas citas tiene?» — sin sujeto explícito el
+  // sujeto es la ENTIDAD ACTIVA. Se distingue de 1ª/2ª persona (tengo/tienes/tenemos = el USUARIO, global).
+  if (!anchor && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
+    const owner = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
+    if (owner) anchor = { type: 'entity', entity: owner, via: 'elision', confidence: 0.7 }
+  }
+  if (!anchor) return null
+
+  if (anchor.type === 'same_query') return rerunLastQuery(supabase, ws, state)
+  if (anchor.type === 'ambiguous') {
+    const opts = anchor.candidates.map((c) => `• ${c.displayLabel || c.entityType}`).join('\n')
+    return { handled: true, usedTool: 'local_ref:clarify', entity: 'help', answer: `¿A cuál te refieres?\n${opts}` }
+  }
+  if (anchor.type === 'extreme') return resolveExtreme(supabase, ws, anchor, state, turnId)
+
+  // anchor.type === 'entity': el llamador SIEMPRE reconsulta la fuente por id.
+  const e = anchor.entity
+  const targetModule = resolveModuleFromText(message)
+  if (e.entityType === 'client') {
+    if (targetModule === 'operations') return readClientOperations(supabase, ws, e, turnId)
+    if (targetModule === 'tasks') return readClientTasks(supabase, ws, e, turnId)
+    if (targetModule === 'calendar') return readClientEvents(supabase, ws, e, turnId)
+    if (targetModule === 'portfolio') return readClientProperties(supabase, ws, e, turnId)
+    return readClientDetailById(supabase, ws, e, turnId)
+  }
+  return readEntityDetailById(supabase, ws, e, turnId)
+}
+
+// Reconsulta la MISMA lectura anterior con datos ACTUALES (grounding; reemplaza el atajo confirm_prior).
+async function rerunLastQuery(supabase: SupabaseClient, ws: string, state: ConversationState): Promise<LocalAnswer> {
+  const q = state.lastDataQuery
+  if (!q) return { handled: false } as LocalAnswer
+  const et = q.entityType
+  const mod = q.module
+  let r: LocalAnswer
+  if (et === 'client' || mod === 'clients') r = await handleClients(supabase, ws, classifyIntent('muéstrame los clientes'))
+  else if (et === 'property' || mod === 'portfolio') r = await handlePortfolioSummary(supabase, ws)
+  else if (et === 'opportunity' || mod === 'operations') r = await handleList(supabase, ws, 'operations', 'local_operations', async () => { const x = await crmReadQuery(supabase, ws, { entity: 'opportunities', limit: 10 }); return 'error' in x ? { error: true } : { rows: x.rows } }, formatOperationLine, 'operación', 'operaciones')
+  else if (et === 'task' || mod === 'tasks') r = await handleAgenda(supabase, ws, { calendar: false, tasks: true })
+  else if (et === 'calendar_event' || mod === 'calendar') r = await handleAgenda(supabase, ws, { calendar: true, tasks: false })
+  else if (et === 'service_case' || mod === 'cases') r = await handleList(supabase, ws, 'service_cases', 'local_cases', async () => { const x = await crmReadQuery(supabase, ws, { entity: 'service_cases', limit: 10 }); return 'error' in x ? { error: true } : { rows: x.rows } }, formatCaseLine, 'trámite', 'trámites')
+  else return { handled: false } as LocalAnswer
+  if (!r.handled) return r
+  return { ...r, usedTool: `${r.usedTool}:rerun`, answer: `Lo he vuelto a consultar ahora mismo:\n${r.answer}` }
+}
+
+// Extremo (más caro/reciente…): reconsulta la lista del módulo con orden real y muestra el primero.
+async function resolveExtreme(supabase: SupabaseClient, ws: string, anchor: Extract<AnchorResolution, { type: 'extreme' }>, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const mod = state.lastDataQuery?.module ?? state.activeModule
+  if (mod === 'portfolio' || anchor.field === 'price') {
+    const rq = await crmReadQuery(supabase, ws, { entity: 'properties', limit: 200 })
+    if ('error' in rq) return fail('properties', 'local_ref:extreme', ws)
+    const rows = (rq.rows as Row[]).filter((p) => numOrNull(p.price) != null)
+    rows.sort((a, b) => anchor.dir === 'desc' ? numOrNull(b.price)! - numOrNull(a.price)! : numOrNull(a.price)! - numOrNull(b.price)!)
+    const top = rows[0]
+    if (!top) return { handled: true, usedTool: 'local_ref:extreme', entity: 'properties', answer: 'No hay inmuebles con precio para comparar.' }
+    const su: StateUpdate = { resolvedModule: 'portfolio', resolvedEntities: [{ entityType: 'property', entityId: str(top.id), displayLabel: str(top.title), confidence: 0.8, sourceTurnId: turnId }] }
+    return { handled: true, usedTool: 'local_ref:extreme', entity: 'properties', answer: `El ${anchor.dir === 'desc' ? 'más' : 'menos'} caro:\n${formatPropertyLine(top)}`, referencedList: [top], stateUpdate: su }
+  }
+  return null
+}
+
+// Ficha de cliente por ID (reconsulta getClient360, datos ACTUALES).
+async function readClientDetailById(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const r = await getClient360(supabase, ws, { clientId: e.entityId })
+  const su: StateUpdate = { resolvedModule: 'clients', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if ('error' in r) return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `No he podido cargar la ficha ahora mismo.`, stateUpdate: su }
+  const c = r.client
+  const pend = r.tasks.filter((t) => isPendingTask(t.status)).length
+  const up = r.calendarEvents.filter((ev) => isUpcoming(ev.date ?? ev.start_at, ev.status)).length
+  const lines = [`Ficha de ${c.name}`, [c.company, c.email, c.phone].filter(Boolean).join(' · ') || null, c.status ? `Estado: ${cap(c.status)}` : null, `• Tareas pendientes: ${pend} · Citas próximas: ${up} · Documentos: ${r.documents.length}`].filter(Boolean)
+  return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: lines.join('\n'), referencedList: [{ id: e.entityId, name: c.name }], stateUpdate: su }
+}
+
+async function readClientOperations(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const r = await getClientOpportunities(supabase, ws, { clientId: e.entityId })
+  const su: StateUpdate = { resolvedModule: 'operations', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if ('error' in r) return fail('operations', 'local_client_operations', ws)
+  const ops = r.opportunities as Array<Record<string, unknown>>
+  if (!ops.length) return { handled: true, usedTool: 'local_client_operations', entity: 'operations', answer: `${e.displayLabel} no tiene operaciones registradas.`, stateUpdate: su }
+  const lines = ops.slice(0, 8).map((o) => formatOperationLine({ ...o, client_name: e.displayLabel }))
+  return { handled: true, usedTool: 'local_client_operations', entity: 'operations', answer: `Operaciones de ${e.displayLabel} (${ops.length}):\n${lines.join('\n')}`, referencedList: ops, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'operations', capability: 'local_client_operations', entityType: 'opportunity', resultRefs: toResultRefs('opportunity', ops), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientTasks(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('tasks').select('id, title, due_date, status, priority, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).order('due_date', { ascending: true, nullsFirst: false }).limit(15)
+  const su: StateUpdate = { resolvedModule: 'tasks', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if (error) return fail('tasks', 'local_client_tasks', ws)
+  const rows = ((data ?? []) as Row[]).filter((t) => isPendingTask(t.status as string | null))
+  if (!rows.length) return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `${e.displayLabel} no tiene tareas pendientes.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `Tareas pendientes de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map(formatTaskLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'tasks', capability: 'local_client_tasks', entityType: 'task', resultRefs: toResultRefs('task', rows), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientEvents(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('calendar_events').select('id, title, date, start_at, status, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(15)
+  const su: StateUpdate = { resolvedModule: 'calendar', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if (error) return fail('calendar', 'local_client_events', ws)
+  const rows = ((data ?? []) as Row[]).filter((ev) => isUpcoming(str(ev.date) || str(ev.start_at), ev.status as string | null))
+  if (!rows.length) return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `${e.displayLabel} no tiene citas próximas.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `Citas próximas de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map(formatEventLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'calendar', capability: 'local_client_events', entityType: 'calendar_event', resultRefs: toResultRefs('calendar_event', rows), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientProperties(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('properties').select('id, title, status, price, operation_type, city, area').eq('workspace_id', ws).eq('client_id', e.entityId).is('deleted_at', null).limit(15)
+  const su: StateUpdate = { resolvedModule: 'portfolio', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if (error) return fail('properties', 'local_client_properties', ws)
+  const rows = (data ?? []) as Row[]
+  if (!rows.length) return { handled: true, usedTool: 'local_client_properties', entity: 'properties', answer: `${e.displayLabel} no tiene inmuebles vinculados.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_properties', entity: 'properties', answer: `Inmuebles de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map((p) => formatPropertyLine(p)).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'portfolio', capability: 'local_client_properties', entityType: 'property', resultRefs: toResultRefs('property', rows), executedAt: new Date().toISOString() } } }
+}
+
+// Detalle de una entidad no-cliente por id (reconsulta la fila real).
+async function readEntityDetailById(supabase: SupabaseClient, ws: string, e: { entityType: ConvEntityType; entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const table = e.entityType === 'property' ? 'properties' : e.entityType === 'opportunity' ? 'opportunities' : e.entityType === 'task' ? 'tasks' : e.entityType === 'calendar_event' ? 'calendar_events' : e.entityType === 'service_case' ? 'service_cases' : null
+  const entity: CrmEntity = e.entityType === 'property' ? 'properties' : e.entityType === 'opportunity' ? 'operations' : e.entityType === 'task' ? 'tasks' : e.entityType === 'calendar_event' ? 'calendar' : e.entityType === 'service_case' ? 'service_cases' : 'help'
+  const su: StateUpdate = { resolvedEntities: [{ ...e, confidence: 0.85, sourceTurnId: turnId }] }
+  if (!table) return { handled: true, usedTool: 'local_ref:detail', entity, answer: `Es «${e.displayLabel}». ¿Qué quieres saber de él?`, stateUpdate: su }
+  const { data } = await supabase.from(table).select('*').eq('workspace_id', ws).eq('id', e.entityId).maybeSingle()
+  if (!data) return { handled: true, usedTool: 'local_ref:detail', entity, answer: `Ya no encuentro «${e.displayLabel}» (puede haberse eliminado).`, stateUpdate: su }
+  const row = data as Row
+  const line = e.entityType === 'property' ? formatPropertyLine(row) : e.entityType === 'opportunity' ? formatOperationLine(row) : e.entityType === 'task' ? formatTaskLine(row) : e.entityType === 'calendar_event' ? formatEventLine(row) : formatCaseLine(row)
+  return { handled: true, usedTool: 'local_ref:detail', entity, answer: line, referencedList: [row], stateUpdate: su }
+}
+
 export async function tryLocalAnswer(
   supabase: SupabaseClient,
   workspaceId: string,
   message: string,
-  opts: { recentContext?: string; lastResults?: unknown[] } = {},
+  opts: LocalOpts = {},
 ): Promise<LocalAnswer> {
   const r = await tryLocalAnswerInner(supabase, workspaceId, message, opts)
-  return r.handled ? { ...r, answer: r.answer.replace(/\*\*/g, '') } : r
+  if (!r.handled) return r
+  // P71 — enriquecer el stateUpdate con la última consulta de datos (referencias ligeras, NO datos),
+  // de forma general: cualquier lectura que devuelva una lista deja resolubles ordinales/extremos.
+  const withState = enrichReadStateUpdate(r, message, opts.turnId ?? '')
+  return { ...withState, answer: withState.answer.replace(/\*\*/g, '') }
 }
 
 async function tryLocalAnswerInner(
   supabase: SupabaseClient,
   workspaceId: string,
   message: string,
-  opts: { recentContext?: string; lastResults?: unknown[] } = {},
+  opts: LocalOpts = {},
 ): Promise<LocalAnswer> {
   const recentContext = opts.recentContext ?? ''
+  const state = opts.state ?? emptyState()
+  const turnId = opts.turnId ?? ''
+
+  // ── P71 · RESOLUCIÓN CONTEXTUAL PRIMERO (referencias/ordinales/extremos/«otra vez») ─────────────────
+  // Antes del enrutado general: si el mensaje es una referencia y el estado tiene contexto, se resuelve
+  // el ancla (id/criterio) y se RECONSULTA la fuente real. Nunca responde desde el estado. No corre si el
+  // mensaje es una escritura (verbo mutador) — eso lo maneja el plano de acciones.
+  const ctxFollow = await handleContextualFollowup(supabase, workspaceId, message, state, turnId)
+  if (ctxFollow && ctxFollow.handled) return ctxFollow
 
   // ── P50: DECISIÓN ÚNICA DE TURNO — razona el acto comunicativo ANTES de leer/escribir/llamar a n8n ──
   // Ninguna entidad del CRM provoca una consulta por sí sola. Los turnos META (el usuario habla de la
@@ -1443,12 +1650,6 @@ async function tryLocalAnswerInner(
     ? { entity: priorEntity ?? intent.entity, count: opts.lastResults.length, ok: true }
     : null
   const ctxDecision = decideFollowUp({ followUpType: intent.followUpType, prior })
-  if (ctxDecision === 'confirm_prior') {
-    return { handled: true, usedTool: 'local_context', entity: prior?.entity ?? intent.entity, answer: confirmPriorText(prior) }
-  }
-  if (ctxDecision === 'ask_clarify') {
-    return { handled: true, usedTool: 'local_context', entity: intent.entity, answer: 'No estoy seguro de a qué te refieres. ¿Hablamos de clientes, inmuebles, operaciones o citas?' }
-  }
 
   // Enrutado local por entidad.
   const runFresh = async (): Promise<LocalAnswer> => {
@@ -1478,6 +1679,19 @@ async function tryLocalAnswerInner(
           formatDocLine, 'documento', 'documentos')
       default: return { handled: false }
     }
+  }
+
+  // P71 — GROUNDING + aclaración inteligente (tras definir runFresh):
+  // · confirm_prior («¿seguro?/confírmame»): RECONSULTA la fuente en vivo — jamás repite el conteo cacheado.
+  // · ask_clarify: si el mensaje NOMBRA una entidad concreta (adjetivo atributivo tipo «operaciones
+  //   abiertas»), se lee fresco; solo se pide aclaración si de verdad no hay entidad reconocible.
+  if (ctxDecision === 'confirm_prior') return await runFresh()
+  if (ctxDecision === 'ask_clarify') {
+    const ownEntity = classifyIntent(message).entity
+    if (ownEntity === 'help' || ownEntity === 'unknown') {
+      return { handled: true, usedTool: 'local_context', entity: intent.entity, answer: 'No estoy seguro de a qué te refieres. ¿Hablamos de clientes, inmuebles, operaciones o citas?' }
+    }
+    // el mensaje nombra la entidad → cae a lectura fresca (runFresh) abajo.
   }
 
   const fresh = await runFresh()

@@ -6,9 +6,11 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
+import { loadConversationState, saveConversationState, applyStateUpdate } from '@/lib/agents/conversation-state'
 import { tryLocalAnswer, executeUiAction } from '@/lib/agents/local-answers'
 import { validateAssistantUi } from '@/lib/assistant/ui-contract'
 import { decideTurn } from '@/lib/agents/assistant-turn'
+import type { CrmModuleId } from '@/lib/agents/crm-module-catalog'
 import { allowedToolsForTurn } from '@/lib/agents/assistant-tool-permissions'
 import { signTurnPolicy } from '@/lib/agents/turn-policy'
 import { resolveAssistantProvider } from '@/lib/agents/assistant-provider'
@@ -379,11 +381,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, answer: 'No he podido procesar la acción ahora mismo. No se ha modificado nada; vuelve a intentarlo.', debugSource: 'ui_action', mode: 'local', errorCode: null, toolCalls: null, referencedClientId: null, referencedClientName: null, referencedList: null, referencedCalendarList: null, dataPreview: null, preparedAction: null, ui: null })
     }
 
+    // P71 — ESTADO CONVERSACIONAL UNIFICADO: se carga aquí y lo comparten local-first y n8n. Fail-soft.
+    const turnId = globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}`
+    const convState = threadId ? await loadConversationState(supabase, threadId, user.id) : (await import('@/lib/agents/conversation-state')).emptyState()
+
     // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.
     const recentContext = recentMessages.map((m) => m.content).join(' \n ')
-    const local = await tryLocalAnswer(supabase, workspaceId, message, { recentContext, lastResults: context.lastResults })
+    const local = await tryLocalAnswer(supabase, workspaceId, message, { recentContext, lastResults: context.lastResults, state: convState, turnId })
       .catch(() => ({ handled: false as const }))
     if (local.handled) {
+      // P71 — persistir el estado que resolvió el camino LOCAL (no solo n8n). Fail-soft; nunca rompe.
+      if (threadId && 'stateUpdate' in local && local.stateUpdate) {
+        await saveConversationState(supabase, { workspaceId, userId: user.id, threadId, state: applyStateUpdate(convState, local.stateUpdate) })
+      }
       logInvoke({
         event: 'assistant.v2.invoke',
         workspaceResolved: true,
@@ -422,7 +432,12 @@ export async function POST(req: NextRequest) {
     // /api/agent/tool. El backend impone la política (no confía en n8n). Si el turno no lee datos, el token
     // lleva allowedTools=[] y el endpoint rechaza cualquier lectura. Sin AGENT_TOOL_SECRET, token vacío
     // (modo compat). No contiene secretos ni PII.
-    const turnDecision = decideTurn(message, { priorEntity: activeEntity?.type === 'client' ? 'clients' : undefined })
+    // P71 — el router recibe el módulo activo y si hubo consulta previa (contexto real, no aislado).
+    const turnDecision = decideTurn(message, {
+      priorEntity: activeEntity?.type === 'client' ? 'clients' : undefined,
+      priorModule: (convState.activeModule ?? undefined) as CrmModuleId | undefined,
+      hasLastResult: !!convState.lastDataQuery,
+    })
     const allowedTools = allowedToolsForTurn(turnDecision)
     const toolSecret = process.env.AGENT_TOOL_SECRET?.trim()
     const turnPolicyToken = toolSecret
@@ -458,6 +473,18 @@ export async function POST(req: NextRequest) {
         ?? (uiClient ? { type: uiClient.type, id: uiClient.id, label: uiClient.label } : null)
       if (threadId && resolved) {
         await saveActiveEntity(supabase, { workspaceId, userId: user.id, threadId, entity: resolved })
+      }
+      // P71 — el estado unificado también recoge lo que resolvió n8n (módulo + entidad activa), para que
+      // un turno posterior manejado por LOCAL-first herede la continuidad. Fail-soft.
+      if (threadId) {
+        const convTypeOf = (t: string): 'client' | 'property' | 'opportunity' | 'task' | 'calendar_event' | 'service_case' | 'document' | null =>
+          (['client', 'property', 'opportunity', 'task', 'calendar_event', 'service_case', 'document'] as const).includes(t as never) ? t as never : null
+        const et = resolved ? convTypeOf(resolved.type) : null
+        await saveConversationState(supabase, { workspaceId, userId: user.id, threadId, state: applyStateUpdate(convState, {
+          resolvedModule: turnDecision.module ?? undefined,
+          ...(et && resolved ? { resolvedEntities: [{ entityType: et, entityId: resolved.id, displayLabel: resolved.label ?? '', confidence: 0.7, sourceTurnId: requestId }] } : {}),
+          lastAssistantResultUpdate: { type: turnDecision.shouldReadData ? 'read' : 'explanation', module: turnDecision.module ?? null, capability: 'n8n', entityIds: et && resolved ? [resolved.id] : [], turnId: requestId },
+        }) })
       }
       const ref = resolved
       logInvoke({
