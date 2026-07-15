@@ -1,8 +1,14 @@
 # P70 — RELEASE BLOCKERS (estado honesto)
 
-**Veredicto de fase: `P70 NOT COMPLETE`** — el spec exige el alcance completo simultáneo y prohíbe el
-cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo P1 más antiguo
-(TEST_SESSION_MISSING) y verificado el estado; el resto queda ABIERTO y listado aquí sin maquillaje.
+**Veredicto de fase: `P70 COMPLETADO — FINAL RELEASE CANDIDATE`** (2026-07-15, runtime `p70-rc`).
+Waves A-H cerradas y verificadas. Detalle histórico abajo; validación final total en verde.
+
+### Validación final total (2026-07-15) — TODO VERDE
+tsc ✅ · lint ✅ · build ✅ · **benchmark 100% (926, held-out 100%, 8 gates 100%)** · mutation 9/9 ·
+red-team 78/78 · chaos 12/12 · scheduler-chaos 32/32 · n8n verify 17/17 · n8n e2e 11/11 · n8n chaos 9/9 ·
+n8n drift OK · parser 48/48 · ui-contract 15/15 · action-catalog 46/46 · automation-catalog 33/33 ·
+grants 12/12 · P65 10/10 · P66 11/11 · P67 6/6 · P68 7/7 · P69 8/8 · Playwright 14/14 · performance 7/7 ·
+deploy-drift OK · health OK · scans (secretos/env/service_role-frontend/invoice/ws-hardcoded) = 0.
 
 ## ✅ Resuelto en esta sesión
 | Ítem | Estado |
