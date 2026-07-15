@@ -159,13 +159,32 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
   chaos-e2e(9/9: secreto malo, JSON roto, workspace ajeno en texto, payload gigante, duplicados)}.
 - Prohibiciones verificadas: sin HTTP genérico/SQL/tabla/campo/workspace libres/invoices.
 
+## ✅ Wave F COMPLETA — 2026-07-15 (benchmark + mutation + regression factory)
+- **Benchmark de release** `tests/benchmarks/crm-release-benchmark.ts` (generativo, sembrado):
+  **926 escenarios** (held-out 250 por hash), mínimos contractuales cumplidos (multi-turn 204, adversarial
+  121, lingüísticos 121, temporal 76, acciones 104, automatizaciones 82). Runner
+  `scripts/p70-run-benchmark.mts` contra el motor real con aislamiento (cancela pending / limpia reglas
+  antes y después). **Global 100% · held-out 100% · 8 gates al 100%** (security, workspace, invoicing,
+  confirmation, optin, temporal, regression, grounding) · 0 fallos. `docs/P70_BENCHMARK_RESULTS.md`.
+- **Recalibración honesta**: formas de lectura canónicas (verificadas → tool local) vs ambiguas/delegadas
+  (n8n / explicación de módulo / social — defendible, sin fabricar); adversariales que parsean como
+  PREVIEW no son fallo (el execute exige confirmación). 3 mejoras reales de parser (precio invertido
+  «ponle X al piso de Y», estado de cliente «pasa a lead», fecha de tarea «pasa la tarea para Y»),
+  guardadas por parser-tests 48/48.
+- **Mutation testing** `scripts/p70-mutation-check.mts` + `p70-mutation-probe.mts`: **9/9 mutaciones
+  DETECTADAS** (7 funcionales con inyección real + autorevert; verify vía inyección+build → action-catalog
+  45/46; GRANT vía revoke/regrant real → grants-check 11/12). `docs/P70_MUTATION_RESULTS.md`.
+- **Fábrica de regresiones** `tests/regressions/manifest.json` (16 incidentes P53-P70 con reproductor +
+  clase esperada + detector) + `scripts/p70-add-regression.mjs`. Muchos codificados como reg-* en el
+  benchmark.
+- tsc/lint ✅. Datos demo restaurados (San Pedro 66 price 375.000, area Malasaña, notes null).
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
-| 1 | Wave F: benchmark 750+ con held-out + metamórficos + mutation + manifest regresiones | P1 |
-| 2 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
-| 3 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
-| 4 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat (los flujos existen vía chat/n8n tools) | P2 |
+| 1 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
+| 2 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
+| 3 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat (los flujos existen vía chat/n8n tools) | P2 |
 
 ## Cómo continuar (siguiente sesión)
 1. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo, con su card ya gratis

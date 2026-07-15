@@ -172,6 +172,13 @@ export function parseActionIntent(message: string): AssistantActionIntent | null
       }
     }
   }
+  // P70 Wave F — PRECIO en construcción INVERTIDA (valor antes que la referencia):
+  // «ponle 310.000 € al piso de San Pedro 66», «déjale 250.000 al inmueble de la calle Mayor».
+  const invPrice = raw.match(/\b(?:ponle|pon|dejale|déjale|deja)\s+([\d.]+\s*(?:€|euros?|mil|k)?)\s+(?:al|a la|en el|en la)\s+(?:piso|inmueble|propiedad|casa|local|chalet|[aá]tico)\s+(?:de\s+)?(.+?)[.!?]*$/i)
+  if (invPrice && parsePriceEs(invPrice[1])) {
+    const ref = invPrice[2].trim()
+    return { act: 'prepare', actionType: 'portfolio.update_price', entityText: ref || null, proposedChanges: { price: parsePriceEs(invPrice[1])! }, missingFields: ref ? [] : ['inmueble'] }
+  }
   if (MUTATE_VERB.test(n) && mentionsPrice && /\b(inmueble|piso|propiedad|casa|local|chalet|atico|[A-Z])/.test(raw)) {
     const price = parsePriceEs(raw)
     const ref = extractPropertyRef(raw)
@@ -198,8 +205,9 @@ export function parseActionIntent(message: string): AssistantActionIntent | null
     const newName = m ? m[2].trim() : ''
     return { act: 'prepare', actionType: 'clients.update_name', entityText: entity, proposedChanges: newName ? { name: newName.slice(0, 120) } : {}, missingFields: [...(newName ? [] : ['nuevo nombre']), ...(entity ? [] : ['cliente'])] }
   }
-  // P70 Wave C — ESTADO de cliente: «marca al cliente David como inactivo».
-  if (/\b(marca|cambia|pon|pasa)\b/.test(n) && /\bclient[ea]\b/.test(n) && /\bcomo\b/.test(n)) {
+  // P70 Wave C/F — ESTADO de cliente: «marca al cliente David como inactivo», «pasa al cliente David a
+  // lead». No exige «como»: basta un verbo de cambio + «cliente» + una palabra de estado inequívoca.
+  if (/\b(marca|cambia|pon|pasa)\b/.test(n) && /\bclient[ea]\b/.test(n)) {
     const status = detectClientStatusWord(n)
     if (status) {
       const m = raw.match(/client[ea]\s+(.+?)\s+(?:como|a)\s/i)
@@ -234,6 +242,17 @@ export function parseActionIntent(message: string): AssistantActionIntent | null
     const due = parseDueDateEs(raw, today) ?? raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null
     const m = raw.match(/tarea\s+(?:de\s+)?(.+?)\s+(?:a|para)\s+(mañana|manana|hoy|el \w+|\d{4}-\d{2}-\d{2})/i)
     return { act: 'prepare', actionType: 'tasks.update_due_date', entityText: m ? m[1].trim() : null, proposedChanges: due ? { due_date: due } : {}, missingFields: [...(due ? [] : ['fecha']), ...(m ? [] : ['tarea'])] }
+  }
+  // P70 Wave F — fecha de tarea con verbo de MOVIMIENTO sin la palabra «fecha»: «pasa/mueve/aplaza/
+  // retrasa/adelanta la tarea X para/a <fecha>». Excluye prioridad/estado/título/completar/reabrir.
+  if (/\b(pasa|mueve|aplaza|retrasa|adelanta|reprograma)\b/.test(n) && /\btarea\b/.test(n)
+      && !/\b(prioridad|estado|titulo|título|hecha|hecho|completa|terminada|finaliza|pendiente|reabr)\b/.test(n)) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date())
+    const due = parseDueDateEs(raw, today) ?? raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null
+    if (due) {
+      const m = raw.match(/tarea\s+(?:de\s+)?(.+?)\s+(?:a|para)\s/i)
+      return { act: 'prepare', actionType: 'tasks.update_due_date', entityText: m ? m[1].trim() : null, proposedChanges: { due_date: due }, missingFields: m ? [] : ['tarea'] }
+    }
   }
   // P70 Wave C — fecha límite de TRÁMITE: «cambia la fecha del trámite X a mañana».
   if ((MUTATE_VERB.test(n) || /\bcambia\b/.test(n)) && /\b(fecha|limite|vencimiento)\b/.test(n) && /\b(tramite|expediente)\b/.test(n)) {
