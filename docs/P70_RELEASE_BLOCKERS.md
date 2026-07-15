@@ -179,12 +179,26 @@ cierre por vertical. Con la capacidad de esta sesión se ha resuelto el bloqueo 
   benchmark.
 - tsc/lint ✅. Datos demo restaurados (San Pedro 66 price 375.000, area Malasaña, notes null).
 
+## ✅ Wave G COMPLETA — 2026-07-15 (chaos + red-team + observabilidad + maintenance)
+- **Red team** `scripts/p70-red-team.mts`: **78/78 ataques neutralizados** en 14 grupos (prompt/tool
+  injection, exfiltración secretos/PII, SQLi, XSS/HTML/Markdown, Facturación aislada, hard-delete,
+  tablas/campos arbitrarios, direct-execute/token manipulado/replay, cross-workspace, abuso de
+  automatizaciones, verdad temporal/falso éxito, UI tampering, auth del plano).
+- **Chaos** `scripts/p70-chaos-test.mts`: **12/12** (carrera de confirmaciones idempotente, acción
+  caducada, conflicto de lock optimista sin sobrescribir, fail-soft de lecturas, rate-limit, body
+  malformado). Complementa scheduler-chaos 32/32 y n8n-chaos 9/9.
+- **Observabilidad** documentada (`P70_OBSERVABILITY_MAINTENANCE.md`): traza por turno (logInvoke +
+  assistant.turn + requestId), audit trail durable por acción/automatización/finding (estados, tokens,
+  verify, dedupe, catch-up), SHA/runtime vía diag.
+- **Maintenance dry-run** (solo lectura, no borra audit trail): action/automation/findings-maintenance,
+  deploy-drift-check (staging al día ✅), health-check (staging + n8n 41 nodos + datos demo ✅).
+- tsc/lint ✅. Datos demo restaurados (finding residual `mutqa` limpiado; San Pedro 66 intacto).
+
 ## ⛔ Abierto (P70 los exige todos; ninguno se declara "límite" — son trabajo pendiente)
 | # | Ítem | Prio |
 |---|---|---|
-| 1 | Wave G: chaos + red-team 75+ + observabilidad + maintenance | P1 |
-| 2 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
-| 3 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat (los flujos existen vía chat/n8n tools) | P2 |
+| 1 | Wave H: rollback runbook + performance/accesibilidad + validación final + rc | P1 |
+| 2 | Acciones sobre findings desde el centro (resolver/reconocer) — hoy el centro es lectura + chat (los flujos existen vía chat/n8n tools) | P2 |
 
 ## Cómo continuar (siguiente sesión)
 1. Ampliar registro de acciones (patrón P65/P67 probado) módulo a módulo, con su card ya gratis
