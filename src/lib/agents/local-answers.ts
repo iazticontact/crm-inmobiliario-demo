@@ -22,7 +22,7 @@ import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, reso
 import { wantsFullTour } from '@/lib/summary-intent'
 import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
 import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
-import { isUpcoming, isPast, isPendingTask, isOverdueTask } from '@/lib/assistant-temporal'
+import { isUpcoming, isPast, isPendingTask, isOverdueTask, todayMadridIso } from '@/lib/assistant-temporal'
 import { classifySummaryIntent } from '@/lib/summary-intent'
 import { parseActionIntent, type AssistantActionIntent } from './assistant-action-intent'
 import { signActionToken } from './action-policy'
@@ -33,9 +33,12 @@ import { AUTOMATION_RULES } from './findings-engine'
 import { parseSchedule as parseScheduleJson, scheduleLabelOf, type ScheduleJson } from './automation-schedule'
 import { parseTimeEs } from './assistant-action-intent'
 // P71 — estado conversacional unificado + resolución estructural de referencias.
-import { type ConversationState, type StateUpdate, type ConvEntityType, emptyState } from './conversation-state'
+import { type ConversationState, type StateUpdate, type ConvEntityType, type TemporalScope, emptyState, PENDING_INTENT_TTL_MS } from './conversation-state'
 import { detectReference, resolveAnchor, type AnchorResolution } from './conversation-references'
 import { getClientOpportunities } from '@/lib/agent-tool-readers'
+// P71·It2 — motor temporal (rango en Europe/Madrid) + intención pendiente con slots.
+import { resolveTemporalScope, parseAbsoluteTemporal, formatScopeLabel } from './conversation-temporal'
+import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot } from './conversation-pending'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload; stateUpdate?: StateUpdate }
@@ -836,29 +839,40 @@ async function executeOfferedModule(supabase: SupabaseClient, ws: string, mod: N
 // «¿tengo citas o tareas?», «¿qué tengo pendiente/próximo?», «¿tengo algo en el calendario?». Consulta las
 // DOS fuentes reales (calendar_events + tasks, tablas distintas), responde sí/no por cada una y nunca
 // convierte un vacío en «no hay nada en el CRM».
-async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calendar: boolean; tasks: boolean }): Promise<LocalAnswer> {
+async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calendar: boolean; tasks: boolean }, opts: { scope?: TemporalScope | null; turnId?: string } = {}): Promise<LocalAnswer> {
+  // P71·It2 — alcance temporal opcional: si viene, la consulta a BD se acota a [start, end] (Europe/Madrid)
+  // y la respuesta menciona el periodo. Sin alcance, comportamiento previo (desde hoy, ~2 semanas).
+  const scope = opts.scope && opts.scope.start && opts.scope.end ? opts.scope : null
   let calN: number | null = null, calRows: Row[] = [], calErr = false
   let taskN: number | null = null, taskRows: Row[] = [], taskErr = false
   if (want.calendar) {
-    const r = await getCalendarSummary(supabase, ws, {}) // desde hoy (próximas ~2 semanas)
+    const r = await getCalendarSummary(supabase, ws, scope ? { from: scope.start, to: scope.end, limit: 50 } : {})
     if ('error' in r) calErr = true; else { calRows = r.events as unknown as Row[]; calN = calRows.length }
   }
   if (want.tasks) {
     const r = await getPendingTasks(supabase, ws, {})
-    if ('error' in r) taskErr = true; else { taskRows = r.tasks as unknown as Row[]; taskN = taskRows.length }
+    if ('error' in r) taskErr = true
+    else {
+      taskRows = r.tasks as unknown as Row[]
+      // Acotar tareas por fecha límite dentro del periodo (freshness: se filtra sobre datos ACTUALES).
+      if (scope) taskRows = taskRows.filter((t) => { const d = str(t.due_date).slice(0, 10); return d && d >= scope.start! && d <= scope.end! })
+      taskN = taskRows.length
+    }
   }
   // Fallback parcial: solo error si TODO lo pedido falló.
   if ((want.calendar && calErr && (!want.tasks || taskErr)) && (want.tasks ? taskErr : true) && !(want.calendar && !calErr) && !(want.tasks && !taskErr)) {
     return fail('calendar', 'local_agenda', ws)
   }
+  const periodo = scope ? ` para ${formatScopeLabel(scope)}` : ' próximas'
+  const periodoT = scope ? ` con fecha en ${formatScopeLabel(scope)}` : ' pendientes'
   const lines: string[] = []
   if (want.calendar) {
-    lines.push(calErr ? '• Citas próximas: no he podido consultarlas ahora mismo.'
-      : calN ? `• Citas próximas: **sí**, tienes ${calN}.` : '• Citas próximas: **no**, no tienes ninguna registrada de aquí en adelante.')
+    lines.push(calErr ? '• Citas: no he podido consultarlas ahora mismo.'
+      : calN ? `• Citas${periodo}: **sí**, tienes ${calN}.` : `• Citas${periodo}: **no**, no tienes ninguna${scope ? '' : ' registrada de aquí en adelante'}.`)
   }
   if (want.tasks) {
-    lines.push(taskErr ? '• Tareas pendientes: no he podido consultarlas ahora mismo.'
-      : taskN ? `• Tareas pendientes: **sí**, tienes ${taskN}.` : '• Tareas pendientes: **no**, no tienes ninguna.')
+    lines.push(taskErr ? '• Tareas: no he podido consultarlas ahora mismo.'
+      : taskN ? `• Tareas${periodoT}: **sí**, tienes ${taskN}.` : `• Tareas${periodoT}: **no**, no tienes ninguna.`)
   }
   const detail: string[] = []
   if (want.calendar && calN) detail.push(...calRows.slice(0, 5).map(formatEventLine))
@@ -866,7 +880,16 @@ async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calend
   const both = want.calendar && want.tasks
   const head = both ? 'Te lo dejo claro, mirando calendario y tareas:' : ''
   const answer = [head, lines.join('\n'), detail.length ? '\n' + detail.join('\n') : ''].filter(Boolean).join('\n')
-  return { handled: true, usedTool: 'local_agenda', entity: want.tasks && !want.calendar ? 'tasks' : 'calendar', answer, referencedList: detail.length ? [...calRows.slice(0, 5), ...taskRows.slice(0, 5)] : undefined }
+  // P71·It2 — persistir módulo temporal + alcance (para continuar «¿y la siguiente?») + última consulta viva.
+  const primaryType: ConvEntityType = want.tasks && !want.calendar ? 'task' : 'calendar_event'
+  const primaryModule = want.tasks && !want.calendar ? 'tasks' : 'calendar'
+  const primaryRows = want.tasks && !want.calendar ? taskRows : calRows
+  const stateUpdate: StateUpdate = {
+    resolvedModule: primaryModule,
+    temporalScopeUpdate: scope ?? null,
+    lastDataQueryUpdate: { module: primaryModule, capability: 'local_agenda', entityType: primaryType, resultRefs: toResultRefs(primaryType, primaryRows), executedAt: new Date().toISOString() },
+  }
+  return { handled: true, usedTool: 'local_agenda', entity: want.tasks && !want.calendar ? 'tasks' : 'calendar', answer, referencedList: detail.length ? [...calRows.slice(0, 5), ...taskRows.slice(0, 5)] : undefined, stateUpdate }
 }
 
 // ── P61 · Resumen con DATOS de Cartera (conteo por estado, en vivo) ───────────────────────────────────
@@ -1093,6 +1116,41 @@ async function handleContextualFollowup(supabase: SupabaseClient, ws: string, me
   return readEntityDetailById(supabase, ws, e, turnId)
 }
 
+// ── P71·It2 · CONTINUIDAD TEMPORAL: hereda módulo/capability y SUSTITUYE solo el periodo → reconsulta BD ─
+// «¿y la semana que viene?», «¿y la siguiente?», «¿y este mes?» tras una consulta de agenda: se resuelve el
+// nuevo alcance (absoluto o desplazando el previo) y se vuelve a consultar. Nunca responde del resultado
+// anterior. No secuestra un mensaje que trae su propio módulo no-temporal (cartera/clientes/operaciones).
+async function handleTemporalFollowup(supabase: SupabaseClient, ws: string, message: string, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const today = todayMadridIso()
+  const resolved = resolveTemporalScope(message, state.temporalScope, today, turnId)
+  if (!resolved) return null
+  const n = foldText(message)
+  // La continuidad temporal es de LECTURA: nunca secuestra una ACCIÓN (crear/mover una cita, cambiar un
+  // valor…) ni un COMANDO de automatización. «agéndame una visita mañana» o «activa la agenda de la mañana»
+  // NO son consultas de citas de mañana. parseActionIntent cubre las acciones P65; el verbo cubre la
+  // creación/gestión de automatizaciones (que no es una acción P65).
+  if (parseActionIntent(message)) return null
+  if (/\b(activa|crea|programa|configura|desactiva|pausa|reactiva|ejecuta|lanza|cambia|cambiale|modifica|actualiza|pon|ponle|edita|corrige|marca|mueve|reprograma|apunta|recuerdame|anade|añade)\b/.test(n)) return null
+  // Un mensaje con módulo NO temporal explícito no es una continuación de agenda.
+  if (PROPERTY_VOCAB.test(n) || /\bclient[ea]s?\b/.test(n) || /\boperacion(es)?\b/.test(n) || /\b(tramite|expediente)s?\b/.test(n) || /\b(vendid|ventas|factura)\b/.test(n)) return null
+  // Módulo temporal a heredar: el que nombre el mensaje, o el activo/último si era temporal.
+  const temporalMods = new Set(['calendar', 'tasks'])
+  const mentionsTareas = /\b(tarea|tareas|pendientes?)\b/.test(n)
+  const mentionsCitas = /\b(cita|citas|calendario|agenda|reunion(es)?|visitas?)\b/.test(n)
+  let mod: string | null = mentionsTareas ? 'tasks' : mentionsCitas ? 'calendar' : null
+  if (!mod) {
+    mod = state.activeModule && temporalMods.has(state.activeModule) ? state.activeModule
+      : state.lastDataQuery && temporalMods.has(state.lastDataQuery.module) ? state.lastDataQuery.module : null
+  }
+  if (!mod) return null
+  // Absoluto SIN contexto temporal previo y sin ser continuación explícita («y…») → lo maneja el flujo normal
+  // (que también registra el alcance). Así no cambiamos el comportamiento de una primera consulta con fecha.
+  const startsWithContinuation = /^\s*¿?\s*y\b/i.test(message.trim())
+  if (resolved.via === 'absolute' && !state.temporalScope && !startsWithContinuation && !mentionsCitas && !mentionsTareas) return null
+  const want = mod === 'tasks' ? { calendar: false, tasks: true } : { calendar: true, tasks: false }
+  return handleAgenda(supabase, ws, want, { scope: resolved.scope, turnId })
+}
+
 // Reconsulta la MISMA lectura anterior con datos ACTUALES (grounding; reemplaza el atajo confirm_prior).
 async function rerunLastQuery(supabase: SupabaseClient, ws: string, state: ConversationState): Promise<LocalAnswer> {
   const q = state.lastDataQuery
@@ -1200,7 +1258,13 @@ export async function tryLocalAnswer(
   // P71 — enriquecer el stateUpdate con la última consulta de datos (referencias ligeras, NO datos),
   // de forma general: cualquier lectura que devuelva una lista deja resolubles ordinales/extremos.
   const withState = enrichReadStateUpdate(r, message, opts.turnId ?? '')
-  return { ...withState, answer: withState.answer.replace(/\*\*/g, '') }
+  // P71·It2 — CAMBIO DE TEMA: si había una intención pendiente y este turno resolvió OTRO objetivo (su tool
+  // no es del flujo de intención pendiente), la intención anterior queda cancelada (no contamina el hilo).
+  let stateUpdate = withState.stateUpdate
+  if (opts.state?.pendingIntent && !withState.usedTool.startsWith('local_pending')) {
+    stateUpdate = { ...(stateUpdate ?? {}), clearPendingIntent: true }
+  }
+  return { ...withState, stateUpdate, answer: withState.answer.replace(/\*\*/g, '') }
 }
 
 async function tryLocalAnswerInner(
@@ -1212,8 +1276,42 @@ async function tryLocalAnswerInner(
   const recentContext = opts.recentContext ?? ''
   const state = opts.state ?? emptyState()
   const turnId = opts.turnId ?? ''
+  const today = todayMadridIso()
 
-  // ── P71 · RESOLUCIÓN CONTEXTUAL PRIMERO (referencias/ordinales/extremos/«otra vez») ─────────────────
+  // ── P71·It2 · INTENCIÓN PENDIENTE — completar con el complemento del turno, o cancelar ────────────────
+  // Si hay una acción pendiente y este turno la CANCELA o la COMPLETA, se resuelve aquí (antes de re-enrutar).
+  // Completar NUNCA ejecuta: produce un PREVIEW (prepare→confirm→execute→verify de P70). Un mensaje que trae
+  // su propia acción completa o un objetivo nuevo NO se fuerza como complemento (cae al flujo normal y el
+  // wrapper cancela la intención anterior).
+  if (state.pendingIntent && state.pendingIntent.kind === 'action') {
+    const pi = state.pendingIntent
+    if (detectExplicitCancel(message)) {
+      return { handled: true, usedTool: 'local_pending:cancel', entity: 'help', answer: 'Vale, lo dejo. He descartado el cambio pendiente; no se ha tocado nada.', stateUpdate: { clearPendingIntent: true } }
+    }
+    const ownAction = parseActionIntent(message)
+    const isOwnComplete = !!ownAction && ownAction.act === 'prepare' && !ownAction.missingFields.length
+    if (!isOwnComplete) {
+      const comp = completePendingAction(pi, message, today)
+      const filled = (o: Record<string, unknown>) => Object.values(o).filter((v) => v !== undefined && v !== null && v !== '').length
+      const madeProgress = !!comp && (comp.done || filled(comp.collected) > filled(pi.collectedSlots))
+      if (comp && madeProgress && (looksLikeSlotFiller(message) || comp.done)) {
+        if (comp.done) {
+          const handled = await handleChatAction(supabase, workspaceId, comp.intent)
+          if (handled.handled) return { ...handled, usedTool: 'local_pending:complete', stateUpdate: { ...(handled.stateUpdate ?? {}), clearPendingIntent: true } }
+        } else {
+          const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+          return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(comp.askSlot, comp.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...pi, collectedSlots: comp.collected, requiredSlots: comp.stillMissing, expiresAt, status: 'awaiting_slot' } } }
+        }
+      }
+    }
+    // Sin progreso ni cancelación → objetivo nuevo: sigue el flujo normal (el wrapper cancela lo pendiente).
+  }
+
+  // ── P71·It2 · CONTINUIDAD TEMPORAL antes de referencias: «¿y la semana que viene?» hereda módulo y periodo.
+  const tmpFollow = await handleTemporalFollowup(supabase, workspaceId, message, state, turnId)
+  if (tmpFollow && tmpFollow.handled) return tmpFollow
+
+  // ── P71 · RESOLUCIÓN CONTEXTUAL (referencias/ordinales/extremos/«otra vez») ─────────────────
   // Antes del enrutado general: si el mensaje es una referencia y el estado tiene contexto, se resuelve
   // el ancla (id/criterio) y se RECONSULTA la fuente real. Nunca responde desde el estado. No corre si el
   // mensaje es una escritura (verbo mutador) — eso lo maneja el plano de acciones.
@@ -1264,6 +1362,16 @@ async function tryLocalAnswerInner(
     if (actionIntent) {
       const handled = await handleChatAction(supabase, workspaceId, actionIntent)
       if (handled.handled) return handled
+    }
+    // P71·It2 — acción con INTENCIÓN clara pero INCOMPLETA (imperativa o desiderativa: «quiero cambiar el
+    // precio de un inmueble»). No ejecuta ni inventa: crea intención pendiente y pregunta SOLO por el slot que
+    // falta; el complemento llega en el turno siguiente y produce el preview. Solo si no hay ya una pendiente.
+    if (!state.pendingIntent) {
+      const inc = detectIncompleteAction(message, today)
+      if (inc) {
+        const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+        return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(inc.askSlot, inc.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...inc.pending, sourceTurnId: turnId, expiresAt } } }
+      }
     }
   }
 
@@ -1576,9 +1684,12 @@ async function tryLocalAnswerInner(
     const agendaGeneric = !mentionsPortfolio && /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
     // Existencia O verbo de lectura («en el calendario me puedes mirar?» debe leer, answer-first).
     const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no|mira(me|lo|la)?|mirar|muestra(me)?|ensename|ver|consulta|revisa|lee|dime)\b/.test(nmsg)
-    if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true })
-    if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false })
-    if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true })
+    // P71·It2 — alcance temporal explícito en la consulta («citas de esta semana», «tareas de hoy»): se acota
+    // la lectura al periodo y se registra en el estado para poder continuar («¿y la siguiente?»).
+    const agendaScope = parseAbsoluteTemporal(message, today, turnId)
+    if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true }, { scope: agendaScope, turnId })
+    if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false }, { scope: agendaScope, turnId })
+    if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true }, { scope: agendaScope, turnId })
 
     // P63 — Cartera con intención de ESTADO en turno ambiguo («todo lo de propiedades»): la resuelve el
     // handler de properties (listado por estado), nunca n8n ni otro módulo.

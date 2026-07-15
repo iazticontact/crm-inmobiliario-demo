@@ -1,6 +1,6 @@
 # P70 — Resultados del benchmark de release
 
-- Versión: 1.0.0 · Seed: `p70-release-2026-07-15` · Fecha: 2026-07-15T21:58Z
+- Versión: 1.0.0 · Seed: `p70-release-2026-07-15` · Fecha: 2026-07-15T23:25Z
 - Escenarios: **926** (training 676 · **held-out 250**)
 - Volumen contractual: multi-turn 204/≥200 · adversarial 121/≥120 · errores lingüísticos 121/≥120 · temporal 76/≥75 · acciones 104/≥100 · automatizaciones 82/≥75
 - **Global: 100.00%** · Training: 100.00% · **Held-out: 100.00%**

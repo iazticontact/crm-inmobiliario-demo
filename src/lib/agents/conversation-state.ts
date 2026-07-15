@@ -11,8 +11,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export const CONVERSATION_STATE_VERSION = 1
+export const CONVERSATION_STATE_VERSION = 2
 const STATE_TTL_MS = 24 * 60 * 60 * 1000 // 24 h: un hilo inactivo no arrastra estado rancio
+// P71·It2 — vida de una intención pendiente: caduca sola si el usuario no la completa (nunca un «sí»
+// tardío confirma nada). Corta a propósito (minutos), no horas: una intención vieja es ruido.
+export const PENDING_INTENT_TTL_MS = 6 * 60 * 1000 // 6 min
 const MAX_ENTITIES = 8
 const MAX_REFERENTS = 12
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -40,22 +43,37 @@ export type Referent = {
   confidence: number
 }
 
+// P71·It2 — TIPOS DE SLOT generales (nunca campos del incidente): describen QUÉ falta, no una frase.
+export type PendingSlot =
+  | 'entity' | 'field' | 'value' | 'date' | 'period' | 'filter' | 'status' | 'ordering' | 'limit'
+export const PENDING_SLOTS: ReadonlySet<string> = new Set([
+  'entity', 'field', 'value', 'date', 'period', 'filter', 'status', 'ordering', 'limit',
+])
+export type PendingIntentKind = 'read' | 'action'
+export type PendingIntentStatus = 'awaiting_slot' | 'ready' | 'completed' | 'cancelled' | 'expired'
+
 export type PendingIntent = {
-  capability: string        // p. ej. 'portfolio.update_price', 'read:properties', 'calendar.create'
+  kind: PendingIntentKind    // 'action' → SIEMPRE preview (prepare→confirm→execute→verify); nunca ejecuta
+  capability: string         // p. ej. 'portfolio.update_price', 'read:tasks', 'calendar.create'
   module: string | null
-  requiredSlots: string[]
-  collectedSlots: Record<string, unknown>
+  requiredSlots: string[]    // slots que AÚN faltan (subconjunto de PendingSlot)
+  collectedSlots: Record<string, unknown> // slot → valor ya conocido (se acumula turno a turno)
   originalRequest: string
   sourceTurnId: string
   expiresAt: string
   confidence: number
+  status: PendingIntentStatus
 }
 
+export type TemporalGranularity = 'day' | 'week' | 'month' | 'relative_days' | 'range'
 export type TemporalScope = {
-  start: string | null
-  end: string | null
-  timezone: string
+  start: string | null            // ISO yyyy-mm-dd (día completo en la zona), inclusivo
+  end: string | null              // ISO yyyy-mm-dd, inclusivo
+  timezone: string                // Europe/Madrid (verdad)
+  granularity: TemporalGranularity | null
   interpretation: string | null   // "esta semana", "la semana que viene", "hoy"… (etiqueta, no dato)
+  sourceTurnId: string
+  confidence: number
 }
 
 // Referencias LIGERAS del último listado (ids+labels ordenados), para resolver ordinales/extremos.
@@ -125,19 +143,22 @@ export function validateConversationState(v: unknown): ConversationState | null 
   if (pending && typeof pending === 'object') {
     const p = pending as Record<string, unknown>
     if (typeof p.capability === 'string' && Array.isArray(p.requiredSlots)) {
+      const st = String(p.status)
       pendingIntent = {
+        kind: p.kind === 'read' ? 'read' : 'action',
         capability: p.capability, module: typeof p.module === 'string' ? p.module : null,
-        requiredSlots: (p.requiredSlots as unknown[]).map(String),
+        requiredSlots: (p.requiredSlots as unknown[]).map(String).filter((s) => PENDING_SLOTS.has(s)),
         collectedSlots: (p.collectedSlots && typeof p.collectedSlots === 'object') ? p.collectedSlots as Record<string, unknown> : {},
-        originalRequest: typeof p.originalRequest === 'string' ? p.originalRequest : '',
+        originalRequest: typeof p.originalRequest === 'string' ? p.originalRequest.slice(0, 400) : '',
         sourceTurnId: typeof p.sourceTurnId === 'string' ? p.sourceTurnId : '',
-        expiresAt: typeof p.expiresAt === 'string' ? p.expiresAt : new Date(Date.now() + 5 * 60_000).toISOString(),
+        expiresAt: typeof p.expiresAt === 'string' ? p.expiresAt : new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString(),
         confidence: typeof p.confidence === 'number' ? p.confidence : 0.5,
+        status: (['awaiting_slot', 'ready', 'completed', 'cancelled', 'expired'] as string[]).includes(st) ? st as PendingIntentStatus : 'awaiting_slot',
       }
     }
   }
-  // Intención pendiente caducada → se descarta (un "sí" antiguo jamás confirma nada).
-  if (pendingIntent && Date.parse(pendingIntent.expiresAt) < Date.now()) pendingIntent = null
+  // Intención pendiente caducada o ya cerrada → se descarta (un "sí" antiguo jamás confirma nada).
+  if (pendingIntent && (Date.parse(pendingIntent.expiresAt) < Date.now() || pendingIntent.status === 'completed' || pendingIntent.status === 'cancelled' || pendingIntent.status === 'expired')) pendingIntent = null
   return {
     version: CONVERSATION_STATE_VERSION,
     updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : new Date().toISOString(),
@@ -155,7 +176,15 @@ export function validateConversationState(v: unknown): ConversationState | null 
     pendingIntent,
     temporalScope: (o.temporalScope && typeof o.temporalScope === 'object') ? (() => {
       const t = o.temporalScope as Record<string, unknown>
-      return { start: typeof t.start === 'string' ? t.start : null, end: typeof t.end === 'string' ? t.end : null, timezone: typeof t.timezone === 'string' ? t.timezone : 'Europe/Madrid', interpretation: typeof t.interpretation === 'string' ? t.interpretation : null }
+      const g = String(t.granularity)
+      return {
+        start: typeof t.start === 'string' ? t.start : null, end: typeof t.end === 'string' ? t.end : null,
+        timezone: typeof t.timezone === 'string' ? t.timezone : 'Europe/Madrid',
+        granularity: (['day', 'week', 'month', 'relative_days', 'range'] as string[]).includes(g) ? g as TemporalGranularity : null,
+        interpretation: typeof t.interpretation === 'string' ? t.interpretation : null,
+        sourceTurnId: typeof t.sourceTurnId === 'string' ? t.sourceTurnId : '',
+        confidence: typeof t.confidence === 'number' ? t.confidence : 0.5,
+      }
     })() : null,
     lastDataQuery: (o.lastDataQuery && typeof o.lastDataQuery === 'object') ? (() => {
       const q = o.lastDataQuery as Record<string, unknown>
