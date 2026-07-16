@@ -33,12 +33,12 @@ import { AUTOMATION_RULES } from './findings-engine'
 import { parseSchedule as parseScheduleJson, scheduleLabelOf, type ScheduleJson } from './automation-schedule'
 import { parseTimeEs } from './assistant-action-intent'
 // P71 — estado conversacional unificado + resolución estructural de referencias.
-import { type ConversationState, type StateUpdate, type ConvEntityType, type TemporalScope, emptyState, PENDING_INTENT_TTL_MS } from './conversation-state'
+import { type ConversationState, type StateUpdate, type ConvEntityType, type TemporalScope, type EntityRef, emptyState, PENDING_INTENT_TTL_MS } from './conversation-state'
 import { detectReference, resolveAnchor, type AnchorResolution } from './conversation-references'
 import { getClientOpportunities } from '@/lib/agent-tool-readers'
-// P71·It2 — motor temporal (rango en Europe/Madrid) + intención pendiente con slots.
+// P71·It2/It3 — motor temporal (rango en Europe/Madrid) + intención pendiente con slots del action registry.
 import { resolveTemporalScope, parseAbsoluteTemporal, formatScopeLabel } from './conversation-temporal'
-import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot } from './conversation-pending'
+import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot, buildPendingFromIntent } from './conversation-pending'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload; stateUpdate?: StateUpdate }
@@ -1143,6 +1143,26 @@ async function handleTemporalFollowup(supabase: SupabaseClient, ws: string, mess
       : state.lastDataQuery && temporalMods.has(state.lastDataQuery.module) ? state.lastDataQuery.module : null
   }
   if (!mod) return null
+  // ── COMPOSICIÓN entidad + periodo ──────────────────────────────────────────────────────────────────
+  // Si el mensaje refiere a una entidad (posesivo «sus», demostrativo, elisión «tiene») que resuelve a un
+  // CLIENTE del estado, la consulta es RELACIONAL acotada: sus citas/tareas DENTRO del periodo. entityScope
+  // y temporalScope coexisten; si el cliente no tiene relaciones en el periodo → empty REAL (nunca global).
+  const ref = detectReference(message)
+  let scopedClient: EntityRef | null = null
+  if (ref) { const a = resolveAnchor(ref, state); if (a && a.type === 'entity' && a.entity.entityType === 'client') scopedClient = a.entity }
+  if (!scopedClient && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
+    scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
+  }
+  // CONTINUIDAD del scope: si la ÚLTIMA consulta ya era relacional (citas/tareas de un cliente), una
+  // continuación temporal sin nueva referencia sigue acotada a ESE cliente (no salta a la agenda global).
+  if (!scopedClient && /^local_client_(events|tasks)$/.test(state.lastDataQuery?.capability ?? '')) {
+    scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
+  }
+  if (scopedClient) {
+    return mod === 'tasks'
+      ? readClientTasks(supabase, ws, scopedClient, turnId, resolved.scope)
+      : readClientEvents(supabase, ws, scopedClient, turnId, resolved.scope)
+  }
   // Absoluto SIN contexto temporal previo y sin ser continuación explícita («y…») → lo maneja el flujo normal
   // (que también registra el alcance). Así no cambiamos el comportamiento de una primera consulta con fecha.
   const startsWithContinuation = /^\s*¿?\s*y\b/i.test(message.trim())
@@ -1207,22 +1227,31 @@ async function readClientOperations(supabase: SupabaseClient, ws: string, e: { e
   return { handled: true, usedTool: 'local_client_operations', entity: 'operations', answer: `Operaciones de ${e.displayLabel} (${ops.length}):\n${lines.join('\n')}`, referencedList: ops, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'operations', capability: 'local_client_operations', entityType: 'opportunity', resultRefs: toResultRefs('opportunity', ops), executedAt: new Date().toISOString() } } }
 }
 
-async function readClientTasks(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
-  const { data, error } = await supabase.from('tasks').select('id, title, due_date, status, priority, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).order('due_date', { ascending: true, nullsFirst: false }).limit(15)
-  const su: StateUpdate = { resolvedModule: 'tasks', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+async function readClientTasks(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string, scope?: TemporalScope | null): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('tasks').select('id, title, due_date, status, priority, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).order('due_date', { ascending: true, nullsFirst: false }).limit(30)
+  const su: StateUpdate = { resolvedModule: 'tasks', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }], ...(scope !== undefined ? { temporalScopeUpdate: scope } : {}) }
   if (error) return fail('tasks', 'local_client_tasks', ws)
-  const rows = ((data ?? []) as Row[]).filter((t) => isPendingTask(t.status as string | null))
-  if (!rows.length) return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `${e.displayLabel} no tiene tareas pendientes.`, stateUpdate: su }
-  return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `Tareas pendientes de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map(formatTaskLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'tasks', capability: 'local_client_tasks', entityType: 'task', resultRefs: toResultRefs('task', rows), executedAt: new Date().toISOString() } } }
+  let rows = ((data ?? []) as Row[]).filter((t) => isPendingTask(t.status as string | null))
+  // COMPOSICIÓN entidad+periodo: se acota por fecha límite dentro del rango (empty REAL, nunca global).
+  if (scope && scope.start && scope.end) rows = rows.filter((t) => { const d = str(t.due_date).slice(0, 10); return d && d >= scope.start! && d <= scope.end! })
+  const per = scope ? ` (${formatScopeLabel(scope)})` : ' pendientes'
+  if (!rows.length) return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `${e.displayLabel} no tiene tareas${per}.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `Tareas de ${e.displayLabel}${per} (${rows.length}):\n${rows.slice(0, 8).map(formatTaskLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'tasks', capability: 'local_client_tasks', entityType: 'task', resultRefs: toResultRefs('task', rows), executedAt: new Date().toISOString() } } }
 }
 
-async function readClientEvents(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
-  const { data, error } = await supabase.from('calendar_events').select('id, title, date, start_at, status, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(15)
-  const su: StateUpdate = { resolvedModule: 'calendar', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+async function readClientEvents(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string, scope?: TemporalScope | null): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('calendar_events').select('id, title, date, start_at, status, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(50)
+  const su: StateUpdate = { resolvedModule: 'calendar', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }], ...(scope !== undefined ? { temporalScopeUpdate: scope } : {}) }
   if (error) return fail('calendar', 'local_client_events', ws)
-  const rows = ((data ?? []) as Row[]).filter((ev) => isUpcoming(str(ev.date) || str(ev.start_at), ev.status as string | null))
-  if (!rows.length) return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `${e.displayLabel} no tiene citas próximas.`, stateUpdate: su }
-  return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `Citas próximas de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map(formatEventLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'calendar', capability: 'local_client_events', entityType: 'calendar_event', resultRefs: toResultRefs('calendar_event', rows), executedAt: new Date().toISOString() } } }
+  // Con periodo: se acota a [start,end] (Europe/Madrid). Sin periodo: próximas (comportamiento previo).
+  const rows = ((data ?? []) as Row[]).filter((ev) => {
+    const d = (str(ev.date) || str(ev.start_at)).slice(0, 10)
+    if (scope && scope.start && scope.end) return d >= scope.start && d <= scope.end
+    return isUpcoming(str(ev.date) || str(ev.start_at), ev.status as string | null)
+  })
+  const per = scope ? ` para ${formatScopeLabel(scope)}` : ' próximas'
+  if (!rows.length) return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `${e.displayLabel} no tiene citas${per}.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `Citas de ${e.displayLabel}${per} (${rows.length}):\n${rows.slice(0, 8).map(formatEventLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'calendar', capability: 'local_client_events', entityType: 'calendar_event', resultRefs: toResultRefs('calendar_event', rows), executedAt: new Date().toISOString() } } }
 }
 
 async function readClientProperties(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
@@ -1292,7 +1321,8 @@ async function tryLocalAnswerInner(
     const isOwnComplete = !!ownAction && ownAction.act === 'prepare' && !ownAction.missingFields.length
     if (!isOwnComplete) {
       const comp = completePendingAction(pi, message, today)
-      const filled = (o: Record<string, unknown>) => Object.values(o).filter((v) => v !== undefined && v !== null && v !== '').length
+      // Cuenta solo slots reales (ignora metadatos internos «__prov»): evita falso progreso.
+      const filled = (o: Record<string, unknown>) => Object.entries(o).filter(([k, v]) => !k.startsWith('__') && v !== undefined && v !== null && v !== '').length
       const madeProgress = !!comp && (comp.done || filled(comp.collected) > filled(pi.collectedSlots))
       if (comp && madeProgress && (looksLikeSlotFiller(message) || comp.done)) {
         if (comp.done) {
@@ -1358,20 +1388,26 @@ async function tryLocalAnswerInner(
   // normal: un «sí» sin acción pendiente puede ser aceptación de oferta, nunca ejecuta escrituras).
   // Nunca en turnos meta/corrección/queja ni en Facturación.
   if (turn.domain !== 'invoicing' && !['user_correction', 'user_complaint', 'assistant_meta', 'disagreement'].includes(turn.turnType)) {
+    const askPending = (build: ReturnType<typeof detectIncompleteAction>): LocalAnswer => {
+      const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+      return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(build!.askSlot, build!.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...build!.pending, sourceTurnId: turnId, expiresAt } } }
+    }
     const actionIntent = parseActionIntent(message)
     if (actionIntent) {
+      // P71·It3 — acción IMPERATIVA pero INCOMPLETA (le faltan slots): en vez de pedir y olvidar, se crea una
+      // intención pendiente (derivada del registry) que combinará el turno siguiente hasta producir el preview.
+      if (actionIntent.act === 'prepare' && actionIntent.missingFields.length && !state.pendingIntent) {
+        const build = buildPendingFromIntent(actionIntent, message)
+        if (build) return askPending(build)
+      }
       const handled = await handleChatAction(supabase, workspaceId, actionIntent)
       if (handled.handled) return handled
     }
-    // P71·It2 — acción con INTENCIÓN clara pero INCOMPLETA (imperativa o desiderativa: «quiero cambiar el
-    // precio de un inmueble»). No ejecuta ni inventa: crea intención pendiente y pregunta SOLO por el slot que
-    // falta; el complemento llega en el turno siguiente y produce el preview. Solo si no hay ya una pendiente.
+    // P71·It2 — acción con INTENCIÓN clara pero INCOMPLETA en forma DESIDERATIVA («quiero cambiar el precio de
+    // un inmueble»), que parseActionIntent no captura: crea intención pendiente y pregunta SOLO por lo que falta.
     if (!state.pendingIntent) {
       const inc = detectIncompleteAction(message, today)
-      if (inc) {
-        const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
-        return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(inc.askSlot, inc.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...inc.pending, sourceTurnId: turnId, expiresAt } } }
-      }
+      if (inc) return askPending(inc)
     }
   }
 

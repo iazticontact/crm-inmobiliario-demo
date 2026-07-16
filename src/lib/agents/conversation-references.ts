@@ -84,8 +84,11 @@ export function detectReference(message: string): ReferenceKind | null {
       return { kind: 'extreme', field, dir }
     }
   }
-  if (DEMONSTRATIVE.test(n)) {
-    const noun = NOUN_TO_TYPE.find(([re]) => re.test(n))?.[1] ?? null
+  // «este/esta …» puede ser TEMPORAL («este mes», «esta semana»), no una referencia a entidad: se retiran
+  // esas combinaciones antes de decidir que hay un demostrativo (lo temporal lo resuelve el motor temporal).
+  const nNoTemporal = n.replace(/\b(este|esta|ese|esa|aquel|aquella)\s+(mes|semana|ano|año|dia|día|trimestre|finde|fin de semana|verano|invierno|primavera|otono|otoño|trimestres?)\b/g, ' ')
+  if (DEMONSTRATIVE.test(nNoTemporal)) {
+    const noun = NOUN_TO_TYPE.find(([re]) => re.test(nNoTemporal))?.[1] ?? null
     return { kind: 'demonstrative', noun }
   }
   if (POSSESSIVE.test(n)) return { kind: 'possessive' }

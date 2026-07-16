@@ -258,6 +258,31 @@ export function applyStateUpdate(prev: ConversationState, u: StateUpdate): Conve
   return next
 }
 
+// ── Compatibilidad de versiones (v1 → v2) ─────────────────────────────────────────────────────────────
+// P71·It3 — un estado v1 VÁLIDO no se tira: se ADAPTA. Se conservan activeModule/capability/goal, las
+// entidades y referentes seguros, la última consulta y el último resultado; pendingIntent y temporalScope
+// (formas nuevas de v2) se inicializan a null (no se arrastran formas antiguas). Solo se descarta lo que no
+// es recuperable con seguridad. No hay migración de BD: el JSON versionado se re-escribe en el próximo save.
+export type StateLoadOutcome = 'loaded_v2' | 'upgraded' | 'reset_invalid' | 'empty'
+
+export function upgradeConversationState(raw: unknown): { state: ConversationState | null; outcome: StateLoadOutcome } {
+  if (raw === null || raw === undefined) return { state: null, outcome: 'empty' }
+  if (typeof raw !== 'object') return { state: null, outcome: 'reset_invalid' }
+  const o = raw as Record<string, unknown>
+  if (o.version === CONVERSATION_STATE_VERSION) {
+    const v = validateConversationState(o)
+    return v ? { state: v, outcome: 'loaded_v2' } : { state: null, outcome: 'reset_invalid' }
+  }
+  if (o.version === 1) {
+    // Coerción a la forma v2: se descartan las formas antiguas de pendingIntent/temporalScope (incompatibles)
+    // y se re-valida. Lo demás (módulo/entidades/referentes/última consulta) lo conserva el validador.
+    const coerced = { ...o, version: CONVERSATION_STATE_VERSION, pendingIntent: null, temporalScope: null }
+    const v = validateConversationState(coerced)
+    return v ? { state: v, outcome: 'upgraded' } : { state: null, outcome: 'reset_invalid' }
+  }
+  return { state: null, outcome: 'reset_invalid' }
+}
+
 // ── Persistencia (fail-soft, RLS por workspace+user; reutiliza assistant_agent_memory) ────────────────
 export async function loadConversationState(supabase: SupabaseClient, threadId: string, userId: string): Promise<ConversationState> {
   if (!threadId || !userId) return emptyState()
@@ -267,13 +292,20 @@ export async function loadConversationState(supabase: SupabaseClient, threadId: 
       .select('metadata, expires_at')
       .eq('thread_id', threadId).eq('user_id', userId).eq('memory_type', 'conversation_state')
       .order('updated_at', { ascending: false }).limit(1).maybeSingle()
-    if (!data) return emptyState()
+    if (!data) { logStateLoad('empty'); return emptyState() }
     const row = data as { metadata?: unknown; expires_at?: string | null }
-    if (row.expires_at && Date.parse(row.expires_at) < Date.now()) return emptyState()
-    return validateConversationState((row.metadata as { state?: unknown } | null)?.state) ?? emptyState()
+    if (row.expires_at && Date.parse(row.expires_at) < Date.now()) { logStateLoad('empty'); return emptyState() }
+    const { state, outcome } = upgradeConversationState((row.metadata as { state?: unknown } | null)?.state)
+    logStateLoad(outcome)
+    return state ?? emptyState()
   } catch {
     return emptyState()
   }
+}
+
+// Métrica segura del resultado de carga (SIN PII: solo el outcome). Alimenta dashboards de salud del estado.
+function logStateLoad(outcome: StateLoadOutcome): void {
+  console.log('[conversation-state.load]', { outcome })
 }
 
 export async function saveConversationState(
