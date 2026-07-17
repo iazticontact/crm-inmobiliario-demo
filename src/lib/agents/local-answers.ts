@@ -38,7 +38,9 @@ import { detectReference, resolveAnchor, type AnchorResolution } from './convers
 import { getClientOpportunities } from '@/lib/agent-tool-readers'
 // P71·It2/It3 — motor temporal (rango en Europe/Madrid) + intención pendiente con slots del action registry.
 import { resolveTemporalScope, parseAbsoluteTemporal, formatScopeLabel } from './conversation-temporal'
-import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot, buildPendingFromIntent } from './conversation-pending'
+import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot, buildPendingFromIntent, isAffirmativeParticleOnly } from './conversation-pending'
+// P71·F3.2 — metadata de capacidades temporales de lectura (campo de fecha real por módulo).
+import { TEMPORAL_READ_CAPABILITIES } from './conversation-scope'
 
 export type LocalAnswer =
   | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload; stateUpdate?: StateUpdate }
@@ -1080,6 +1082,131 @@ function enrichReadStateUpdate(r: Extract<LocalAnswer, { handled: true }>, messa
   return { ...r, stateUpdate: update }
 }
 
+// ── P71·F3.1 · ENTIDAD EXPLÍCITA por CANDIDATOS REALES del workspace ──────────────────────────────────
+// La regex solo EXTRAE spans de nombre propio (secuencias Capitalizadas, sin palabras funcionales/de módulo/
+// temporales); la DECISIÓN es siempre de los datos: searchClients + desambiguación. Nunca elige en silencio.
+const NAME_SPAN_STOP: ReadonlySet<string> = new Set([
+  // interrogativos / imperativos de lectura frecuentes (arranque de frase capitalizado)
+  'que', 'cual', 'cuales', 'cuanto', 'cuanta', 'cuantos', 'cuantas', 'como', 'cuando', 'donde', 'quien', 'quienes',
+  'dame', 'dime', 'muestrame', 'muestra', 'ensename', 'lista', 'listame', 'abre', 'busca', 'buscame', 'ver',
+  'hola', 'buenas', 'buenos', 'oye', 'mira', 'vale', 'ok', 'gracias', 'quiero', 'necesito', 'puedes', 'tengo',
+  // funcionales / conectores
+  'el', 'la', 'los', 'las', 'un', 'una', 'este', 'esta', 'ese', 'esa', 'y', 'o', 'de', 'del', 'para', 'por', 'con', 'sin', 'pero', 'si', 'no',
+  // sustantivos de módulo/entidad (un tipo no es un nombre)
+  'cliente', 'clientes', 'inmueble', 'inmuebles', 'piso', 'pisos', 'propiedad', 'propiedades', 'casa', 'chalet', 'atico', 'local',
+  'operacion', 'operaciones', 'oportunidad', 'oportunidades', 'tarea', 'tareas', 'cita', 'citas', 'visita', 'visitas',
+  'reunion', 'reuniones', 'tramite', 'tramites', 'expediente', 'expedientes', 'cartera', 'calendario', 'agenda',
+  'documento', 'documentos', 'ficha', 'crm', 'asistente', 'resumen',
+  // temporales (días/meses/palabras de periodo capitalizables)
+  'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo',
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  'hoy', 'manana', 'ayer', 'semana', 'mes', 'dia', 'ano',
+])
+// Un span puede ser FUERTE (Capitalizado: señal ortográfica de nombre propio) o DÉBIL (minúsculas tras un
+// marcador relacional). La fuerza gradúa la reacción ante un 0-match: un span FUERTE inexistente se dice
+// («no encuentro a X»); un span DÉBIL que no resuelve se ignora (era predicado/andamiaje, no un nombre:
+// «tienen cierre previsto» jamás debe bloquear una lectura legítima).
+type NameSpan = { span: string; strong: boolean }
+function extractProperNameSpans(raw: string): NameSpan[] {
+  const spans: NameSpan[] = []
+  const push = (words: string[], strong: boolean) => {
+    while (words.length && NAME_SPAN_STOP.has(foldText(words[0]))) words.shift()
+    while (words.length && NAME_SPAN_STOP.has(foldText(words[words.length - 1]))) words.pop()
+    if (!words.length) return
+    const cleaned = words.join(' ')
+    if (cleaned.length < 3 || NAME_SPAN_STOP.has(foldText(cleaned))) return
+    if (!spans.some((s) => foldText(s.span) === foldText(cleaned))) spans.push({ span: cleaned, strong })
+  }
+  // (a) Secuencias Capitalizadas (señal FUERTE de nombre propio).
+  const re = /[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+(?:de(?:l)?\s+|de la\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*/g
+  for (const m of raw.matchAll(re)) push(m[0].split(/\s+/), true)
+  // (b) Tras un MARCADOR RELACIONAL, también en minúsculas («las citas de maría garcía la semana que
+  //     viene»): candidato DÉBIL — solo cuenta si RESUELVE contra clientes reales. Se recortan por la cola
+  //     los PARTICIPIOS/ADJETIVOS (clase morfológica del español: -ado/-ido/-iente/-ivo…): «tiene
+  //     programadas», «cierre previsto» son predicado, no nombre.
+  const PREDICATE_SUFFIX = /(?:ad[oa]s?|id[oa]s?|ient?es?|iv[oa]s?|os[oa]s?|ist[oa]s?)$/
+  const rel = /\b(?:de|del|con|tiene|tienen)\s+((?:[a-záéíóúñA-ZÁÉÍÓÚÑ][\wáéíóúñ'-]*\s*){1,3})/g
+  for (const m of raw.matchAll(rel)) {
+    const words = m[1].trim().split(/\s+/)
+    const cut: string[] = []
+    for (const w of words) { if (NAME_SPAN_STOP.has(foldText(w))) break; cut.push(w) }
+    while (cut.length && PREDICATE_SUFFIX.test(foldText(cut[cut.length - 1]))) cut.pop()
+    push(cut, false)
+  }
+  // Fuertes primero: la señal ortográfica manda.
+  return spans.sort((a, b) => Number(b.strong) - Number(a.strong))
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+type ExplicitClientResolution =
+  | { kind: 'one'; ref: EntityRef }
+  | { kind: 'many'; names: string[]; span: string }
+  | { kind: 'none'; span: string }        // span FUERTE (Capitalizado) sin coincidencias → se dice
+  | { kind: 'weak_miss'; span: string }   // solo spans débiles sin resolución → el llamador decide
+  | null
+async function resolveExplicitClientScope(
+  supabase: SupabaseClient, ws: string, message: string,
+  opts: { requireRelationMarker?: boolean } = {},
+): Promise<ExplicitClientResolution> {
+  let spans = extractProperNameSpans(message)
+  if (opts.requireRelationMarker) {
+    // Solo spans en posición RELACIONAL («de/del/con X», «tiene X»): un topónimo suelto no bloquea nada.
+    spans = spans.filter((s) => new RegExp(`\\b(?:de|del|con|para)\\s+(?:el |la )?${escapeRe(s.span)}`, 'i').test(message)
+      || new RegExp(`\\b(?:tiene|tienen)\\s+${escapeRe(s.span)}`, 'i').test(message))
+  }
+  if (!spans.length) return null
+  let firstStrongMiss: string | null = null
+  let firstWeakMiss: string | null = null
+  for (const { span, strong } of spans) {
+    const res = await searchClients(supabase, ws, { query: span, limit: 5 })
+    if ('error' in res) continue
+    const one = (c: { id: string; name: string }): ExplicitClientResolution =>
+      ({ kind: 'one', ref: { entityType: 'client', entityId: String(c.id), displayLabel: String(c.name), confidence: 0.85, sourceTurnId: '' } })
+    if (res.results.length === 1) return one(res.results[0])
+    if (res.results.length > 1) {
+      const exact = res.results.filter((c) => foldText(String(c.name)) === foldText(span) || foldText(String(c.name)).startsWith(foldText(span) + ' '))
+      if (exact.length === 1) return one(exact[0])
+      return { kind: 'many', names: res.results.slice(0, 4).map((c) => String(c.name)), span }
+    }
+    // 0-match: solo un span FUERTE (Capitalizado) inexistente merece bloquear con «no encuentro a X»;
+    // un span débil sin resolución suele ser andamiaje («tienen cierre previsto») — el llamador decide.
+    if (strong && !firstStrongMiss) firstStrongMiss = span
+    if (!strong && !firstWeakMiss) firstWeakMiss = span
+  }
+  if (firstStrongMiss) return { kind: 'none', span: firstStrongMiss }
+  if (firstWeakMiss) return { kind: 'weak_miss', span: firstWeakMiss }
+  return null
+}
+
+// ── P71·F3.2 · LECTURA de un módulo TEMPORAL acotada a periodo (y opcionalmente a cliente) ────────────
+// Ejecuta crmReadQuery con dateRange sobre el dateCol REAL de la entidad (metadata, server-side, RLS) y
+// clientRef opcional. Sin resultados → vacío REAL del scope pedido, jamás datos globales.
+async function handleModuleInPeriod(supabase: SupabaseClient, ws: string, mod: string, scope: TemporalScope, client: EntityRef | null, turnId: string): Promise<LocalAnswer> {
+  const capMeta = TEMPORAL_READ_CAPABILITIES[mod]
+  const entity: CrmEntity = mod === 'operations' ? 'operations' : 'service_cases'
+  const T = `local_period:${mod}`
+  const rq = await crmReadQuery(supabase, ws, {
+    entity: capMeta.queryEntity, limit: 20,
+    ...(client ? { clientRef: client.entityId } : {}),
+    dateRange: { from: scope.start, to: scope.end },
+    orderBy: capMeta.dateField, orderDirection: 'asc',
+  })
+  if ('error' in rq) return fail(entity, T, ws)
+  const rows = rq.rows as Row[]
+  const who = client ? ` de ${client.displayLabel}` : ''
+  const noun = mod === 'operations' ? 'operaciones' : 'trámites'
+  const convType: ConvEntityType = mod === 'operations' ? 'opportunity' : 'service_case'
+  const su: StateUpdate = {
+    resolvedModule: mod, temporalScopeUpdate: scope,
+    ...(client ? { resolvedEntities: [{ ...client, sourceTurnId: turnId }] } : {}),
+    lastDataQueryUpdate: { module: mod, capability: T, entityType: convType, resultRefs: toResultRefs(convType, rows), executedAt: new Date().toISOString() },
+  }
+  const label = formatScopeLabel(scope)
+  if (!rows.length) return { handled: true, usedTool: T, entity, answer: `No hay ${noun}${who} ${capMeta.periodLabel} ${label}.`, stateUpdate: su }
+  const fmt = mod === 'operations' ? formatOperationLine : formatCaseLine
+  return { handled: true, usedTool: T, entity, answer: `${cap(noun)}${who} ${capMeta.periodLabel} ${label} (${rows.length}):\n${rows.slice(0, 8).map(fmt).join('\n')}`, referencedList: rows, stateUpdate: su }
+}
+
 // ── P71 · RESOLUCIÓN CONTEXTUAL: referencia → ancla → RECONSULTA de la fuente real ────────────────────
 async function handleContextualFollowup(supabase: SupabaseClient, ws: string, message: string, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
   const n = foldText(message)
@@ -1088,11 +1215,78 @@ async function handleContextualFollowup(supabase: SupabaseClient, ws: string, me
   if (/\b(cambia|cambiale|actualiza|modifica|pon(le|lo)?|sube|baja|edita|corrige|crea|anade|añade|marca|mueve|pasa|reprograma|activa|programa|elimina|borra|confirma|confirmo|cancela|descarta|adelante|hazlo)\b/.test(n)) return null
   const ref = detectReference(message)
   let anchor = ref ? resolveAnchor(ref, state) : null
+  // P71 — ORDINAL sobre un CONTEO: «¿cuántos clientes tengo?» responde un número sin lista, pero «la ficha
+  // del primero» sigue siendo resoluble: se RECONSULTA la lista del módulo con orden estable y se indexa.
+  // (El estado solo dice QUÉ se consultó; la lista se lee fresca — nunca de memoria.)
+  if (!anchor && ref?.kind === 'ordinal' && state.lastDataQuery && !state.lastDataQuery.resultRefs.length && state.lastDataQuery.entityType) {
+    const QE: Record<string, string> = { client: 'clients', property: 'properties', opportunity: 'opportunities', task: 'tasks', calendar_event: 'calendar_events', service_case: 'service_cases' }
+    const qe = QE[state.lastDataQuery.entityType]
+    if (qe) {
+      const rq = await crmReadQuery(supabase, ws, { entity: qe, limit: 25 })
+      if (!('error' in rq)) {
+        const rows = rq.rows as Row[]
+        const idx = ref.index < 0 ? rows.length + ref.index : ref.index
+        const row = rows[idx]
+        const id = row ? str(row.id) : ''
+        if (row && /^[0-9a-f-]{36}$/i.test(id)) {
+          anchor = { type: 'entity', entity: { entityType: state.lastDataQuery.entityType, entityId: id, displayLabel: str(row.name) || str(row.title) || 'elemento', confidence: 0.8, sourceTurnId: turnId }, via: 'ordinal:requery', confidence: 0.8 }
+        }
+      }
+    }
+  }
+  // P71 — BÚSQUEDA por nombre sin la palabra «cliente» y sin mayúsculas: «busca a roberto diaz». El verbo
+  // de búsqueda define la intención; el NOMBRE lo validan los candidatos reales (jamás se adivina).
+  if (!anchor && /\b(busca(me)?|encuentra|localiza)\b/.test(n)) {
+    const tail = message.match(/\b(?:busca(?:me)?|encuentra|localiza)\s+(?:a\s+|al\s+|el\s+|la\s+)?(.+)$/i)?.[1]?.trim()
+    if (tail && tail.length >= 3 && !/\b(cliente|inmueble|piso|operacion|tarea|cita|tramite)\b/.test(foldText(tail))) {
+      const res = await searchClients(supabase, ws, { query: tail.slice(0, 80), limit: 5 })
+      if (!('error' in res)) {
+        if (res.results.length === 1) {
+          const c0 = res.results[0]
+          anchor = { type: 'entity', entity: { entityType: 'client', entityId: String(c0.id), displayLabel: String(c0.name), confidence: 0.85, sourceTurnId: turnId }, via: 'search', confidence: 0.85 }
+        } else if (res.results.length > 1) {
+          return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `He encontrado varios clientes que coinciden con «${tail}»:\n${res.results.slice(0, 4).map((c) => `• ${String(c.name)}`).join('\n')}\n¿A cuál te refieres?` }
+        }
+        // 0 coincidencias → flujo normal (puede ser un inmueble u otra búsqueda que resuelven otros handlers)
+      }
+    }
+  }
   // ELISIÓN de 3ª persona: «¿qué operaciones tiene?», «¿cuántas citas tiene?» — sin sujeto explícito el
   // sujeto es la ENTIDAD ACTIVA. Se distingue de 1ª/2ª persona (tengo/tienes/tenemos = el USUARIO, global).
+  // P71·F3.1 — un SUJETO EXPLÍCITO gana SIEMPRE a la entidad activa: «¿qué operaciones tiene María?» debe
+  // resolver a María contra candidatos reales; si no existe → decirlo (jamás usar la activa por accidente).
   if (!anchor && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
-    const owner = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
-    if (owner) anchor = { type: 'entity', entity: owner, via: 'elision', confidence: 0.7 }
+    const explicit = await resolveExplicitClientScope(supabase, ws, message)
+    if (explicit?.kind === 'one') anchor = { type: 'entity', entity: explicit.ref, via: 'explicit', confidence: 0.85 }
+    else if (explicit?.kind === 'many') {
+      return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+    } else if (explicit?.kind === 'none') {
+      return { handled: true, usedTool: 'local_scope:notfound', entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${explicit.span}». ¿Puedes darme el nombre completo o comprobar cómo está registrado?` }
+    } else if (explicit?.kind === 'weak_miss' && state.activeEntities.length) {
+      // El sujeto tras «tiene» podría ser un nombre que no resuelve: JAMÁS usar la entidad activa por
+      // accidente — se pregunta (mejor una aclaración de más que datos de la entidad equivocada).
+      const active = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
+      return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `No encuentro ningún cliente llamado «${explicit.span}». ¿Te refieres a ${active.displayLabel} (el último que miramos) o a otra persona?` }
+    } else {
+      const owner = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
+      if (owner) anchor = { type: 'entity', entity: owner, via: 'elision', confidence: 0.7 }
+    }
+  }
+  // P71·F3.1 — relación EXPLÍCITA sin referencia previa: «las operaciones de maría» (sin pronombre ni
+  // elisión, con o sin mayúsculas). Solo con marcador relacional y candidatos reales; 0 coincidencias →
+  // flujo normal (no bloquea lecturas globales legítimas ni búsquedas por título de inmueble/operación).
+  // El módulo puede venir del mensaje o HEREDARSE de la última consulta («¿y las de María?» tras citas).
+  if (!anchor) {
+    const targetMod = resolveModuleFromText(message)
+    const inheritedMod = state.lastDataQuery && TEMPORAL_READ_CAPABILITIES[state.lastDataQuery.module] ? state.lastDataQuery.module : null
+    const relational = ['operations', 'tasks', 'calendar', 'portfolio', 'cases'].includes(targetMod ?? '') || (!targetMod && !!inheritedMod)
+    if (relational && /\b(de|del|con)\s+\p{L}/iu.test(message)) {
+      const explicit = await resolveExplicitClientScope(supabase, ws, message, { requireRelationMarker: true })
+      if (explicit?.kind === 'one') anchor = { type: 'entity', entity: explicit.ref, via: 'explicit', confidence: 0.85 }
+      else if (explicit?.kind === 'many') {
+        return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+      }
+    }
   }
   if (!anchor) return null
 
@@ -1105,11 +1299,17 @@ async function handleContextualFollowup(supabase: SupabaseClient, ws: string, me
 
   // anchor.type === 'entity': el llamador SIEMPRE reconsulta la fuente por id.
   const e = anchor.entity
+  // P71·F3.1 — módulo: el del mensaje o, si el mensaje es elíptico («¿y las de María?»), el HEREDADO de la
+  // última consulta temporal-capaz. El periodo vigente se hereda SOLO si esa última consulta era del mismo
+  // módulo (una continuación habla «de lo mismo»); si no, la lectura scoped usa su ventana por defecto.
   const targetModule = resolveModuleFromText(message)
+    ?? (state.lastDataQuery && TEMPORAL_READ_CAPABILITIES[state.lastDataQuery.module] ? state.lastDataQuery.module as ReturnType<typeof resolveModuleFromText> : null)
+  const inheritScope = (m: string): TemporalScope | undefined =>
+    state.temporalScope && state.lastDataQuery?.module === m ? state.temporalScope : undefined
   if (e.entityType === 'client') {
     if (targetModule === 'operations') return readClientOperations(supabase, ws, e, turnId)
-    if (targetModule === 'tasks') return readClientTasks(supabase, ws, e, turnId)
-    if (targetModule === 'calendar') return readClientEvents(supabase, ws, e, turnId)
+    if (targetModule === 'tasks') return readClientTasks(supabase, ws, e, turnId, inheritScope('tasks'))
+    if (targetModule === 'calendar') return readClientEvents(supabase, ws, e, turnId, inheritScope('calendar'))
     if (targetModule === 'portfolio') return readClientProperties(supabase, ws, e, turnId)
     return readClientDetailById(supabase, ws, e, turnId)
   }
@@ -1130,45 +1330,61 @@ async function handleTemporalFollowup(supabase: SupabaseClient, ws: string, mess
   // NO son consultas de citas de mañana. parseActionIntent cubre las acciones P65; el verbo cubre la
   // creación/gestión de automatizaciones (que no es una acción P65).
   if (parseActionIntent(message)) return null
-  if (/\b(activa|crea|programa|configura|desactiva|pausa|reactiva|ejecuta|lanza|cambia|cambiale|modifica|actualiza|pon|ponle|edita|corrige|marca|mueve|reprograma|apunta|recuerdame|anade|añade)\b/.test(n)) return null
-  // Un mensaje con módulo NO temporal explícito no es una continuación de agenda.
-  if (PROPERTY_VOCAB.test(n) || /\bclient[ea]s?\b/.test(n) || /\boperacion(es)?\b/.test(n) || /\b(tramite|expediente)s?\b/.test(n) || /\b(vendid|ventas|factura)\b/.test(n)) return null
-  // Módulo temporal a heredar: el que nombre el mensaje, o el activo/último si era temporal.
-  const temporalMods = new Set(['calendar', 'tasks'])
+  if (/\b(activa|crea|programa|configura|desactiva|pausa|reactiva|ejecuta|lanza|cambia|cambiale|modifica|actualiza|pon|ponle|edita|corrige|marca|mueve|reprograma|apunta|recuerdame|anade|añade|agendar|agendame)\b/.test(n)) return null
+  // Sin semántica temporal de lectura: cartera (un inmueble no «ocurre» en una semana), ventas, facturación.
+  if (PROPERTY_VOCAB.test(n) || /\b(vendid|ventas|factura)\b/.test(n)) return null
+  // P71·F3.2 — módulo temporal por METADATA (no por frases): el que nombre el mensaje, o el heredable del
+  // estado si su capability declara continuidad (TEMPORAL_READ_CAPABILITIES).
   const mentionsTareas = /\b(tarea|tareas|pendientes?)\b/.test(n)
   const mentionsCitas = /\b(cita|citas|calendario|agenda|reunion(es)?|visitas?)\b/.test(n)
-  let mod: string | null = mentionsTareas ? 'tasks' : mentionsCitas ? 'calendar' : null
+  const mentionsOps = /\b(operacion(es)?|oportunidad(es)?)\b/.test(n)
+  const mentionsCases = /\b(tramite|tramites|expediente|expedientes)\b/.test(n)
+  let mod: string | null = mentionsTareas ? 'tasks' : mentionsCitas ? 'calendar' : mentionsOps ? 'operations' : mentionsCases ? 'cases' : null
   if (!mod) {
-    mod = state.activeModule && temporalMods.has(state.activeModule) ? state.activeModule
-      : state.lastDataQuery && temporalMods.has(state.lastDataQuery.module) ? state.lastDataQuery.module : null
+    const inheritable = (m: string | null | undefined) => (m && TEMPORAL_READ_CAPABILITIES[m]?.allowsContinuity ? m : null)
+    mod = inheritable(state.activeModule) ?? inheritable(state.lastDataQuery?.module)
   }
-  if (!mod) return null
-  // ── COMPOSICIÓN entidad + periodo ──────────────────────────────────────────────────────────────────
-  // Si el mensaje refiere a una entidad (posesivo «sus», demostrativo, elisión «tiene») que resuelve a un
-  // CLIENTE del estado, la consulta es RELACIONAL acotada: sus citas/tareas DENTRO del periodo. entityScope
-  // y temporalScope coexisten; si el cliente no tiene relaciones en el periodo → empty REAL (nunca global).
-  const ref = detectReference(message)
-  let scopedClient: EntityRef | null = null
-  if (ref) { const a = resolveAnchor(ref, state); if (a && a.type === 'entity' && a.entity.entityType === 'client') scopedClient = a.entity }
+  if (!mod || !TEMPORAL_READ_CAPABILITIES[mod]) return null
+
+  // ── COMPOSICIÓN entidad + periodo (entityScope y temporalScope COEXISTEN, nunca se pisan) ────────────
+  // P71·F3.1 — la entidad puede venir (a) EXPLÍCITA por nombre → candidatos reales del workspace (gana a
+  // todo; N→aclarar; 0→decirlo, jamás global bajo referencia de entidad); (b) por referencia/elisión del
+  // estado; (c) por continuidad del scope relacional anterior.
+  const explicit = await resolveExplicitClientScope(supabase, ws, message, { requireRelationMarker: true })
+  if (explicit?.kind === 'many') {
+    return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+  }
+  if (explicit?.kind === 'none') {
+    return { handled: true, usedTool: 'local_scope:notfound', entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${explicit.span}», así que no te muestro datos de otra cosa. Si te referías a una zona o a un inmueble, dímelo de otra forma.` }
+  }
+  let scopedClient: EntityRef | null = explicit?.kind === 'one' ? explicit.ref : null
+  const refk = scopedClient ? null : detectReference(message)
+  if (!scopedClient && refk) { const a = resolveAnchor(refk, state); if (a && a.type === 'entity' && a.entity.entityType === 'client') scopedClient = a.entity }
   if (!scopedClient && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
     scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
   }
-  // CONTINUIDAD del scope: si la ÚLTIMA consulta ya era relacional (citas/tareas de un cliente), una
-  // continuación temporal sin nueva referencia sigue acotada a ESE cliente (no salta a la agenda global).
+  // CONTINUIDAD del scope: si la ÚLTIMA consulta ya era relacional (de un cliente), la continuación
+  // temporal sin nueva referencia sigue acotada al MISMO cliente (no salta a lo global). El scope de
+  // cliente de un local_period se reconoce porque la entidad activa participó en esa consulta.
   if (!scopedClient && /^local_client_(events|tasks)$/.test(state.lastDataQuery?.capability ?? '')) {
     scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
   }
-  if (scopedClient) {
-    return mod === 'tasks'
-      ? readClientTasks(supabase, ws, scopedClient, turnId, resolved.scope)
-      : readClientEvents(supabase, ws, scopedClient, turnId, resolved.scope)
+
+  if (mod === 'calendar' || mod === 'tasks') {
+    if (scopedClient) {
+      return mod === 'tasks'
+        ? readClientTasks(supabase, ws, scopedClient, turnId, resolved.scope)
+        : readClientEvents(supabase, ws, scopedClient, turnId, resolved.scope)
+    }
+    // Absoluto SIN contexto temporal previo y sin ser continuación explícita («y…») → flujo normal (que
+    // también registra el alcance). No cambia el comportamiento de una primera consulta con fecha.
+    const startsWithContinuation = /^\s*¿?\s*y\b/i.test(message.trim())
+    if (resolved.via === 'absolute' && !state.temporalScope && !startsWithContinuation && !mentionsCitas && !mentionsTareas) return null
+    const want = mod === 'tasks' ? { calendar: false, tasks: true } : { calendar: true, tasks: false }
+    return handleAgenda(supabase, ws, want, { scope: resolved.scope, turnId })
   }
-  // Absoluto SIN contexto temporal previo y sin ser continuación explícita («y…») → lo maneja el flujo normal
-  // (que también registra el alcance). Así no cambiamos el comportamiento de una primera consulta con fecha.
-  const startsWithContinuation = /^\s*¿?\s*y\b/i.test(message.trim())
-  if (resolved.via === 'absolute' && !state.temporalScope && !startsWithContinuation && !mentionsCitas && !mentionsTareas) return null
-  const want = mod === 'tasks' ? { calendar: false, tasks: true } : { calendar: true, tasks: false }
-  return handleAgenda(supabase, ws, want, { scope: resolved.scope, turnId })
+  // operations / cases — P71·F3.2: crmReadQuery con dateRange sobre el dateCol real (+ clientRef opcional).
+  return handleModuleInPeriod(supabase, ws, mod, resolved.scope, scopedClient, turnId)
 }
 
 // Reconsulta la MISMA lectura anterior con datos ACTUALES (grounding; reemplaza el atajo confirm_prior).
@@ -1293,6 +1509,20 @@ export async function tryLocalAnswer(
   if (opts.state?.pendingIntent && !withState.usedTool.startsWith('local_pending')) {
     stateUpdate = { ...(stateUpdate ?? {}), clearPendingIntent: true }
   }
+  // P71·F5 — traza SEGURA del cerebro por turno (tipos y conteos; jamás labels, texto del usuario ni PII).
+  // Permite responder: por qué esta ruta, con qué scope de entidad/tiempo, y si quedó intención pendiente.
+  console.log('[assistant.brain]', {
+    turnId: opts.turnId ?? '',
+    tool: withState.usedTool,
+    module: stateUpdate?.resolvedModule ?? opts.state?.activeModule ?? null,
+    entityScope: (stateUpdate?.resolvedEntities?.length ?? 0) > 0
+      ? { type: stateUpdate!.resolvedEntities![0].entityType, count: stateUpdate!.resolvedEntities!.length }
+      : (opts.state?.activeEntities?.length ? { type: opts.state.activeEntities[0].entityType, count: opts.state.activeEntities.length, inherited: true } : null),
+    temporal: stateUpdate?.temporalScopeUpdate?.interpretation ?? null,
+    pendingSlots: stateUpdate?.pendingIntentUpdate?.requiredSlots ?? (stateUpdate?.clearPendingIntent ? [] : opts.state?.pendingIntent?.requiredSlots ?? null),
+    listRefs: stateUpdate?.lastDataQueryUpdate?.resultRefs?.length ?? null,
+    freshness: 'live',
+  })
   return { ...withState, stateUpdate, answer: withState.answer.replace(/\*\*/g, '') }
 }
 
@@ -1321,9 +1551,16 @@ async function tryLocalAnswerInner(
     const isOwnComplete = !!ownAction && ownAction.act === 'prepare' && !ownAction.missingFields.length
     if (!isOwnComplete) {
       const comp = completePendingAction(pi, message, today)
-      // Cuenta solo slots reales (ignora metadatos internos «__prov»): evita falso progreso.
+      // P71·F3.4 — «sí / vale / adelante» con una intención INCOMPLETA: no hay preview que confirmar
+      // todavía; se re-pregunta el slot que falta (la intención se conserva, con expiración renovada).
+      if (comp && !comp.done && isAffirmativeParticleOnly(message)) {
+        const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+        return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: `Aún no tengo todo para prepararlo. ${askForSlot(comp.askSlot, comp.askEntityNoun)}`, stateUpdate: { pendingIntentUpdate: { ...pi, requiredSlots: comp.stillMissing, collectedSlots: comp.collected, expiresAt, status: 'awaiting_slot' } } }
+      }
+      // Progreso = más slots llenos O una CORRECCIÓN (mismo slot, valor distinto). Ignora metadatos «__».
       const filled = (o: Record<string, unknown>) => Object.entries(o).filter(([k, v]) => !k.startsWith('__') && v !== undefined && v !== null && v !== '').length
-      const madeProgress = !!comp && (comp.done || filled(comp.collected) > filled(pi.collectedSlots))
+      const corrected = !!comp && Object.keys(comp.collected).some((k) => !k.startsWith('__') && pi.collectedSlots[k] !== undefined && comp.collected[k] !== pi.collectedSlots[k])
+      const madeProgress = !!comp && (comp.done || corrected || filled(comp.collected) > filled(pi.collectedSlots))
       if (comp && madeProgress && (looksLikeSlotFiller(message) || comp.done)) {
         if (comp.done) {
           const handled = await handleChatAction(supabase, workspaceId, comp.intent)
@@ -1590,7 +1827,8 @@ async function tryLocalAnswerInner(
     // operaciones ganadas» es un imperativo de automatización inequívoco (verbo de activación + tipo
     // del registry), no una consulta de ventas.
     const nmsgAuto = foldText(message)
-    if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsgAuto) && !/\botra vez\b|\bde nuevo\b/.test(nmsgAuto) && detectAutomationType(nmsgAuto) !== null) {
+    // P71 — morfología abierta («actívame», «créame», «prográmame»): sufijo \w*, no formas exactas.
+    if (/\b(activa\w*|crea\w*|programa\w*|configura\w*|quiero)\b/.test(nmsgAuto) && !/\botra vez\b|\bde nuevo\b/.test(nmsgAuto) && detectAutomationType(nmsgAuto) !== null) {
       const early = handleAutomationCreatePreview(nmsgAuto)
       if (early) return early
     }
@@ -1618,7 +1856,8 @@ async function tryLocalAnswerInner(
     const autoIntent = (() => {
       if (/\b(lista|muestra|ver|cuales son)\b.*\bautomatizacion(es)?\b/.test(nmsg) || /\bmis automatizaciones\b/.test(nmsg)) return { kind: 'list' as const }
       // P70 Wave D — creación para CUALQUIER tipo del registry (vocabulario canónico) + frecuencia.
-      if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsg) && !/\botra vez\b|\bde nuevo\b/.test(nmsg) && detectAutomationType(nmsg) !== null) {
+      // P71 — morfología abierta («actívame», «créame»): sufijo \w*.
+      if (/\b(activa\w*|crea\w*|programa\w*|configura\w*|quiero)\b/.test(nmsg) && !/\botra vez\b|\bde nuevo\b/.test(nmsg) && detectAutomationType(nmsg) !== null) {
         return { kind: 'activate' as const }
       }
       if (/\bdesactiva\b.*\b(resumen|auditoria|automatizacion|aviso)\b/.test(nmsg)) return { kind: 'disable' as const }

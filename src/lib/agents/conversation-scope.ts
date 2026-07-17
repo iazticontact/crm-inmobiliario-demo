@@ -38,8 +38,28 @@ const CAPABILITY_NOUN: Array<[RegExp, string]> = [
   [/\b(cita|citas|calendario|agenda|reunion(es)?|visitas?)\b/, 'calendar'],
   [/\b(tarea|tareas|pendientes?)\b/, 'tasks'],
   [/\b(operacion|operaciones|oportunidad(es)?|venta|ventas)\b/, 'operations'],
+  [/\b(tramite|tramites|expediente|expedientes)\b/, 'cases'],
   [/\b(inmueble|inmuebles|piso|pisos|propiedad(es)?|cartera)\b/, 'portfolio'],
 ]
+
+// ── P71·F3.2 — CAPACIDADES TEMPORALES de lectura (metadata, no frases) ────────────────────────────────
+// Derivadas del modelo REAL: cada entidad de CRM_QUERY_ENTITIES declara su `dateCol`; aquí se proyecta qué
+// módulos tienen semántica temporal de lectura, con qué campo y con qué etiqueta honesta. Cartera queda
+// FUERA a propósito (un inmueble no «ocurre» en una semana) y Facturación está aislada. La continuidad
+// («¿y la semana que viene?») solo se hereda entre módulos declarados aquí.
+export type TemporalCapability = {
+  module: string
+  queryEntity: 'calendar_events' | 'tasks' | 'opportunities' | 'service_cases'
+  dateField: string          // columna real usada por crmReadQuery.dateRange
+  periodLabel: string        // cómo se enuncia el periodo en la respuesta («con cierre previsto en …»)
+  allowsContinuity: boolean
+}
+export const TEMPORAL_READ_CAPABILITIES: Record<string, TemporalCapability> = {
+  calendar: { module: 'calendar', queryEntity: 'calendar_events', dateField: 'date', periodLabel: 'para', allowsContinuity: true },
+  tasks: { module: 'tasks', queryEntity: 'tasks', dateField: 'due_date', periodLabel: 'con fecha límite en', allowsContinuity: true },
+  operations: { module: 'operations', queryEntity: 'opportunities', dateField: 'expected_close_date', periodLabel: 'con cierre previsto en', allowsContinuity: true },
+  cases: { module: 'cases', queryEntity: 'service_cases', dateField: 'due_date', periodLabel: 'con vencimiento en', allowsContinuity: true },
+}
 
 function detectCapability(message: string): string | null {
   const n = foldText(message)

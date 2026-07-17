@@ -11,7 +11,7 @@
 
 import { foldText } from '@/lib/real-estate-search'
 import {
-  parsePriceEs, parsePhoneEs, parseDueDateEs, parseTimeEs,
+  parsePriceEs, parsePhoneEs, parseDueDateEs, parseTimeEs, detectCalendarType,
   detectClientStatusWord, detectPriorityWord, detectOperationStage, detectCaseStatusWord,
   type AssistantActionIntent,
 } from './assistant-action-intent'
@@ -19,6 +19,21 @@ import { getActionDefinition, type AssistantActionId } from './action-registry'
 import type { PendingIntent, PendingSlot } from './conversation-state'
 
 const emailParse = (msg: string): string | null => msg.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/)?.[0] ?? null
+
+// ── P71·F3.4 — PARTÍCULAS DISCURSIVAS (clase general del español, no frases): asentimiento/negación/
+// cortesía. Un mensaje compuesto SOLO de partículas jamás es un nombre de entidad ni un valor de slot.
+const PARTICLE_WORD = '(?:si|sí|no|vale|ok|okay|okey|claro|venga|genial|perfecto|estupendo|gracias|de acuerdo|por favor|confirma(?:lo)?|confirmo|adelante|dale|hazlo|eso es|exacto|correcto|entendido)'
+const DISCOURSE_PARTICLE_ONLY = new RegExp(`^(?:${PARTICLE_WORD})(?:[\\s.,;:!?¡¿]+(?:${PARTICLE_WORD}))*[\\s.,;:!?]*$`, 'i')
+export function isDiscourseParticleOnly(message: string): boolean {
+  const n = foldText(message).trim()
+  return !!n && DISCOURSE_PARTICLE_ONLY.test(n)
+}
+// Afirmación pura («sí», «vale, adelante»): con una intención pendiente, NO es un slot — se re-pregunta.
+const AFFIRMATIVE_ONLY = /^(?:si|sí|vale|ok|okay|claro|venga|adelante|dale|confirma(?:lo)?|confirmo|perfecto|genial|hazlo|de acuerdo)(?:[\s.,;:!?]+(?:si|sí|vale|ok|okay|claro|venga|adelante|dale|confirma(?:lo)?|confirmo|perfecto|genial|hazlo|de acuerdo|por favor))*[\s.,;:!?]*$/
+export function isAffirmativeParticleOnly(message: string): boolean {
+  const n = foldText(message).trim()
+  return !!n && AFFIRMATIVE_ONLY.test(n)
+}
 function detectPortfolioStatusWord(n: string): string | null {
   const map: Record<string, string> = { vendid: 'sold', alquilad: 'rented', reservad: 'under_contract', publicad: 'listed', archivad: 'archived' }
   const m = n.match(/\b(vendid[oa]|alquilad[oa]|reservad[oa]|publicad[oa]|archivad[oa])\b/)
@@ -37,12 +52,14 @@ const TYPE_NOUN = '(?:inmueble|inmuebles|piso|pisos|propiedad|propiedades|casa|c
 //  3) el resolver real del workspace desambigua. Nunca elimina un token de tipo que sea principio del nombre.
 function extractEntityNeedle(message: string): string | null {
   let raw = message.trim()
+  // P71·F3.4 — un mensaje SOLO de partículas discursivas («sí, confirma», «vale») jamás es una entidad.
+  if (isDiscourseParticleOnly(raw)) return null
   raw = raw.replace(/\s+(a|al|como|en|para|hasta)\s+\S.*$/i, ' ').trim() // 1 · quita el valor final
   // 2 · si hay «(artículo) (tipo) NOMBRE», nos quedamos con NOMBRE (un solo tipo, precedido de artículo).
   const artType = raw.match(new RegExp(`\\b(?:el|la|los|las|un|una|del|de la|al)\\s+${TYPE_NOUN}\\s+(.+)$`, 'i'))
   let needle = artType ? artType[1] : raw
-  // Marcadores de discurso/corrección al inicio, que no forman parte del nombre («mejor …», «pues …»).
-  needle = needle.replace(/^\s*(?:mejor|en realidad|pues|vale|oye|mira|perdona|no espera|no,)\s+/i, '').trim()
+  // Marcadores de discurso/corrección al inicio, que no forman parte del nombre («mejor …», «sí, el de…»).
+  needle = needle.replace(/^\s*(?:(?:mejor|en realidad|pues|vale|ok|okay|oye|mira|perdona|no espera|si|sí|no|claro|venga)[,\s]+)+/i, '').trim()
   // Conectores de cabeza que NO forman parte del nombre («el de», «la de», «de», «del», artículos sueltos).
   needle = needle.replace(/^\s*(?:el de|la de|los de|las de|del|de la|de|al|a la|el|la|los|las)\s+/i, '').trim()
   // Verbos/campo residuales por delante («cambiar el precio de», «actualizar»…) — corta hasta el último «de».
@@ -138,7 +155,10 @@ function schemaFor(capability: string): ActionSchema | null { return SCHEMAS[cap
 // ── DETECCIÓN NL → capability (para forma DESIDERATIVA que parseActionIntent no captura) ────────────────
 const ACTION_VERB = /\b(cambia\w*|modifica\w*|actualiza\w*|pon\w*|sube\w*|baja\w*|edita\w*|corrige\w*|ajusta\w*|mueve\w*|pasa\w*|marca\w*|renombra\w*|crea\w*|agenda\w*|programa\w*)\b/
 const DESIRE = /\b(quiero|necesito|me gustaria|querria|querría|podrias|podrías|puedes|deberia|debería|habria que|habría que|hay que|tengo que|me interesa)\b/
-type DetectRow = { field: RegExp; moduleNoun: RegExp; capability: AssistantActionId }
+// P71·F3.3 — verbos de LECTURA: «¿puedes mostrarme las visitas de mañana?» es una lectura cortés, no una
+// acción. Si el mensaje trae verbo de lectura y ningún verbo de acción propio, no se abre intención.
+const READ_VERB = /\b(muestra\w*|mostra\w*|ensena\w*|ensename|dime|dame|lista\w*|ver|veo|consulta\w*|revisa\w*|mira\w*|leer?|cuale?s|cuant[oa]s|que hay|hay)\b/
+type DetectRow = { field: RegExp; moduleNoun: RegExp; capability: AssistantActionId; gate?: (n: string) => boolean }
 const DETECT: DetectRow[] = [
   { field: /\bprecio\b/, moduleNoun: /\b(inmueble|piso|propiedad|casa|local|chalet|atico|vivienda)\b/, capability: 'portfolio.update_price' },
   { field: /\b(nota|notas)\b/, moduleNoun: /\b(inmueble|piso|propiedad|casa|local|chalet|atico|vivienda)\b/, capability: 'portfolio.update_notes' },
@@ -156,6 +176,13 @@ const DETECT: DetectRow[] = [
   { field: /\b(fecha|vencimiento)\b/, moduleNoun: /\btarea\b/, capability: 'tasks.update_due_date' },
   { field: /\b(estado)\b/, moduleNoun: /\b(tramite|expediente)\b/, capability: 'cases.update_status' },
   { field: /\b(fecha|vencimiento)\b/, moduleNoun: /\b(tramite|expediente)\b/, capability: 'cases.update_due_date' },
+  // P71·F3.3 — CALENDAR desiderativo («quiero agendar una visita», «necesito programar una reunión mañana»).
+  // Gate ESTRUCTURAL: verbo de creación O artículo indefinido («una cita» = cita NUEVA; «la cita» = lectura).
+  {
+    field: /\b(cita|visita|reunion|llamada)\b/, moduleNoun: /\b(cita|visita|reunion|llamada)\b/, capability: 'calendar.create',
+    gate: (n) => /\b(agendar?|agendame|crea\w*|creame|programa\w*|reserva\w*|apunta\w*|organiza\w*|concerta\w*)\b/.test(n)
+      || /(?:^|\s)(una|otra)\s+(cita|visita|reunion|llamada)\b/.test(n),
+  },
 ]
 
 // ── API pública ───────────────────────────────────────────────────────────────────────────────────────
@@ -187,9 +214,14 @@ export function buildPendingFromIntent(intent: Extract<AssistantActionIntent, { 
 export function detectIncompleteAction(message: string, todayIso: string): PendingBuild | null {
   const n = foldText(message)
   if (!ACTION_VERB.test(n) && !DESIRE.test(n)) return null
-  const isQuestion = /[?¿]/.test(message)
+  // P71·F3.3 — lectura cortés/indirecta («¿puedes mostrarme…?», «quiero ver…») NO es una acción.
+  if (READ_VERB.test(n) && !ACTION_VERB.test(n)) return null
+  // Forma de CAPACIDAD: signos de interrogación O modal interrogativo («puedo/podría/se puede/es posible»)
+  // — en chat la gente omite los «¿?»; la forma modal expresa pregunta de capacidad igualmente.
+  const isQuestion = /[?¿]/.test(message) || /\b(puedo|podria|podriamos|se puede|es posible|hay (manera|forma) de)\b/.test(n)
   for (const row of DETECT) {
     if (!row.field.test(n) || !row.moduleNoun.test(n)) continue
+    if (row.gate && !row.gate(n)) continue
     const schema = schemaFor(row.capability)
     if (!schema) continue
     const acc: Acc = {}
@@ -247,6 +279,16 @@ export function completePendingAction(pending: PendingIntent, message: string, t
   }
   const changes: Record<string, unknown> = {}
   for (const k of Object.keys(acc)) { if (k === 'entity' || k.startsWith('__')) continue; changes[k] = acc[k] }
+  // P71 — FINALIZACIÓN por capability (derivada del registry, no de frases): calendar.create necesita
+  // type/title/duration además de fecha+hora; se derivan de la PETICIÓN ORIGINAL con el parser P70
+  // (detectCalendarType) — el preview siempre lo enseña antes de tocar nada.
+  if (pending.capability === 'calendar.create') {
+    const { type, label } = detectCalendarType(foldText(pending.originalRequest || message))
+    if (changes.type === undefined) changes.type = type
+    if (changes.title === undefined) changes.title = label
+    if (changes.duration === undefined) changes.duration = 60
+    if (changes.start_minute === undefined && changes.start_hour !== undefined) changes.start_minute = 0
+  }
   const intent: Extract<AssistantActionIntent, { act: 'prepare' }> = {
     act: 'prepare', actionType: pending.capability as AssistantActionId,
     entityText: acc.entity !== undefined ? String(acc.entity) : null, proposedChanges: changes, missingFields: [],
@@ -276,9 +318,11 @@ export function askForSlot(slot: PendingSlot, entityNoun: string): string {
 }
 
 // «Respuesta breve» que NO debe tratarse como intención nueva: turno corto y sin verbo de acción propio.
+// P71·F3.4 — una partícula pura («sí», «vale») tampoco es un filler: no aporta ningún valor de slot.
 export function looksLikeSlotFiller(message: string): boolean {
   const n = foldText(message).trim()
   if (!n) return false
+  if (isDiscourseParticleOnly(message)) return false
   const words = n.replace(/[¿?¡!.,;:]/g, ' ').split(/\s+/).filter(Boolean)
   return words.length <= 8 && !ACTION_VERB.test(n)
 }

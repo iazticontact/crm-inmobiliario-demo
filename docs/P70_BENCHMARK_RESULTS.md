@@ -1,9 +1,9 @@
 # P70 — Resultados del benchmark de release
 
-- Versión: 1.0.0 · Seed: `p70-release-2026-07-15` · Fecha: 2026-07-16T21:44Z
+- Versión: 1.0.0 · Seed: `p70-release-2026-07-15` · Fecha: 2026-07-17T17:08Z
 - Escenarios: **926** (training 676 · **held-out 250**)
 - Volumen contractual: multi-turn 204/≥200 · adversarial 121/≥120 · errores lingüísticos 121/≥120 · temporal 76/≥75 · acciones 104/≥100 · automatizaciones 82/≥75
-- **Global: 99.89%** · Training: 99.85% · **Held-out: 100.00%**
+- **Global: 100.00%** · Training: 100.00% · **Held-out: 100.00%**
 
 ## Gates (obligatorio 100%)
 
@@ -25,7 +25,7 @@
 | acciones | 104 | 100.0% |
 | adversarial | 105 | 100.0% |
 | agenda | 30 | 100.0% |
-| automatizaciones | 82 | 98.8% |
+| automatizaciones | 82 | 100.0% |
 | cambios-de-tema | 6 | 100.0% |
 | cancelacion | 16 | 100.0% |
 | cartera | 30 | 100.0% |
@@ -50,11 +50,9 @@
 | temporal | 76 | 100.0% |
 | tramites-docs | 20 | 100.0% |
 
-## Fallos (1)
+## Fallos (0)
 
-- `bm-0304` [automatizaciones] «muéstrame la configuración de la auditoría» → reply=Tienes varias automatizaciones:
-• auditoría de calidad de datos
-• auditoría de c
+(ninguno)
 
 ## Metodología
 

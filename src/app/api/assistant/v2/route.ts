@@ -6,7 +6,7 @@ import { detectDeterministicAction } from '@/lib/agents/deterministic-fallback'
 import { resolveDbAction } from '@/lib/agents/deterministic-db-actions'
 import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
-import { loadConversationState, saveConversationState, applyStateUpdate } from '@/lib/agents/conversation-state'
+import { loadConversationState, saveConversationState, applyStateUpdate, reduceStateForN8n } from '@/lib/agents/conversation-state'
 import { tryLocalAnswer, executeUiAction } from '@/lib/agents/local-answers'
 import { validateAssistantUi } from '@/lib/assistant/ui-contract'
 import { decideTurn } from '@/lib/agents/assistant-turn'
@@ -463,6 +463,8 @@ export async function POST(req: NextRequest) {
       requestId,
       turn: { turnType: turnDecision.turnType, domain: turnDecision.domain, shouldReadData: turnDecision.shouldReadData, allowedTools },
       turnPolicyToken,
+      // P71·F3.5 — un solo cerebro: n8n recibe el MISMO estado (reducido) que usa local-first.
+      conversationState: reduceStateForN8n(convState),
     })
 
     if (n8n.ok) {

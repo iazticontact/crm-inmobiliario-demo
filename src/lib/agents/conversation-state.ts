@@ -283,6 +283,29 @@ export function upgradeConversationState(raw: unknown): { state: ConversationSta
   return { state: null, outcome: 'reset_invalid' }
 }
 
+// ── P71·F3.5 — proyección REDUCIDA del estado para el contrato n8n ────────────────────────────────────
+// Un solo cerebro: n8n recibe el MISMO estado conversacional que local-first, en versión mínima y segura
+// (tipos/ids/labels/periodo — jamás datos de negocio, valores, secretos ni respuestas). n8n lo usa como
+// CONTEXTO para entender referencias; la verdad de datos siguen siendo sus tools (releen siempre).
+export type N8nConversationStateLite = {
+  activeModule: string | null
+  activeCapability: string | null
+  activeEntities: Array<{ type: ConvEntityType; id: string; label: string }>
+  temporal: { start: string | null; end: string | null; interpretation: string | null } | null
+  pendingIntent: { capability: string; missingSlots: string[] } | null
+  lastQuery: { module: string; entityType: ConvEntityType | null } | null
+}
+export function reduceStateForN8n(s: ConversationState): N8nConversationStateLite {
+  return {
+    activeModule: s.activeModule,
+    activeCapability: s.activeCapability,
+    activeEntities: s.activeEntities.slice(0, 3).map((e) => ({ type: e.entityType, id: e.entityId, label: e.displayLabel.slice(0, 120) })),
+    temporal: s.temporalScope ? { start: s.temporalScope.start, end: s.temporalScope.end, interpretation: s.temporalScope.interpretation } : null,
+    pendingIntent: s.pendingIntent ? { capability: s.pendingIntent.capability, missingSlots: [...s.pendingIntent.requiredSlots] } : null,
+    lastQuery: s.lastDataQuery ? { module: s.lastDataQuery.module, entityType: s.lastDataQuery.entityType } : null,
+  }
+}
+
 // ── Persistencia (fail-soft, RLS por workspace+user; reutiliza assistant_agent_memory) ────────────────
 export async function loadConversationState(supabase: SupabaseClient, threadId: string, userId: string): Promise<ConversationState> {
   if (!threadId || !userId) return emptyState()
