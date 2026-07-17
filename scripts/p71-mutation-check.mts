@@ -95,8 +95,11 @@ for (const m of MUTATIONS) {
   const base = runProbe(m.invariant)
   if (base !== 0) { console.log(`SKIP  ${m.id}: el invariante ya falla en limpio (probe=${base}) — revisar probe`); fail++; continue }
   const original = readFileSync(m.file, 'utf8')
-  if (!original.includes(m.find)) { console.log(`FAIL  ${m.id}: cadena de inyección no encontrada en ${m.file}`); fail++; continue }
-  const mutated = original.replace(m.find, m.replace)
+  // Robustez EOL (Windows): un checkout puede re-materializar con CRLF; el find multilínea casa en ambas.
+  const find = original.includes(m.find) ? m.find : m.find.replace(/\n/g, '\r\n')
+  const replace = find === m.find ? m.replace : m.replace.replace(/\n/g, '\r\n')
+  if (!original.includes(find)) { console.log(`FAIL  ${m.id}: cadena de inyección no encontrada en ${m.file}`); fail++; continue }
+  const mutated = original.replace(find, replace)
   let detected = false
   try {
     writeFileSync(m.file, mutated)
