@@ -451,6 +451,14 @@ export async function POST(req: NextRequest) {
         }, toolSecret)
       : undefined
 
+    // P71 — UNA SOLA VERDAD en la frontera del contrato: si la memoria legacy no tiene entidad activa pero
+    // el ConversationState sí (p. ej. la resolvió LOCAL-first en un turno anterior), n8n la recibe igual.
+    // Sin esto, una entidad resuelta localmente «desaparecía» para n8n (split-brain residual, cazado por
+    // p71-n8n-handoff-e2e caso A).
+    const stateEntity = convState.activeEntities[0]
+    const activeEntityForN8n = activeEntity
+      ?? (stateEntity ? { type: stateEntity.entityType as string, id: stateEntity.entityId, label: stateEntity.displayLabel } : null)
+
     const n8n = await runN8nAssistant({
       message,
       workspaceId,
@@ -458,7 +466,7 @@ export async function POST(req: NextRequest) {
       // Stable session key for n8n Window Memory. Falls back to the workspace
       // when the UI hasn't provided a thread id yet.
       threadId: threadId || workspaceId,
-      activeEntity,
+      activeEntity: activeEntityForN8n,
       recentMessages,
       requestId,
       turn: { turnType: turnDecision.turnType, domain: turnDecision.domain, shouldReadData: turnDecision.shouldReadData, allowedTools },
