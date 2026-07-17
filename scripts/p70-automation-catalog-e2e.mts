@@ -50,6 +50,25 @@ async function cleanup() {
   await supabase.from('assistant_findings').delete().eq('workspace_id', WS).gte('detected_at', testStartIso)
 }
 
+// P71·F3.6 — SWEEP de RESIDUOS de ejecuciones anteriores MATADAS. El cleanup vive en un `finally`, pero un
+// proceso terminado con kill (timeout del runner) nunca lo ejecuta → quedaban reglas huérfanas que rompían
+// la desambiguación («¿a cuál te refieres?») y el benchmark (bm-0304, 2×data_quality_watch del 07-15).
+// Propiedad demostrable: el flujo del E2E deja SIEMPRE cada regla de tipo bajo test deshabilitada y borrada;
+// una regla DESHABILITADA de un tipo bajo test en el workspace QA solo puede ser residuo de este E2E.
+// Solo se toca el workspace QA y solo reglas deshabilitadas de los tipos que este script crea.
+async function sweepResiduals() {
+  const { data: stale } = await supabase.from('assistant_automation_rules')
+    .select('id, type, created_at').eq('workspace_id', WS).eq('enabled', false)
+    .in('type', [...AUTOMATION_RULE_TYPE_LIST])
+  for (const r of stale ?? []) {
+    const d1 = await supabase.from('assistant_automation_runs').delete().eq('rule_id', r.id)
+    const d2 = await supabase.from('assistant_automation_rules').delete().eq('id', r.id)
+    if (d1.error || d2.error) console.error(`SWEEP ERROR regla ${String(r.id).slice(0, 8)}…: ${d1.error?.message ?? d2.error?.message}`)
+    else console.log(`SWEEP  residuo QA eliminado: ${String(r.type)} (${String(r.created_at).slice(0, 19)})`)
+  }
+}
+await sweepResiduals()
+
 const table: string[] = []
 try {
   // ════ CICLO POR TIPO (11) ════
@@ -172,6 +191,15 @@ try {
 
 const { count: leftovers } = await supabase.from('assistant_automation_rules').select('id', { count: 'exact', head: true }).eq('workspace_id', WS).gte('created_at', testStartIso)
 check('cleanup: cero reglas residuales', (leftovers ?? 0) === 0)
+// P71·F3.6 — regresión PERMANENTE: cero duplicados por tipo en el workspace QA (un duplicado = residuo de
+// una ejecución matada; rompe la desambiguación conversacional y el benchmark). Falla el gate si aparece.
+{
+  const { data: allRules } = await supabase.from('assistant_automation_rules').select('type').eq('workspace_id', WS)
+  const byType = new Map<string, number>()
+  for (const r of (allRules ?? []) as Array<{ type: string }>) byType.set(r.type, (byType.get(r.type) ?? 0) + 1)
+  const dups = [...byType.entries()].filter(([, c]) => c > 1)
+  check('higiene: cero duplicados por tipo en el workspace QA', dups.length === 0, dups.map(([t, c]) => `${t}×${c}`).join(', '))
+}
 
 console.log('\n── Tabla por tipo ──')
 for (const r of table) console.log(r)

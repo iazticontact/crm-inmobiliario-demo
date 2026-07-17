@@ -38,6 +38,10 @@ export type N8nAssistantParams = {
   // P51 — Contrato de turno: la app decide y firma. n8n DEBE reenviar `turnPolicyToken` a cada tool call.
   turn?: { turnType: string; domain: string | null; shouldReadData: boolean; allowedTools: string[] }
   turnPolicyToken?: string
+  // P71·F3.5 — MISMO estado conversacional que local-first, reducido y validado (ids/labels/periodo; sin
+  // datos de negocio). n8n lo usa como contexto para referencias; sus tools siguen releyendo la verdad.
+  // Backward-compatible: un workflow que no lo consuma simplemente lo ignora.
+  conversationState?: unknown
 }
 
 export type N8nAssistantErrorCode =
@@ -129,6 +133,8 @@ export async function runN8nAssistant(params: N8nAssistantParams): Promise<N8nAs
     // /api/agent/tool. Ver docs/AGENT_N8N_CONTRACT.md.
     turn: params.turn ?? null,
     turnPolicyToken: params.turnPolicyToken ?? null,
+    // P71·F3.5 — estado compartido (proyección reducida; null si el hilo no tiene estado).
+    conversationState: params.conversationState ?? null,
   }
 
   const controller = new AbortController()

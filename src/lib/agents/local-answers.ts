@@ -22,7 +22,7 @@ import { explainModule, navigationAnswer, onboardingAnswer, confusedAnswer, reso
 import { wantsFullTour } from '@/lib/summary-intent'
 import { parseStatusIntent, matchesStatusIntent, normalizePropertyState, STATUS_INTENT_LABEL } from '@/lib/portfolio-domain'
 import { parseSalesIntent, SALES_DIFFERENCE_EXPLANATION, type SalesQueryIntent } from '@/lib/sales-domain'
-import { isUpcoming, isPast, isPendingTask, isOverdueTask } from '@/lib/assistant-temporal'
+import { isUpcoming, isPast, isPendingTask, isOverdueTask, todayMadridIso } from '@/lib/assistant-temporal'
 import { classifySummaryIntent } from '@/lib/summary-intent'
 import { parseActionIntent, type AssistantActionIntent } from './assistant-action-intent'
 import { signActionToken } from './action-policy'
@@ -32,10 +32,22 @@ import type { AssistantUiPayload } from '@/lib/assistant/ui-contract'
 import { AUTOMATION_RULES } from './findings-engine'
 import { parseSchedule as parseScheduleJson, scheduleLabelOf, type ScheduleJson } from './automation-schedule'
 import { parseTimeEs } from './assistant-action-intent'
+// P71 — estado conversacional unificado + resolución estructural de referencias.
+import { type ConversationState, type StateUpdate, type ConvEntityType, type TemporalScope, type EntityRef, emptyState, PENDING_INTENT_TTL_MS } from './conversation-state'
+import { detectReference, resolveAnchor, type AnchorResolution } from './conversation-references'
+import { getClientOpportunities } from '@/lib/agent-tool-readers'
+// P71·It2/It3 — motor temporal (rango en Europe/Madrid) + intención pendiente con slots del action registry.
+import { resolveTemporalScope, parseAbsoluteTemporal, formatScopeLabel } from './conversation-temporal'
+import { detectIncompleteAction, completePendingAction, detectExplicitCancel, looksLikeSlotFiller, askForSlot, buildPendingFromIntent, isAffirmativeParticleOnly } from './conversation-pending'
+// P71·F3.2 — metadata de capacidades temporales de lectura (campo de fecha real por módulo).
+import { TEMPORAL_READ_CAPABILITIES } from './conversation-scope'
 
 export type LocalAnswer =
-  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload }
+  | { handled: true; answer: string; usedTool: string; entity: CrmEntity; referencedList?: Array<Record<string, unknown>>; ui?: AssistantUiPayload; stateUpdate?: StateUpdate }
   | { handled: false }
+
+// P71 — opciones del motor local (recentContext = apoyo lingüístico; state = memoria estructurada real).
+export type LocalOpts = { recentContext?: string; lastResults?: unknown[]; state?: ConversationState; turnId?: string }
 
 type Row = Record<string, unknown>
 
@@ -829,29 +841,40 @@ async function executeOfferedModule(supabase: SupabaseClient, ws: string, mod: N
 // «¿tengo citas o tareas?», «¿qué tengo pendiente/próximo?», «¿tengo algo en el calendario?». Consulta las
 // DOS fuentes reales (calendar_events + tasks, tablas distintas), responde sí/no por cada una y nunca
 // convierte un vacío en «no hay nada en el CRM».
-async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calendar: boolean; tasks: boolean }): Promise<LocalAnswer> {
+async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calendar: boolean; tasks: boolean }, opts: { scope?: TemporalScope | null; turnId?: string } = {}): Promise<LocalAnswer> {
+  // P71·It2 — alcance temporal opcional: si viene, la consulta a BD se acota a [start, end] (Europe/Madrid)
+  // y la respuesta menciona el periodo. Sin alcance, comportamiento previo (desde hoy, ~2 semanas).
+  const scope = opts.scope && opts.scope.start && opts.scope.end ? opts.scope : null
   let calN: number | null = null, calRows: Row[] = [], calErr = false
   let taskN: number | null = null, taskRows: Row[] = [], taskErr = false
   if (want.calendar) {
-    const r = await getCalendarSummary(supabase, ws, {}) // desde hoy (próximas ~2 semanas)
+    const r = await getCalendarSummary(supabase, ws, scope ? { from: scope.start, to: scope.end, limit: 50 } : {})
     if ('error' in r) calErr = true; else { calRows = r.events as unknown as Row[]; calN = calRows.length }
   }
   if (want.tasks) {
     const r = await getPendingTasks(supabase, ws, {})
-    if ('error' in r) taskErr = true; else { taskRows = r.tasks as unknown as Row[]; taskN = taskRows.length }
+    if ('error' in r) taskErr = true
+    else {
+      taskRows = r.tasks as unknown as Row[]
+      // Acotar tareas por fecha límite dentro del periodo (freshness: se filtra sobre datos ACTUALES).
+      if (scope) taskRows = taskRows.filter((t) => { const d = str(t.due_date).slice(0, 10); return d && d >= scope.start! && d <= scope.end! })
+      taskN = taskRows.length
+    }
   }
   // Fallback parcial: solo error si TODO lo pedido falló.
   if ((want.calendar && calErr && (!want.tasks || taskErr)) && (want.tasks ? taskErr : true) && !(want.calendar && !calErr) && !(want.tasks && !taskErr)) {
     return fail('calendar', 'local_agenda', ws)
   }
+  const periodo = scope ? ` para ${formatScopeLabel(scope)}` : ' próximas'
+  const periodoT = scope ? ` con fecha en ${formatScopeLabel(scope)}` : ' pendientes'
   const lines: string[] = []
   if (want.calendar) {
-    lines.push(calErr ? '• Citas próximas: no he podido consultarlas ahora mismo.'
-      : calN ? `• Citas próximas: **sí**, tienes ${calN}.` : '• Citas próximas: **no**, no tienes ninguna registrada de aquí en adelante.')
+    lines.push(calErr ? '• Citas: no he podido consultarlas ahora mismo.'
+      : calN ? `• Citas${periodo}: **sí**, tienes ${calN}.` : `• Citas${periodo}: **no**, no tienes ninguna${scope ? '' : ' registrada de aquí en adelante'}.`)
   }
   if (want.tasks) {
-    lines.push(taskErr ? '• Tareas pendientes: no he podido consultarlas ahora mismo.'
-      : taskN ? `• Tareas pendientes: **sí**, tienes ${taskN}.` : '• Tareas pendientes: **no**, no tienes ninguna.')
+    lines.push(taskErr ? '• Tareas: no he podido consultarlas ahora mismo.'
+      : taskN ? `• Tareas${periodoT}: **sí**, tienes ${taskN}.` : `• Tareas${periodoT}: **no**, no tienes ninguna.`)
   }
   const detail: string[] = []
   if (want.calendar && calN) detail.push(...calRows.slice(0, 5).map(formatEventLine))
@@ -859,7 +882,16 @@ async function handleAgenda(supabase: SupabaseClient, ws: string, want: { calend
   const both = want.calendar && want.tasks
   const head = both ? 'Te lo dejo claro, mirando calendario y tareas:' : ''
   const answer = [head, lines.join('\n'), detail.length ? '\n' + detail.join('\n') : ''].filter(Boolean).join('\n')
-  return { handled: true, usedTool: 'local_agenda', entity: want.tasks && !want.calendar ? 'tasks' : 'calendar', answer, referencedList: detail.length ? [...calRows.slice(0, 5), ...taskRows.slice(0, 5)] : undefined }
+  // P71·It2 — persistir módulo temporal + alcance (para continuar «¿y la siguiente?») + última consulta viva.
+  const primaryType: ConvEntityType = want.tasks && !want.calendar ? 'task' : 'calendar_event'
+  const primaryModule = want.tasks && !want.calendar ? 'tasks' : 'calendar'
+  const primaryRows = want.tasks && !want.calendar ? taskRows : calRows
+  const stateUpdate: StateUpdate = {
+    resolvedModule: primaryModule,
+    temporalScopeUpdate: scope ?? null,
+    lastDataQueryUpdate: { module: primaryModule, capability: 'local_agenda', entityType: primaryType, resultRefs: toResultRefs(primaryType, primaryRows), executedAt: new Date().toISOString() },
+  }
+  return { handled: true, usedTool: 'local_agenda', entity: want.tasks && !want.calendar ? 'tasks' : 'calendar', answer, referencedList: detail.length ? [...calRows.slice(0, 5), ...taskRows.slice(0, 5)] : undefined, stateUpdate }
 }
 
 // ── P61 · Resumen con DATOS de Cartera (conteo por estado, en vivo) ───────────────────────────────────
@@ -995,23 +1027,563 @@ async function handleSales(supabase: SupabaseClient, ws: string, intent: SalesQu
 // ── Punto de entrada ─────────────────────────────────────────────────────────
 // P64 — SANITIZADOR de respuesta visible: sin dobles asteriscos (markdown crudo en el chat). Se aplica a
 // TODA respuesta local en un único punto; los generadores internos pueden seguir usando **…** como énfasis.
+// ── P71 · MAPEOS entidad↔tipo↔módulo + construcción de referencias ligeras (ids, no datos) ────────────
+const ENTITY_TO_CONV: Partial<Record<CrmEntity, ConvEntityType>> = {
+  clients: 'client', properties: 'property', operations: 'opportunity',
+  calendar: 'calendar_event', tasks: 'task', service_cases: 'service_case', documents: 'document',
+}
+const ENTITY_TO_MODULE: Partial<Record<CrmEntity, string>> = {
+  clients: 'clients', properties: 'portfolio', operations: 'operations',
+  calendar: 'calendar', tasks: 'tasks', service_cases: 'cases', documents: 'documents', commissions: 'commissions',
+}
+function refSortValue(entityType: ConvEntityType | null, row: Row): number | undefined {
+  if (entityType === 'property') return numOrNull(row.price) ?? undefined
+  if (entityType === 'opportunity') return numOrNull(row.value) ?? undefined
+  const d = str(row.start_at) || str(row.date) || str(row.due_date) || str(row.created_at)
+  return d ? Date.parse(d) || undefined : undefined
+}
+function toResultRefs(entityType: ConvEntityType | null, list: Array<Record<string, unknown>>): Array<{ entityId: string; label: string; sortValue?: number }> {
+  const out: Array<{ entityId: string; label: string; sortValue?: number }> = []
+  for (const row of list.slice(0, 25)) {
+    const id = str(row.id)
+    if (!/^[0-9a-f-]{36}$/i.test(id)) continue
+    const label = str(row.title) || str(row.name) || str(row.file_name) || 'elemento'
+    const sv = refSortValue(entityType, row)
+    out.push({ entityId: id, label, ...(sv !== undefined ? { sortValue: sv } : {}) })
+  }
+  return out
+}
+
+// Enriquecer el stateUpdate de CUALQUIER lectura con la última consulta (referencias ligeras) + módulo.
+// Si el handler ya emitió stateUpdate (p. ej. contextual), se respeta y solo se completa lo que falte.
+function enrichReadStateUpdate(r: Extract<LocalAnswer, { handled: true }>, message: string, turnId: string): Extract<LocalAnswer, { handled: true }> {
+  const convType = ENTITY_TO_CONV[r.entity] ?? null
+  const moduleId = ENTITY_TO_MODULE[r.entity] ?? null
+  const isRead = r.usedTool.startsWith('local_') && !r.usedTool.startsWith('local_turn') && !r.usedTool.startsWith('local_automation') && !r.usedTool.startsWith('local_action') && !r.usedTool.startsWith('local_ui_action')
+  const base: StateUpdate = r.stateUpdate ?? {}
+  const update: StateUpdate = { ...base }
+  if (update.resolvedModule === undefined && moduleId) update.resolvedModule = moduleId
+  // Entidad activa: una lectura que resuelve UNA sola entidad la deja disponible para el siguiente turno
+  // («busca X» / ficha / búsqueda con 1 resultado). Un listado con varias NO fija entidad activa.
+  if (update.resolvedEntities === undefined && isRead && convType && r.referencedList && r.referencedList.length === 1) {
+    const row = r.referencedList[0]
+    const id = str(row.id)
+    if (/^[0-9a-f-]{36}$/i.test(id)) update.resolvedEntities = [{ entityType: convType, entityId: id, displayLabel: str(row.name) || str(row.title) || '', confidence: 0.8, sourceTurnId: turnId }]
+  }
+  // Última consulta: CUALQUIER lectura (incluso un conteo sin lista) → permite «otra vez» (grounding);
+  // los ordinales/extremos requieren además resultRefs (que solo existen si hubo lista).
+  if (update.lastDataQueryUpdate === undefined && isRead && moduleId) {
+    update.lastDataQueryUpdate = { module: moduleId, capability: r.usedTool, entityType: convType, resultRefs: r.referencedList ? toResultRefs(convType, r.referencedList) : [], executedAt: new Date().toISOString() }
+  }
+  if (update.lastAssistantResultUpdate === undefined) {
+    const type: 'explanation' | 'read' | 'action' | 'automation' = r.usedTool.startsWith('local_turn') ? 'explanation' : r.usedTool.startsWith('local_automation') ? 'automation' : r.usedTool.startsWith('local_action') || r.usedTool.startsWith('local_ui_action') ? 'action' : 'read'
+    update.lastAssistantResultUpdate = { type, module: moduleId, capability: r.usedTool, entityIds: (update.resolvedEntities ?? []).map((e) => e.entityId), turnId }
+  }
+  return { ...r, stateUpdate: update }
+}
+
+// ── P71·F3.1 · ENTIDAD EXPLÍCITA por CANDIDATOS REALES del workspace ──────────────────────────────────
+// La regex solo EXTRAE spans de nombre propio (secuencias Capitalizadas, sin palabras funcionales/de módulo/
+// temporales); la DECISIÓN es siempre de los datos: searchClients + desambiguación. Nunca elige en silencio.
+const NAME_SPAN_STOP: ReadonlySet<string> = new Set([
+  // interrogativos / imperativos de lectura frecuentes (arranque de frase capitalizado)
+  'que', 'cual', 'cuales', 'cuanto', 'cuanta', 'cuantos', 'cuantas', 'como', 'cuando', 'donde', 'quien', 'quienes',
+  'dame', 'dime', 'muestrame', 'muestra', 'ensename', 'lista', 'listame', 'abre', 'busca', 'buscame', 'ver',
+  'hola', 'buenas', 'buenos', 'oye', 'mira', 'vale', 'ok', 'gracias', 'quiero', 'necesito', 'puedes', 'tengo',
+  // funcionales / conectores
+  'el', 'la', 'los', 'las', 'un', 'una', 'este', 'esta', 'ese', 'esa', 'y', 'o', 'de', 'del', 'para', 'por', 'con', 'sin', 'pero', 'si', 'no',
+  // sustantivos de módulo/entidad (un tipo no es un nombre)
+  'cliente', 'clientes', 'inmueble', 'inmuebles', 'piso', 'pisos', 'propiedad', 'propiedades', 'casa', 'chalet', 'atico', 'local',
+  'operacion', 'operaciones', 'oportunidad', 'oportunidades', 'tarea', 'tareas', 'cita', 'citas', 'visita', 'visitas',
+  'reunion', 'reuniones', 'tramite', 'tramites', 'expediente', 'expedientes', 'cartera', 'calendario', 'agenda',
+  'documento', 'documentos', 'ficha', 'crm', 'asistente', 'resumen',
+  // temporales (días/meses/palabras de periodo capitalizables)
+  'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo',
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  'hoy', 'manana', 'ayer', 'semana', 'mes', 'dia', 'ano',
+])
+// Un span puede ser FUERTE (Capitalizado: señal ortográfica de nombre propio) o DÉBIL (minúsculas tras un
+// marcador relacional). La fuerza gradúa la reacción ante un 0-match: un span FUERTE inexistente se dice
+// («no encuentro a X»); un span DÉBIL que no resuelve se ignora (era predicado/andamiaje, no un nombre:
+// «tienen cierre previsto» jamás debe bloquear una lectura legítima).
+type NameSpan = { span: string; strong: boolean }
+function extractProperNameSpans(raw: string): NameSpan[] {
+  const spans: NameSpan[] = []
+  const push = (words: string[], strong: boolean) => {
+    while (words.length && NAME_SPAN_STOP.has(foldText(words[0]))) words.shift()
+    while (words.length && NAME_SPAN_STOP.has(foldText(words[words.length - 1]))) words.pop()
+    if (!words.length) return
+    const cleaned = words.join(' ')
+    if (cleaned.length < 3 || NAME_SPAN_STOP.has(foldText(cleaned))) return
+    if (!spans.some((s) => foldText(s.span) === foldText(cleaned))) spans.push({ span: cleaned, strong })
+  }
+  // (a) Secuencias Capitalizadas (señal FUERTE de nombre propio).
+  const re = /[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+(?:de(?:l)?\s+|de la\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*/g
+  for (const m of raw.matchAll(re)) push(m[0].split(/\s+/), true)
+  // (b) Tras un MARCADOR RELACIONAL, también en minúsculas («las citas de maría garcía la semana que
+  //     viene»): candidato DÉBIL — solo cuenta si RESUELVE contra clientes reales. Se recortan por la cola
+  //     los PARTICIPIOS/ADJETIVOS (clase morfológica del español: -ado/-ido/-iente/-ivo…): «tiene
+  //     programadas», «cierre previsto» son predicado, no nombre.
+  const PREDICATE_SUFFIX = /(?:ad[oa]s?|id[oa]s?|ient?es?|iv[oa]s?|os[oa]s?|ist[oa]s?)$/
+  const rel = /\b(?:de|del|con|tiene|tienen)\s+((?:[a-záéíóúñA-ZÁÉÍÓÚÑ][\wáéíóúñ'-]*\s*){1,3})/g
+  for (const m of raw.matchAll(rel)) {
+    const words = m[1].trim().split(/\s+/)
+    const cut: string[] = []
+    for (const w of words) { if (NAME_SPAN_STOP.has(foldText(w))) break; cut.push(w) }
+    while (cut.length && PREDICATE_SUFFIX.test(foldText(cut[cut.length - 1]))) cut.pop()
+    push(cut, false)
+  }
+  // Fuertes primero: la señal ortográfica manda.
+  return spans.sort((a, b) => Number(b.strong) - Number(a.strong))
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+type ExplicitClientResolution =
+  | { kind: 'one'; ref: EntityRef }
+  | { kind: 'many'; names: string[]; span: string }
+  | { kind: 'none'; span: string }        // span FUERTE (Capitalizado) sin coincidencias → se dice
+  | { kind: 'weak_miss'; span: string }   // solo spans débiles sin resolución → el llamador decide
+  | null
+async function resolveExplicitClientScope(
+  supabase: SupabaseClient, ws: string, message: string,
+  opts: { requireRelationMarker?: boolean } = {},
+): Promise<ExplicitClientResolution> {
+  let spans = extractProperNameSpans(message)
+  if (opts.requireRelationMarker) {
+    // Solo spans en posición RELACIONAL («de/del/con X», «tiene X»): un topónimo suelto no bloquea nada.
+    spans = spans.filter((s) => new RegExp(`\\b(?:de|del|con|para)\\s+(?:el |la )?${escapeRe(s.span)}`, 'i').test(message)
+      || new RegExp(`\\b(?:tiene|tienen)\\s+${escapeRe(s.span)}`, 'i').test(message))
+  }
+  if (!spans.length) return null
+  let firstStrongMiss: string | null = null
+  let firstWeakMiss: string | null = null
+  for (const { span, strong } of spans) {
+    const res = await searchClients(supabase, ws, { query: span, limit: 5 })
+    if ('error' in res) continue
+    const one = (c: { id: string; name: string }): ExplicitClientResolution =>
+      ({ kind: 'one', ref: { entityType: 'client', entityId: String(c.id), displayLabel: String(c.name), confidence: 0.85, sourceTurnId: '' } })
+    if (res.results.length === 1) return one(res.results[0])
+    if (res.results.length > 1) {
+      const exact = res.results.filter((c) => foldText(String(c.name)) === foldText(span) || foldText(String(c.name)).startsWith(foldText(span) + ' '))
+      if (exact.length === 1) return one(exact[0])
+      return { kind: 'many', names: res.results.slice(0, 4).map((c) => String(c.name)), span }
+    }
+    // 0-match: solo un span FUERTE (Capitalizado) inexistente merece bloquear con «no encuentro a X»;
+    // un span débil sin resolución suele ser andamiaje («tienen cierre previsto») — el llamador decide.
+    if (strong && !firstStrongMiss) firstStrongMiss = span
+    if (!strong && !firstWeakMiss) firstWeakMiss = span
+  }
+  if (firstStrongMiss) return { kind: 'none', span: firstStrongMiss }
+  if (firstWeakMiss) return { kind: 'weak_miss', span: firstWeakMiss }
+  return null
+}
+
+// ── P71·F3.2 · LECTURA de un módulo TEMPORAL acotada a periodo (y opcionalmente a cliente) ────────────
+// Ejecuta crmReadQuery con dateRange sobre el dateCol REAL de la entidad (metadata, server-side, RLS) y
+// clientRef opcional. Sin resultados → vacío REAL del scope pedido, jamás datos globales.
+async function handleModuleInPeriod(supabase: SupabaseClient, ws: string, mod: string, scope: TemporalScope, client: EntityRef | null, turnId: string): Promise<LocalAnswer> {
+  const capMeta = TEMPORAL_READ_CAPABILITIES[mod]
+  const entity: CrmEntity = mod === 'operations' ? 'operations' : 'service_cases'
+  const T = `local_period:${mod}`
+  const rq = await crmReadQuery(supabase, ws, {
+    entity: capMeta.queryEntity, limit: 20,
+    ...(client ? { clientRef: client.entityId } : {}),
+    dateRange: { from: scope.start, to: scope.end },
+    orderBy: capMeta.dateField, orderDirection: 'asc',
+  })
+  if ('error' in rq) return fail(entity, T, ws)
+  const rows = rq.rows as Row[]
+  const who = client ? ` de ${client.displayLabel}` : ''
+  const noun = mod === 'operations' ? 'operaciones' : 'trámites'
+  const convType: ConvEntityType = mod === 'operations' ? 'opportunity' : 'service_case'
+  const su: StateUpdate = {
+    resolvedModule: mod, temporalScopeUpdate: scope,
+    ...(client ? { resolvedEntities: [{ ...client, sourceTurnId: turnId }] } : {}),
+    lastDataQueryUpdate: { module: mod, capability: T, entityType: convType, resultRefs: toResultRefs(convType, rows), executedAt: new Date().toISOString() },
+  }
+  const label = formatScopeLabel(scope)
+  if (!rows.length) return { handled: true, usedTool: T, entity, answer: `No hay ${noun}${who} ${capMeta.periodLabel} ${label}.`, stateUpdate: su }
+  const fmt = mod === 'operations' ? formatOperationLine : formatCaseLine
+  return { handled: true, usedTool: T, entity, answer: `${cap(noun)}${who} ${capMeta.periodLabel} ${label} (${rows.length}):\n${rows.slice(0, 8).map(fmt).join('\n')}`, referencedList: rows, stateUpdate: su }
+}
+
+// ── P71 · RESOLUCIÓN CONTEXTUAL: referencia → ancla → RECONSULTA de la fuente real ────────────────────
+async function handleContextualFollowup(supabase: SupabaseClient, ws: string, message: string, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const n = foldText(message)
+  // Nunca sobre una escritura/confirmación de acción (eso es del plano de acciones): verbos mutadores
+  // generales + confirmación/cancelación. La resolución contextual es SOLO de lectura.
+  if (/\b(cambia|cambiale|actualiza|modifica|pon(le|lo)?|sube|baja|edita|corrige|crea|anade|añade|marca|mueve|pasa|reprograma|activa|programa|elimina|borra|confirma|confirmo|cancela|descarta|adelante|hazlo)\b/.test(n)) return null
+  const ref = detectReference(message)
+  let anchor = ref ? resolveAnchor(ref, state) : null
+  // P71 — ORDINAL sobre un CONTEO: «¿cuántos clientes tengo?» responde un número sin lista, pero «la ficha
+  // del primero» sigue siendo resoluble: se RECONSULTA la lista del módulo con orden estable y se indexa.
+  // (El estado solo dice QUÉ se consultó; la lista se lee fresca — nunca de memoria.)
+  if (!anchor && ref?.kind === 'ordinal' && state.lastDataQuery && !state.lastDataQuery.resultRefs.length && state.lastDataQuery.entityType) {
+    const QE: Record<string, string> = { client: 'clients', property: 'properties', opportunity: 'opportunities', task: 'tasks', calendar_event: 'calendar_events', service_case: 'service_cases' }
+    const qe = QE[state.lastDataQuery.entityType]
+    if (qe) {
+      const rq = await crmReadQuery(supabase, ws, { entity: qe, limit: 25 })
+      if (!('error' in rq)) {
+        const rows = rq.rows as Row[]
+        const idx = ref.index < 0 ? rows.length + ref.index : ref.index
+        const row = rows[idx]
+        const id = row ? str(row.id) : ''
+        if (row && /^[0-9a-f-]{36}$/i.test(id)) {
+          anchor = { type: 'entity', entity: { entityType: state.lastDataQuery.entityType, entityId: id, displayLabel: str(row.name) || str(row.title) || 'elemento', confidence: 0.8, sourceTurnId: turnId }, via: 'ordinal:requery', confidence: 0.8 }
+        }
+      }
+    }
+  }
+  // P71 — BÚSQUEDA por nombre sin la palabra «cliente» y sin mayúsculas: «busca a roberto diaz». El verbo
+  // de búsqueda define la intención; el NOMBRE lo validan los candidatos reales (jamás se adivina).
+  if (!anchor && /\b(busca(me)?|encuentra|localiza)\b/.test(n)) {
+    const tail = message.match(/\b(?:busca(?:me)?|encuentra|localiza)\s+(?:a\s+|al\s+|el\s+|la\s+)?(.+)$/i)?.[1]?.trim()
+    if (tail && tail.length >= 3 && !/\b(cliente|inmueble|piso|operacion|tarea|cita|tramite)\b/.test(foldText(tail))) {
+      const res = await searchClients(supabase, ws, { query: tail.slice(0, 80), limit: 5 })
+      if (!('error' in res)) {
+        if (res.results.length === 1) {
+          const c0 = res.results[0]
+          anchor = { type: 'entity', entity: { entityType: 'client', entityId: String(c0.id), displayLabel: String(c0.name), confidence: 0.85, sourceTurnId: turnId }, via: 'search', confidence: 0.85 }
+        } else if (res.results.length > 1) {
+          return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `He encontrado varios clientes que coinciden con «${tail}»:\n${res.results.slice(0, 4).map((c) => `• ${String(c.name)}`).join('\n')}\n¿A cuál te refieres?` }
+        }
+        // 0 coincidencias → flujo normal (puede ser un inmueble u otra búsqueda que resuelven otros handlers)
+      }
+    }
+  }
+  // ELISIÓN de 3ª persona: «¿qué operaciones tiene?», «¿cuántas citas tiene?» — sin sujeto explícito el
+  // sujeto es la ENTIDAD ACTIVA. Se distingue de 1ª/2ª persona (tengo/tienes/tenemos = el USUARIO, global).
+  // P71·F3.1 — un SUJETO EXPLÍCITO gana SIEMPRE a la entidad activa: «¿qué operaciones tiene María?» debe
+  // resolver a María contra candidatos reales; si no existe → decirlo (jamás usar la activa por accidente).
+  if (!anchor && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
+    const explicit = await resolveExplicitClientScope(supabase, ws, message)
+    if (explicit?.kind === 'one') anchor = { type: 'entity', entity: explicit.ref, via: 'explicit', confidence: 0.85 }
+    else if (explicit?.kind === 'many') {
+      return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+    } else if (explicit?.kind === 'none') {
+      return { handled: true, usedTool: 'local_scope:notfound', entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${explicit.span}». ¿Puedes darme el nombre completo o comprobar cómo está registrado?` }
+    } else if (explicit?.kind === 'weak_miss' && state.activeEntities.length) {
+      // El sujeto tras «tiene» podría ser un nombre que no resuelve: JAMÁS usar la entidad activa por
+      // accidente — se pregunta (mejor una aclaración de más que datos de la entidad equivocada).
+      const active = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
+      return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `No encuentro ningún cliente llamado «${explicit.span}». ¿Te refieres a ${active.displayLabel} (el último que miramos) o a otra persona?` }
+    } else {
+      const owner = state.activeEntities.find((x) => x.entityType === 'client') ?? state.activeEntities[0]
+      if (owner) anchor = { type: 'entity', entity: owner, via: 'elision', confidence: 0.7 }
+    }
+  }
+  // P71·F3.1 — relación EXPLÍCITA sin referencia previa: «las operaciones de maría» (sin pronombre ni
+  // elisión, con o sin mayúsculas). Solo con marcador relacional y candidatos reales; 0 coincidencias →
+  // flujo normal (no bloquea lecturas globales legítimas ni búsquedas por título de inmueble/operación).
+  // El módulo puede venir del mensaje o HEREDARSE de la última consulta («¿y las de María?» tras citas).
+  if (!anchor) {
+    const targetMod = resolveModuleFromText(message)
+    const inheritedMod = state.lastDataQuery && TEMPORAL_READ_CAPABILITIES[state.lastDataQuery.module] ? state.lastDataQuery.module : null
+    const relational = ['operations', 'tasks', 'calendar', 'portfolio', 'cases'].includes(targetMod ?? '') || (!targetMod && !!inheritedMod)
+    if (relational && /\b(de|del|con)\s+\p{L}/iu.test(message)) {
+      const explicit = await resolveExplicitClientScope(supabase, ws, message, { requireRelationMarker: true })
+      if (explicit?.kind === 'one') anchor = { type: 'entity', entity: explicit.ref, via: 'explicit', confidence: 0.85 }
+      else if (explicit?.kind === 'many') {
+        return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+      }
+    }
+  }
+  if (!anchor) return null
+
+  if (anchor.type === 'same_query') return rerunLastQuery(supabase, ws, state)
+  if (anchor.type === 'ambiguous') {
+    const opts = anchor.candidates.map((c) => `• ${c.displayLabel || c.entityType}`).join('\n')
+    return { handled: true, usedTool: 'local_ref:clarify', entity: 'help', answer: `¿A cuál te refieres?\n${opts}` }
+  }
+  if (anchor.type === 'extreme') return resolveExtreme(supabase, ws, anchor, state, turnId)
+
+  // anchor.type === 'entity': el llamador SIEMPRE reconsulta la fuente por id.
+  const e = anchor.entity
+  // P71·F3.1 — módulo: el del mensaje o, si el mensaje es elíptico («¿y las de María?»), el HEREDADO de la
+  // última consulta temporal-capaz. El periodo vigente se hereda SOLO si esa última consulta era del mismo
+  // módulo (una continuación habla «de lo mismo»); si no, la lectura scoped usa su ventana por defecto.
+  const targetModule = resolveModuleFromText(message)
+    ?? (state.lastDataQuery && TEMPORAL_READ_CAPABILITIES[state.lastDataQuery.module] ? state.lastDataQuery.module as ReturnType<typeof resolveModuleFromText> : null)
+  const inheritScope = (m: string): TemporalScope | undefined =>
+    state.temporalScope && state.lastDataQuery?.module === m ? state.temporalScope : undefined
+  if (e.entityType === 'client') {
+    if (targetModule === 'operations') return readClientOperations(supabase, ws, e, turnId)
+    if (targetModule === 'tasks') return readClientTasks(supabase, ws, e, turnId, inheritScope('tasks'))
+    if (targetModule === 'calendar') return readClientEvents(supabase, ws, e, turnId, inheritScope('calendar'))
+    if (targetModule === 'portfolio') return readClientProperties(supabase, ws, e, turnId)
+    return readClientDetailById(supabase, ws, e, turnId)
+  }
+  return readEntityDetailById(supabase, ws, e, turnId)
+}
+
+// ── P71·It2 · CONTINUIDAD TEMPORAL: hereda módulo/capability y SUSTITUYE solo el periodo → reconsulta BD ─
+// «¿y la semana que viene?», «¿y la siguiente?», «¿y este mes?» tras una consulta de agenda: se resuelve el
+// nuevo alcance (absoluto o desplazando el previo) y se vuelve a consultar. Nunca responde del resultado
+// anterior. No secuestra un mensaje que trae su propio módulo no-temporal (cartera/clientes/operaciones).
+async function handleTemporalFollowup(supabase: SupabaseClient, ws: string, message: string, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const today = todayMadridIso()
+  const resolved = resolveTemporalScope(message, state.temporalScope, today, turnId)
+  if (!resolved) return null
+  const n = foldText(message)
+  // La continuidad temporal es de LECTURA: nunca secuestra una ACCIÓN (crear/mover una cita, cambiar un
+  // valor…) ni un COMANDO de automatización. «agéndame una visita mañana» o «activa la agenda de la mañana»
+  // NO son consultas de citas de mañana. parseActionIntent cubre las acciones P65; el verbo cubre la
+  // creación/gestión de automatizaciones (que no es una acción P65).
+  if (parseActionIntent(message)) return null
+  if (/\b(activa|crea|programa|configura|desactiva|pausa|reactiva|ejecuta|lanza|cambia|cambiale|modifica|actualiza|pon|ponle|edita|corrige|marca|mueve|reprograma|apunta|recuerdame|anade|añade|agendar|agendame)\b/.test(n)) return null
+  // Sin semántica temporal de lectura: cartera (un inmueble no «ocurre» en una semana), ventas, facturación.
+  if (PROPERTY_VOCAB.test(n) || /\b(vendid|ventas|factura)\b/.test(n)) return null
+  // P71·F3.2 — módulo temporal por METADATA (no por frases): el que nombre el mensaje, o el heredable del
+  // estado si su capability declara continuidad (TEMPORAL_READ_CAPABILITIES).
+  const mentionsTareas = /\b(tarea|tareas|pendientes?)\b/.test(n)
+  const mentionsCitas = /\b(cita|citas|calendario|agenda|reunion(es)?|visitas?)\b/.test(n)
+  const mentionsOps = /\b(operacion(es)?|oportunidad(es)?)\b/.test(n)
+  const mentionsCases = /\b(tramite|tramites|expediente|expedientes)\b/.test(n)
+  let mod: string | null = mentionsTareas ? 'tasks' : mentionsCitas ? 'calendar' : mentionsOps ? 'operations' : mentionsCases ? 'cases' : null
+  if (!mod) {
+    const inheritable = (m: string | null | undefined) => (m && TEMPORAL_READ_CAPABILITIES[m]?.allowsContinuity ? m : null)
+    mod = inheritable(state.activeModule) ?? inheritable(state.lastDataQuery?.module)
+  }
+  if (!mod || !TEMPORAL_READ_CAPABILITIES[mod]) return null
+
+  // ── COMPOSICIÓN entidad + periodo (entityScope y temporalScope COEXISTEN, nunca se pisan) ────────────
+  // P71·F3.1 — la entidad puede venir (a) EXPLÍCITA por nombre → candidatos reales del workspace (gana a
+  // todo; N→aclarar; 0→decirlo, jamás global bajo referencia de entidad); (b) por referencia/elisión del
+  // estado; (c) por continuidad del scope relacional anterior.
+  const explicit = await resolveExplicitClientScope(supabase, ws, message, { requireRelationMarker: true })
+  if (explicit?.kind === 'many') {
+    return { handled: true, usedTool: 'local_scope:clarify', entity: 'clients', answer: `Hay varios clientes que coinciden con «${explicit.span}»:\n${explicit.names.map((x) => `• ${x}`).join('\n')}\n¿A cuál te refieres?` }
+  }
+  if (explicit?.kind === 'none') {
+    return { handled: true, usedTool: 'local_scope:notfound', entity: 'clients', answer: `No encuentro ningún cliente que coincida con «${explicit.span}», así que no te muestro datos de otra cosa. Si te referías a una zona o a un inmueble, dímelo de otra forma.` }
+  }
+  let scopedClient: EntityRef | null = explicit?.kind === 'one' ? explicit.ref : null
+  const refk = scopedClient ? null : detectReference(message)
+  if (!scopedClient && refk) { const a = resolveAnchor(refk, state); if (a && a.type === 'entity' && a.entity.entityType === 'client') scopedClient = a.entity }
+  if (!scopedClient && /\b(tiene|tienen|tenia|tenian)\b/.test(n) && !/\b(tengo|tienes|tenemos|teneis)\b/.test(n)) {
+    scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
+  }
+  // CONTINUIDAD del scope: si la ÚLTIMA consulta ya era relacional (de un cliente), la continuación
+  // temporal sin nueva referencia sigue acotada al MISMO cliente (no salta a lo global). El scope de
+  // cliente de un local_period se reconoce porque la entidad activa participó en esa consulta.
+  if (!scopedClient && /^local_client_(events|tasks)$/.test(state.lastDataQuery?.capability ?? '')) {
+    scopedClient = state.activeEntities.find((x) => x.entityType === 'client') ?? null
+  }
+
+  if (mod === 'calendar' || mod === 'tasks') {
+    if (scopedClient) {
+      return mod === 'tasks'
+        ? readClientTasks(supabase, ws, scopedClient, turnId, resolved.scope)
+        : readClientEvents(supabase, ws, scopedClient, turnId, resolved.scope)
+    }
+    // Absoluto SIN contexto temporal previo y sin ser continuación explícita («y…») → flujo normal (que
+    // también registra el alcance). No cambia el comportamiento de una primera consulta con fecha.
+    const startsWithContinuation = /^\s*¿?\s*y\b/i.test(message.trim())
+    if (resolved.via === 'absolute' && !state.temporalScope && !startsWithContinuation && !mentionsCitas && !mentionsTareas) return null
+    const want = mod === 'tasks' ? { calendar: false, tasks: true } : { calendar: true, tasks: false }
+    return handleAgenda(supabase, ws, want, { scope: resolved.scope, turnId })
+  }
+  // operations / cases — P71·F3.2: crmReadQuery con dateRange sobre el dateCol real (+ clientRef opcional).
+  return handleModuleInPeriod(supabase, ws, mod, resolved.scope, scopedClient, turnId)
+}
+
+// Reconsulta la MISMA lectura anterior con datos ACTUALES (grounding; reemplaza el atajo confirm_prior).
+async function rerunLastQuery(supabase: SupabaseClient, ws: string, state: ConversationState): Promise<LocalAnswer> {
+  const q = state.lastDataQuery
+  if (!q) return { handled: false } as LocalAnswer
+  const et = q.entityType
+  const mod = q.module
+  let r: LocalAnswer
+  if (et === 'client' || mod === 'clients') r = await handleClients(supabase, ws, classifyIntent('muéstrame los clientes'))
+  else if (et === 'property' || mod === 'portfolio') r = await handlePortfolioSummary(supabase, ws)
+  else if (et === 'opportunity' || mod === 'operations') r = await handleList(supabase, ws, 'operations', 'local_operations', async () => { const x = await crmReadQuery(supabase, ws, { entity: 'opportunities', limit: 10 }); return 'error' in x ? { error: true } : { rows: x.rows } }, formatOperationLine, 'operación', 'operaciones')
+  else if (et === 'task' || mod === 'tasks') r = await handleAgenda(supabase, ws, { calendar: false, tasks: true })
+  else if (et === 'calendar_event' || mod === 'calendar') r = await handleAgenda(supabase, ws, { calendar: true, tasks: false })
+  else if (et === 'service_case' || mod === 'cases') r = await handleList(supabase, ws, 'service_cases', 'local_cases', async () => { const x = await crmReadQuery(supabase, ws, { entity: 'service_cases', limit: 10 }); return 'error' in x ? { error: true } : { rows: x.rows } }, formatCaseLine, 'trámite', 'trámites')
+  else return { handled: false } as LocalAnswer
+  if (!r.handled) return r
+  return { ...r, usedTool: `${r.usedTool}:rerun`, answer: `Lo he vuelto a consultar ahora mismo:\n${r.answer}` }
+}
+
+// Extremo (más caro/reciente…): reconsulta la lista del módulo con orden real y muestra el primero.
+async function resolveExtreme(supabase: SupabaseClient, ws: string, anchor: Extract<AnchorResolution, { type: 'extreme' }>, state: ConversationState, turnId: string): Promise<LocalAnswer | null> {
+  const mod = state.lastDataQuery?.module ?? state.activeModule
+  if (mod === 'portfolio' || anchor.field === 'price') {
+    const rq = await crmReadQuery(supabase, ws, { entity: 'properties', limit: 200 })
+    if ('error' in rq) return fail('properties', 'local_ref:extreme', ws)
+    const rows = (rq.rows as Row[]).filter((p) => numOrNull(p.price) != null)
+    rows.sort((a, b) => anchor.dir === 'desc' ? numOrNull(b.price)! - numOrNull(a.price)! : numOrNull(a.price)! - numOrNull(b.price)!)
+    const top = rows[0]
+    if (!top) return { handled: true, usedTool: 'local_ref:extreme', entity: 'properties', answer: 'No hay inmuebles con precio para comparar.' }
+    const su: StateUpdate = { resolvedModule: 'portfolio', resolvedEntities: [{ entityType: 'property', entityId: str(top.id), displayLabel: str(top.title), confidence: 0.8, sourceTurnId: turnId }] }
+    return { handled: true, usedTool: 'local_ref:extreme', entity: 'properties', answer: `El ${anchor.dir === 'desc' ? 'más' : 'menos'} caro:\n${formatPropertyLine(top)}`, referencedList: [top], stateUpdate: su }
+  }
+  return null
+}
+
+// Ficha de cliente por ID (reconsulta getClient360, datos ACTUALES).
+async function readClientDetailById(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const r = await getClient360(supabase, ws, { clientId: e.entityId })
+  const su: StateUpdate = { resolvedModule: 'clients', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if ('error' in r) return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: `No he podido cargar la ficha ahora mismo.`, stateUpdate: su }
+  const c = r.client
+  const pend = r.tasks.filter((t) => isPendingTask(t.status)).length
+  const up = r.calendarEvents.filter((ev) => isUpcoming(ev.date ?? ev.start_at, ev.status)).length
+  const lines = [`Ficha de ${c.name}`, [c.company, c.email, c.phone].filter(Boolean).join(' · ') || null, c.status ? `Estado: ${cap(c.status)}` : null, `• Tareas pendientes: ${pend} · Citas próximas: ${up} · Documentos: ${r.documents.length}`].filter(Boolean)
+  return { handled: true, usedTool: 'local_client_detail', entity: 'clients', answer: lines.join('\n'), referencedList: [{ id: e.entityId, name: c.name }], stateUpdate: su }
+}
+
+async function readClientOperations(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const r = await getClientOpportunities(supabase, ws, { clientId: e.entityId })
+  const su: StateUpdate = { resolvedModule: 'operations', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if ('error' in r) return fail('operations', 'local_client_operations', ws)
+  const ops = r.opportunities as Array<Record<string, unknown>>
+  if (!ops.length) return { handled: true, usedTool: 'local_client_operations', entity: 'operations', answer: `${e.displayLabel} no tiene operaciones registradas.`, stateUpdate: su }
+  const lines = ops.slice(0, 8).map((o) => formatOperationLine({ ...o, client_name: e.displayLabel }))
+  return { handled: true, usedTool: 'local_client_operations', entity: 'operations', answer: `Operaciones de ${e.displayLabel} (${ops.length}):\n${lines.join('\n')}`, referencedList: ops, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'operations', capability: 'local_client_operations', entityType: 'opportunity', resultRefs: toResultRefs('opportunity', ops), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientTasks(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string, scope?: TemporalScope | null): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('tasks').select('id, title, due_date, status, priority, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).order('due_date', { ascending: true, nullsFirst: false }).limit(30)
+  const su: StateUpdate = { resolvedModule: 'tasks', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }], ...(scope !== undefined ? { temporalScopeUpdate: scope } : {}) }
+  if (error) return fail('tasks', 'local_client_tasks', ws)
+  let rows = ((data ?? []) as Row[]).filter((t) => isPendingTask(t.status as string | null))
+  // COMPOSICIÓN entidad+periodo: se acota por fecha límite dentro del rango (empty REAL, nunca global).
+  if (scope && scope.start && scope.end) rows = rows.filter((t) => { const d = str(t.due_date).slice(0, 10); return d && d >= scope.start! && d <= scope.end! })
+  const per = scope ? ` (${formatScopeLabel(scope)})` : ' pendientes'
+  if (!rows.length) return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `${e.displayLabel} no tiene tareas${per}.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_tasks', entity: 'tasks', answer: `Tareas de ${e.displayLabel}${per} (${rows.length}):\n${rows.slice(0, 8).map(formatTaskLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'tasks', capability: 'local_client_tasks', entityType: 'task', resultRefs: toResultRefs('task', rows), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientEvents(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string, scope?: TemporalScope | null): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('calendar_events').select('id, title, date, start_at, status, client_name').eq('workspace_id', ws).eq('client_id', e.entityId).neq('status', 'cancelled').order('start_at', { ascending: true }).limit(50)
+  const su: StateUpdate = { resolvedModule: 'calendar', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }], ...(scope !== undefined ? { temporalScopeUpdate: scope } : {}) }
+  if (error) return fail('calendar', 'local_client_events', ws)
+  // Con periodo: se acota a [start,end] (Europe/Madrid). Sin periodo: próximas (comportamiento previo).
+  const rows = ((data ?? []) as Row[]).filter((ev) => {
+    const d = (str(ev.date) || str(ev.start_at)).slice(0, 10)
+    if (scope && scope.start && scope.end) return d >= scope.start && d <= scope.end
+    return isUpcoming(str(ev.date) || str(ev.start_at), ev.status as string | null)
+  })
+  const per = scope ? ` para ${formatScopeLabel(scope)}` : ' próximas'
+  if (!rows.length) return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `${e.displayLabel} no tiene citas${per}.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_events', entity: 'calendar', answer: `Citas de ${e.displayLabel}${per} (${rows.length}):\n${rows.slice(0, 8).map(formatEventLine).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'calendar', capability: 'local_client_events', entityType: 'calendar_event', resultRefs: toResultRefs('calendar_event', rows), executedAt: new Date().toISOString() } } }
+}
+
+async function readClientProperties(supabase: SupabaseClient, ws: string, e: { entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const { data, error } = await supabase.from('properties').select('id, title, status, price, operation_type, city, area').eq('workspace_id', ws).eq('client_id', e.entityId).is('deleted_at', null).limit(15)
+  const su: StateUpdate = { resolvedModule: 'portfolio', resolvedEntities: [{ entityType: 'client', entityId: e.entityId, displayLabel: e.displayLabel, confidence: 0.85, sourceTurnId: turnId }] }
+  if (error) return fail('properties', 'local_client_properties', ws)
+  const rows = (data ?? []) as Row[]
+  if (!rows.length) return { handled: true, usedTool: 'local_client_properties', entity: 'properties', answer: `${e.displayLabel} no tiene inmuebles vinculados.`, stateUpdate: su }
+  return { handled: true, usedTool: 'local_client_properties', entity: 'properties', answer: `Inmuebles de ${e.displayLabel} (${rows.length}):\n${rows.slice(0, 8).map((p) => formatPropertyLine(p)).join('\n')}`, referencedList: rows, stateUpdate: { ...su, lastDataQueryUpdate: { module: 'portfolio', capability: 'local_client_properties', entityType: 'property', resultRefs: toResultRefs('property', rows), executedAt: new Date().toISOString() } } }
+}
+
+// Detalle de una entidad no-cliente por id (reconsulta la fila real).
+async function readEntityDetailById(supabase: SupabaseClient, ws: string, e: { entityType: ConvEntityType; entityId: string; displayLabel: string }, turnId: string): Promise<LocalAnswer> {
+  const table = e.entityType === 'property' ? 'properties' : e.entityType === 'opportunity' ? 'opportunities' : e.entityType === 'task' ? 'tasks' : e.entityType === 'calendar_event' ? 'calendar_events' : e.entityType === 'service_case' ? 'service_cases' : null
+  const entity: CrmEntity = e.entityType === 'property' ? 'properties' : e.entityType === 'opportunity' ? 'operations' : e.entityType === 'task' ? 'tasks' : e.entityType === 'calendar_event' ? 'calendar' : e.entityType === 'service_case' ? 'service_cases' : 'help'
+  const su: StateUpdate = { resolvedEntities: [{ ...e, confidence: 0.85, sourceTurnId: turnId }] }
+  if (!table) return { handled: true, usedTool: 'local_ref:detail', entity, answer: `Es «${e.displayLabel}». ¿Qué quieres saber de él?`, stateUpdate: su }
+  const { data } = await supabase.from(table).select('*').eq('workspace_id', ws).eq('id', e.entityId).maybeSingle()
+  if (!data) return { handled: true, usedTool: 'local_ref:detail', entity, answer: `Ya no encuentro «${e.displayLabel}» (puede haberse eliminado).`, stateUpdate: su }
+  const row = data as Row
+  const line = e.entityType === 'property' ? formatPropertyLine(row) : e.entityType === 'opportunity' ? formatOperationLine(row) : e.entityType === 'task' ? formatTaskLine(row) : e.entityType === 'calendar_event' ? formatEventLine(row) : formatCaseLine(row)
+  return { handled: true, usedTool: 'local_ref:detail', entity, answer: line, referencedList: [row], stateUpdate: su }
+}
+
 export async function tryLocalAnswer(
   supabase: SupabaseClient,
   workspaceId: string,
   message: string,
-  opts: { recentContext?: string; lastResults?: unknown[] } = {},
+  opts: LocalOpts = {},
 ): Promise<LocalAnswer> {
   const r = await tryLocalAnswerInner(supabase, workspaceId, message, opts)
-  return r.handled ? { ...r, answer: r.answer.replace(/\*\*/g, '') } : r
+  if (!r.handled) return r
+  // P71 — enriquecer el stateUpdate con la última consulta de datos (referencias ligeras, NO datos),
+  // de forma general: cualquier lectura que devuelva una lista deja resolubles ordinales/extremos.
+  const withState = enrichReadStateUpdate(r, message, opts.turnId ?? '')
+  // P71·It2 — CAMBIO DE TEMA: si había una intención pendiente y este turno resolvió OTRO objetivo (su tool
+  // no es del flujo de intención pendiente), la intención anterior queda cancelada (no contamina el hilo).
+  let stateUpdate = withState.stateUpdate
+  if (opts.state?.pendingIntent && !withState.usedTool.startsWith('local_pending')) {
+    stateUpdate = { ...(stateUpdate ?? {}), clearPendingIntent: true }
+  }
+  // P71·F5 — traza SEGURA del cerebro por turno (tipos y conteos; jamás labels, texto del usuario ni PII).
+  // Permite responder: por qué esta ruta, con qué scope de entidad/tiempo, y si quedó intención pendiente.
+  console.log('[assistant.brain]', {
+    turnId: opts.turnId ?? '',
+    tool: withState.usedTool,
+    module: stateUpdate?.resolvedModule ?? opts.state?.activeModule ?? null,
+    entityScope: (stateUpdate?.resolvedEntities?.length ?? 0) > 0
+      ? { type: stateUpdate!.resolvedEntities![0].entityType, count: stateUpdate!.resolvedEntities!.length }
+      : (opts.state?.activeEntities?.length ? { type: opts.state.activeEntities[0].entityType, count: opts.state.activeEntities.length, inherited: true } : null),
+    temporal: stateUpdate?.temporalScopeUpdate?.interpretation ?? null,
+    pendingSlots: stateUpdate?.pendingIntentUpdate?.requiredSlots ?? (stateUpdate?.clearPendingIntent ? [] : opts.state?.pendingIntent?.requiredSlots ?? null),
+    listRefs: stateUpdate?.lastDataQueryUpdate?.resultRefs?.length ?? null,
+    freshness: 'live',
+  })
+  return { ...withState, stateUpdate, answer: withState.answer.replace(/\*\*/g, '') }
 }
 
 async function tryLocalAnswerInner(
   supabase: SupabaseClient,
   workspaceId: string,
   message: string,
-  opts: { recentContext?: string; lastResults?: unknown[] } = {},
+  opts: LocalOpts = {},
 ): Promise<LocalAnswer> {
   const recentContext = opts.recentContext ?? ''
+  const state = opts.state ?? emptyState()
+  const turnId = opts.turnId ?? ''
+  const today = todayMadridIso()
+
+  // ── P71·It2 · INTENCIÓN PENDIENTE — completar con el complemento del turno, o cancelar ────────────────
+  // Si hay una acción pendiente y este turno la CANCELA o la COMPLETA, se resuelve aquí (antes de re-enrutar).
+  // Completar NUNCA ejecuta: produce un PREVIEW (prepare→confirm→execute→verify de P70). Un mensaje que trae
+  // su propia acción completa o un objetivo nuevo NO se fuerza como complemento (cae al flujo normal y el
+  // wrapper cancela la intención anterior).
+  if (state.pendingIntent && state.pendingIntent.kind === 'action') {
+    const pi = state.pendingIntent
+    if (detectExplicitCancel(message)) {
+      return { handled: true, usedTool: 'local_pending:cancel', entity: 'help', answer: 'Vale, lo dejo. He descartado el cambio pendiente; no se ha tocado nada.', stateUpdate: { clearPendingIntent: true } }
+    }
+    const ownAction = parseActionIntent(message)
+    const isOwnComplete = !!ownAction && ownAction.act === 'prepare' && !ownAction.missingFields.length
+    if (!isOwnComplete) {
+      const comp = completePendingAction(pi, message, today)
+      // P71·F3.4 — «sí / vale / adelante» con una intención INCOMPLETA: no hay preview que confirmar
+      // todavía; se re-pregunta el slot que falta (la intención se conserva, con expiración renovada).
+      if (comp && !comp.done && isAffirmativeParticleOnly(message)) {
+        const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+        return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: `Aún no tengo todo para prepararlo. ${askForSlot(comp.askSlot, comp.askEntityNoun)}`, stateUpdate: { pendingIntentUpdate: { ...pi, requiredSlots: comp.stillMissing, collectedSlots: comp.collected, expiresAt, status: 'awaiting_slot' } } }
+      }
+      // Progreso = más slots llenos O una CORRECCIÓN (mismo slot, valor distinto). Ignora metadatos «__».
+      const filled = (o: Record<string, unknown>) => Object.entries(o).filter(([k, v]) => !k.startsWith('__') && v !== undefined && v !== null && v !== '').length
+      const corrected = !!comp && Object.keys(comp.collected).some((k) => !k.startsWith('__') && pi.collectedSlots[k] !== undefined && comp.collected[k] !== pi.collectedSlots[k])
+      const madeProgress = !!comp && (comp.done || corrected || filled(comp.collected) > filled(pi.collectedSlots))
+      if (comp && madeProgress && (looksLikeSlotFiller(message) || comp.done)) {
+        if (comp.done) {
+          const handled = await handleChatAction(supabase, workspaceId, comp.intent)
+          if (handled.handled) return { ...handled, usedTool: 'local_pending:complete', stateUpdate: { ...(handled.stateUpdate ?? {}), clearPendingIntent: true } }
+        } else {
+          const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+          return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(comp.askSlot, comp.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...pi, collectedSlots: comp.collected, requiredSlots: comp.stillMissing, expiresAt, status: 'awaiting_slot' } } }
+        }
+      }
+    }
+    // Sin progreso ni cancelación → objetivo nuevo: sigue el flujo normal (el wrapper cancela lo pendiente).
+  }
+
+  // ── P71·It2 · CONTINUIDAD TEMPORAL antes de referencias: «¿y la semana que viene?» hereda módulo y periodo.
+  const tmpFollow = await handleTemporalFollowup(supabase, workspaceId, message, state, turnId)
+  if (tmpFollow && tmpFollow.handled) return tmpFollow
+
+  // ── P71 · RESOLUCIÓN CONTEXTUAL (referencias/ordinales/extremos/«otra vez») ─────────────────
+  // Antes del enrutado general: si el mensaje es una referencia y el estado tiene contexto, se resuelve
+  // el ancla (id/criterio) y se RECONSULTA la fuente real. Nunca responde desde el estado. No corre si el
+  // mensaje es una escritura (verbo mutador) — eso lo maneja el plano de acciones.
+  const ctxFollow = await handleContextualFollowup(supabase, workspaceId, message, state, turnId)
+  if (ctxFollow && ctxFollow.handled) return ctxFollow
 
   // ── P50: DECISIÓN ÚNICA DE TURNO — razona el acto comunicativo ANTES de leer/escribir/llamar a n8n ──
   // Ninguna entidad del CRM provoca una consulta por sí sola. Los turnos META (el usuario habla de la
@@ -1053,10 +1625,26 @@ async function tryLocalAnswerInner(
   // normal: un «sí» sin acción pendiente puede ser aceptación de oferta, nunca ejecuta escrituras).
   // Nunca en turnos meta/corrección/queja ni en Facturación.
   if (turn.domain !== 'invoicing' && !['user_correction', 'user_complaint', 'assistant_meta', 'disagreement'].includes(turn.turnType)) {
+    const askPending = (build: ReturnType<typeof detectIncompleteAction>): LocalAnswer => {
+      const expiresAt = new Date(Date.now() + PENDING_INTENT_TTL_MS).toISOString()
+      return { handled: true, usedTool: 'local_pending:ask', entity: 'help', answer: askForSlot(build!.askSlot, build!.askEntityNoun), stateUpdate: { pendingIntentUpdate: { ...build!.pending, sourceTurnId: turnId, expiresAt } } }
+    }
     const actionIntent = parseActionIntent(message)
     if (actionIntent) {
+      // P71·It3 — acción IMPERATIVA pero INCOMPLETA (le faltan slots): en vez de pedir y olvidar, se crea una
+      // intención pendiente (derivada del registry) que combinará el turno siguiente hasta producir el preview.
+      if (actionIntent.act === 'prepare' && actionIntent.missingFields.length && !state.pendingIntent) {
+        const build = buildPendingFromIntent(actionIntent, message)
+        if (build) return askPending(build)
+      }
       const handled = await handleChatAction(supabase, workspaceId, actionIntent)
       if (handled.handled) return handled
+    }
+    // P71·It2 — acción con INTENCIÓN clara pero INCOMPLETA en forma DESIDERATIVA («quiero cambiar el precio de
+    // un inmueble»), que parseActionIntent no captura: crea intención pendiente y pregunta SOLO por lo que falta.
+    if (!state.pendingIntent) {
+      const inc = detectIncompleteAction(message, today)
+      if (inc) return askPending(inc)
     }
   }
 
@@ -1239,7 +1827,8 @@ async function tryLocalAnswerInner(
     // operaciones ganadas» es un imperativo de automatización inequívoco (verbo de activación + tipo
     // del registry), no una consulta de ventas.
     const nmsgAuto = foldText(message)
-    if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsgAuto) && !/\botra vez\b|\bde nuevo\b/.test(nmsgAuto) && detectAutomationType(nmsgAuto) !== null) {
+    // P71 — morfología abierta («actívame», «créame», «prográmame»): sufijo \w*, no formas exactas.
+    if (/\b(activa\w*|crea\w*|programa\w*|configura\w*|quiero)\b/.test(nmsgAuto) && !/\botra vez\b|\bde nuevo\b/.test(nmsgAuto) && detectAutomationType(nmsgAuto) !== null) {
       const early = handleAutomationCreatePreview(nmsgAuto)
       if (early) return early
     }
@@ -1267,7 +1856,8 @@ async function tryLocalAnswerInner(
     const autoIntent = (() => {
       if (/\b(lista|muestra|ver|cuales son)\b.*\bautomatizacion(es)?\b/.test(nmsg) || /\bmis automatizaciones\b/.test(nmsg)) return { kind: 'list' as const }
       // P70 Wave D — creación para CUALQUIER tipo del registry (vocabulario canónico) + frecuencia.
-      if (/\b(activa|crea|programa|configura|quiero)\b/.test(nmsg) && !/\botra vez\b|\bde nuevo\b/.test(nmsg) && detectAutomationType(nmsg) !== null) {
+      // P71 — morfología abierta («actívame», «créame»): sufijo \w*.
+      if (/\b(activa\w*|crea\w*|programa\w*|configura\w*|quiero)\b/.test(nmsg) && !/\botra vez\b|\bde nuevo\b/.test(nmsg) && detectAutomationType(nmsg) !== null) {
         return { kind: 'activate' as const }
       }
       if (/\bdesactiva\b.*\b(resumen|auditoria|automatizacion|aviso)\b/.test(nmsg)) return { kind: 'disable' as const }
@@ -1369,9 +1959,12 @@ async function tryLocalAnswerInner(
     const agendaGeneric = !mentionsPortfolio && /\b(que tengo (pendiente|proximo|para hoy|hoy|esta semana|en la agenda|manana)|tengo algo (pendiente|proximo|hoy|manana)|que hay (hoy|manana|en la agenda)|mi agenda|proximamente)\b/.test(nmsg)
     // Existencia O verbo de lectura («en el calendario me puedes mirar?» debe leer, answer-first).
     const asksExistence = /\b(tengo|tienes|tenemos|hay|queda(n)?|proximas?|proximos?|pendientes?|alguna|algun|cuant[oa]s|o no|mira(me|lo|la)?|mirar|muestra(me)?|ensename|ver|consulta|revisa|lee|dime)\b/.test(nmsg)
-    if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true })
-    if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false })
-    if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true })
+    // P71·It2 — alcance temporal explícito en la consulta («citas de esta semana», «tareas de hoy»): se acota
+    // la lectura al periodo y se registra en el estado para poder continuar («¿y la siguiente?»).
+    const agendaScope = parseAbsoluteTemporal(message, today, turnId)
+    if (agendaGeneric || (mentionsCitas && mentionsTareas)) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: true }, { scope: agendaScope, turnId })
+    if (mentionsCitas && !mentionsTareas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: true, tasks: false }, { scope: agendaScope, turnId })
+    if (mentionsTareas && !mentionsCitas && asksExistence) return handleAgenda(supabase, workspaceId, { calendar: false, tasks: true }, { scope: agendaScope, turnId })
 
     // P63 — Cartera con intención de ESTADO en turno ambiguo («todo lo de propiedades»): la resuelve el
     // handler de properties (listado por estado), nunca n8n ni otro módulo.
@@ -1443,12 +2036,6 @@ async function tryLocalAnswerInner(
     ? { entity: priorEntity ?? intent.entity, count: opts.lastResults.length, ok: true }
     : null
   const ctxDecision = decideFollowUp({ followUpType: intent.followUpType, prior })
-  if (ctxDecision === 'confirm_prior') {
-    return { handled: true, usedTool: 'local_context', entity: prior?.entity ?? intent.entity, answer: confirmPriorText(prior) }
-  }
-  if (ctxDecision === 'ask_clarify') {
-    return { handled: true, usedTool: 'local_context', entity: intent.entity, answer: 'No estoy seguro de a qué te refieres. ¿Hablamos de clientes, inmuebles, operaciones o citas?' }
-  }
 
   // Enrutado local por entidad.
   const runFresh = async (): Promise<LocalAnswer> => {
@@ -1478,6 +2065,19 @@ async function tryLocalAnswerInner(
           formatDocLine, 'documento', 'documentos')
       default: return { handled: false }
     }
+  }
+
+  // P71 — GROUNDING + aclaración inteligente (tras definir runFresh):
+  // · confirm_prior («¿seguro?/confírmame»): RECONSULTA la fuente en vivo — jamás repite el conteo cacheado.
+  // · ask_clarify: si el mensaje NOMBRA una entidad concreta (adjetivo atributivo tipo «operaciones
+  //   abiertas»), se lee fresco; solo se pide aclaración si de verdad no hay entidad reconocible.
+  if (ctxDecision === 'confirm_prior') return await runFresh()
+  if (ctxDecision === 'ask_clarify') {
+    const ownEntity = classifyIntent(message).entity
+    if (ownEntity === 'help' || ownEntity === 'unknown') {
+      return { handled: true, usedTool: 'local_context', entity: intent.entity, answer: 'No estoy seguro de a qué te refieres. ¿Hablamos de clientes, inmuebles, operaciones o citas?' }
+    }
+    // el mensaje nombra la entidad → cae a lectura fresca (runFresh) abajo.
   }
 
   const fresh = await runFresh()

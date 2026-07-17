@@ -76,8 +76,12 @@ for (const m of MUTATIONS) {
   if (base !== 0) { console.log(`SKIP  ${m.id}: el invariante ya falla en limpio (probe=${base}) — revisar probe`); fail++; continue }
   const path = m.file
   const original = readFileSync(path, 'utf8')
-  if (!original.includes(m.find)) { console.log(`FAIL  ${m.id}: cadena de inyección no encontrada en ${m.file}`); fail++; continue }
-  const mutated = original.replace(m.find, m.replace)
+  // Robustez EOL (Windows): un checkout puede re-materializar el archivo con CRLF; el find multilínea
+  // debe casar en ambas formas. La mutación inyectada respeta el EOL del archivo.
+  const find = original.includes(m.find) ? m.find : m.find.replace(/\n/g, '\r\n')
+  const replace = find === m.find ? m.replace : m.replace.replace(/\n/g, '\r\n')
+  if (!original.includes(find)) { console.log(`FAIL  ${m.id}: cadena de inyección no encontrada en ${m.file}`); fail++; continue }
+  const mutated = original.replace(find, replace)
   if (mutated === original) { console.log(`FAIL  ${m.id}: la mutación no cambió el archivo`); fail++; continue }
   let detected = false
   try {

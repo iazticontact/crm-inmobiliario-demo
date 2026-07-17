@@ -120,10 +120,15 @@ function decideTurnInner(
     return base('onboarding', 'general', 'guide', 'p62:global-scope', { shouldExplainProduct: true, confidence: 0.85 })
   }
 
+  // P71 — una PREGUNTA DE DATO concreta (conteo/listado/estado) gana a los marcos de guía: «soy nuevo,
+  // ¿cuántas operaciones tengo abiertas?» debe LEER el dato (la bienvenida puede acompañar, no sustituir).
+  const hasConcreteDataRequest = /\b(cuant[oa]s?|cuales)\b/.test(n)
+    || (/\bque\b/.test(n) && /\b(tengo|tienes|hay|tenemos|publicad[oa]s?|vendid[oa]s?|pendientes?|abiert[oa]s?|registrad[oa]s?|activ[oa]s?)\b/.test(n))
+
   // 1b) P53 — GUÍA DE PRODUCTO (aprender/navegar/entender): SIEMPRE explica, NUNCA lee datos, aunque el
   //     mensaje mencione un módulo o entidad («¿qué muestra el dashboard?» ≠ «muéstrame los clientes»).
   if (CONFUSED.test(n)) return base('user_confused', domain, 'explain', 'p53:confused', { shouldExplainProduct: true, confidence: 0.85 })
-  if (ONBOARDING.test(n)) return base('onboarding', 'general', 'guide', 'p53:onboarding', { shouldExplainProduct: true, confidence: 0.85 })
+  if (ONBOARDING.test(n) && !hasConcreteDataRequest) return base('onboarding', 'general', 'guide', 'p53:onboarding', { shouldExplainProduct: true, confidence: 0.85 })
   if (NAVIGATION.test(n)) return base('navigation_help', domain, 'guide', 'p53:navigation', { shouldExplainProduct: true })
   if (EXPLAIN_PRODUCT.test(n)) return base('module_explanation', domain, 'explain', 'p53:explain-product', { shouldExplainProduct: true, confidence: 0.85 })
 
@@ -133,7 +138,9 @@ function decideTurnInner(
   //   («del día/con mis datos/qué tengo pendiente») cae al data_read normal. Va DESPUÉS de meta/corrección
   //   (esos ganan) y de la guía por módulo (p. ej. «¿qué muestra el dashboard?»).
   const summaryKind = classifySummaryIntent(message)
-  if (isLearningContext(message) || summaryKind === 'conceptual') {
+  // P71 — el marco de aprendizaje («para entender…», «soy nuevo») NO debe secuestrar una PREGUNTA DE DATO
+  // concreta (conteo/listado/detalle/estado). Si el mensaje pide datos, se lee (explicación opcional aparte).
+  if (!hasConcreteDataRequest && (isLearningContext(message) || summaryKind === 'conceptual')) {
     return base('onboarding', 'general', 'guide', 'p60:learning-tour', { shouldExplainProduct: true, confidence: 0.85 })
   }
   if (summaryKind === 'ambiguous') {
