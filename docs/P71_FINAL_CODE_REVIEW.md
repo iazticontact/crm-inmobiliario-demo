@@ -43,11 +43,17 @@ mutación + sweep/higiene en automation-catalog.
   durante esta auditoría (la suite confirmó un pending residual → precio 777.777 → restaurado al seed 1200 y
   la suite ahora lo hace imposible + lo vigila).
 
+## Hallazgos post-merge (verificación contra staging DESPLEGADO)
+| # | Hallazgo | Evidencia | Resolución |
+|---|---|---|---|
+| 15 | **Split-brain residual**: una entidad resuelta por LOCAL-first vivía en ConversationState pero no en el `activeEntity` legacy que el prompt n8n prioriza → n8n preguntaba «¿qué cliente?» | `p71-n8n-handoff-e2e` caso A (5/6) contra el webhook VIVO | La route deriva `activeEntity` del estado compartido cuando la memoria legacy está vacía (una sola verdad en la frontera del contrato) → **6/6** (`bcfaf36`) |
+| 16 | **Click muerto en «Nueva consulta»** durante el bootstrap: con sesión real, un click antes de resolver `workspaceId` era un no-op silencioso (rama fail-soft sin toast ni hilo) | Playwright `assistant-automations.spec.ts:83` determinista en full-suite (la latencia acumulada de staging hace perder la carrera al 13º test; snapshot: sin hilo nuevo, sin toast); aislado pasa | Botones «Nueva consulta» deshabilitados hasta resolver workspace+usuario (`da26d28`) — fix de PRODUCTO general (el usuario ya no puede clicar en vacío); Playwright auto-espera `enabled` → carrera eliminada en TODOS los specs sin tocar ninguna aserción |
+
 ## Riesgos aceptados (documentados)
-1. **n8n no consume aún** `conversationState` (solo lo recibe): el patch del prompt requiere el protocolo
-   backup→GET→diff→PUT→verify→drift sobre el workflow VIVO compartido con P70; se hace como paso post-merge
-   controlado (o siguiente ventana de mantenimiento n8n). Riesgo bajo: local-first intercepta las
-   continuaciones; n8n ya recibe activeEntity.
+1. ~~n8n no consume aún conversationState~~ **CERRADO post-merge**: prompt parcheado con protocolo completo
+   (backup→dry-run→PUT→reread→verify 17/17→e2e 11/11→chaos 9/9→drift re-registrado `952900d3c8f3e6c0`);
+   consumo demostrado por `p71-n8n-handoff-e2e` 6/6 (entidad, periodo, tool-siempre, no-ejecución, compat).
+   Ver `docs/P71_N8N_STATE_CONTRACT.md`.
 2. Typos en el LEXEMA NUCLEAR (p. ej. «ctias») degradan a n8n (cerebro LLM) — comportamiento correcto del
    diseño local-first; documentado en la suite.
 3. «citas de <topónimo desconocido> + periodo» con mayúscula → aclaración (protege el gate wrong-entity a
