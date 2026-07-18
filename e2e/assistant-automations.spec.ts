@@ -40,7 +40,9 @@ async function newConsulta(page: Page) {
   // evita a la vez (a) el toast transitorio «Consulta interna lista» (sonner lo auto-descarta → carrera) y
   // (b) la carrera del hilo viejo auto-seleccionado (tendría ≥1 mensaje). No debilita ninguna aserción.
   await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  // count=0 espera a que el SWITCH al hilo nuevo (alta por red) complete; bajo carga puede tardar, por eso
+  // el mismo presupuesto de 20s que el composer (causa demostrada: round-trip de creación, no timeout ciego).
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0, { timeout: 20_000 })
   await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 

@@ -37,7 +37,8 @@ async function newConsulta(page: Page) {
   // auto-seleccionado tendría ≥1 mensaje; el toast «Consulta interna lista» es transitorio y esperarlo es
   // una carrera. Así se evita escribir en el hilo equivocado sin depender de un elemento efímero.
   await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  // count=0 espera al SWITCH al hilo nuevo (alta por red); mismo presupuesto de 20s que el composer.
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0, { timeout: 20_000 })
   await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 

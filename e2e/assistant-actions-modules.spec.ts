@@ -46,7 +46,8 @@ async function newConsulta(page: Page) {
   // Post-condición DETERMINISTA de «hilo nuevo activo»: composer editable + CERO mensajes (evita el toast
   // transitorio y la carrera del hilo viejo auto-seleccionado). No debilita ninguna aserción.
   await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  // count=0 espera al SWITCH al hilo nuevo (alta por red); mismo presupuesto de 20s que el composer.
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0, { timeout: 20_000 })
   await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 

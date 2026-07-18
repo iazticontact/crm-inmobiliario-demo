@@ -26,7 +26,8 @@ test('mobile: card de acción operable con el pulgar y sin scroll horizontal', a
   // transitorio y la carrera del hilo viejo auto-seleccionado).
   const composer = page.getByPlaceholder(/Pregunta por clientes/)
   await expect(composer).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  // count=0 espera al SWITCH al hilo nuevo (alta por red); mismo presupuesto de 20s que el composer.
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0, { timeout: 20_000 })
   await expect(composer).toBeEnabled()
 
   await composer.fill('Cambia el precio de Avenida San Pedro 66 a 284.000 €')
