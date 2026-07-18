@@ -1509,20 +1509,20 @@ export async function tryLocalAnswer(
   if (opts.state?.pendingIntent && !withState.usedTool.startsWith('local_pending')) {
     stateUpdate = { ...(stateUpdate ?? {}), clearPendingIntent: true }
   }
-  // P71·F5 — traza SEGURA del cerebro por turno (tipos y conteos; jamás labels, texto del usuario ni PII).
-  // Permite responder: por qué esta ruta, con qué scope de entidad/tiempo, y si quedó intención pendiente.
-  console.log('[assistant.brain]', {
-    turnId: opts.turnId ?? '',
-    tool: withState.usedTool,
-    module: stateUpdate?.resolvedModule ?? opts.state?.activeModule ?? null,
-    entityScope: (stateUpdate?.resolvedEntities?.length ?? 0) > 0
-      ? { type: stateUpdate!.resolvedEntities![0].entityType, count: stateUpdate!.resolvedEntities!.length }
-      : (opts.state?.activeEntities?.length ? { type: opts.state.activeEntities[0].entityType, count: opts.state.activeEntities.length, inherited: true } : null),
-    temporal: stateUpdate?.temporalScopeUpdate?.interpretation ?? null,
-    pendingSlots: stateUpdate?.pendingIntentUpdate?.requiredSlots ?? (stateUpdate?.clearPendingIntent ? [] : opts.state?.pendingIntent?.requiredSlots ?? null),
-    listRefs: stateUpdate?.lastDataQueryUpdate?.resultRefs?.length ?? null,
-    freshness: 'live',
-  })
+  // P71·F5/F9 — traza SEGURA del cerebro por turno, en UNA línea JSON (greppable por el agregador de logs;
+  // tipos y conteos, jamás labels, texto del usuario ni PII). Reconstruye: ruta, scope entidad/tiempo,
+  // intención pendiente y frescura. Silenciable con ASSISTANT_BRAIN_TRACE=off para tests ruidosos.
+  if (process.env.ASSISTANT_BRAIN_TRACE !== 'off') {
+    const es = stateUpdate?.resolvedEntities?.length ? { type: stateUpdate.resolvedEntities[0].entityType, count: stateUpdate.resolvedEntities.length }
+      : (opts.state?.activeEntities?.length ? { type: opts.state.activeEntities[0].entityType, count: opts.state.activeEntities.length, inherited: true } : null)
+    console.log('[assistant.brain] ' + JSON.stringify({
+      turnId: opts.turnId ?? '', tool: withState.usedTool,
+      module: stateUpdate?.resolvedModule ?? opts.state?.activeModule ?? null,
+      entityScope: es, temporal: stateUpdate?.temporalScopeUpdate?.interpretation ?? null,
+      pendingSlots: stateUpdate?.pendingIntentUpdate?.requiredSlots ?? (stateUpdate?.clearPendingIntent ? [] : opts.state?.pendingIntent?.requiredSlots ?? null),
+      listRefs: stateUpdate?.lastDataQueryUpdate?.resultRefs?.length ?? null, freshness: 'live',
+    }))
+  }
   return { ...withState, stateUpdate, answer: withState.answer.replace(/\*\*/g, '') }
 }
 
