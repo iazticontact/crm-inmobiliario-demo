@@ -3497,6 +3497,9 @@ export default function AssistantPage() {
         onConfirm={confirmDeleteConversation}
         onCancel={() => { if (!deletingConversation) { setDeleteDialogOpen(false); setDeleteError(null) } }}
       />
+      {/* P71 — «Nueva consulta» jamás debe ser un click MUERTO: con sesión real, crear un hilo necesita el
+          workspace y el usuario resueltos (bootstrap). Hasta entonces el botón queda deshabilitado — un
+          click durante la carga no hacía nada visible (carrera cazada por Playwright bajo carga). */}
       <PageHeader
         title="Asistente IA"
         description="Consulta datos del CRM y prepara acciones con confirmación."
@@ -3513,7 +3516,7 @@ export default function AssistantPage() {
                 {lastAgentMode === 'n8n' ? 'Agente n8n' : lastAgentMode === 'hybrid_fallback' ? 'Modo respaldo' : 'Agente local'}
               </Badge>
             )}
-            <Button size="sm" onClick={createDemoConversation}>
+            <Button size="sm" onClick={createDemoConversation} disabled={assistantMode === 'copilot' && isRealMode && !OFFLINE_FORCE_DEV && !(workspaceId && currentUser.id)}>
               <Plus className="h-3.5 w-3.5" />
               {assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}
             </Button>
@@ -3647,7 +3650,8 @@ export default function AssistantPage() {
                 </p>
                 <button
                   onClick={createDemoConversation}
-                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                  disabled={assistantMode === 'copilot' && isRealMode && !OFFLINE_FORCE_DEV && !(workspaceId && currentUser.id)}
+                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-3 w-3" />
                   {assistantMode === 'inbox' ? 'Nueva conversación' : 'Nueva consulta'}
@@ -4197,7 +4201,7 @@ export default function AssistantPage() {
                     <span key={example} className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">{example}</span>
                   ))}
                 </div>
-                <Button className="mt-4" size="sm" onClick={createDemoConversation}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}</Button>
+                <Button className="mt-4" size="sm" onClick={createDemoConversation} disabled={assistantMode === 'copilot' && isRealMode && !OFFLINE_FORCE_DEV && !(workspaceId && currentUser.id)}><Plus className="h-3.5 w-3.5" />{assistantMode === 'inbox' ? (isRealMode ? 'Nueva conversación' : 'Nueva conversación demo') : 'Nueva consulta'}</Button>
               </div>
             </div>
           )}
