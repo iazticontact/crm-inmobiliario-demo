@@ -1,0 +1,115 @@
+// PROTOTIPO AISLADO — GENERAL SEMANTIC PLANNER. Un ÚNICO modelo interpreta el lenguaje y produce un PLAN
+// estructurado (multi-goal), validado por schema. NO ejecuta nada, NO decide permisos, NO confía en IDs del
+// modelo: solo INTERPRETA. El executor determinista valida y ejecuta. NO cableado a la route.
+//
+// Llama a OpenAI Chat Completions por REST (mismo patrón fetch que el resto del repo; sin SDK nuevo).
+
+import { ontologyForPrompt, CAPABILITY_IDS } from './capability-ontology'
+
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+
+export type PlanGoal = {
+  kind: 'read' | 'explain' | 'action'
+  capability: string
+  entityRef: string | null       // referencia LINGÜÍSTICA (nombre/pronombre/ordinal), NO un id
+  filters: Record<string, string | number>
+  temporal: string | null        // frase temporal literal («esta semana», «este mes»); el código la resuelve
+  aggregation: 'count' | 'sum' | 'average' | 'min' | 'max' | null
+}
+export type Plan = {
+  speechAct: 'greet' | 'read_request' | 'action_request' | 'explain_request' | 'confirm' | 'cancel'
+    | 'correction' | 'smalltalk' | 'complaint' | 'accept_offer' | 'capability_question' | 'unknown'
+  goals: PlanGoal[]
+  needsClarification: boolean
+  clarificationQuestion: string | null
+  proposedStateUpdates: { activeModule?: string | null; offeredCapabilities?: string[] }
+  rawModel?: string
+}
+
+export type DiscourseState = {
+  activeModule: string | null
+  activeEntities: Array<{ type: string; label: string }>
+  lastListedEntityType: string | null
+  offeredCapabilities: string[]     // capabilities que el asistente OFRECIÓ en el turno anterior
+  pendingAction: { capability: string; missingSlots: string[] } | null
+  temporalScope: string | null
+}
+
+const SYSTEM = `Eres el PLANNER de un asistente de CRM inmobiliario. Tu ÚNICA tarea es INTERPRETAR el mensaje del usuario en su contexto y producir un PLAN estructurado. NO ejecutas nada, NO inventas datos, NO decides permisos.
+
+Principios:
+- Un mensaje puede tener VARIOS objetivos compatibles a la vez (p. ej. EXPLICAR un módulo Y LEER un dato). Emite un goal por cada uno; no elijas solo uno.
+- Distingue el acto comunicativo: saludo, pregunta de datos, petición de acción, pregunta de CAPACIDAD («¿puedo…?», «¿se puede…?» → NO es querer hacerlo), explicación, confirmación, cancelación, corrección, aceptación de una oferta previa, smalltalk, queja.
+- Referencias: pronombres/elipsis/ordinales se refieren a las entidades del contexto (activeEntities / lastListedEntity). Devuelve la REFERENCIA lingüística en entityRef (nombre u «ordinal:1», «pronombre», «el más caro»); el código la resolverá contra datos reales. Nunca inventes un id.
+- Si el usuario ACEPTA una oferta previa («sí», «vale», «enséñamelas», «adelante») y hay offeredCapabilities en el estado, speechAct=accept_offer y crea un goal por cada capability ofrecida.
+- Elige capabilities SOLO de la ontología dada (por id exacto). Si ninguna encaja o falta un dato imprescindible y no puede inferirse, needsClarification=true con una pregunta ESPECÍFICA (no genérica).
+- Datos económicos: distingue «operaciones/valor» de «comisiones» (generado/cobrado/pendiente). Comisiones NO es Facturación oficial. Si «cuánto hemos generado» es ambiguo entre valor de operaciones y comisiones, pide aclaración específica.
+- temporal: copia la expresión temporal literal del usuario si la hay; no la conviertas a fechas.
+- NUNCA uses una capability de Facturación (no existe en la ontología); si el usuario pide facturas, needsClarification o redirígelo, jamás inventes acceso.
+
+Devuelve EXCLUSIVAMENTE el JSON del schema.`
+
+// JSON schema estricto para structured output.
+// strict:false — el structured output estricto de OpenAI no admite objetos abiertos (filters) ni enums
+// nullable; en modo no estricto el schema SIGUE guiando al modelo y validamos nosotros tras el parseo.
+const SCHEMA = {
+  name: 'crm_plan', strict: false,
+  schema: {
+    type: 'object', additionalProperties: false,
+    required: ['speechAct', 'goals', 'needsClarification', 'clarificationQuestion', 'proposedStateUpdates'],
+    properties: {
+      speechAct: { type: 'string', enum: ['greet', 'read_request', 'action_request', 'explain_request', 'confirm', 'cancel', 'correction', 'smalltalk', 'complaint', 'accept_offer', 'capability_question', 'unknown'] },
+      goals: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false,
+          required: ['kind', 'capability', 'entityRef', 'filters', 'temporal', 'aggregation'],
+          properties: {
+            kind: { type: 'string', enum: ['read', 'explain', 'action'] },
+            capability: { type: 'string' },
+            entityRef: { type: ['string', 'null'] },
+            filters: { type: 'object', additionalProperties: { type: ['string', 'number'] } },
+            temporal: { type: ['string', 'null'] },
+            aggregation: { type: ['string', 'null'], enum: ['count', 'sum', 'average', 'min', 'max', null] },
+          },
+        },
+      },
+      needsClarification: { type: 'boolean' },
+      clarificationQuestion: { type: ['string', 'null'] },
+      proposedStateUpdates: {
+        type: 'object', additionalProperties: false, required: ['activeModule', 'offeredCapabilities'],
+        properties: { activeModule: { type: ['string', 'null'] }, offeredCapabilities: { type: 'array', items: { type: 'string' } } },
+      },
+    },
+  },
+}
+
+export type PlanResult = { ok: true; plan: Plan; ms: number; usage?: unknown } | { ok: false; error: string; ms: number }
+
+export async function planTurn(message: string, state: DiscourseState, opts: { apiKey: string; model?: string } ): Promise<PlanResult> {
+  const t0 = Date.now()
+  const userPrompt = `ONTOLOGÍA DE CAPABILITIES (elige por id exacto):\n${ontologyForPrompt()}\n\nESTADO DEL DISCURSO:\n${JSON.stringify(state)}\n\nMENSAJE DEL USUARIO:\n${message}`
+  let res: Response
+  try {
+    res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
+      body: JSON.stringify({
+        model: opts.model ?? 'gpt-4.1-mini', temperature: 0.1,
+        messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userPrompt }],
+        response_format: { type: 'json_schema', json_schema: SCHEMA },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    })
+  } catch (e) { return { ok: false, error: `fetch_error:${(e as Error).message.slice(0, 60)}`, ms: Date.now() - t0 } }
+  if (!res.ok) return { ok: false, error: `http_${res.status}:${(await res.text().catch(() => '')).slice(0, 120)}`, ms: Date.now() - t0 }
+  const j = await res.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown } | null
+  const content = j?.choices?.[0]?.message?.content
+  if (!content) return { ok: false, error: 'empty_completion', ms: Date.now() - t0 }
+  let parsed: Plan
+  try { parsed = JSON.parse(content) as Plan } catch { return { ok: false, error: 'invalid_json', ms: Date.now() - t0 } }
+  // Validación de PLAN (defensa: el modelo propone, el código dispone): capabilities ∈ ontología.
+  parsed.goals = (parsed.goals ?? []).filter((g) => CAPABILITY_IDS.has(g.capability))
+  parsed.rawModel = opts.model ?? 'gpt-4.1-mini'
+  return { ok: true, plan: parsed, ms: Date.now() - t0, usage: j?.usage }
+}
