@@ -33,10 +33,12 @@ async function newConsulta(page: Page) {
   const btn = page.getByRole('button', { name: 'Nueva consulta' }).first()
   await expect(btn).toBeVisible()
   await btn.click()
-  // Espera la CONFIRMACIÓN de creación (toast): al cargar puede haber un hilo viejo auto-seleccionado
-  // y escribir antes del switch mandaría el mensaje al hilo equivocado (carrera real detectada en QA).
-  await expect(page.getByText('Consulta interna lista')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible()
+  // Post-condición DETERMINISTA de «hilo nuevo activo»: composer editable + CERO mensajes. Un hilo viejo
+  // auto-seleccionado tendría ≥1 mensaje; el toast «Consulta interna lista» es transitorio y esperarlo es
+  // una carrera. Así se evita escribir en el hilo equivocado sin depender de un elemento efímero.
+  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 
 // El rate limit real es 10 peticiones/min por usuario en ventana deslizante, y los BOTONES de las

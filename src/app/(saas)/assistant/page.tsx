@@ -3729,7 +3729,7 @@ export default function AssistantPage() {
                   const isAI = msg.sender === 'ai'
                   const label = isAI ? (assistantMode === 'copilot' ? 'Asistente IA' : 'Inbox Assistant') : 'Tú'
                   return (
-                    <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+                    <div key={msg.id} data-testid="assistant-msg" data-sender={isAI ? 'ai' : 'user'} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
                       <div className={cn('max-w-[80%]', isUser ? 'items-end' : 'items-start')}>
                         <div className={cn('mb-1 flex items-center gap-1.5', isUser ? 'justify-end text-slate-500' : isAI ? 'text-indigo-600' : 'text-gray-500')}>
                           {isAI && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-50"><Bot className="h-2.5 w-2.5" /></span>}

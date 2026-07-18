@@ -34,9 +34,14 @@ test.afterAll(async () => {
 
 async function newConsulta(page: Page) {
   await page.goto('/assistant')
+  // El botón queda deshabilitado hasta que el bootstrap resuelve workspace+usuario (P71); el click auto-espera.
   await page.getByRole('button', { name: 'Nueva consulta' }).first().click()
-  await expect(page.getByText('Consulta interna lista')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible()
+  // Post-condición DETERMINISTA de «hilo nuevo activo»: composer editable + CERO mensajes en el panel. Esto
+  // evita a la vez (a) el toast transitorio «Consulta interna lista» (sonner lo auto-descarta → carrera) y
+  // (b) la carrera del hilo viejo auto-seleccionado (tendría ≥1 mensaje). No debilita ninguna aserción.
+  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 
 async function sendChat(page: Page, text: string) {

@@ -43,8 +43,11 @@ test.afterAll(async () => {
 async function newConsulta(page: Page) {
   await page.goto('/assistant')
   await page.getByRole('button', { name: 'Nueva consulta' }).first().click()
-  await expect(page.getByText('Consulta interna lista')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible()
+  // Post-condición DETERMINISTA de «hilo nuevo activo»: composer editable + CERO mensajes (evita el toast
+  // transitorio y la carrera del hilo viejo auto-seleccionado). No debilita ninguna aserción.
+  await expect(page.getByPlaceholder(COMPOSER)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  await expect(page.getByPlaceholder(COMPOSER)).toBeEnabled()
 }
 
 async function sendChat(page: Page, text: string) {

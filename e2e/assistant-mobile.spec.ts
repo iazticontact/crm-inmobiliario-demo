@@ -22,9 +22,12 @@ test.afterAll(async () => {
 test('mobile: card de acción operable con el pulgar y sin scroll horizontal', async ({ page }) => {
   await page.goto('/assistant')
   await page.getByRole('button', { name: 'Nueva consulta' }).first().click()
-  await expect(page.getByText('Consulta interna lista')).toBeVisible({ timeout: 20_000 })
+  // Post-condición DETERMINISTA de «hilo nuevo activo»: composer editable + CERO mensajes (evita el toast
+  // transitorio y la carrera del hilo viejo auto-seleccionado).
   const composer = page.getByPlaceholder(/Pregunta por clientes/)
-  await expect(composer).toBeVisible()
+  await expect(composer).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('assistant-msg')).toHaveCount(0)
+  await expect(composer).toBeEnabled()
 
   await composer.fill('Cambia el precio de Avenida San Pedro 66 a 284.000 €')
   await composer.press('Enter')
