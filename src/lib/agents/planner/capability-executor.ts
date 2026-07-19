@@ -10,7 +10,7 @@ import {
   crmReadQuery, searchClients, getClient360, getClientOpportunities, getCalendarSummary,
   getPendingTasks, getCrmOverview, searchProperties, madridDateRange, isReaderError,
 } from '@/lib/agent-tool-readers'
-import { getCapability, introspectCapabilities, type CapabilitySpec, type EntityType } from './capability-ontology'
+import { getCapability, introspectCapabilities, CLOSED_STAGES, type CapabilitySpec, type EntityType } from './capability-ontology'
 import { getActionDefinition, findDeniedField } from '../action-registry'
 import { resolveModuleFromText, explainModule, onboardingAnswer, ALL_MODULE_IDS, type CrmModuleId } from '../crm-module-catalog'
 import { resolveEntity, type DiscourseRef, type Resolution } from './entity-resolver'
@@ -173,19 +173,29 @@ async function executeGoal(
 
       // ── Operaciones / economía ──
       case 'operations.list': {
+        const stageF = typeof g.filters.stage === 'string' ? g.filters.stage : null
         const filters: Record<string, unknown> = {}
-        if (typeof g.filters.stage === 'string') filters.stage = g.filters.stage
+        // META-VALORES de pipeline declarados en la ontología: open = etapa no terminal; closed = won|lost.
+        // Se interpretan AQUÍ (server-side, derivado de CLOSED_STAGES), nunca con sinónimos del usuario.
+        if (stageF && stageF !== 'open' && stageF !== 'closed') filters.stage = stageF
         const res = await crmReadQuery(supabase, workspaceId, { entity: 'opportunities', filters, range, limit: 20 })
         if (isReaderError(res)) return { ...base, status: mapReaderError(res.error), message: res.message }
-        return { ...base, status: statusFor(res.count), data: res.rows, count: res.count }
+        const rows = stageF === 'open' ? res.rows.filter((r) => !CLOSED_STAGES.includes(String((r as Record<string, unknown>).stage)))
+          : stageF === 'closed' ? res.rows.filter((r) => CLOSED_STAGES.includes(String((r as Record<string, unknown>).stage)))
+          : res.rows
+        return { ...base, status: statusFor(rows.length), data: rows, count: rows.length }
       }
       case 'operations.aggregate.value': {
+        const stageF = typeof g.filters.stage === 'string' ? g.filters.stage : null
         const filters: Record<string, unknown> = {}
-        if (typeof g.filters.stage === 'string') filters.stage = g.filters.stage
+        if (stageF && stageF !== 'open' && stageF !== 'closed') filters.stage = stageF
         const res = await crmReadQuery(supabase, workspaceId, { entity: 'opportunities', filters, range, limit: 20 })
         if (isReaderError(res)) return { ...base, status: mapReaderError(res.error), message: res.message }
-        const total = res.rows.reduce((s, r) => s + (typeof (r as Record<string, unknown>).value === 'number' ? (r as Record<string, number>).value : 0), 0)
-        return { ...base, status: res.count > 0 ? 'SUCCESS' : 'EMPTY', data: { total, count: res.count, currency: 'EUR' }, count: res.count }
+        const rows = stageF === 'open' ? res.rows.filter((r) => !CLOSED_STAGES.includes(String((r as Record<string, unknown>).stage)))
+          : stageF === 'closed' ? res.rows.filter((r) => CLOSED_STAGES.includes(String((r as Record<string, unknown>).stage)))
+          : res.rows
+        const total = rows.reduce((s, r) => s + (typeof (r as Record<string, unknown>).value === 'number' ? (r as Record<string, number>).value : 0), 0)
+        return { ...base, status: rows.length > 0 ? 'SUCCESS' : 'EMPTY', data: { total, count: rows.length, currency: 'EUR' }, count: rows.length }
       }
       case 'commissions.aggregate': {
         // Comisiones = métrica COMERCIAL de las operaciones (NO Facturación). generado ≈ Σ value·rate/100
