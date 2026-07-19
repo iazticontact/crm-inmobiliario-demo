@@ -48,7 +48,7 @@ export async function runTurn(args: {
   // ── PLAN ──
   const p = await planTurn(message, discourse, { apiKey: args.apiKey, model: args.plannerModel })
   const planMs = p.ok ? p.ms : 0
-  let plan: ValidatedPlan = p.ok
+  const plan: ValidatedPlan = p.ok
     ? validatePlan(p.plan)
     : { version: 1, speechAct: 'unknown', goals: [], needsClarification: true, clarificationQuestion: 'No he podido interpretar tu mensaje; ¿puedes reformularlo?', proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, rejected: [{ capability: '(planner)', reason: p.ok ? '' : p.error }] }
 

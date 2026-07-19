@@ -12,6 +12,17 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 // Es DATO ESTRUCTURADO, no una keyword que el executor deba adivinar. «un cliente» = one; «uno al azar» =
 // random; «los 3 con más...» = top(3); «todos» = all. El executor lo aplica DESPUÉS de obtener el dataset.
 export type Selection = 'all' | 'one' | 'first' | 'last' | 'random' | 'top' | 'bottom' | 'n' | 'matching'
+// Plan estructurado de una consulta CRM COMPONIBLE (solo cuando capability === 'crm.query'). El servidor lo
+// valida contra allowlists; el modelo NO da SQL/tabla/campo/relación arbitrarios ni workspace/ids.
+export type CrmQuerySpec = {
+  entity: string                 // entidad SEMÁNTICA (clientes/cartera/operaciones/…); se mapea a allowlist
+  operation: 'list' | 'search' | 'detail' | 'count' | 'filter' | 'relation' | 'aggregate'
+  relation: string | null        // relación registrada (p. ej. operation/events/tasks) para operation=relation
+  aggregateFn: 'count' | 'sum' | 'avg' | 'min' | 'max' | null
+  aggregateField: string | null  // solo campos declarados agregables
+  orderingField: string | null
+  orderingDir: 'asc' | 'desc' | null
+}
 export type PlanGoal = {
   kind: 'read' | 'explain' | 'action'
   capability: string
@@ -22,6 +33,7 @@ export type PlanGoal = {
   selection: Selection | null    // cardinalidad/selección pedida sobre el conjunto (default all)
   selectionCount: number | null  // para top/bottom/n
   requestedOutput: 'list' | 'detail' | 'count' | 'value' | 'explanation' | null // qué forma de salida quiere
+  query: CrmQuerySpec | null      // SOLO para capability 'crm.query': consulta componible estructurada
 }
 export type Plan = {
   speechAct: 'greet' | 'read_request' | 'action_request' | 'explain_request' | 'confirm' | 'cancel'
@@ -54,6 +66,7 @@ Principios:
 - ACTO vs OBJETIVO (principio general): separa DE QUÉ habla (entidad/módulo) de QUÉ hace lingüísticamente. Preguntar por capacidades SOBRE una entidad X NO es buscar X: es capabilities.introspect con esa entidad como contexto, nunca clients.search(X).
 - Si el usuario ACEPTA una oferta previa («sí», «vale», «enséñamelas», «adelante») y hay offeredCapabilities en el estado, speechAct=accept_offer y crea un goal por cada capability ofrecida. Interpreta la aceptación/negación/corrección por SEMÁNTICA respecto a la oferta y al foco actual, no por palabras sueltas.
 - FOCO Y CAMBIO DE TEMA (principio general): si el usuario cambia explícitamente de módulo/tema, el nuevo objetivo MANDA sobre el foco anterior incompatible; no arrastres la entidad/intención vieja a un follow-up que ya no le corresponde. Conserva un referente solo si sigue siendo compatible con el nuevo foco.
+- CONSULTA COMPONIBLE (crm.query) — principio general, sin ejemplos de frases: PREFIERE siempre una capability ESPECIALIZADA cuando exista para lo que se pide (es la abstracción correcta y más clara: clients.count, calendar.list, operations.aggregate.value, commissions.aggregate, clients.relation.*, portfolio.list, etc.). Usa crm.query SOLO cuando el objetivo requiera COMPONER una lectura que ninguna capability fija cubre limpiamente (p. ej. una relación de una entidad + un filtro + un periodo + un agregado sobre un campo + una selección/orden concretos, todo a la vez). Cuando uses crm.query, rellena el campo «query»: entity (semántica, p. ej. «operaciones»/«cartera»), operation (list/search/detail/count/filter/relation/aggregate), relation si aplica, aggregateFn+aggregateField para agregados, orderingField+orderingDir para orden; y usa entityRef (entidad base para detail/relation), filters, temporal y selection del propio goal. NUNCA pongas SQL, nombre de tabla, campo o relación inventados: el servidor los valida contra allowlists y rechaza lo que no exista. crm.query es READ-ONLY (nunca escribe). No lo uses como catch-all ni para lo que ya tiene capability especializada.
 - Elige capabilities SOLO de la ontología dada (por id exacto). Si ninguna encaja o falta un dato imprescindible y no puede inferirse, needsClarification=true con una pregunta ESPECÍFICA (no genérica).
 - Datos económicos: distingue «operaciones/valor» de «comisiones» (generado/cobrado/pendiente). Comisiones NO es Facturación oficial. Si «cuánto hemos generado» es ambiguo entre valor de operaciones y comisiones, pide aclaración específica.
 - temporal: copia la expresión temporal literal del usuario si la hay; no la conviertas a fechas.
@@ -75,7 +88,7 @@ const SCHEMA = {
         type: 'array',
         items: {
           type: 'object', additionalProperties: false,
-          required: ['kind', 'capability', 'entityRef', 'filters', 'temporal', 'aggregation', 'selection', 'selectionCount', 'requestedOutput'],
+          required: ['kind', 'capability', 'entityRef', 'filters', 'temporal', 'aggregation', 'selection', 'selectionCount', 'requestedOutput', 'query'],
           properties: {
             kind: { type: 'string', enum: ['read', 'explain', 'action'] },
             capability: { type: 'string' },
@@ -86,6 +99,18 @@ const SCHEMA = {
             selection: { type: ['string', 'null'], enum: ['all', 'one', 'first', 'last', 'random', 'top', 'bottom', 'n', 'matching', null] },
             selectionCount: { type: ['number', 'null'] },
             requestedOutput: { type: ['string', 'null'], enum: ['list', 'detail', 'count', 'value', 'explanation', null] },
+            query: {
+              type: ['object', 'null'], additionalProperties: false,
+              properties: {
+                entity: { type: 'string' },
+                operation: { type: 'string', enum: ['list', 'search', 'detail', 'count', 'filter', 'relation', 'aggregate'] },
+                relation: { type: ['string', 'null'] },
+                aggregateFn: { type: ['string', 'null'], enum: ['count', 'sum', 'avg', 'min', 'max', null] },
+                aggregateField: { type: ['string', 'null'] },
+                orderingField: { type: ['string', 'null'] },
+                orderingDir: { type: ['string', 'null'], enum: ['asc', 'desc', null] },
+              },
+            },
           },
         },
       },

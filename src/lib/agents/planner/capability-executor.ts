@@ -14,6 +14,7 @@ import { getCapability, introspectCapabilities, type CapabilitySpec, type Entity
 import { getActionDefinition, findDeniedField } from '../action-registry'
 import { resolveModuleFromText, explainModule, onboardingAnswer } from '../crm-module-catalog'
 import { resolveEntity, type DiscourseRef, type Resolution } from './entity-resolver'
+import { executeQueryPlan, type CrmQueryPlan, type QueryStatus } from './crm-query-layer'
 import { mapReaderError, type GoalStatus, type ValidatedGoal, type ValidatedPlan } from './plan-contract'
 
 export type Evidence = {
@@ -93,9 +94,9 @@ async function executeGoal(
       // del foco de discurso; nunca de texto manual. No ejecuta ni prepara nada; solo describe qué se puede.
       case 'capabilities.introspect': {
         const modText = String(g.filters.module ?? '')
-        const module = modText ? (resolveModuleFromText(modText) ?? modText) : (discourse.activeEntities[0] ? null : null)
+        const modId = modText ? (resolveModuleFromText(modText) ?? modText) : null
         const activeType = discourse.activeEntities[0]?.type as EntityType | undefined
-        const intro = introspectCapabilities({ module: module ?? undefined, entityType: activeType, about: g.filters.about ? String(g.filters.about) : null })
+        const intro = introspectCapabilities({ module: modId ?? undefined, entityType: activeType, about: g.filters.about ? String(g.filters.about) : null })
         return { ...base, data: intro }
       }
 
@@ -226,6 +227,38 @@ async function executeGoal(
       case 'findings.list':
         // Requiere ejecutar la automatización de calidad de datos; en el prototipo no se dispara.
         return { ...base, status: 'UNAVAILABLE', message: 'Las incidencias de calidad requieren ejecutar la automatización de datos.' }
+
+      // PRIMITIVA GENERAL COMPONIBLE. El planner emitió un plan estructurado en g.query; se construye el
+      // CRM Query Plan (reutilizando entityRef/filters/temporal/selection del goal) y la SAFE QUERY LAYER lo
+      // valida contra allowlists y ejecuta. El modelo no controla tabla/campo/relación/workspace ni SQL.
+      case 'crm.query': {
+        const q = g.query
+        if (!q || !q.entity || !q.operation) return { ...base, status: 'INVALID_INPUT', message: 'Consulta componible incompleta.' }
+        const qp: CrmQueryPlan = {
+          entity: q.entity,
+          operation: q.operation,
+          entityRef: g.entityRef,
+          relation: q.relation ?? null,
+          search: typeof g.filters.query === 'string' ? String(g.filters.query) : null,
+          filters: Object.fromEntries(Object.entries(g.filters).filter(([k]) => k !== 'query')),
+          temporal: g.temporal ? { field: null, range: g.temporal } : null,
+          aggregate: q.aggregateFn ? { fn: q.aggregateFn, field: q.aggregateField ?? null } : null,
+          selection: g.selection,
+          selectionCount: g.selectionCount,
+          ordering: q.orderingField ? { field: q.orderingField, dir: q.orderingDir ?? 'desc' } : null,
+          limit: null,
+        }
+        const qe = await executeQueryPlan(supabase, workspaceId, qp, discourse, {})
+        const map: Record<QueryStatus, GoalStatus> = { SUCCESS: 'SUCCESS', EMPTY: 'EMPTY', PARTIAL: 'PARTIAL', NOT_FOUND: 'NOT_FOUND', AMBIGUOUS: 'AMBIGUOUS', FORBIDDEN: 'FORBIDDEN', TIMEOUT: 'TIMEOUT', UNAVAILABLE: 'UNAVAILABLE', INVALID_PLAN: 'INVALID_INPUT', INTERNAL_ERROR: 'INTERNAL_ERROR' }
+        return {
+          ...base,
+          status: map[qe.status],
+          data: qe.aggregate ? { rows: qe.rows, aggregate: qe.aggregate } : qe.rows,
+          count: qe.count,
+          resolvedEntity: qe.scope.resolvedEntity ?? null,
+          message: qe.status === 'AMBIGUOUS' ? 'Hay varias coincidencias; ¿cuál?' : qe.status === 'INVALID_PLAN' ? `Consulta no permitida (${qe.warnings.join(',')})` : undefined,
+        }
+      }
 
       default:
         break

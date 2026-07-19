@@ -12,7 +12,7 @@ import type { Plan } from '@/lib/agents/planner/semantic-planner'
 const supabase = createClient(envLocal('NEXT_PUBLIC_SUPABASE_URL')!, envLocal('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
 const ref = { activeEntities: [], lastListed: null }
 
-const g = (o: Partial<Plan['goals'][number]>): Plan['goals'][number] => ({ kind: 'read', capability: '', entityRef: null, filters: {}, temporal: null, aggregation: null, selection: null, selectionCount: null, requestedOutput: null, ...o })
+const g = (o: Partial<Plan['goals'][number]>): Plan['goals'][number] => ({ kind: 'read', capability: '', entityRef: null, filters: {}, temporal: null, aggregation: null, selection: null, selectionCount: null, requestedOutput: null, query: null, ...o })
 const P = (o: Partial<Plan>): Plan => ({ speechAct: 'read_request', goals: [], needsClarification: false, clarificationQuestion: null, proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, ...o })
 
 type Case = { name: string; plan: Plan; expect: (v: ReturnType<typeof validatePlan>) => boolean }

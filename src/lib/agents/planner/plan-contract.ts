@@ -146,6 +146,9 @@ export function validatePlan(plan: Plan): ValidatedPlan {
       selection,
       selectionCount: selCount,
       requestedOutput,
+      // El plan de consulta componible solo se conserva para crm.query; el executor lo valida con la query
+      // layer (allowlists). Para el resto de capabilities se descarta (no aplica).
+      query: capId === 'crm.query' && raw.query && typeof raw.query === 'object' ? raw.query : null,
       dependsOn: [],
     })
   }
