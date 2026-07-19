@@ -21,7 +21,8 @@
 | M | Financial semantics | `capability-executor.ts` (commissions.aggregate) + ontology | IMPLEMENTED | TESTED (e2e comisiones ≠ facturación) |
 | N | Local-first reduction strategy | `planner-flag.ts` + route (fail-soft documentado) | PARTIAL (ver PROTOCOL_FAST_PATHS: deuda fail-soft→P71 bajo ON) | TESTED (flag matrix off/shadow/on/basura) |
 | O | Evaluador generativo | `scripts/planner-generative-eval.mts` | IMPLEMENTED | TESTED (dev+held-out, N=72) |
-| P | Human-like evaluator | — | MISSING | — |
+| P | Human-like evaluator | `scripts/planner-humanlike.mts` | IMPLEMENTED (FASE 41: simulador persona+misión abstracta, juez doble) | TESTED subset N=4 (coh 4.5 / grounding 4.8 / cont 4.5, 0 errores duros); gate 120+ pendiente de decisión de coste |
+| P2 | Filter values canónicos (registry-driven) | `capability-ontology.ts::filterValues` + executor open/closed | IMPLEMENTED (2026-07-20) | TESTED (`planner-filter-values.mts` 4/4) |
 | Q | Model benchmark | `scripts/planner-model-benchmark.mts` | IMPLEMENTED | TESTED (5 modelos; hard-benchmark 150-300 pendiente) |
 | R | Security/mutation harness | `scripts/planner-security-matrix.mts` | IMPLEMENTED | TESTED (11/11, re-verificado post-fixes 2026-07-20) |
 | S | Shadow comparison | `planner-generative-eval.mts` + `planner-shadow-eval.mts` + `planner-shadow-compare.mts` | IMPLEMENTED | TESTED (N=72 + 12 categorías + plumbing/atribución) |

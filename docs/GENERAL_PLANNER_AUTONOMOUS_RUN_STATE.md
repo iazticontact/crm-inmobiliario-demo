@@ -70,11 +70,24 @@
   El usuario NO ha hecho aún el cambio de branch en EasyPanel.
 - SHADOW/ON en vivo, black-box staging, validación humana: dependen del deploy anterior.
 
+## Bloque 2 de la sesión (completado; commits `3a5b9d2`…`a134fe0`, todos pusheados)
+
+- FASE 35 hecha: `verify-general-planner-deploy.mjs` probado REAL contra staging vivo (sigue V1/P71 ✓).
+- FASES 4/5 hechas: PROTOCOL_FAST_PATHS + ANTI_OVERFIT_AUDIT (0 overfit en código nuevo).
+- **Mecanismo nuevo — valores canónicos de filtro** (registry-driven): descubierto por el harness
+  human-like («clientes activos» → EMPTY falso). Ontología declara valores (CLIENT_STATUSES, stages,
+  PORTFOLIO_STATUSES, prioridades, tipos de cita, estados de trámite) + meta-valores open/closed
+  interpretados server-side. Suite `planner-filter-values.mts` 4/4.
+- **FASE 41 (pieza P, antes MISSING)**: `planner-humanlike.mts` — simulador de usuario LLM con 4
+  personas + juez doble (estructural + LLM separado). Run acotado N=4: coherencia 4.5/5, grounding
+  4.8/5, continuidad 4.5/5, 0 errores duros. Resultados en GENERAL_PLANNER_HUMANLIKE_RESULTS.md.
+- Regresión post-cambio de ontología: mecanismos 9/9, coherence 7/7, crm-query 7/8 (P2 igual),
+  security 11/11, filter-values 4/4, tsc limpio, eslint 0 errores, next build OK.
+
 ## Próxima acción segura exacta
 
-1. Commit de los 3 fixes de mecanismo + este fichero (hecho si ves el commit en `git log`).
-2. `scripts/verify-general-planner-deploy.mjs` (FASE 35) — verificador HTTP de deploy sin secretos.
-3. Auditoría anti-hardcode (FASE 5) sobre `git diff ad3c06e..HEAD`.
-4. Actualizar `GENERAL_PLANNER_IMPLEMENTATION_STATUS.md` (está desactualizado: dice «flag no integrado
-   en route», pero `8819703` ya lo integró) y `GENERAL_PLANNER_NEXT_SESSION_HANDOFF.md`.
-5. Push de la rama.
+1. Si el usuario hizo el cambio EasyPanel → verificar `--expect shadow` y correr SHADOW real (runbook §3).
+2. Escalar human-like (decisión de coste ~120 conv) con JUDGE_MODEL distinto del planner.
+3. Hard model benchmark (FASE 46) con los casos discriminantes tipo P2 (relation+agg sobre entidad nombrada).
+4. Consistency-checker a nivel de CONVERSACIÓN (P3 observado: tareas SUCCESS→EMPTY entre turnos por
+   scope temporal distinto en planes sucesivos).

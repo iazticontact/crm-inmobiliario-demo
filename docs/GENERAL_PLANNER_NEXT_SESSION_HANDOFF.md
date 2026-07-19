@@ -29,12 +29,15 @@
    `node scripts/verify-general-planner-deploy.mjs --url https://crm-inmobiliario-crm-staging.hvdnby.easypanel.host --expect shadow`
    → si OK, ejecutar SHADOW real (conversaciones nuevas) y revisar logs `shadow_planner:*`. Runbook §3.
 2. **Si no**, seguir con fases locales pendientes por coste/tamaño:
-   - Human-like harness (FASE 41, pieza P — MISSING): simulador de usuario + juez separado, empezar
-     con subset acotado (~12 conversaciones) y medir coste antes de escalar a 120.
+   - Human-like harness YA EXISTE (`planner-humanlike.mts`, run N=4: 4.5/4.8/4.5, 0 errores duros).
+     Siguiente paso: escalar hacia 120+ (decisión de coste, ~2.200 llamadas mini) con JUDGE_MODEL
+     distinto del planner.
    - Hard model benchmark (FASE 46): ampliar `planner-model-benchmark.mts` a casos multi-turno difíciles;
      el P2 de crm-query (relation+agg entidad nombrada → clients.search) es EXACTAMENTE el tipo de caso
      discriminante que debe decidir si se sube de gpt-4.1-mini.
    - Generative eval a más N (coste acotado, registrar N real).
+   - Consistency-checker a nivel de conversación (P3: misma petición SUCCESS→EMPTY entre turnos por
+     scope temporal distinto en planes sucesivos).
 3. NO tocar: main, producción, staging (sin permiso), n8n, secrets, tag V1.
 
 ## Defectos abiertos
