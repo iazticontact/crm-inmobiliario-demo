@@ -12,7 +12,7 @@ import {
 } from '@/lib/agent-tool-readers'
 import { getCapability, introspectCapabilities, type CapabilitySpec, type EntityType } from './capability-ontology'
 import { getActionDefinition, findDeniedField } from '../action-registry'
-import { resolveModuleFromText, explainModule, onboardingAnswer } from '../crm-module-catalog'
+import { resolveModuleFromText, explainModule, onboardingAnswer, ALL_MODULE_IDS, type CrmModuleId } from '../crm-module-catalog'
 import { resolveEntity, type DiscourseRef, type Resolution } from './entity-resolver'
 import { executeQueryPlan, type CrmQueryPlan, type QueryStatus } from './crm-query-layer'
 import { mapReaderError, type GoalStatus, type ValidatedGoal, type ValidatedPlan } from './plan-contract'
@@ -83,7 +83,9 @@ async function executeGoal(
       // ── Explicaciones / guía (no leen datos) ──
       case 'explain.module': {
         const modText = String(g.filters.module ?? g.entityRef ?? '')
-        const id = resolveModuleFromText(modText)
+        // El planner habla en ids CANÓNICOS de módulo (los ve así en la ontología): acéptalos directamente.
+        // El resolver de aliases queda para texto natural. General: id exacto primero, alias después.
+        const id = (ALL_MODULE_IDS as readonly string[]).includes(modText) ? (modText as CrmModuleId) : resolveModuleFromText(modText)
         if (!id) return { ...base, status: 'INVALID_INPUT', message: 'No identifiqué de qué módulo hablar.' }
         return { ...base, data: { module: id, explanation: explainModule(id) } }
       }
@@ -347,8 +349,16 @@ export async function executePlan(
   if (plan.needsClarification && plan.goals.length === 0) {
     return { evidences: [{ goalId: 'clarify', capability: '(clarification)', status: 'AMBIGUOUS', data: null, message: plan.clarificationQuestion ?? 'Necesito una aclaración.' }], ms: Date.now() - t0 }
   }
-  const raw = await Promise.all(plan.goals.map((g) => executeGoal(supabase, workspaceId, g, discourse)))
+  // Normalización GENERAL de contexto intra-plan: si un goal necesita módulo (explain.module) y el modelo
+  // no rellenó el slot, se usa el foco que el PROPIO plan propone (proposedStateUpdates.activeModule). Es la
+  // semántica del mismo turno emitida por el planner — no se adivina de frases ni de estado viejo.
+  const goals = plan.goals.map((g) =>
+    g.capability === 'explain.module' && !g.filters.module && plan.proposedStateUpdates?.activeModule
+      ? { ...g, filters: { ...g.filters, module: plan.proposedStateUpdates.activeModule } }
+      : g,
+  )
+  const raw = await Promise.all(goals.map((g) => executeGoal(supabase, workspaceId, g, discourse)))
   // Aplica selección/cardinalidad a cada evidence según su goal (un pedido de UNA instancia no devuelve todo).
-  const evidences = raw.map((ev) => { const g = plan.goals.find((x) => x.goalId === ev.goalId); return g ? applySelection(ev, g, opts.selectionSeed ?? null) : ev })
+  const evidences = raw.map((ev) => { const g = goals.find((x) => x.goalId === ev.goalId); return g ? applySelection(ev, g, opts.selectionSeed ?? null) : ev })
   return { evidences, ms: Date.now() - t0 }
 }

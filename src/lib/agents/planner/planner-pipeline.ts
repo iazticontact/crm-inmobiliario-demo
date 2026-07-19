@@ -10,7 +10,7 @@ import { validatePlan, type ValidatedPlan } from './plan-contract'
 import { executePlan, type Evidence } from './capability-executor'
 import { synthesize } from './response-synthesizer'
 import { checkConsistency, type Inconsistency } from './consistency-checker'
-import { advanceDiscourse, toDiscourseRef, type RichDiscourse } from './discourse-state'
+import { advanceDiscourse, toDiscourseRef, plannerView, type RichDiscourse } from './discourse-state'
 import { plannerMode } from './planner-flag'
 
 export type TurnTrace = {
@@ -45,12 +45,33 @@ export async function runTurn(args: {
   const { supabase, workspaceId, message, discourse } = args
   const ref = toDiscourseRef(discourse)
 
-  // ── PLAN ──
-  const p = await planTurn(message, discourse, { apiKey: args.apiKey, model: args.plannerModel })
-  const planMs = p.ok ? p.ms : 0
-  const plan: ValidatedPlan = p.ok
+  // ── PLAN ── (el planner ve una PROYECCIÓN del discurso sin ids internos: solo referencias lingüísticas)
+  const p = await planTurn(message, plannerView(discourse), { apiKey: args.apiKey, model: args.plannerModel })
+  let planMs = p.ok ? p.ms : 0
+  let plan: ValidatedPlan = p.ok
     ? validatePlan(p.plan)
     : { version: 1, speechAct: 'unknown', goals: [], needsClarification: true, clarificationQuestion: 'No he podido interpretar tu mensaje; ¿puedes reformularlo?', proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, rejected: [{ capability: '(planner)', reason: p.ok ? '' : p.error }] }
+
+  // ── REPLAN SEMÁNTICO acotado (máx. 1): el modelo QUISO actuar pero TODOS sus goals cayeron en la
+  // validación (p. ej. capability inexistente por id casi-correcto). Mecanismo general, no por frase: se
+  // replanifica UNA vez con el motivo estructurado del rechazo; validatePlan vuelve a mandar sobre el
+  // resultado. Nunca amplía permisos (misma ontología, mismo contrato) y el coste está acotado (1 llamada).
+  let planAttempts = 1
+  if (p.ok && plan.goals.length === 0 && !plan.needsClarification && plan.rejected.length > 0) {
+    const motivos = plan.rejected.map((r) => `«${r.capability}» → ${r.reason}`).join('; ')
+    const p2 = await planTurn(message, plannerView(discourse), {
+      apiKey: args.apiKey, model: args.plannerModel,
+      feedback: `Goals rechazados por el validador: ${motivos}. Elige SOLO ids EXACTOS presentes en la ontología dada y no repitas el motivo del rechazo.`,
+    })
+    planAttempts = 2
+    if (p2.ok) {
+      const v2 = validatePlan(p2.plan)
+      planMs += p2.ms
+      // Se adopta el replan solo si mejora (produce goals o pide aclaración específica); si no, se conserva
+      // el plan original con sus rejected trazables.
+      if (v2.goals.length > 0 || v2.needsClarification) plan = { ...v2, rejected: [...plan.rejected, ...v2.rejected] }
+    }
+  }
 
   // ── EXECUTE ──
   let exec = await executePlan(supabase, workspaceId, plan, ref, { selectionSeed: args.selectionSeed })
@@ -89,6 +110,7 @@ export async function runTurn(args: {
     goalCount: plan.goals.length,
     capabilities: plan.goals.map((g) => g.capability),
     rejected: plan.rejected,
+    planAttempts,
     statuses: evidences.map((e) => e.status),
     entityResolution: evidences.filter((e) => e.resolvedEntity).map((e) => ({ cap: e.capability, label: e.resolvedEntity?.label })),
     inconsistencies: inconsistencies.map((i) => i.kind),

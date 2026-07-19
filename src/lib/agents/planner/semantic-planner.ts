@@ -4,7 +4,7 @@
 //
 // Llama a OpenAI Chat Completions por REST (mismo patrón fetch que el resto del repo; sin SDK nuevo).
 
-import { ontologyForPrompt, CAPABILITY_IDS } from './capability-ontology'
+import { ontologyForPrompt } from './capability-ontology'
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 
@@ -126,9 +126,9 @@ const SCHEMA = {
 
 export type PlanResult = { ok: true; plan: Plan; ms: number; usage?: unknown } | { ok: false; error: string; ms: number }
 
-export async function planTurn(message: string, state: DiscourseState, opts: { apiKey: string; model?: string } ): Promise<PlanResult> {
+export async function planTurn(message: string, state: DiscourseState, opts: { apiKey: string; model?: string; feedback?: string } ): Promise<PlanResult> {
   const t0 = Date.now()
-  const userPrompt = `ONTOLOGÍA DE CAPABILITIES (elige por id exacto):\n${ontologyForPrompt()}\n\nESTADO DEL DISCURSO:\n${JSON.stringify(state)}\n\nMENSAJE DEL USUARIO:\n${message}`
+  const userPrompt = `ONTOLOGÍA DE CAPABILITIES (elige por id exacto):\n${ontologyForPrompt()}\n\nESTADO DEL DISCURSO:\n${JSON.stringify(state)}\n\nMENSAJE DEL USUARIO:\n${message}${opts.feedback ? `\n\nCORRECCIÓN DEL VALIDADOR (tu plan anterior fue inválido; re-emite el plan completo):\n${opts.feedback}` : ''}`
   let res: Response
   try {
     res = await fetch(OPENAI_URL, {
@@ -148,8 +148,9 @@ export async function planTurn(message: string, state: DiscourseState, opts: { a
   if (!content) return { ok: false, error: 'empty_completion', ms: Date.now() - t0 }
   let parsed: Plan
   try { parsed = JSON.parse(content) as Plan } catch { return { ok: false, error: 'invalid_json', ms: Date.now() - t0 } }
-  // Validación de PLAN (defensa: el modelo propone, el código dispone): capabilities ∈ ontología.
-  parsed.goals = (parsed.goals ?? []).filter((g) => CAPABILITY_IDS.has(g.capability))
+  // La validación de capabilities vive en UN sitio: plan-contract.validatePlan (unknown_capability →
+  // rejected trazable). Filtrar aquí en silencio ocultaba el fallo a la observabilidad y al replan.
+  parsed.goals = Array.isArray(parsed.goals) ? parsed.goals : []
   parsed.rawModel = opts.model ?? 'gpt-4.1-mini'
   return { ok: true, plan: parsed, ms: Date.now() - t0, usage: j?.usage }
 }

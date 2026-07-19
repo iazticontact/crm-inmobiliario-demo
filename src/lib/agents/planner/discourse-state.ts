@@ -14,9 +14,26 @@ export function emptyDiscourse(): DiscourseState {
 }
 
 // Extensión con memoria de la última lista (para ordinales) y del último resultado (para pronombres),
-// manteniendo la forma base de DiscourseState que consume el planner.
-export type RichDiscourse = DiscourseState & {
+// manteniendo la forma base de DiscourseState que consume el planner. Los `id` que viven aquí son
+// SERVER-SIDE (para resolver ordinales/pronombres contra datos ya autorizados): jamás viajan al prompt.
+export type RichDiscourse = Omit<DiscourseState, 'activeEntities'> & {
+  activeEntities: Array<{ type: string; label: string; id?: string }>
   lastListed?: { type: string; items: Array<{ id: string; label: string }> } | null
+}
+
+// Proyección del discurso para el PROMPT del planner: SOLO referencias lingüísticas (labels/tipos), JAMÁS
+// ids internos. Si el modelo nunca ve un UUID no puede copiarlo a entityRef (el contrato lo rechazaría como
+// model_supplied_uuid y se perdería el turno). Los labels de la última lista sí ayudan a referenciar.
+export function plannerView(d: RichDiscourse): DiscourseState & { lastListedLabels: string[] | null } {
+  return {
+    activeModule: d.activeModule,
+    activeEntities: d.activeEntities.map((e) => ({ type: e.type, label: e.label })),
+    lastListedEntityType: d.lastListedEntityType,
+    offeredCapabilities: d.offeredCapabilities,
+    pendingAction: d.pendingAction,
+    temporalScope: d.temporalScope,
+    lastListedLabels: d.lastListed ? d.lastListed.items.slice(0, 20).map((i) => i.label) : null,
+  }
 }
 
 const LIST_CAP_TO_TYPE: Record<string, string> = {
