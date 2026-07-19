@@ -11,6 +11,7 @@ import { executePlan, type Evidence } from './capability-executor'
 import { synthesize } from './response-synthesizer'
 import { checkConsistency, type Inconsistency } from './consistency-checker'
 import { advanceDiscourse, toDiscourseRef, type RichDiscourse } from './discourse-state'
+import { plannerMode } from './planner-flag'
 
 export type TurnTrace = {
   plan: ValidatedPlan
@@ -39,6 +40,7 @@ export async function runTurn(args: {
   plannerModel?: string
   synthModel?: string
   synth?: boolean            // si false, no llama al redactor (eval estructural barata)
+  selectionSeed?: number | null   // para tests deterministas de selección RANDOM
 }): Promise<TurnResult> {
   const { supabase, workspaceId, message, discourse } = args
   const ref = toDiscourseRef(discourse)
@@ -51,7 +53,7 @@ export async function runTurn(args: {
     : { version: 1, speechAct: 'unknown', goals: [], needsClarification: true, clarificationQuestion: 'No he podido interpretar tu mensaje; ¿puedes reformularlo?', proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, rejected: [{ capability: '(planner)', reason: p.ok ? '' : p.error }] }
 
   // ── EXECUTE ──
-  let exec = await executePlan(supabase, workspaceId, plan, ref)
+  let exec = await executePlan(supabase, workspaceId, plan, ref, { selectionSeed: args.selectionSeed })
   let evidences = exec.evidences
   let inconsistencies = checkConsistency(evidences)
   let cycles = 1
@@ -61,7 +63,7 @@ export async function runTurn(args: {
   // retryable. No se replanifica por gusto (coste). El replan re-ejecuta el MISMO plan validado (re-read),
   // que es el remedio correcto para errores transitorios y referencias stale. Nunca amplía permisos.
   while (cycles < MAX_CYCLES && (evidences.some((e) => e.status === 'INTERNAL_ERROR' || e.status === 'TIMEOUT') || inconsistencies.some((i) => i.retryable))) {
-    exec = await executePlan(supabase, workspaceId, plan, ref)
+    exec = await executePlan(supabase, workspaceId, plan, ref, { selectionSeed: args.selectionSeed })
     evidences = exec.evidences
     inconsistencies = checkConsistency(evidences)
     execMs += exec.ms
@@ -80,6 +82,8 @@ export async function runTurn(args: {
   const nextDiscourse = advanceDiscourse(discourse, plan, evidences)
   const trace: TurnTrace = { plan, evidences, inconsistencies, cycles, planMs, execMs, synthMs }
   const observability = {
+    assistantArchitecture: 'GENERAL_PLANNER' as const,   // FASE 1: nunca atribuir a P71 lo que respondió el planner
+    featureFlagState: plannerMode(),
     plannerModel: p.ok ? (p.plan.rawModel ?? args.plannerModel) : 'unavailable',
     speechAct: plan.speechAct,
     goalCount: plan.goals.length,

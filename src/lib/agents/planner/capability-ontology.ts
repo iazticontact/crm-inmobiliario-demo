@@ -53,6 +53,9 @@ const READ_CAPABILITIES: CapabilitySpec[] = [
   // Explicaciones de producto (NO leen datos): un goal legítimo, compatible con lecturas en el mismo turno.
   { id: 'explain.module', description: 'Explicar cómo funciona un módulo del CRM o para qué sirve (guía de producto; NO lee datos).', module: 'any', operation: 'explain', entityTypes: ['none'], requiredSlots: ['module'], optionalFilters: [], temporal: null, reader: 'moduleCatalog', mutation: false, confirmation: 'none', freshness: 'live', permission: 'read' },
   { id: 'onboarding.tour', description: 'Bienvenida/tour para un usuario nuevo (guía; NO lee datos).', module: 'any', operation: 'explain', entityTypes: ['none'], requiredSlots: [], optionalFilters: [], temporal: null, reader: 'onboarding', mutation: false, confirmation: 'none', freshness: 'live', permission: 'read' },
+  // INTROSPECCIÓN: qué puede hacer el asistente (global / en un módulo / con la entidad activa / si puede
+  // una acción concreta). La respuesta se DERIVA de los registries (ontología + acciones), nunca de texto.
+  { id: 'capabilities.introspect', description: 'Explicar QUÉ puede hacer el asistente (leer/preparar acciones) en general, en un módulo o sobre una entidad; o si puede realizar una acción concreta. Deriva las capacidades reales del registro; no ejecuta nada.', module: 'any', operation: 'explain', entityTypes: ['none'], requiredSlots: [], optionalFilters: ['module', 'about'], temporal: null, reader: 'introspect', mutation: false, confirmation: 'none', freshness: 'live', permission: 'read' },
 ]
 
 // ── Acciones (DERIVADAS del registry P65 real; jamás inventadas) ──────────────────────────────────────
@@ -81,4 +84,35 @@ export function ontologyForPrompt(): string {
 }
 export function getCapability(id: string): CapabilitySpec | null {
   return CAPABILITY_ONTOLOGY.find((c) => c.id === id) ?? null
+}
+
+// ── Introspección DERIVADA de los registries (single source of truth) ─────────────────────────────────
+// Responde «qué puedes hacer» (global / por módulo / por tipo de entidad) o «puedes X» sin texto manual.
+// El módulo del prompt y del executor consumen ESTO; jamás una descripción paralela que pueda divergir.
+export type CapabilityIntrospection = {
+  scope: { module: string | null; entityType: EntityType | null; about: string | null }
+  read: Array<{ id: string; description: string }>
+  write: Array<{ id: string; description: string; confirmation: string; fields: string[] }>
+  can: boolean | null            // respuesta a «¿puedes X?» si `about` matchea una capability
+  note: string
+}
+export function introspectCapabilities(args: { module?: string | null; entityType?: EntityType | null; about?: string | null } = {}): CapabilityIntrospection {
+  const mod = args.module ? args.module.toLowerCase() : null
+  const et = args.entityType ?? null
+  const matchScope = (c: CapabilitySpec) =>
+    (!mod || c.module === mod || c.module === 'any') && (!et || c.entityTypes.includes(et))
+  const isInternal = (c: CapabilitySpec) => c.id === 'capabilities.introspect' || c.reader === 'onboarding'
+  const relevant = CAPABILITY_ONTOLOGY.filter((c) => matchScope(c) && !isInternal(c))
+  const read = relevant.filter((c) => !c.mutation).map((c) => ({ id: c.id, description: c.description }))
+  const write = relevant.filter((c) => c.mutation).map((c) => {
+    const def = ASSISTANT_ACTIONS[c.id as keyof typeof ASSISTANT_ACTIONS]
+    return { id: c.id, description: c.description, confirmation: c.confirmation, fields: def ? def.allowedFields : [] }
+  })
+  // «¿puedes X?» → ¿existe una capability (de acción o lectura) que encaje con `about` dentro del scope?
+  let can: boolean | null = null
+  if (args.about) {
+    const about = args.about.toLowerCase()
+    can = relevant.some((c) => c.id.toLowerCase().includes(about) || c.description.toLowerCase().includes(about))
+  }
+  return { scope: { module: mod, entityType: et, about: args.about ?? null }, read, write, can, note: 'Derivado del registro real; las acciones requieren tu confirmación.' }
 }

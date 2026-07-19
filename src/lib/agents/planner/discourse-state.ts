@@ -29,13 +29,23 @@ export function toDiscourseRef(d: RichDiscourse): DiscourseRef {
   return { activeEntities: d.activeEntities.map((e) => ({ type: e.type, label: e.label })), lastListed: d.lastListed ?? null }
 }
 
+// Qué tipo de entidad "pertenece" a cada módulo — para la supersession de foco (clase 4/5/6).
+const MODULE_ENTITY: Record<string, string> = {
+  clients: 'client', portfolio: 'property', operations: 'opportunity', tasks: 'task',
+  calendar: 'calendar_event', cases: 'service_case', commissions: 'commission',
+}
+
 // Reducer: dado el estado previo + el plan + la evidencia, produce el discurso del siguiente turno.
 export function advanceDiscourse(prev: RichDiscourse, plan: ValidatedPlan, evidences: Evidence[]): RichDiscourse {
   const next: RichDiscourse = { ...prev, activeEntities: [...prev.activeEntities], lastListed: prev.lastListed ?? null }
+  const prevModule = prev.activeModule
 
   // Módulo activo: lo que proponga el plan, si no el módulo del primer goal con datos.
   if (plan.proposedStateUpdates?.activeModule !== undefined && plan.proposedStateUpdates.activeModule !== null) {
     next.activeModule = plan.proposedStateUpdates.activeModule
+  } else {
+    const firstMod = plan.goals.map((g) => g.capability.split('.')[0]).find((m) => MODULE_ENTITY[m])
+    if (firstMod) next.activeModule = firstMod
   }
 
   // Entidades activas: cualquier entidad resuelta en este turno pasa a ser referente (la más reciente
@@ -53,6 +63,15 @@ export function advanceDiscourse(prev: RichDiscourse, plan: ValidatedPlan, evide
     const type = LIST_CAP_TO_TYPE[listEv.capability]
     const items = (listEv.data as Array<Record<string, unknown>>).slice(0, 20).map((r) => ({ id: String(r.id ?? ''), label: String(r.name ?? r.title ?? '') })).filter((x) => x.id)
     if (items.length) { next.lastListed = { type, items }; next.lastListedEntityType = type }
+  }
+
+  // SUPERSESSION de foco (clase 4/5/6): si el usuario cambió explícitamente de módulo, se retiran los
+  // referentes STALE del módulo anterior (los que NO se resolvieron este turno y no son compatibles con el
+  // nuevo foco). No se limpia todo: los referentes compatibles o recién resueltos se conservan. General.
+  if (next.activeModule && next.activeModule !== prevModule) {
+    const compatType = MODULE_ENTITY[next.activeModule]
+    const justResolved = new Set(evidences.filter((e) => e.resolvedEntity).map((e) => e.resolvedEntity!.type))
+    next.activeEntities = next.activeEntities.filter((e) => e.type === compatType || justResolved.has(e.type))
   }
 
   // Ofertas: se persisten estructuradas para que el turno siguiente se interprete con ellas.

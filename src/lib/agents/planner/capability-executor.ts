@@ -10,7 +10,7 @@ import {
   crmReadQuery, searchClients, getClient360, getClientOpportunities, getCalendarSummary,
   getPendingTasks, getCrmOverview, searchProperties, madridDateRange, isReaderError,
 } from '@/lib/agent-tool-readers'
-import { getCapability, type CapabilitySpec } from './capability-ontology'
+import { getCapability, introspectCapabilities, type CapabilitySpec, type EntityType } from './capability-ontology'
 import { getActionDefinition, findDeniedField } from '../action-registry'
 import { resolveModuleFromText, explainModule, onboardingAnswer } from '../crm-module-catalog'
 import { resolveEntity, type DiscourseRef, type Resolution } from './entity-resolver'
@@ -88,6 +88,16 @@ async function executeGoal(
       }
       case 'onboarding.tour':
         return { ...base, data: { onboarding: onboardingAnswer() } }
+
+      // INTROSPECCIÓN de capacidades DERIVADA del registro (clase 2/8). El módulo/entidad salen del goal o
+      // del foco de discurso; nunca de texto manual. No ejecuta ni prepara nada; solo describe qué se puede.
+      case 'capabilities.introspect': {
+        const modText = String(g.filters.module ?? '')
+        const module = modText ? (resolveModuleFromText(modText) ?? modText) : (discourse.activeEntities[0] ? null : null)
+        const activeType = discourse.activeEntities[0]?.type as EntityType | undefined
+        const intro = introspectCapabilities({ module: module ?? undefined, entityType: activeType, about: g.filters.about ? String(g.filters.about) : null })
+        return { ...base, data: intro }
+      }
 
       // ── Clientes ──
       case 'clients.list':
@@ -262,17 +272,50 @@ async function previewAction(
   return { goalId: g.goalId, capability: g.capability, status: preview.ready ? 'SUCCESS' : 'PARTIAL', data: null, actionPreview: preview, message: preview.ready ? undefined : 'Falta información para preparar la acción.' }
 }
 
+// ── SELECCIÓN/CARDINALIDAD (clase 1) — se aplica DESPUÉS de obtener el conjunto autorizado ─────────────
+// Un pedido de UNA instancia (one/random/first/last) NO devuelve la lista entera: se reduce aquí. RANDOM
+// es seedable para tests. General: opera sobre cualquier dataset de un goal de lista, sin conocer la frase.
+function seededPick(len: number, seed: number | null): number {
+  if (len <= 0) return 0
+  if (seed == null) return Math.floor(Math.random() * len)
+  const t = (Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0) / 4294967296
+  return Math.floor(t * len)
+}
+const LIST_PRODUCING = new Set(['clients.list', 'clients.search', 'portfolio.list', 'operations.list', 'tasks.list', 'calendar.list', 'cases.list', 'clients.relation.operations', 'clients.relation.tasks', 'clients.relation.events', 'clients.relation.properties'])
+function applySelection(ev: Evidence, g: ValidatedGoal, seed: number | null): Evidence {
+  const sel = g.selection
+  if (!sel || sel === 'all' || sel === 'matching') return ev
+  if (!Array.isArray(ev.data) || ev.data.length === 0) return ev
+  if (!LIST_PRODUCING.has(ev.capability)) return ev
+  const rows = ev.data as Array<Record<string, unknown>>
+  let chosen: Array<Record<string, unknown>>
+  switch (sel) {
+    case 'one': chosen = [rows[0]]; break
+    case 'first': chosen = [rows[0]]; break
+    case 'last': chosen = [rows[rows.length - 1]]; break
+    case 'random': chosen = [rows[seededPick(rows.length, seed)]]; break
+    case 'top': chosen = rows.slice(0, g.selectionCount ?? 3); break
+    case 'bottom': chosen = rows.slice(-(g.selectionCount ?? 3)); break
+    case 'n': chosen = rows.slice(0, g.selectionCount ?? 1); break
+    default: chosen = rows
+  }
+  const single = chosen.length === 1
+  return { ...ev, data: chosen, count: chosen.length, message: ev.message ?? (single ? `selección: ${sel}${g.selectionCount ? `(${g.selectionCount})` : ''} de ${rows.length}` : undefined) }
+}
+
 export type ExecutionResult = { evidences: Evidence[]; ms: number }
 
 // FASE 6 — Ejecuta el plan multi-goal. Goals independientes en paralelo (lecturas seguras). Un fallo
 // parcial NO invalida los demás (cada goal lleva su propio estado). Se preserva el orden semántico.
 export async function executePlan(
-  supabase: SupabaseClient, workspaceId: string, plan: ValidatedPlan, discourse: DiscourseRef,
+  supabase: SupabaseClient, workspaceId: string, plan: ValidatedPlan, discourse: DiscourseRef, opts: { selectionSeed?: number | null } = {},
 ): Promise<ExecutionResult> {
   const t0 = Date.now()
   if (plan.needsClarification && plan.goals.length === 0) {
     return { evidences: [{ goalId: 'clarify', capability: '(clarification)', status: 'AMBIGUOUS', data: null, message: plan.clarificationQuestion ?? 'Necesito una aclaración.' }], ms: Date.now() - t0 }
   }
-  const evidences = await Promise.all(plan.goals.map((g) => executeGoal(supabase, workspaceId, g, discourse)))
+  const raw = await Promise.all(plan.goals.map((g) => executeGoal(supabase, workspaceId, g, discourse)))
+  // Aplica selección/cardinalidad a cada evidence según su goal (un pedido de UNA instancia no devuelve todo).
+  const evidences = raw.map((ev) => { const g = plan.goals.find((x) => x.goalId === ev.goalId); return g ? applySelection(ev, g, opts.selectionSeed ?? null) : ev })
   return { evidences, ms: Date.now() - t0 }
 }

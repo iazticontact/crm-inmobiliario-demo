@@ -94,9 +94,10 @@ function sanitizeEntityRef(ref: unknown): { ok: true; ref: string | null } | { o
 
 // Normaliza el goal de "explicación": el modelo a veces etiqueta explain con una capability de lectura
 // (p. ej. portfolio.list). Si kind=explain, la capability correcta es explain.module (salvo onboarding).
+const EXPLAIN_EXEMPT = new Set(['onboarding.tour', 'capabilities.introspect'])
 function normalizeExplainCapability(g: PlanGoal): PlanGoal {
   if (g.kind !== 'explain') return g
-  if (g.capability === 'onboarding.tour') return g
+  if (EXPLAIN_EXEMPT.has(g.capability)) return g          // introspect/onboarding NO son explain.module
   if (g.capability !== 'explain.module') return { ...g, capability: 'explain.module' }
   return g
 }
@@ -109,7 +110,11 @@ export function validatePlan(plan: Plan): ValidatedPlan {
   let i = 0
   for (const raw0 of rawGoals) {
     const raw = normalizeExplainCapability(raw0)
-    const capId = String(raw.capability ?? '')
+    let capId = String(raw.capability ?? '')
+    // Coherencia acto↔objetivo (general): bajo una PREGUNTA DE CAPACIDAD, explicar «cómo funciona un módulo»
+    // no responde «¿qué puedes hacer / puedes X?». Se redirige a introspección (deriva capacidades del
+    // registro). No es una regla por frase: es una invariante del acto comunicativo.
+    if (plan.speechAct === 'capability_question' && capId === 'explain.module') capId = 'capabilities.introspect'
     if (!CAPABILITY_IDS.has(capId)) { rejected.push({ capability: capId || '(vacío)', reason: 'unknown_capability' }); continue }
 
     // Coherencia acto↔capability: una PREGUNTA DE CAPACIDAD nunca produce un goal de acción ejecutable.
@@ -125,6 +130,11 @@ export function validatePlan(plan: Plan): ValidatedPlan {
     if (!er.ok) { rejected.push({ capability: capId, reason: er.reason }); continue }
 
     const kind: PlanGoal['kind'] = spec.mutation ? 'action' : spec.operation === 'explain' ? 'explain' : 'read'
+    const SELECTIONS = new Set(['all', 'one', 'first', 'last', 'random', 'top', 'bottom', 'n', 'matching'])
+    const selection = typeof raw.selection === 'string' && SELECTIONS.has(raw.selection) ? raw.selection : null
+    const selCount = typeof raw.selectionCount === 'number' && Number.isFinite(raw.selectionCount) && raw.selectionCount > 0 ? Math.min(Math.floor(raw.selectionCount), 50) : null
+    const OUTPUTS = new Set(['list', 'detail', 'count', 'value', 'explanation'])
+    const requestedOutput = typeof raw.requestedOutput === 'string' && OUTPUTS.has(raw.requestedOutput) ? raw.requestedOutput : null
     goals.push({
       goalId: `g${i++}`,
       kind,
@@ -133,6 +143,9 @@ export function validatePlan(plan: Plan): ValidatedPlan {
       filters: ef.filters,
       temporal: typeof raw.temporal === 'string' && raw.temporal.trim() ? raw.temporal.trim().slice(0, MAX_STR) : null,
       aggregation: raw.aggregation ?? null,
+      selection,
+      selectionCount: selCount,
+      requestedOutput,
       dependsOn: [],
     })
   }
