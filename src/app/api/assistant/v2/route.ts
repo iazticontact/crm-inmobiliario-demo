@@ -8,6 +8,7 @@ import { runN8nAssistant } from '@/lib/agents/n8n-assistant-client'
 import { loadThreadMemory, saveActiveEntity, validateActiveEntityUpdate } from '@/lib/agents/assistant-agent-memory'
 import { loadConversationState, saveConversationState, applyStateUpdate, reduceStateForN8n } from '@/lib/agents/conversation-state'
 import { tryLocalAnswer, executeUiAction } from '@/lib/agents/local-answers'
+import { plannerMode, plannerShadowObserve, plannerAnswer } from '@/lib/agents/planner/shadow-hook'
 import { validateAssistantUi } from '@/lib/assistant/ui-contract'
 import { decideTurn } from '@/lib/agents/assistant-turn'
 import type { CrmModuleId } from '@/lib/agents/crm-module-catalog'
@@ -385,10 +386,30 @@ export async function POST(req: NextRequest) {
     const turnId = globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}`
     const convState = threadId ? await loadConversationState(supabase, threadId, user.id) : (await import('@/lib/agents/conversation-state')).emptyState()
 
+    // ── GENERAL SEMANTIC PLANNER · feature flag (default OFF = P71 intacto, sin cambio de comportamiento) ──
+    const gspMode = plannerMode()
+    // ON: para LENGUAJE ABIERTO el planner es el cerebro. Los fast-paths de protocolo (uiAction) ya se
+    // resolvieron arriba. Fail-soft: si el planner no puede, se cae a P71 (nunca respuesta inventada).
+    if (gspMode === 'on') {
+      try {
+        const pa = await plannerAnswer({ supabase, workspaceId, message, convState })
+        if (pa && pa.answer) {
+          logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: `planner:${String(pa.observability.plannerModel ?? '?')}`, errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: 'general_planner', toolCalls: (pa.observability.capabilities as string[]) ?? null, durationMs: Date.now() - start })
+          return NextResponse.json({ ok: true, answer: pa.answer, debugSource: 'general_planner', mode: 'planner', errorCode: null, toolCalls: (pa.observability.capabilities as string[]) ?? null, referencedClientId: null, referencedClientName: null, referencedList: pa.referencedList ?? null, referencedCalendarList: null, dataPreview: pa.referencedList ?? null, preparedAction: null, ui: null, assistantArchitecture: 'GENERAL_PLANNER', featureFlagState: gspMode })
+        }
+      } catch { /* fail-soft → continúa al camino P71 */ }
+    }
+
     // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.
     const recentContext = recentMessages.map((m) => m.content).join(' \n ')
     const local = await tryLocalAnswer(supabase, workspaceId, message, { recentContext, lastResults: context.lastResults, state: convState, turnId })
       .catch(() => ({ handled: false as const }))
+    // SHADOW: P71 responde al usuario; el planner observa el MISMO turno (solo lecturas, acciones dry-run) y
+    // se registra la atribución/comparación. NO altera la respuesta ni el estado autoritativo de P71.
+    if (gspMode === 'shadow') {
+      const obs = await plannerShadowObserve({ supabase, workspaceId, message, convState }).catch(() => null)
+      if (obs) logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: `shadow:${obs.plannerModel}`, errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: `shadow_planner:arch=GENERAL_PLANNER:${obs.speechAct}:${obs.capabilities.join('+')}${obs.error ? `:err=${obs.error}` : ''}`, toolCalls: obs.capabilities, durationMs: obs.latencyMs })
+    }
     if (local.handled) {
       // P71 — persistir el estado que resolvió el camino LOCAL (no solo n8n). Fail-soft; nunca rompe.
       if (threadId && 'stateUpdate' in local && local.stateUpdate) {
