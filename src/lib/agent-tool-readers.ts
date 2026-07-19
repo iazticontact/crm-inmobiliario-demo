@@ -1313,7 +1313,7 @@ async function applyExpand(
 // the route (never the LLM). Column allowlist per entity, limit clamped (<=20),
 // metadata only for clients, documents = metadata only. Read-only.
 
-type CrmEntityCfg = {
+export type CrmEntityCfg = {
   table: string
   cols: string
   search: string[]
@@ -1324,7 +1324,9 @@ type CrmEntityCfg = {
   includeMeta?: boolean
 }
 
-const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
+// Exportado como SINGLE SOURCE OF TRUTH del allowlist (entidades/campos/filtros/fecha) para la capa general
+// de consulta del planner (crm-query-layer). Así no se duplica la policy de seguridad de lectura.
+export const CRM_QUERY_ENTITIES: Record<string, CrmEntityCfg> = {
   // País/idioma del cliente viven en metadata (nationality/preferred_language, patrón de perfil
   // extendido); `includeMeta: true` ya los entrega al Asistente. Las columnas dedicadas country/
   // preferred_language quedan additivas para uso futuro (ver migración P29).
