@@ -11,6 +11,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import { TOOL_CONTRACT_VERSION } from '@/lib/agent-tool-readers'
 import { PROBE_ENTITIES } from '@/lib/agent-diag-config'
+import { plannerMode } from '@/lib/agents/planner/planner-flag'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,6 +47,9 @@ export async function GET(req: NextRequest) {
     supabaseRef: supabaseRef(),
     commit: commit.slice(0, 12),
     toolVersion: TOOL_CONTRACT_VERSION,
+    // MARCADOR de arquitectura: en la rama general-semantic-planner esto refleja el flag. En V1/P71 el módulo
+    // no existe (import ausente) → si diag NO trae este campo, el backend desplegado es V1/P71, no el planner.
+    generalSemanticPlanner: plannerMode(),
     generatedAt: new Date().toISOString(),
     // Lectura del asistente SIEMPRE fresca: /api/agent/tool y /api/agent/diag son force-dynamic.
     freshness: { agentToolDynamic: true, diagDynamic: true },
