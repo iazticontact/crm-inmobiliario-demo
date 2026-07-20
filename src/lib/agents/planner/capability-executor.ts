@@ -246,6 +246,9 @@ async function executeGoal(
       case 'crm.query': {
         const q = g.query
         if (!q || !q.entity || !q.operation) return { ...base, status: 'INVALID_INPUT', message: 'Consulta componible incompleta.' }
+        // Normalización NARROWING-safe de tokens de campo: si el modelo emite «entidad.campo», se toma el
+        // último segmento y la allowlist sigue validando. Jamás amplía: solo limpia un prefijo redundante.
+        const fieldTok = (f: string | null | undefined): string | null => (f ? (f.includes('.') ? f.split('.').pop()! : f) : null)
         const qp: CrmQueryPlan = {
           entity: q.entity,
           operation: q.operation,
@@ -254,10 +257,10 @@ async function executeGoal(
           search: typeof g.filters.query === 'string' ? String(g.filters.query) : null,
           filters: Object.fromEntries(Object.entries(g.filters).filter(([k]) => k !== 'query')),
           temporal: g.temporal ? { field: null, range: g.temporal } : null,
-          aggregate: q.aggregateFn ? { fn: q.aggregateFn, field: q.aggregateField ?? null } : null,
+          aggregate: q.aggregateFn ? { fn: q.aggregateFn, field: fieldTok(q.aggregateField) } : null,
           selection: g.selection,
           selectionCount: g.selectionCount,
-          ordering: q.orderingField ? { field: q.orderingField, dir: q.orderingDir ?? 'desc' } : null,
+          ordering: q.orderingField ? { field: fieldTok(q.orderingField)!, dir: q.orderingDir ?? 'desc' } : null,
           limit: null,
         }
         const qe = await executeQueryPlan(supabase, workspaceId, qp, discourse, {})

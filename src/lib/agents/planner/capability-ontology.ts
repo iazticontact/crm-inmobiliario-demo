@@ -5,6 +5,7 @@
 // (ASSISTANT_ACTIONS) para no duplicar la verdad. Las de lectura se alinean con los readers reales.
 
 import { ASSISTANT_ACTIONS, CLIENT_STATUSES, TASK_PRIORITIES, CALENDAR_TYPES, CASE_STATUSES, OPERATION_TRANSITIONS, PORTFOLIO_TRANSITIONS, type AssistantActionDefinition } from '../action-registry'
+import { AGGREGATABLE } from './crm-query-layer'
 
 // ── VALORES CANÓNICOS de filtros enumerados (DERIVADOS del registry: una sola verdad) ─────────────────
 // El planner traduce el lenguaje del usuario («activos», «abiertas») al TOKEN canónico declarado aquí;
@@ -69,7 +70,7 @@ const READ_CAPABILITIES: CapabilitySpec[] = [
   // PRIMITIVA GENERAL de lectura componible. NO es un catch-all: solo cuando ninguna capability especializada
   // cubre limpiamente la COMBINACIÓN pedida (entidad+relación+filtro+periodo+agregado+selección+orden). El
   // servidor valida el plan estructurado contra allowlists (nunca SQL/tabla/campo/relación arbitrarios).
-  { id: 'crm.query', description: 'CONSULTA CRM READ-ONLY COMPONIBLE. Úsala SOLO cuando el objetivo requiera COMBINAR entidad + relación + filtros + periodo + agregado + selección + orden y NINGUNA capability especializada (clients.count, calendar.list, operations.aggregate.value, commissions.aggregate, clients.relation.*, etc.) sea la abstracción correcta. Emite el plan en el campo `query` (entity/operation/relation/aggregate/ordering) + entityRef/filters/temporal/selection del goal. NO para lo que ya tiene capability fija.', module: 'any', operation: 'query', entityTypes: ['none'], requiredSlots: ['query'], optionalFilters: [], temporal: { field: 'auto', supported: true }, reader: 'crm-query-layer', mutation: false, confirmation: 'none', freshness: 'live', permission: 'read' },
+  { id: 'crm.query', description: `CONSULTA CRM READ-ONLY COMPONIBLE. Úsala SOLO cuando el objetivo requiera COMBINAR entidad + relación + filtros + periodo + agregado + selección + orden y NINGUNA capability especializada (clients.count, calendar.list, operations.aggregate.value, commissions.aggregate, clients.relation.*, etc.) sea la abstracción correcta. Emite el plan en el campo \`query\` (entity/operation/relation/aggregate/ordering) + entityRef/filters/temporal/selection del goal. Para «<entidad> DE <otra entidad> + agregado» (p. ej. agregar operaciones de UN cliente/inmueble) emite entity=la entidad agregada, operation=aggregate y pon el nombre del cliente/inmueble en entityRef: el servidor lo resuelve por el grafo de relaciones registrado. aggregateField es UN token EXACTO, sin prefijos: para operaciones uno de ${AGGREGATABLE.opportunities.join(', ')}; para cartera/inmuebles uno de ${AGGREGATABLE.properties.join(', ')}. NO para lo que ya tiene capability fija.`, module: 'any', operation: 'query', entityTypes: ['none'], requiredSlots: ['query'], optionalFilters: [], temporal: { field: 'auto', supported: true }, reader: 'crm-query-layer', mutation: false, confirmation: 'none', freshness: 'live', permission: 'read' },
 ]
 
 // ── Acciones (DERIVADAS del registry P65 real; jamás inventadas) ──────────────────────────────────────

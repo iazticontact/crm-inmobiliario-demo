@@ -52,8 +52,9 @@ const SEMANTIC_ENTITY: Record<string, string> = {
   cases: 'service_cases', service_cases: 'service_cases', tramites: 'service_cases', expedientes: 'service_cases',
   activities: 'activities', activity: 'activities', actividad: 'activities',
 }
-// Campos agregables (numéricos) por entidad allowlist. COUNT no requiere campo.
-const AGGREGATABLE: Record<string, string[]> = {
+// Campos agregables (numéricos) por entidad allowlist. COUNT no requiere campo. EXPORTADO para que la
+// ontología declare los TOKENS CANÓNICOS al planner (una sola verdad; el modelo no inventa nombres).
+export const AGGREGATABLE: Record<string, string[]> = {
   opportunities: ['value', 'probability', 'commission_paid_amount'],
   properties: ['price', 'area_m2', 'bedrooms', 'bathrooms'],
 }
@@ -88,16 +89,38 @@ export function validateQueryPlan(plan: CrmQueryPlan): Validation {
     const specs = EXPAND_SPECS[cfg.table]
     if (!plan.relation || !specs || !specs[plan.relation]) return { ok: false, reason: `unknown_relation:${plan.relation}` }
   }
-  // aggregate: fn válida y campo agregable (o count sin campo).
-  if (plan.operation === 'aggregate' && plan.aggregate) {
+  // aggregate: fn válida y campo agregable (o count sin campo). Se valida SIEMPRE que haya aggregate,
+  // también en operation=relation (el campo se valida contra la entidad DESTINO de la relación).
+  if (plan.aggregate) {
     const { fn, field } = plan.aggregate
     if (!['count', 'sum', 'avg', 'min', 'max'].includes(fn)) return { ok: false, reason: `bad_aggregate_fn:${fn}` }
     if (fn !== 'count') {
       if (!field) return { ok: false, reason: 'aggregate_field_required' }
-      if (!(AGGREGATABLE[key] ?? []).includes(field)) return { ok: false, reason: `field_not_aggregatable:${field}` }
+      let targetKey = key
+      if (plan.operation === 'relation' && plan.relation) {
+        const spec = EXPAND_SPECS[cfg.table]?.[plan.relation]
+        const rc = spec ? Object.entries(CRM_QUERY_ENTITIES).find(([, c]) => c.table === spec.table) : null
+        if (rc) targetKey = rc[0]
+      }
+      if (!(AGGREGATABLE[targetKey] ?? []).includes(field)) return { ok: false, reason: `field_not_aggregatable:${field}` }
     }
   }
   return { ok: true, entityKey: key }
+}
+
+// ── Grafo de relaciones INVERSO (registrado, jamás inferido): ¿qué entidades PADRE tienen una relación
+// registrada hacia esta tabla? Permite el PIVOTE determinista «<entidad> de <padre X> + agregado»:
+// entity=operaciones + entityRef=<cliente> → clients.relation(operation) con la MISMA semántica.
+export function parentEdgesFor(childTable: string): Array<{ parentKey: string; parentType: EntityType; relation: string }> {
+  const out: Array<{ parentKey: string; parentType: EntityType; relation: string }> = []
+  for (const [parentTable, rels] of Object.entries(EXPAND_SPECS)) {
+    const parentEntry = Object.entries(CRM_QUERY_ENTITIES).find(([, c]) => c.table === parentTable)
+    if (!parentEntry) continue
+    for (const [relName, spec] of Object.entries(rels)) {
+      if ((spec as { table: string }).table === childTable) out.push({ parentKey: parentEntry[0], parentType: ENTITY_TYPE[parentEntry[0]] ?? 'none', relation: relName })
+    }
+  }
+  return out
 }
 
 function seededPick(len: number, seed: number | null): number {
@@ -145,6 +168,27 @@ export async function executeQueryPlan(
   const seed = opts.selectionSeed ?? null
 
   try {
+    // PIVOTE por grafo registrado (general): entityRef presente en una operación NO-relacional significa
+    // «<entidad> DE <otra entidad>» (p. ej. suma de operaciones DE un cliente). NUNCA se ignora en silencio
+    // (sería ampliar el scope a TODO el workspace): o se resuelve contra un padre con relación REGISTRADA y
+    // se reescribe al camino relation (misma semántica, misma policy), o el plan es INVALID_PLAN explícito.
+    if (plan.entityRef && !['detail', 'relation', 'search'].includes(plan.operation)) {
+      const edges = parentEdgesFor(cfg.table)
+      if (!edges.length) return { ...base, status: 'INVALID_PLAN', warnings: [`entity_ref_unsupported_for:${plan.operation}:${key}`] }
+      const types = [...new Set(edges.map((e) => e.parentType))].filter((t) => t !== 'none')
+      const res = await resolveEntity({ supabase, workspaceId, ref: plan.entityRef, expectedTypes: types, discourse })
+      if (res.status === 'AMBIGUOUS') return { ...base, status: 'AMBIGUOUS', warnings: ['multiple_parent_matches'], rows: res.candidates.map((c) => ({ label: c.label })) }
+      if (res.status !== 'RESOLVED') return { ...base, status: 'NOT_FOUND', warnings: [`parent_entity_${res.status.toLowerCase()}`] }
+      const edge = edges.find((e) => e.parentType === res.type)
+      if (!edge) return { ...base, status: 'INVALID_PLAN', warnings: [`no_registered_edge_from:${res.type}`] }
+      // Recursión acotada (el pivote produce operation=relation → no vuelve a pivotar).
+      return executeQueryPlan(supabase, workspaceId, {
+        entity: edge.parentKey, operation: 'relation', relation: edge.relation, entityRef: plan.entityRef,
+        filters: plan.filters, temporal: plan.temporal, aggregate: plan.aggregate ?? (plan.operation === 'count' ? { fn: 'count' } : null),
+        selection: plan.selection, selectionCount: plan.selectionCount, ordering: plan.ordering, limit: plan.limit,
+      }, discourse, opts)
+    }
+
     // DETAIL / RELATION requieren resolver la entidad base contra datos reales (nunca id del modelo).
     let baseEntity: { type: string; id: string; label: string } | null = null
     if (plan.operation === 'detail' || plan.operation === 'relation') {

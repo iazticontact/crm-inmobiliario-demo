@@ -57,6 +57,15 @@ await step('valor ganado este mes (filter+temporal+aggregate)', P({ entity: 'ope
 await step('un inmueble al azar (selection random)', P({ entity: 'portfolio', operation: 'list', selection: 'random' }), (e) => e.count <= 1)
 // Composición E: top 3 operaciones por valor (ordering+selection top).
 await step('top 3 operaciones por valor (ordering+top)', P({ entity: 'operations', operation: 'list', ordering: { field: 'value', dir: 'desc' }, selection: 'top', selectionCount: 3 }), (e) => e.count <= 3)
+// Composición F: PIVOTE por grafo registrado — «suma de operaciones DE <cliente>» expresado como
+// entity=operaciones + aggregate + entityRef (la forma natural que emiten los modelos fuertes).
+if (oneClient) {
+  await step(`pivote: suma operaciones DE «${oneClient}» (agg+entityRef)`, P({ entity: 'operations', operation: 'aggregate', entityRef: oneClient, aggregate: { fn: 'sum', field: 'value' } }), (e) => ['SUCCESS', 'EMPTY'].includes(e.status) && e.scope.resolvedEntity?.label === oneClient && e.aggregate?.fn === 'sum')
+}
+// Pivote con referencia inexistente → NOT_FOUND (nunca agrega TODO el workspace en silencio).
+await step('pivote ref inexistente → NOT_FOUND, sin ampliar scope', P({ entity: 'operations', operation: 'aggregate', entityRef: 'Zzz Cliente Inexistente Qq', aggregate: { fn: 'sum', field: 'value' } }), (e) => e.status === 'NOT_FOUND')
+// entityRef sobre entidad SIN arista padre registrada → INVALID_PLAN explícito (no se ignora).
+await step('entityRef sin arista registrada → INVALID_PLAN', P({ entity: 'clients', operation: 'aggregate', entityRef: 'alguien', aggregate: { fn: 'count' } }), (e) => e.status === 'INVALID_PLAN')
 
 console.log(`\nGENERALIZACIÓN: ${gok}/${gtot} · TODO workspace-pinned, sin SQL libre, sin fuga`)
 setTimeout(() => process.exit(0), 300)

@@ -19,10 +19,14 @@ const C2 = String(cli?.[1]?.name ?? 'otro cliente')
 const disc = (o: Partial<DiscourseState> = {}): DiscourseState => ({ activeModule: null, activeEntities: [], lastListedEntityType: null, offeredCapabilities: [], pendingAction: null, temporalScope: null, ...o })
 const caps = (p: Plan) => p.goals.map((g) => g.capability)
 
-// Juez de la composición P2: vale crm.query(relation+aggregate) O una descomposición coherente
-// (goal de relación con aggregation) — lo INVÁLIDO es reducirlo a una mera búsqueda del cliente.
+// Juez de la composición P2: vale crm.query(relation+aggregate), crm.query(aggregate+entityRef → pivote
+// por grafo registrado) O una descomposición coherente (goal de relación con aggregation) — lo INVÁLIDO
+// es reducirlo a una mera búsqueda del cliente.
 const p2ok = (p: Plan) => {
-  const viaQuery = p.goals.some((g) => g.capability === 'crm.query' && g.query?.operation === 'relation' && (g.query?.aggregateFn === 'sum' || g.aggregation === 'sum'))
+  const viaQuery = p.goals.some((g) => g.capability === 'crm.query' && (
+    (g.query?.operation === 'relation' && (g.query?.aggregateFn === 'sum' || g.aggregation === 'sum')) ||
+    (g.query?.operation === 'aggregate' && g.query?.aggregateFn === 'sum' && !!g.entityRef)
+  ))
   const viaRelation = p.goals.some((g) => g.capability === 'clients.relation.operations' && (g.aggregation === 'sum' || g.requestedOutput === 'value'))
   const onlySearch = caps(p).every((c) => c === 'clients.search' || c === 'clients.detail')
   return (viaQuery || viaRelation) && !onlySearch
@@ -61,6 +65,7 @@ const results: Agg[] = []
 for (const model of MODELS) {
   const a: Agg = { model, ok: 0, n: 0, ms: 0, ptok: 0, ctok: 0, avail: true, schemaFails: 0, fails: [] }
   for (const c of CASES) {
+    await new Promise((r) => setTimeout(r, 900))   // ritmo suave: evita 429 en tiers con menos cuota
     const r = await planTurn(c.msg, c.d, { apiKey: APIKEY, model })
     if (!r.ok) {
       if (/http_(400|404)/.test(r.error)) { a.avail = false; a.fails.push(`${c.name}:${r.error.slice(0, 28)}`); break }
