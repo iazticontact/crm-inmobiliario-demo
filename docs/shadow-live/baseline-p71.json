@@ -1,0 +1,170 @@
+{
+ "label": "baseline-p71",
+ "base": "https://crm-inmobiliario-crm-staging.hvdnby.easypanel.host",
+ "capturedAt": "2026-07-20T09:01:17.576Z",
+ "diag": {
+  "toolVersion": "2026-07-17.p71-rc",
+  "generalSemanticPlanner": null,
+  "commit": "unknown"
+ },
+ "turns": [
+  {
+   "message": "hola, buenos días",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_turn:social"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 147,
+   "answerDigest": "¡hola! soy tu asistente del crm. puedo listar clientes, buscar inmuebles en cart"
+  },
+  {
+   "message": "¿cuántos clientes tengo?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_clients"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 30,
+   "answerDigest": "tienes 9 clientes registrados."
+  },
+  {
+   "message": "dame la ficha completa de Roberto Diaz",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_client_detail"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 303,
+   "answerDigest": "ficha de roberto diaz inversor - atico · roberto.diaz@example.com · +34 600 104 "
+  },
+  {
+   "message": "¿qué citas tengo esta semana?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_agenda"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 60,
+   "answerDigest": "• citas para esta semana (20/7–26/7): no, no tienes ninguna."
+  },
+  {
+   "message": "¿cuántos inmuebles hay en la cartera?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_properties"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 212,
+   "answerDigest": "no hay coincidencia exacta. lo mas cercano: • piso - avenida san pedro 66 — piso"
+  },
+  {
+   "message": "¿qué tareas tengo pendientes?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_agenda"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 79,
+   "answerDigest": "• tareas pendientes: si, tienes 1. • enviar el dossier el viernes — 2026-07-17"
+  },
+  {
+   "message": "¿qué puedes hacer por mí?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_turn:capability"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 348,
+   "answerDigest": "puedo ayudarte con el crm (solo lectura de tu cuenta): • clientes — listar, busc"
+  },
+  {
+   "message": "¿cuánto llevo generado en comisiones este mes?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "n8n",
+   "mode": "n8n",
+   "toolCalls": [
+    "crm_read_query"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 126,
+   "answerDigest": "no he podido consultar las comisiones de este mes ahora mismo. ¿quieres que lo i"
+  },
+  {
+   "message": "enséñame las operaciones ganadas",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "local_reader",
+   "mode": "local",
+   "toolCalls": [
+    "local_sales"
+   ],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 139,
+   "answerDigest": "en operaciones: • operaciones: 7 operaciones ganadas (cerradas con exito). ¿quie"
+  },
+  {
+   "message": "¿se pueden cambiar los precios de los pisos desde aquí?",
+   "status": 200,
+   "ok": true,
+   "errorCode": null,
+   "debugSource": "n8n",
+   "mode": "n8n",
+   "toolCalls": [],
+   "hasPreparedAction": false,
+   "assistantArchitecture": null,
+   "featureFlagState": null,
+   "answerLen": 269,
+   "answerDigest": "si, se pueden preparar cambios de precio de inmuebles desde el crm. yo puedo ayu"
+  }
+ ]
+}

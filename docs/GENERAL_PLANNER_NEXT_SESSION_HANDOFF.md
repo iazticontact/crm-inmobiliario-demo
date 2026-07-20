@@ -22,6 +22,28 @@
 4. FASE 35: `scripts/verify-general-planner-deploy.mjs` (probado contra staging vivo).
 5. FASES 4/5: docs PROTOCOL_FAST_PATHS + ANTI_OVERFIT_AUDIT; IMPLEMENTATION_STATUS refrescado.
 
+## ESTADO 2026-07-20 (2ª sesión, tras aviso de deploy del usuario)
+
+- El usuario reportó staging desplegado (branch + SHADOW). **La verificación real FALLÓ**: el diag siguió
+  siendo V1/P71 (`toolVersion=2026-07-17.p71-rc`, sin `generalSemanticPlanner`) durante ≥10 min de polling.
+  El contenedor servido es el build viejo → en EasyPanel: revisar que la Branch quedó GUARDADA, que se pulsó
+  Deploy, y el log de build (si falló, rebuild sin caché). NADA de SHADOW se ejecutó contra ese backend.
+- Producción intacta: `origin/main=ad3c06e` + tag; QA fixtures prístinos (9/8/8, 0 pending actions).
+- Preparado y PENDIENTE DE COMMIT (la sesión acabó con el clasificador de permisos caído — sin shell):
+  `scripts/planner-shadow-live.mts` (batería black-box con sesión QA real; capture/compare),
+  `scripts/planner-model-hard-benchmark.mts` (FASE 46, 12 casos difíciles), y updates de docs.
+- SECUENCIA AL RECUPERAR SHELL:
+  1. `npx tsc --noEmit` (valida los 2 scripts nuevos).
+  2. `npx tsx --tsconfig tsconfig.json scripts/planner-shadow-live.mts capture baseline-p71`
+     (captura la línea base P71 MIENTRAS staging siga sirviendo V1 — si ya cambió al branch, capturar
+     igualmente con label `shadow` y comparar contra una baseline local de la misma batería).
+  3. `node scripts/verify-general-planner-deploy.mjs --url https://crm-inmobiliario-crm-staging.hvdnby.easypanel.host --expect shadow`
+     → si OK: `planner-shadow-live.mts capture shadow` + `compare docs/shadow-live/baseline-p71.json docs/shadow-live/shadow.json`
+     (gate: paridad estructural 10/10 y 0 fugas del planner al usuario).
+  4. `npx tsx --tsconfig tsconfig.json scripts/planner-model-hard-benchmark.mts` (FASE 46 acotada).
+  5. git add/commit/push de scripts + docs + resultados.
+- **NO activar ON** hasta que SHADOW pase los gates (orden explícita del usuario).
+
 ## Próxima acción EXACTA (en orden)
 
 1. **Si el usuario ya tocó EasyPanel** (branch → `general-semantic-planner`, env

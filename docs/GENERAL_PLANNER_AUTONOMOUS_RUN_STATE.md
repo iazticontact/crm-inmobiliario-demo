@@ -84,6 +84,26 @@
 - Regresión post-cambio de ontología: mecanismos 9/9, coherence 7/7, crm-query 7/8 (P2 igual),
   security 11/11, filter-values 4/4, tsc limpio, eslint 0 errores, next build OK.
 
+## Bloque 3 — intento de verificación del deploy SHADOW (2026-07-20, tras aviso del usuario)
+
+El usuario reportó staging desplegado (branch `general-semantic-planner` + `GENERAL_SEMANTIC_PLANNER=SHADOW`).
+**VERIFICACIÓN REAL: FALLÓ.** `GET /api/agent/diag` en
+`crm-inmobiliario-crm-staging.hvdnby.easypanel.host` siguió devolviendo `toolVersion=2026-07-17.p71-rc`
+**sin** el campo `generalSemanticPlanner` durante ≥10 min de polling (10 intentos, 60s). El marcador está
+compilado en la route: si la rama se hubiera desplegado, el campo existiría AUNQUE faltara la env var
+(saldría "off"). Conclusión: el contenedor que sirve es el build VIEJO (V1/P71) — branch no guardada,
+deploy no lanzado, o build fallido en EasyPanel. NO se ejecutó ningún gate SHADOW contra ese backend
+(prohibido atribuir P71 al planner). Producción intacta verificada: `origin/main`=`ad3c06e` (tag
+`v1.0.0-rc1`); el único servicio CRM conocido es el staging; los otros 2 servicios EasyPanel son n8n.
+
+Preparado mientras tanto:
+- `scripts/planner-shadow-live.mts` — batería determinista black-box vs staging (sesión QA real via
+  cookie SSR): `capture <label>` guarda `docs/shadow-live/<label>.json`; `compare a b` exige paridad
+  estructural (debugSource/mode/toolCalls/errorCode) y 0 fugas del planner al usuario. Plan: capturar
+  `baseline-p71` ANTES del redeploy y `shadow` DESPUÉS → prueba de que SHADOW no altera lo visible.
+- `scripts/planner-model-hard-benchmark.mts` — FASE 46, 12 casos difíciles (P2×3, 3-goals, retorno de
+  referente, corrección, top-N, ambigüedad financiera, no-overuse, valores canónicos, avg→crm.query).
+
 ## Próxima acción segura exacta
 
 1. Si el usuario hizo el cambio EasyPanel → verificar `--expect shadow` y correr SHADOW real (runbook §3).
