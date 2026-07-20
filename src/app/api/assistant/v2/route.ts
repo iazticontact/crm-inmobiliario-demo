@@ -388,16 +388,20 @@ export async function POST(req: NextRequest) {
 
     // ── GENERAL SEMANTIC PLANNER · feature flag (default OFF = P71 intacto, sin cambio de comportamiento) ──
     const gspMode = plannerMode()
-    // ON: para LENGUAJE ABIERTO el planner es el cerebro. Los fast-paths de protocolo (uiAction) ya se
-    // resolvieron arriba. Fail-soft: si el planner no puede, se cae a P71 (nunca respuesta inventada).
+    // ON (FASE 9): para LENGUAJE ABIERTO el planner es el cerebro y NO existe fallback semántico silencioso
+    // a P71. plannerAnswer NUNCA lanza: un fallo de runtime devuelve una respuesta VERAZ de indisponibilidad
+    // con atribución GENERAL_PLANNER (degraded). El ÚNICO caso que continúa a P71 es planner NO CONFIGURADO
+    // (sin OPENAI_API_KEY) — estado equivalente a OFF, registrado explícitamente, jamás invisible.
     if (gspMode === 'on') {
-      try {
-        const pa = await plannerAnswer({ supabase, workspaceId, message, convState })
-        if (pa && pa.answer) {
-          logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: `planner:${String(pa.observability.plannerModel ?? '?')}`, errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: 'general_planner', toolCalls: (pa.observability.capabilities as string[]) ?? null, durationMs: Date.now() - start })
-          return NextResponse.json({ ok: true, answer: pa.answer, debugSource: 'general_planner', mode: 'planner', errorCode: null, toolCalls: (pa.observability.capabilities as string[]) ?? null, referencedClientId: null, referencedClientName: null, referencedList: pa.referencedList ?? null, referencedCalendarList: null, dataPreview: pa.referencedList ?? null, preparedAction: null, ui: null, assistantArchitecture: 'GENERAL_PLANNER', featureFlagState: gspMode })
-        }
-      } catch { /* fail-soft → continúa al camino P71 */ }
+      const pa = await plannerAnswer({ supabase, workspaceId, message, convState })
+      if (pa) {
+        const src = pa.degraded ? 'general_planner_unavailable' : 'general_planner'
+        logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: `planner:${String(pa.observability.plannerModel ?? '?')}`, errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: src, toolCalls: (pa.observability.capabilities as string[]) ?? null, durationMs: Date.now() - start })
+        return NextResponse.json({ ok: true, answer: pa.answer, debugSource: src, mode: 'planner', errorCode: null, toolCalls: (pa.observability.capabilities as string[]) ?? null, referencedClientId: null, referencedClientName: null, referencedList: pa.referencedList ?? null, referencedCalendarList: null, dataPreview: pa.referencedList ?? null, preparedAction: null, ui: null, assistantArchitecture: 'GENERAL_PLANNER', featureFlagState: gspMode })
+      }
+      // Planner no configurado con ON activo: se registra como misconfiguración explícita y P71 atiende
+      // (equivale operacionalmente a OFF; nunca es un fallback semántico invisible tras un fallo de runtime).
+      logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: 'planner:unconfigured', errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: 'general_planner_unconfigured_fallback_p71', toolCalls: null, durationMs: Date.now() - start })
     }
 
     // Solo intercepta lecturas básicas inequívocas; el resto sigue al cerebro general.

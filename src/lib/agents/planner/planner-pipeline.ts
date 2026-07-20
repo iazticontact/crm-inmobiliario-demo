@@ -31,6 +31,10 @@ export type TurnResult = {
 
 const MAX_CYCLES = 3
 
+// Mensaje VERAZ de indisponibilidad de infraestructura. NUNCA se disfraza un fallo técnico de "no te he
+// entendido" (eso es una aclaración semántica) ni se enruta en silencio al parser legacy P71 (FASE 9).
+export const PLANNER_UNAVAILABLE_MSG = 'Ahora mismo no puedo analizar tu petición (el servicio de interpretación no responde). No he perdido tu conversación: vuelve a intentarlo en unos segundos.'
+
 export async function runTurn(args: {
   supabase: SupabaseClient
   workspaceId: string
@@ -38,19 +42,32 @@ export async function runTurn(args: {
   discourse: RichDiscourse
   apiKey: string
   plannerModel?: string
+  plannerFallbackModel?: string | null   // modelo ALTERNATIVO validado por config (no elegido por el LLM)
   synthModel?: string
   synth?: boolean            // si false, no llama al redactor (eval estructural barata)
   selectionSeed?: number | null   // para tests deterministas de selección RANDOM
 }): Promise<TurnResult> {
   const { supabase, workspaceId, message, discourse } = args
   const ref = toDiscourseRef(discourse)
+  const pview = plannerView(discourse)
 
   // ── PLAN ── (el planner ve una PROYECCIÓN del discurso sin ids internos: solo referencias lingüísticas)
-  const p = await planTurn(message, plannerView(discourse), { apiKey: args.apiKey, model: args.plannerModel })
+  // Resiliencia INFRA acotada (FASE 9): fallo técnico (fetch/timeout/JSON/HTTP) → 1 reintento con el mismo
+  // modelo → 1 intento con el modelo alternativo de config si existe. Máx. 3 llamadas; nunca P71 silencioso.
+  let p = await planTurn(message, pview, { apiKey: args.apiKey, model: args.plannerModel })
+  let planInfraRetries = 0
+  if (!p.ok) {
+    planInfraRetries++
+    p = await planTurn(message, pview, { apiKey: args.apiKey, model: args.plannerModel })
+  }
+  if (!p.ok && args.plannerFallbackModel && args.plannerFallbackModel !== args.plannerModel) {
+    planInfraRetries++
+    p = await planTurn(message, pview, { apiKey: args.apiKey, model: args.plannerFallbackModel })
+  }
   let planMs = p.ok ? p.ms : 0
   let plan: ValidatedPlan = p.ok
     ? validatePlan(p.plan)
-    : { version: 1, speechAct: 'unknown', goals: [], needsClarification: true, clarificationQuestion: 'No he podido interpretar tu mensaje; ¿puedes reformularlo?', proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, rejected: [{ capability: '(planner)', reason: p.ok ? '' : p.error }] }
+    : { version: 1, speechAct: 'unknown', goals: [], needsClarification: true, clarificationQuestion: PLANNER_UNAVAILABLE_MSG, proposedStateUpdates: { activeModule: null, offeredCapabilities: [] }, rejected: [{ capability: '(planner)', reason: p.error }] }
 
   // ── REPLAN SEMÁNTICO acotado (máx. 1): el modelo QUISO actuar pero TODOS sus goals cayeron en la
   // validación (p. ej. capability inexistente por id casi-correcto). Mecanismo general, no por frase: se
@@ -59,7 +76,7 @@ export async function runTurn(args: {
   let planAttempts = 1
   if (p.ok && plan.goals.length === 0 && !plan.needsClarification && plan.rejected.length > 0) {
     const motivos = plan.rejected.map((r) => `«${r.capability}» → ${r.reason}`).join('; ')
-    const p2 = await planTurn(message, plannerView(discourse), {
+    const p2 = await planTurn(message, pview, {
       apiKey: args.apiKey, model: args.plannerModel,
       feedback: `Goals rechazados por el validador: ${motivos}. Elige SOLO ids EXACTOS presentes en la ontología dada y no repitas el motivo del rechazo.`,
     })
@@ -111,6 +128,8 @@ export async function runTurn(args: {
     capabilities: plan.goals.map((g) => g.capability),
     rejected: plan.rejected,
     planAttempts,
+    planInfraRetries,
+    plannerUnavailable: !p.ok,
     statuses: evidences.map((e) => e.status),
     entityResolution: evidences.filter((e) => e.resolvedEntity).map((e) => ({ cap: e.capability, label: e.resolvedEntity?.label })),
     inconsistencies: inconsistencies.map((i) => i.kind),
