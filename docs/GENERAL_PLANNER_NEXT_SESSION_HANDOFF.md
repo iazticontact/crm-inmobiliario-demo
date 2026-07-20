@@ -1,5 +1,25 @@
 # General Planner — Handoff para la PRÓXIMA sesión
 
+## ESTADO 2026-07-20 (3ª sesión — SHADOW LIVE conseguido) — ESTA SECCIÓN MANDA
+
+- Staging REAL en SHADOW verificado (diag `generalSemanticPlanner: "shadow"`); paridad black-box 30
+  turnos OK, 0 fugas. Ver `GENERAL_PLANNER_SHADOW_LIVE_RESULTS.md`.
+- FASE 9 cerrada (9/9) · P2 de composición resuelto por mecanismo (pivote, query layer 11/11+10/10) ·
+  hard benchmark: gpt-5.1 11/12 vs mini 9/12 (candidato upgrade; gate 150+ pendiente) ·
+  human-like N=8: 4.3/4.4/4.5, 0 duros.
+- **SECUENCIA PARA ON (en orden, NO saltarse el 1)**:
+  1. Pedir al usuario REDEPLOY del staging (mismo branch; el build vivo NO tiene FASE 9 ni pivote) y
+     verificar: `node scripts/verify-general-planner-deploy.mjs --url https://crm-inmobiliario-crm-staging.hvdnby.easypanel.host --expect shadow`
+     (+ opcional env `PLANNER_FALLBACK_MODEL=gpt-4.1` para resiliencia FASE 9).
+  2. Re-capturar paridad SHADOW post-redeploy (`planner-shadow-live.mts capture shadow-3` + compare).
+  3. Solo entonces: usuario cambia `GENERAL_SEMANTIC_PLANNER=ON` + Deploy → verificar `--expect on` →
+     black-box ON con atribución (`assistantArchitecture=GENERAL_PLANNER` en cada turno contado).
+- **P2 top NUEVO (diseño listo, sin implementar)**: acumulación de slots de acción entre turnos —
+  `pendingAction` debe persistir {actionType, entidad resuelta, slots acumulados} y fusionarse en el
+  siguiente turno de acción compatible. Tocarlo SOLO con la batería FASE 25 de acciones al lado.
+  Evidencia: humanlike run 3, persona spanglish (calendar.create PARTIAL ×5 turnos).
+- Gates de escala abiertos (coste): generative 300+300, human-like 120+, model benchmark 150+.
+
 > Escrito 2026-07-20 al final de la sesión autónoma. Basado en el estado REAL final (verifica con Git,
 > no con memoria de chat). Instrucción de recuperación ejecutable.
 

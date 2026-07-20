@@ -25,6 +25,10 @@ const PERSONAS = [
   { id: 'seco', style: 'Eres un agente MUY experimentado y seco: mensajes telegráficos de 2 a 6 palabras, sin cortesía.', mission: 'Quieres el estado de la cartera de inmuebles, cuántas operaciones abiertas hay y cuánto llevas en comisiones este mes.' },
   { id: 'erratas', style: 'Escribes rápido, CON faltas de ortografía y sin tildes, a veces sin signos de puntuación.', mission: 'Quieres ver tus citas de esta semana y tus tareas pendientes; luego, de algún cliente que aparezca por ahí, sus operaciones.' },
   { id: 'indeciso', style: 'Eres indeciso: empiezas a pedir algo, te corriges a mitad, cambias de tema y luego vuelves a un tema anterior.', mission: 'Empiezas preguntando por clientes, te desvías a preguntar por la cartera, y al final vuelves a un cliente concreto para ver su detalle.' },
+  { id: 'manager', style: 'Eres el gerente de la agencia: pides números y resúmenes ejecutivos, comparas periodos, sin rodeos.', mission: 'Quieres una foto del negocio: valor de operaciones ganadas, comisiones del mes, estado de la cartera, y al final qué requiere atención.' },
+  { id: 'frustrado', style: 'Estás algo frustrado porque tienes prisa; usas frases cortantes y expresas impaciencia si algo no sale a la primera.', mission: 'Necesitas YA las citas de hoy, las tareas urgentes y el teléfono de algún cliente que te aparezca por ahí.' },
+  { id: 'multitarea', style: 'Mezclas varias peticiones en un mismo mensaje porque estás con mil cosas a la vez.', mission: 'En pocas interacciones quieres: cuántos clientes activos hay Y qué citas hay esta semana Y que te expliquen para qué sirve el módulo de trámites.' },
+  { id: 'spanglish', style: 'Trabajas en una agencia internacional: mezclas términos en inglés y español (lead, pipeline, appointment) con naturalidad.', mission: 'Quieres revisar tus leads, el pipeline de deals abiertos y las appointments de la semana.' },
 ] as const
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'

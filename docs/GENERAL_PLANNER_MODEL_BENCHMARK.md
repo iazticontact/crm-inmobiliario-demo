@@ -36,3 +36,41 @@ agregado valor ventas. `structured output` válido en el 100% de las llamadas ex
 **Regla de scoring aplicada**: fallo crítico (wrong entity / unsafe action / policy / global leak / capability
 alucinada) = descalificación absoluta (ninguno lo tuvo). Luego: acierto de plan > coste > latencia. `gpt-4.1-mini`
 gana por acierto máximo a coste mínimo.
+
+---
+
+# HARD BENCHMARK (FASE 46, 2026-07-20) — SUPERSEDE la conclusión anterior
+
+> El 10/10 de arriba era un SMOKE: en casos genuinamente difíciles el techo desaparece. 12 casos
+> (`scripts/planner-model-hard-benchmark.mts`): P2 (relation+aggregate de entidad nombrada) ×3 fraseos,
+> 3-goals, retorno de referente tras cambio de tema, corrección sobre oferta, top-N filtrado, ambigüedad
+> financiera, introspección sobre entidad, no-overuse, valores canónicos, avg→crm.query. Ejecutado TRAS
+> el fix de mecanismo del pivote (con el fix, la infraestructura ya soporta la composición; lo que se mide
+> es la ELECCIÓN del modelo).
+
+| Modelo | Acierto | Lat. media | Tokens out ~ | Fallos restantes |
+|---|:--:|:--:|:--:|---|
+| **gpt-5.1** | **11/12** | 1.9s | 125 | P2 fraseo B (muy oblicuo: «cuánto mueve X con nosotros») |
+| gpt-4.1-mini (runtime) | 9/12 | 2.1s | 98 | P2 A, P2 B, retorno de referente |
+| gpt-4.1 | 8/12 | 1.4s | 95 | P2 A/B/pronombre (+1 caso invalidado por 429) |
+| gpt-5-mini | NO CANDIDATO | — | — | Rechaza el contrato de llamada del runtime (http_400) |
+
+## Hallazgo clave (el P2 NO era solo «límite de modelo»)
+
+El debug de planes reales mostró que gpt-5.1 YA emitía la intención correcta con la forma natural
+`{entity: operaciones, operation: aggregate, entityRef: <cliente>}` que el schema no aceptaba — y que el
+layer IGNORABA el entityRef en operaciones no-relacionales (riesgo de agregar TODO el workspace en
+silencio). Tras el fix (pivote por grafo registrado + tokens canónicos de campo + prohibición de
+scope-broadening), gpt-5.1 pasa la clase P2; gpt-4.1-mini sigue emitiendo `clients.search` (limitación
+real del mini en composición). La clase metamórfica «detalle de cliente» (2-3/5 en mini) es la misma
+familia.
+
+## Recomendación PRELIMINAR (el gate formal 150-300 sigue pendiente)
+
+- **Candidato a upgrade del planner: `gpt-5.1`** — resuelve la clase de composición más difícil y el
+  retorno de referente con latencia ≈ mini (1.9s vs 2.1s) y salida corta (~125 tokens).
+- Híbrido a evaluar: **planner gpt-5.1 + synthesizer gpt-4.1-mini** (el synth solo redacta evidencia validada).
+- Config razonable YA (FASE 9): `PLANNER_FALLBACK_MODEL=gpt-4.1-mini` como alternativo de infra.
+- gpt-4.1 NO aporta sobre mini en esta clase (8/12) — descartado.
+- **NO cambiar el modelo del runtime** hasta el dataset difícil 150+ por modelo con métricas FASE 37
+  completas (incluido coste) y regresión completa en verde. N=12 es señal direccional, no decisión.

@@ -1,5 +1,28 @@
 # General Planner — Human-like Conversation Harness (FASE 41) — resultados REALES
 
+## Run 3 (2026-07-20, 8 personas — añade manager/frustrado/multitarea/spanglish)
+
+| Métrica | Valor |
+|---|---|
+| Conversaciones | **8** (novato 5/5/5, seco 4/4/3, erratas 5/5/5, indeciso 4/4/5, manager 4/4/4, frustrado 4/5/5, multitarea 5/5/5, spanglish 3/3/4) |
+| Media coherencia / grounding / continuidad | **4.3 / 4.4 / 4.5** |
+| Errores duros (INTERNAL_ERROR + vacías) | **0** |
+| Rejected goals / replans | 3 / 1 (el replan semántico FUNCIONÓ: multitarea T4 recuperó cases.list) |
+
+**Hallazgo principal (nuevo P2 top — mecanismo, no frase): ACUMULACIÓN DE SLOTS DE ACCIÓN.** En
+spanglish, `calendar.create` quedó PARTIAL 5 turnos seguidos aunque el usuario daba cada dato
+incrementalmente: el planner re-planifica la acción desde cero cada turno y el estado `pendingAction`
+del discurso NO realimenta los slots ya proporcionados. Capa raíz: DISCOURSE (pendingAction) +
+preparación de acción del executor. Diseño pendiente: persistir {actionType, entidad resuelta, slots
+acumulados} en pendingAction y fusionar en el siguiente turno de acción compatible (FASE 53: «recoge
+solo el slot que falta»). NO se implementó en esta sesión: toca el plano de acciones y exige la batería
+FASE 25 completa para tocarlo con seguridad.
+
+Menores: estilo del synthesizer no se adapta al usuario telegráfico (P3 cosmético); manager T7 pierde
+el referente de una tarea recién creada (misma familia de continuidad); un aviso de grounding del juez
+(frustrado T3, «Marta Vidal») es probablemente sobre-estricto (el nombre SÍ estaba en la evidencia
+clients.list del turno).
+
 > Harness: `scripts/planner-humanlike.mts`. Simulador de usuario LLM con persona + misión ABSTRACTA
 > (sin conocer capabilities/implementación/frases esperadas) contra el pipeline real (QA, dry-run).
 > Juez doble: métricas estructurales deterministas + juez LLM separado (transcript + evidencia resumida).

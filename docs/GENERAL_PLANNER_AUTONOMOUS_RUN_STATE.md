@@ -1,5 +1,27 @@
 # General Planner — Autonomous Run State
 
+## SESIÓN 3 (2026-07-20, campaña de validación real) — RESUMEN EJECUTIVO
+
+Estado al cierre: rama pusheada, árbol limpio, producción/main intactos, staging en SHADOW real.
+
+1. **SHADOW LIVE VERIFICADO** (gate mayor): el 2º deploy manual del usuario SÍ surtió efecto —
+   `generalSemanticPlanner: "shadow"` en el diag vivo. Baseline P71 capturada ANTES del flip;
+   paridad estructural en 30 turnos reales autenticados; 0 fugas del planner al usuario; la única
+   divergencia es varianza interna del agente n8n probada same-build. `GENERAL_PLANNER_SHADOW_LIVE_RESULTS.md`.
+2. **FASE 9 cerrada** (9/9): sin fallback semántico silencioso ON→P71 (reintento infra acotado +
+   PLANNER_FALLBACK_MODEL + mensaje veraz de indisponibilidad + atribución en todos los caminos).
+3. **P2 resuelto a nivel de MECANISMO**: pivote por grafo registrado (entityRef en operaciones
+   no-relacionales → relation path o INVALID_PLAN explícito; nunca scope-broadening silencioso),
+   validación de aggregate en relation, tokens canónicos de campo. Query layer 11/11 + 10/10.
+4. **HARD BENCHMARK de modelos** (12 casos): gpt-5.1 **11/12** vs mini 9/12 vs 4.1 8/12 —
+   supersede el «10/10 smoke»; candidato preliminar de upgrade: gpt-5.1 (gate formal 150+ pendiente).
+5. **Human-like run 3** (8 personas): 4.3/4.4/4.5, 0 errores duros; NUEVO P2 top: acumulación de
+   slots de acción entre turnos (pendingAction no realimenta) — diseño documentado, sin implementar.
+6. Commits de la sesión: `bf1ca57` → `f937489` → `c211f1a` → `5c77b38` → (docs finales). Todo pusheado.
+
+**Gate ON — PRERREQUISITO CRÍTICO**: el build SHADOW desplegado NO incluye la FASE 9 ni el pivote
+(`bf1ca57` o anterior). ANTES de poner ON hay que REDEPLOY del staging (mismo branch, pull nuevo).
+
 > Actualizado por la sesión autónoma del 2026-07-20. Fuente de verdad para recuperación tras reset.
 > Regla: este fichero refleja SOLO estado verificado contra disco/Git/ejecución real, nunca memoria de chat.
 
