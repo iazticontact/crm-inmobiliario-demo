@@ -90,6 +90,19 @@ export async function runTurn(args: {
     }
   }
 
+  // ── FUSIÓN DE ACCIÓN EN CURSO (slot-accumulation, FASE 53) ── si hay pendingAction y el plan trae un
+  // goal de la MISMA acción, se fusionan los slots ya acumulados (los NUEVOS mandan: permiten corregir) y
+  // se hereda la entidad ya resuelta si el goal no trae otra referencia. El usuario no repite lo ya dicho.
+  const pending = discourse.pendingAction
+  if (pending && plan.goals.some((g) => g.capability === pending.capability)) {
+    plan = {
+      ...plan,
+      goals: plan.goals.map((g) => g.capability === pending.capability
+        ? { ...g, filters: { ...pending.slots, ...g.filters }, entityRef: g.entityRef ?? pending.entity?.label ?? null }
+        : g),
+    }
+  }
+
   // ── EXECUTE ──
   let exec = await executePlan(supabase, workspaceId, plan, ref, { selectionSeed: args.selectionSeed })
   let evidences = exec.evidences

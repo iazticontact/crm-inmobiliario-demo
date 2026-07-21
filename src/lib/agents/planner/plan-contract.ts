@@ -67,6 +67,9 @@ function sanitizeFilters(raw: unknown): { ok: true; filters: Record<string, stri
   for (const [k, v] of entries) {
     const key = String(k).toLowerCase()
     if (FORBIDDEN_FILTER_KEYS.has(key)) return { ok: false, reason: `forbidden_filter:${key}` }
+    // null/undefined = «no proporcionado» (habitual en structured output): se OMITE la clave (narrowing-
+    // safe, jamás inventa ni amplía). Arrays/objetos/booleanos siguen invalidando el goal (estructura).
+    if (v == null) continue
     if (typeof v === 'number' && Number.isFinite(v)) { out[k] = v; continue }
     if (typeof v === 'string') {
       if (v.length > MAX_STR) return { ok: false, reason: 'filter_too_long' }

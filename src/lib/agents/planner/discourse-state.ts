@@ -16,23 +16,36 @@ export function emptyDiscourse(): DiscourseState {
 // Extensión con memoria de la última lista (para ordinales) y del último resultado (para pronombres),
 // manteniendo la forma base de DiscourseState que consume el planner. Los `id` que viven aquí son
 // SERVER-SIDE (para resolver ordinales/pronombres contra datos ya autorizados): jamás viajan al prompt.
-export type RichDiscourse = Omit<DiscourseState, 'activeEntities'> & {
+// ACCIÓN EN CURSO (clase slot-accumulation): una acción multi-turno acumula server-side la entidad ya
+// resuelta y los slots ya proporcionados. El usuario NUNCA debe repetir lo que ya dijo (FASE 53).
+export type PendingActionState = {
+  capability: string
+  entity: { type: string; label: string; id?: string } | null
+  slots: Record<string, string | number>   // acumulados (ya filtrados por allowedFields en la preview)
+  missingSlots: string[]
+}
+
+export type RichDiscourse = Omit<DiscourseState, 'activeEntities' | 'pendingAction'> & {
   activeEntities: Array<{ type: string; label: string; id?: string }>
+  pendingAction: PendingActionState | null
   lastListed?: { type: string; items: Array<{ id: string; label: string }> } | null
 }
 
 // Proyección del discurso para el PROMPT del planner: SOLO referencias lingüísticas (labels/tipos), JAMÁS
 // ids internos. Si el modelo nunca ve un UUID no puede copiarlo a entityRef (el contrato lo rechazaría como
 // model_supplied_uuid y se perdería el turno). Los labels de la última lista sí ayudan a referenciar.
-export function plannerView(d: RichDiscourse): DiscourseState & { lastListedLabels: string[] | null } {
+export function plannerView(d: RichDiscourse): DiscourseState & { lastListedLabels: string[] | null; pendingActionContext: { entity: string | null; providedSlots: string[] } | null } {
   return {
     activeModule: d.activeModule,
     activeEntities: d.activeEntities.map((e) => ({ type: e.type, label: e.label })),
     lastListedEntityType: d.lastListedEntityType,
     offeredCapabilities: d.offeredCapabilities,
-    pendingAction: d.pendingAction,
+    pendingAction: d.pendingAction ? { capability: d.pendingAction.capability, missingSlots: d.pendingAction.missingSlots } : null,
     temporalScope: d.temporalScope,
     lastListedLabels: d.lastListed ? d.lastListed.items.slice(0, 20).map((i) => i.label) : null,
+    // Contexto de la acción en curso para el PROMPT: entidad por LABEL (sin ids) + NOMBRES de slots ya
+    // dados (sin valores sensibles). El modelo emite SOLO lo nuevo; el servidor fusiona.
+    pendingActionContext: d.pendingAction ? { entity: d.pendingAction.entity?.label ?? null, providedSlots: Object.keys(d.pendingAction.slots) } : null,
   }
 }
 
@@ -89,6 +102,24 @@ export function advanceDiscourse(prev: RichDiscourse, plan: ValidatedPlan, evide
     const compatType = MODULE_ENTITY[next.activeModule]
     const justResolved = new Set(evidences.filter((e) => e.resolvedEntity).map((e) => e.resolvedEntity!.type))
     next.activeEntities = next.activeEntities.filter((e) => e.type === compatType || justResolved.has(e.type))
+  }
+
+  // ACCIÓN EN CURSO (slot-accumulation, FASE 53): la preview NO ejecutada persiste con la entidad ya
+  // resuelta y los slots ya dados. Se limpia con cancel explícito o cuando el foco cambia a un módulo
+  // incompatible con la acción (supersession, sin arrastres); se REEMPLAZA si aparece otra acción.
+  const actionEv = evidences.find((e) => e.actionPreview)
+  if (plan.speechAct === 'cancel') {
+    next.pendingAction = null
+  } else if (actionEv?.actionPreview) {
+    const p = actionEv.actionPreview
+    next.pendingAction = {
+      capability: actionEv.capability,
+      entity: p.entity ? { type: p.entity.type, label: p.entity.label, id: p.entity.id } : null,
+      slots: { ...p.changes },
+      missingSlots: [...p.missingSlots],
+    }
+  } else if (next.pendingAction && next.activeModule && next.activeModule !== next.pendingAction.capability.split('.')[0]) {
+    next.pendingAction = null
   }
 
   // Ofertas: se persisten estructuradas para que el turno siguiente se interprete con ellas.

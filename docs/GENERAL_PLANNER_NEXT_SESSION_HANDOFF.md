@@ -1,6 +1,29 @@
 # General Planner — Handoff para la PRÓXIMA sesión
 
-## ESTADO 2026-07-20 (3ª sesión — SHADOW LIVE conseguido) — ESTA SECCIÓN MANDA
+## ESTADO 2026-07-20 (4ª sesión — HEAD ÚNICO PRE-ON LISTO) — ESTA SECCIÓN MANDA
+
+**El HEAD actual es el candidato único pre-ON.** Contiene: FASE 9 (sin fallback silencioso), pivote
+crm.query, valores/tokens canónicos, y FASE 53 (acumulación de slots de acción — el P2 top del
+human-like). FASE 53 VERIFICADO por el harness dirigido `planner-action-slots.mts` → **10/10 con LLM
+real (gpt-4.1-mini), 0 escrituras (dry-run)**.
+
+> NOTA DE CONTINUIDAD (Opus, 2026-07-21): la FASE 53 la dejó Fable SIN COMMITEAR (sesión cortada por
+> créditos). Opus la ha recuperado y re-verificado sobre disco antes de commitear: `tsc --noEmit`
+> limpio · eslint 4 ficheros 0 errores · slot-accumulation 10/10 (LLM real) · matriz de seguridad
+> 11/11 · query layer 11/11 + 10/10 (invariante de scope verde) · coherencia 7/7. La cifra human-like
+> **4.9/4.9/5.0 NO está respaldada** por ningún resultado en disco: la última medición human-like real
+> es la de la 3ª sesión (N=8) = **4.3/4.4/4.5, 0 errores duros** (pre-FASE-53). Una re-medición
+> human-like completa post-FASE-53 queda como gate honesto, NO ejecutada aún.
+
+**ACCIÓN DEL USUARIO (un solo paso): REDEPLOY fresco del staging** (mismo servicio, mismo branch
+`general-semantic-planner`, mismo `GENERAL_SEMANTIC_PLANNER=SHADOW`; opcional recomendado:
+añadir `PLANNER_FALLBACK_MODEL=gpt-4.1`). Después:
+1. `node scripts/verify-general-planner-deploy.mjs --url https://crm-inmobiliario-crm-staging.hvdnby.easypanel.host --expect shadow`
+2. `npx tsx --tsconfig tsconfig.json scripts/planner-shadow-live.mts capture shadow-3` + compare con
+   `docs/shadow-live/baseline-p71.json` (paridad + 0 fugas, como en la 3ª sesión).
+3. Si paridad OK → gate ON (usuario: env a ON + Deploy) → `--expect on` → black-box ON con atribución.
+
+## ESTADO 2026-07-20 (3ª sesión — SHADOW LIVE conseguido)
 
 - Staging REAL en SHADOW verificado (diag `generalSemanticPlanner: "shadow"`); paridad black-box 30
   turnos OK, 0 fugas. Ver `GENERAL_PLANNER_SHADOW_LIVE_RESULTS.md`.
