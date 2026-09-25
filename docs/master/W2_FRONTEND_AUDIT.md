@@ -82,7 +82,7 @@ Recomendación: no introducir una librería global durante la primera fase. Extr
 
 ### Loading
 
-Hay buen punto de partida con `PageSkeleton`, pero faltan `loading.tsx` en findings, automations, billing, facturación PRO, inbox y detalle de inmueble.
+Hay buen punto de partida con `PageSkeleton`. Esta rama completa los `loading.tsx` que faltaban en findings, automations, billing, facturación PRO, inbox y detalle de inmueble, reutilizando variantes presentacionales sin añadir consultas.
 
 ### Error
 
@@ -167,6 +167,7 @@ No se ha modificado su contrato. La duplicidad `/billing` debe resolverse por de
 - La semana operativa añade nombre accesible completo por día.
 - `Input` compartido asocia label y error correctamente.
 - Nuevo error boundary SaaS con reintento.
+- Fallbacks de carga completos para las 13 rutas SaaS, incluidos los segmentos secundarios.
 
 ## 11. Validación
 

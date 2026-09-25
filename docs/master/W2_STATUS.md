@@ -5,7 +5,7 @@
 - Rama: `w2/frontend-audit-foundation`
 - Base: `general-semantic-planner` en `6ea06e4`
 - Commit funcional remoto: `f8b6466989f5b54a18fb5a9b70b25b9c883ddb41`
-- Estado: primera unidad frontend persistida; trabajo incremental en curso
+- Estado: dos unidades frontend validadas; trabajo incremental en curso
 
 ## Persistencia
 
@@ -21,6 +21,7 @@
 - Dashboard reducido de 1.235 a 943 líneas.
 - `Input` compartido con asociación accesible de label y error.
 - Error boundary común para el área SaaS.
+- Fallbacks de carga de ruta completos para los 13 segmentos SaaS.
 
 ## Validación
 
@@ -36,4 +37,4 @@ El `fetch --all --prune` de 2026-09-25 no muestra ramas remotas nuevas de W1, W3
 
 ## Siguiente unidad segura
 
-Añadir fallbacks de carga a rutas SaaS secundarias reutilizando `PageSkeleton`, sin tocar modelos telecom ni lógica de W1/W3.
+Estandarizar el siguiente grupo de estados vacíos con `EmptyState`, empezando por rutas secundarias sin contratos telecom.
