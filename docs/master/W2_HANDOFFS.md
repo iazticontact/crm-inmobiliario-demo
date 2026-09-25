@@ -3,8 +3,17 @@
 - Versión: 1.0
 - Fecha: 2026-09-25
 - Commit base: `6ea06e4`
+- Commit W2 remoto: `f8b6466989f5b54a18fb5a9b70b25b9c883ddb41`
+- Rama remota: `origin/w2/frontend-audit-foundation`
 - Owner: W2
 - Estado: solicitudes abiertas
+
+## Estado de coordinación
+
+- Persistencia Git verificada el 2026-09-25: la rama remota apunta exactamente a `f8b6466`.
+- Último `fetch --all --prune`: no hay ramas remotas nuevas identificadas como W1, W3 o W4.
+- Referencias remotas revisadas: `main`, `general-semantic-planner`, `p71/conversation-state-core` y la rama W2.
+- Las solicitudes siguientes continúan abiertas hasta que se publiquen contratos o gates versionados.
 
 ## W1 — contratos de datos necesarios
 

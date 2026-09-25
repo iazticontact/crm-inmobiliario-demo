@@ -3,9 +3,10 @@
 - Versión: 1.0
 - Fecha: 2026-09-25
 - Commit base: `6ea06e4`
+- Commit implementado y remoto: `f8b6466989f5b54a18fb5a9b70b25b9c883ddb41`
 - Rama: `w2/frontend-audit-foundation`
 - Owner: W2 — Frontend / UX
-- Estado: primera unidad implementada; auditoría estática completa y baseline validada
+- Estado: primera unidad implementada, validada y persistida en GitHub
 - Supersedes: ninguno
 
 ## 1. Resultado ejecutivo
