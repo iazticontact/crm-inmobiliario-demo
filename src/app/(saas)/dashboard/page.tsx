@@ -11,10 +11,6 @@ import {
   FileText,
   Plus,
   ArrowRight,
-  MessageSquare,
-  Phone,
-  Mail,
-  Star,
   AlertTriangle,
   Bot,
   Sparkles,
@@ -35,7 +31,7 @@ import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { containsBlockedText } from '@/lib/text-safety'
 import { featureFlags } from '@/lib/feature-flags'
-import type { Activity as CRMActivity, ActivityType } from '@/lib/types'
+import type { Activity as CRMActivity } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY, useCurrentUser } from '@/lib/current-user'
 import {
@@ -65,316 +61,28 @@ import { buildDashboardSnapshot, PERIOD_OPTIONS, type SnapshotInput, type Dashbo
 import { DonutChart } from '@/components/charts/DonutChart'
 import { MiniBarChart } from '@/components/charts/MiniBarChart'
 import { InfoTooltip } from '@/components/InfoTooltip'
-
-type RealStats = {
-  totalClients: number
-  leads: number
-  activeClients: number
-  revenue: number
-  pendingAmount: number
-  pendingInvoices: number
-  upcomingEvents: number
-  externalConversations: number
-  unreadConversations: number
-  opportunitiesOpen: number
-  openOppsValue: number
-  casesActive: number
-  casesDocsPending: number
-  propertiesActive: number
-  tasksOpen: number
-  tasksOverdue: number
-}
-
-// Estructuras normalizadas para los bloques "Hoy" y la semana operativa. Las calculamos igual en
-// modo demo y modo real, así que el JSX no depende de la forma cruda de cada fuente.
-type WeekDay = { label: string; dayNum: number; events: number; tasks: number; tooltip: string }
-type UrgentTask = { id: string; title: string; dueDate?: string; clientName?: string; priority: string }
-type ReviewOp = { id: string; title: string; stage: string; value: number | null }
-
-// (El estado comercial de operaciones por estado se deriva del snapshot: snap.opsByState.)
-
-// "Próximos 7 días": citas y tareas con fecha dentro de la ventana [hoy, hoy+6].
-// Solo bucketea registros que ya tienen fecha (sin inventar); los sin fecha o
-// fuera de ventana no cuentan. Funciona igual en demo (events con .date) y real
-// (events con .startAt). Cancelados excluidos.
-const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
-function buildNext7Days(
-  events: { startAt?: string | null; date?: string | null; status?: string | null }[],
-  openTasks: { due_date?: string | null }[],
-): WeekDay[] {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const counts = Array.from({ length: 7 }, () => ({ events: 0, tasks: 0 }))
-  const indexFor = (iso?: string | null) => {
-    if (!iso) return -1
-    const ms = Date.parse(iso)
-    if (Number.isNaN(ms)) return -1
-    const day = new Date(ms)
-    day.setHours(0, 0, 0, 0)
-    const diff = Math.round((day.getTime() - today.getTime()) / 86_400_000)
-    return diff >= 0 && diff < 7 ? diff : -1
-  }
-  for (const e of events) {
-    if (e.status === 'cancelled') continue
-    const i = indexFor(e.startAt ?? e.date)
-    if (i >= 0) counts[i].events += 1
-  }
-  for (const t of openTasks) {
-    const i = indexFor(t.due_date)
-    if (i >= 0) counts[i].tasks += 1
-  }
-  return counts.map((c, i) => {
-    const d = new Date(today)
-    d.setDate(today.getDate() + i)
-    const label = i === 0 ? 'Hoy' : WEEKDAY_LABELS[d.getDay()]
-    return {
-      label,
-      dayNum: d.getDate(),
-      events: c.events,
-      tasks: c.tasks,
-      tooltip: `${label} ${d.getDate()} · ${c.events} cita(s) · ${c.tasks} tarea(s)`,
-    }
-  })
-}
-
-function pickUrgentTask(
-  openTasks: { id: string; title: string; due_date?: string | null; client_name?: string | null; priority: string }[],
-): UrgentTask | null {
-  if (openTasks.length === 0) return null
-  const sorted = [...openTasks].sort((a, b) => {
-    const da = a.due_date ? Date.parse(a.due_date) : Number.POSITIVE_INFINITY
-    const db = b.due_date ? Date.parse(b.due_date) : Number.POSITIVE_INFINITY
-    return da - db
-  })
-  const t = sorted[0]
-  return { id: t.id, title: t.title, dueDate: t.due_date ?? undefined, clientName: t.client_name ?? undefined, priority: t.priority }
-}
-
-function pickReviewOp(openOpps: { id: string; title: string; stage: string; value: number | null }[]): ReviewOp | null {
-  if (openOpps.length === 0) return null
-  // La operación "a revisar" = la de mayor valor entre las operaciones abiertas (la que
-  // más mueve el negocio). Sin inventar nada: solo ordena lo que ya existe.
-  const sorted = [...openOpps].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-  const o = sorted[0]
-  return { id: o.id, title: o.title, stage: o.stage, value: o.value }
-}
-
-const activityIcons: Record<ActivityType, React.ReactNode> = {
-  deal: <Star className="h-3.5 w-3.5 text-indigo-600" />,
-  message: <MessageSquare className="h-3.5 w-3.5 text-blue-500" />,
-  email: <Mail className="h-3.5 w-3.5 text-violet-500" />,
-  call: <Phone className="h-3.5 w-3.5 text-emerald-500" />,
-  note: <FileText className="h-3.5 w-3.5 text-gray-500" />,
-}
-
-const activityBg: Record<ActivityType, string> = {
-  deal: 'bg-indigo-50',
-  message: 'bg-blue-50',
-  email: 'bg-violet-50',
-  call: 'bg-emerald-50',
-  note: 'bg-gray-100',
-}
-
-function formatEuro(value: number) {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value)
-}
-
-function formatDateShort(iso?: string | null) {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
-
-// Humaniza el texto técnico de actividades antiguas (logs internos) para que el feed parezca premium:
-// nada de "stage", "listed", "won/lost", inglés ni porcentajes de probabilidad legacy. Si no podemos
-// reconstruirlo de forma fiable, lo compactamos a una etiqueta clara ("Operación actualizada"…).
-const PROP_STATUS_ES: Record<string, string> = {
-  listed: 'Publicado', available: 'Disponible', prospecting: 'En preparación',
-  under_contract: 'Reservado', reserved: 'Reservado', sold: 'Vendido', rented: 'Alquilado', archived: 'Archivado',
-}
-const STAGE_ES: Record<string, string> = {
-  new: 'Nueva', contacted: 'En gestión', qualified: 'En gestión', visit_scheduled: 'En gestión',
-  negotiation: 'En gestión', proposal: 'En gestión', reserved: 'Reserva', won: 'Vendida', lost: 'Perdida',
-}
-const CASE_STATUS_ES: Record<string, string> = {
-  open: 'Abierto', documentation_pending: 'Pendiente de documentación', in_review: 'En revisión',
-  closed: 'Completado', resolved: 'Resuelto', cancelled: 'Cancelado',
-}
-function humanizeActivity(desc?: string | null): string {
-  let s = (desc ?? '').trim()
-  if (!s) return 'Actividad registrada'
-  // Patrón legacy de edición de operación: "Stage won · 390000€ · 10%"
-  const opEdit = s.match(/^stage\s+\w+\s*·\s*([\d.,]+)\s*€/i)
-  if (opEdit) {
-    const amt = Number(opEdit[1].replace(/[.,]/g, ''))
-    return Number.isFinite(amt) && amt > 0 ? `Operación actualizada · ${formatEuro(amt)}` : 'Operación actualizada'
-  }
-  // Patrón legacy de edición de inmueble: "piso · venta · Valencia · listed" → conservamos el
-  // contexto útil (tipo · operación · zona) y quitamos el estado técnico final en inglés.
-  if (s.includes('·') && /(listed|available|prospecting|under_contract|reserved|sold|rented|archived)\s*\.?$/i.test(s)) {
-    const parts = s.split('·').map((x) => x.trim()).filter(Boolean)
-    const kept = parts.slice(0, -1).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' · ')
-    return kept ? `Inmueble actualizado: ${kept}` : 'Inmueble actualizado'
-  }
-  // Reemplazos de tokens sueltos dentro de frases ("… pasa a etapa won." / "… pasa a archived.").
-  s = s.replace(/\betapa\s+(\w+)/gi, (_m, w: string) => STAGE_ES[w.toLowerCase()] ?? w)
-  s = s.replace(/\b(listed|available|prospecting|under_contract|reserved|sold|rented|archived)\b/gi, (w) => PROP_STATUS_ES[w.toLowerCase()] ?? w)
-  s = s.replace(/\b(documentation_pending|in_review|resolved|cancelled|closed|open)\b/gi, (w) => CASE_STATUS_ES[w.toLowerCase()] ?? w)
-  s = s.replace(/\b(won|lost|negotiation|contacted|qualified|proposal|visit_scheduled)\b/gi, (w) => STAGE_ES[w.toLowerCase()] ?? w)
-  // Quita "· NN%" (probabilidad legacy) y "Stage " sobrante.
-  s = s.replace(/\s*·\s*\d{1,3}\s*%/g, '').replace(/\bstage\s+/gi, '')
-  return s
-}
-
-// Textos de tooltips (control interno; sin facturación fiscal). Centralizados para mantener copy coherente.
-const PERIOD_HINTS: Record<PeriodKey, string> = {
-  month: 'Métricas cobradas y cerradas del mes actual.',
-  quarter: 'Acumulado del trimestre actual.',
-  semester: 'Acumulado del semestre actual.',
-  year: 'Acumulado del año actual.',
-  all: 'Histórico completo desde el inicio. La comisión cobrada es el total acumulado; cartera, pendiente y potencial reflejan el estado actual.',
-}
-const COMM_STATE_HINTS: Record<string, string> = {
-  new: 'Operación recién creada, sin gestión todavía.',
-  managing: 'Operación en gestión: contacto, visitas o negociación en curso.',
-  reserved: 'Operación con reserva en firme, pendiente de cierre.',
-  won: 'Operación cerrada: vendida o alquilada.',
-  lost: 'Operación perdida o descartada.',
-}
-
-type MetricTileProps = {
-  label: string
-  value: string
-  detail?: string
-  icon: React.ReactNode
-  href?: string
-  hint?: string
-  tone?: 'indigo' | 'emerald' | 'amber' | 'sky' | 'violet' | 'slate'
-}
-
-const TONE_STYLES: Record<NonNullable<MetricTileProps['tone']>, string> = {
-  indigo: 'bg-indigo-50 text-indigo-600 ring-indigo-100',
-  emerald: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
-  amber: 'bg-amber-50 text-amber-600 ring-amber-100',
-  sky: 'bg-sky-50 text-sky-600 ring-sky-100',
-  violet: 'bg-violet-50 text-violet-600 ring-violet-100',
-  slate: 'bg-gray-50 text-gray-600 ring-gray-100',
-}
-
-// Acento superior por tono: una línea fina de color que da más "presencia" a la
-// KPI card sin recargar (no fondo de color sólido).
-const TONE_BAR: Record<NonNullable<MetricTileProps['tone']>, string> = {
-  indigo: 'from-indigo-400 to-violet-400',
-  emerald: 'from-emerald-400 to-teal-400',
-  amber: 'from-amber-400 to-orange-400',
-  sky: 'from-sky-400 to-indigo-400',
-  violet: 'from-violet-400 to-fuchsia-400',
-  slate: 'from-gray-300 to-gray-400',
-}
-
-function MetricTile({ label, value, detail, icon, href, hint, tone = 'indigo' }: MetricTileProps) {
-  const inner = (
-    <div title={hint} className="group relative h-full overflow-hidden rounded-2xl border border-gray-200/70 bg-white px-4 py-3.5 shadow-sm shadow-gray-950/[0.03] transition-all hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-md hover:shadow-indigo-950/[0.05]">
-      <span className={cn('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r opacity-80', TONE_BAR[tone])} aria-hidden />
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-          <p className="mt-1 text-[1.7rem] font-bold leading-none tracking-tight text-gray-900">{value}</p>
-        </div>
-        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1', TONE_STYLES[tone])}>{icon}</div>
-      </div>
-      {detail && (
-        <p className="mt-1.5 truncate text-xs text-gray-500">{detail}</p>
-      )}
-    </div>
-  )
-
-  return href ? (
-    <Link href={href} className="block">
-      {inner}
-    </Link>
-  ) : (
-    inner
-  )
-}
-
-// Importe compacto para el funnel (€150k en vez de €150.000) — más legible en
-// poco espacio.
-function compactEuro(value: number) {
-  if (value >= 1000) return `€${Math.round(value / 1000)}k`
-  return `€${Math.round(value)}`
-}
-
-// Tile económico compacto con variación opcional (↑/↓ vs periodo anterior) y tooltip de fórmula.
-function EcoStat({ label, value, variation, hint, tone = 'gray' }: { label: string; value: string; variation?: number | null; hint?: string; tone?: 'emerald' | 'amber' | 'indigo' | 'gray' }) {
-  const tones: Record<string, string> = {
-    emerald: 'border-emerald-100 bg-emerald-50/50',
-    amber: 'border-amber-100 bg-amber-50/50',
-    indigo: 'border-indigo-100 bg-indigo-50/50',
-    gray: 'border-gray-100 bg-gray-50/50',
-  }
-  return (
-    <div className={cn('rounded-xl border px-2.5 py-2', tones[tone], hint && 'cursor-help')} title={hint}>
-      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-0.5 text-sm font-bold tabular-nums text-gray-900">{value}</p>
-      {variation != null && (
-        <p className={cn('text-[10px] font-semibold', variation >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
-          {variation >= 0 ? '↑' : '↓'} {Math.abs(variation)}% vs anterior
-        </p>
-      )}
-    </div>
-  )
-}
-
-// "Week rail": 7 tiles compactos (mini calendario) con recuento de citas y
-// tareas por día. Tiles clicables → calendario; resalta hoy y el siguiente día
-// con actividad. No usa barras altas → no queda vacío/feo cuando hay poco.
-function WeekRail({ days }: { days: WeekDay[] }) {
-  const nextActiveIdx = days.findIndex((d, i) => i > 0 && d.events + d.tasks > 0)
-  return (
-    <div className="grid grid-cols-7 gap-1.5">
-      {days.map((d, i) => {
-        const total = d.events + d.tasks
-        const isToday = i === 0
-        const isNextActive = i === nextActiveIdx
-        return (
-          <Link
-            key={`${d.label}-${i}`}
-            href="/calendar"
-            title={d.tooltip}
-            className={cn(
-              'group relative flex flex-col items-center gap-0.5 overflow-hidden rounded-xl border px-0.5 py-1.5 transition-all hover:-translate-y-0.5 hover:shadow-sm',
-              isToday ? 'border-indigo-200 bg-indigo-50/70'
-                : total > 0 ? 'border-gray-200 bg-white'
-                : 'border-gray-100 bg-gray-50/40',
-            )}
-          >
-            {total > 0 && !isToday && (
-              <span className={cn('absolute inset-x-0 top-0 h-0.5', isNextActive ? 'bg-indigo-400' : 'bg-gray-200')} aria-hidden />
-            )}
-            <span className={cn('text-[10px] font-semibold', isToday ? 'text-indigo-600' : 'text-gray-400')}>{d.label}</span>
-            <span className={cn('text-sm font-bold leading-none tabular-nums', isToday ? 'text-indigo-700' : 'text-gray-900')}>{d.dayNum}</span>
-            <div className="flex min-h-[22px] flex-col items-center justify-center gap-0.5">
-              {d.events > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-sky-600">
-                  <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />{d.events}
-                </span>
-              )}
-              {d.tasks > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-600">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{d.tasks}
-                </span>
-              )}
-              {total === 0 && <span className="text-[11px] leading-none text-gray-300">·</span>}
-            </div>
-          </Link>
-        )
-      })}
-    </div>
-  )
-}
-
+import {
+  activityBg,
+  activityIcons,
+  EcoStat,
+  MetricTile,
+  WeekRail,
+} from '@/features/dashboard/components'
+import {
+  buildNext7Days,
+  COMM_STATE_HINTS,
+  compactEuro,
+  formatDateShort,
+  formatEuro,
+  humanizeActivity,
+  PERIOD_HINTS,
+  pickReviewOp,
+  pickUrgentTask,
+  type RealStats,
+  type ReviewOp,
+  type UrgentTask,
+  type WeekDay,
+} from '@/features/dashboard/model'
 
 export default function DashboardPage() {
   const router = useRouter()
