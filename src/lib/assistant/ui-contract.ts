@@ -52,11 +52,42 @@ export type AssistantFindingUiState = {
   allowedUiActions: AssistantUiAction[]
 }
 
+// Bloques generales para respuestas de datos. W2 puede renderizarlos sin interpretar Markdown; los IDs
+// son referencias de navegación, no autorización (cada destino vuelve a validar sesión+RLS).
+export type AssistantEntityReference = {
+  entityType: string
+  entityId: string
+  label: string
+  subtitle?: string
+}
+
+export type AssistantTable = {
+  columns: Array<{ key: string; label: string; format?: 'text' | 'number' | 'currency' | 'date' | 'datetime' | 'status' }>
+  rows: Array<Record<string, string | number | boolean | null>>
+  truncated: boolean
+}
+
+export type AssistantFollowUpAction = {
+  label: string
+  prompt: string
+  kind: 'suggestion' | 'refine' | 'action'
+}
+
+export type AssistantNavigationTarget = {
+  module: string
+  entityType?: string
+  entityId?: string
+}
+
 export type AssistantUiPayload = {
   kind: AssistantUiMessageKind
   action?: AssistantActionUiState
   automation?: AssistantAutomationUiState
   findings?: AssistantFindingUiState[]
+  entities?: AssistantEntityReference[]
+  table?: AssistantTable
+  followUps?: AssistantFollowUpAction[]
+  navigationTarget?: AssistantNavigationTarget
 }
 
 const KINDS: ReadonlySet<string> = new Set(['text', 'explanation', 'data', 'summary', 'detail', 'action_preview', 'action_status', 'action_result', 'automation_preview', 'automation_status', 'automation_result', 'finding', 'partial', 'error'])
@@ -89,5 +120,25 @@ export function validateAssistantUi(ui: unknown): AssistantUiPayload | null {
       if (!['info', 'warning', 'critical'].includes(String(f.severity))) return null
     }
   }
+  if (u.entities) {
+    if (!Array.isArray(u.entities) || u.entities.length > 50) return null
+    if (!u.entities.every((e) => typeof e.entityType === 'string' && typeof e.entityId === 'string' && typeof e.label === 'string')) return null
+  }
+  if (u.table) {
+    if (!Array.isArray(u.table.columns) || !Array.isArray(u.table.rows) || u.table.columns.length > 20 || u.table.rows.length > 100) return null
+    if (!u.table.columns.every((c) => typeof c.key === 'string' && typeof c.label === 'string')) return null
+    if (!u.table.rows.every((row) => row && typeof row === 'object' && !Array.isArray(row))) return null
+    if (typeof u.table.truncated !== 'boolean') return null
+  }
+  if (u.followUps) {
+    if (!Array.isArray(u.followUps) || u.followUps.length > 6) return null
+    if (!u.followUps.every((f) => typeof f.label === 'string' && typeof f.prompt === 'string' && ['suggestion', 'refine', 'action'].includes(f.kind))) return null
+  }
+  if (u.navigationTarget) {
+    if (typeof u.navigationTarget.module !== 'string') return null
+    if (u.navigationTarget.entityId !== undefined && typeof u.navigationTarget.entityId !== 'string') return null
+  }
+  // Defensa transversal: ningún bloque UI puede transportar credenciales o tokens.
+  if (/"[^"\\]*(?:token|secret)[^"\\]*"\s*:/i.test(JSON.stringify(u))) return null
   return u
 }

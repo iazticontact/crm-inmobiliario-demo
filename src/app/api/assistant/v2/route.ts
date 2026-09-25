@@ -393,8 +393,13 @@ export async function POST(req: NextRequest) {
     // con atribución GENERAL_PLANNER (degraded). El ÚNICO caso que continúa a P71 es planner NO CONFIGURADO
     // (sin OPENAI_API_KEY) — estado equivalente a OFF, registrado explícitamente, jamás invisible.
     if (gspMode === 'on') {
-      const pa = await plannerAnswer({ supabase, workspaceId, message, convState })
+      const pa = await plannerAnswer({ supabase, workspaceId, message, convState, turnId })
       if (pa) {
+        // El planner ON comparte la memoria P71. Solo persiste referencias/capabilities; nunca snapshots
+        // de negocio. saveConversationState es fail-soft y conserva el aislamiento workspace+user+hilo.
+        if (threadId && pa.stateUpdate) {
+          await saveConversationState(supabase, { workspaceId, userId: user.id, threadId, state: applyStateUpdate(convState, pa.stateUpdate) })
+        }
         const src = pa.degraded ? 'general_planner_unavailable' : 'general_planner'
         logInvoke({ event: 'assistant.v2.invoke', workspaceResolved: true, openAiConfigured, model: `planner:${String(pa.observability.plannerModel ?? '?')}`, errorCode: null, agentErrorCode: null, hasPreparedAction: false, preparedActionType: null, source: src, toolCalls: (pa.observability.capabilities as string[]) ?? null, durationMs: Date.now() - start })
         return NextResponse.json({ ok: true, answer: pa.answer, debugSource: src, mode: 'planner', errorCode: null, toolCalls: (pa.observability.capabilities as string[]) ?? null, referencedClientId: null, referencedClientName: null, referencedList: pa.referencedList ?? null, referencedCalendarList: null, dataPreview: pa.referencedList ?? null, preparedAction: null, ui: null, assistantArchitecture: 'GENERAL_PLANNER', featureFlagState: gspMode })

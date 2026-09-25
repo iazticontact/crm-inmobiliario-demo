@@ -56,7 +56,7 @@ const LIST_CAP_TO_TYPE: Record<string, string> = {
 }
 
 export function toDiscourseRef(d: RichDiscourse): DiscourseRef {
-  return { activeEntities: d.activeEntities.map((e) => ({ type: e.type, label: e.label })), lastListed: d.lastListed ?? null }
+  return { activeEntities: d.activeEntities.map((e) => ({ type: e.type, label: e.label, id: e.id })), lastListed: d.lastListed ?? null }
 }
 
 // Qué tipo de entidad "pertenece" a cada módulo — para la supersession de foco (clase 4/5/6).
