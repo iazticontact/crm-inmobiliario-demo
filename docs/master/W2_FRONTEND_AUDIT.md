@@ -108,7 +108,7 @@ No existía ningún error boundary de ruta. Esta rama añade `src/app/(saas)/err
 - `Input` no está adoptado directamente por las páginas SaaS; predominan campos raw y helpers locales.
 - `SideDrawer`, `ConfirmDialog` y drawer de navegación no implementan focus trap ni restauración de foco.
 - Muchos formularios visuales no usan `<form>`, lo que reduce submit por teclado y semántica.
-- Las animaciones no tienen aún una política común `prefers-reduced-motion`.
+- El skeleton compartido respeta `prefers-reduced-motion`; queda pendiente extender la política a animaciones de interacción y loaders locales.
 - Las vistas calendario/pipeline requieren pruebas visuales reales en 320, 375, 768, 1024 y 1440 px.
 
 ## 7. Information architecture y navegación
@@ -169,6 +169,7 @@ No se ha modificado su contrato. La duplicidad `/billing` debe resolverse por de
 - Nuevo error boundary SaaS con reintento.
 - Fallbacks de carga completos para las 13 rutas SaaS, incluidos los segmentos secundarios.
 - Estados vacíos compartidos en hallazgos, facturación legacy y facturación PRO sin cambiar su lógica.
+- Skeleton compartido anunciable por lector de pantalla y sin pulso cuando el usuario reduce movimiento.
 
 ## 11. Validación
 
