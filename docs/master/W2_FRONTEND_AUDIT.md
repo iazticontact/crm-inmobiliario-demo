@@ -90,7 +90,7 @@ No existía ningún error boundary de ruta. Esta rama añade `src/app/(saas)/err
 
 ### Empty
 
-`EmptyState` existe, pero solo tres páginas lo importan. El resto duplica cajas dashed con copy y espaciado distintos. Debe estandarizarse por intención: `first-use`, `no-results`, `no-data-yet` y `filtered-empty`.
+`EmptyState` existía, pero solo tres páginas lo importaban. Esta rama migra tres duplicados equivalentes en hallazgos y facturación; quedan estados específicos por clasificar antes de generalizarlos. Debe estandarizarse por intención: `first-use`, `no-results`, `no-data-yet` y `filtered-empty`.
 
 ## 6. Accesibilidad y responsive
 
@@ -168,6 +168,7 @@ No se ha modificado su contrato. La duplicidad `/billing` debe resolverse por de
 - `Input` compartido asocia label y error correctamente.
 - Nuevo error boundary SaaS con reintento.
 - Fallbacks de carga completos para las 13 rutas SaaS, incluidos los segmentos secundarios.
+- Estados vacíos compartidos en hallazgos, facturación legacy y facturación PRO sin cambiar su lógica.
 
 ## 11. Validación
 

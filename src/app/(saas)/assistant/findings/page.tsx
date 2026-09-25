@@ -13,6 +13,7 @@ import { AlertTriangle, ArrowRight, Bot, CheckCircle, RefreshCw } from 'lucide-r
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
+import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
 import { useWorkspaceIdentity } from '@/components/WorkspaceIdentityProvider'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
@@ -209,18 +210,17 @@ export default function AssistantFindingsPage() {
       )}
 
       {!loading && !loadError && filtered.length === 0 && (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-gray-100 bg-white p-10 text-center shadow-sm">
-          <CheckCircle className="h-8 w-8 text-emerald-500" />
-          <p className="text-sm font-semibold text-gray-900">
-            {statusFilter === 'open' ? 'No hay incidencias abiertas con este filtro.' : 'No hay incidencias con este filtro.'}
-          </p>
-          <p className="text-xs text-gray-500">
-            Pide al Asistente «¿qué requiere atención?» para lanzar una auditoría en vivo, o activa una automatización diaria desde el chat.
-          </p>
-          <Link href="/assistant" className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
-            Ir al Asistente <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
+        <EmptyState
+          className="rounded-xl border border-gray-100 bg-white px-6 shadow-sm"
+          icon={<CheckCircle className="h-6 w-6 text-emerald-500" />}
+          title={statusFilter === 'open' ? 'No hay incidencias abiertas con este filtro.' : 'No hay incidencias con este filtro.'}
+          description="Pide al Asistente «¿qué requiere atención?» para lanzar una auditoría en vivo, o activa una automatización diaria desde el chat."
+          action={(
+            <Link href="/assistant" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+              Ir al Asistente <ArrowRight className="h-3 w-3" />
+            </Link>
+          )}
+        />
       )}
 
       {!loading && !loadError && filtered.length > 0 && (

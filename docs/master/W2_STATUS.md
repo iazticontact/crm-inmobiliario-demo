@@ -5,7 +5,7 @@
 - Rama: `w2/frontend-audit-foundation`
 - Base: `general-semantic-planner` en `6ea06e4`
 - Commit funcional remoto: `f8b6466989f5b54a18fb5a9b70b25b9c883ddb41`
-- Estado: dos unidades frontend validadas; trabajo incremental en curso
+- Estado: tres unidades frontend validadas; trabajo incremental en curso
 
 ## Persistencia
 
@@ -22,6 +22,7 @@
 - `Input` compartido con asociación accesible de label y error.
 - Error boundary común para el área SaaS.
 - Fallbacks de carga de ruta completos para los 13 segmentos SaaS.
+- Estados vacíos de hallazgos y facturación migrados al primitive compartido.
 
 ## Validación
 
@@ -37,4 +38,4 @@ El `fetch --all --prune` de 2026-09-25 no muestra ramas remotas nuevas de W1, W3
 
 ## Siguiente unidad segura
 
-Estandarizar el siguiente grupo de estados vacíos con `EmptyState`, empezando por rutas secundarias sin contratos telecom.
+Aplicar `prefers-reduced-motion` al skeleton compartido y revisar animaciones de carga reutilizables.

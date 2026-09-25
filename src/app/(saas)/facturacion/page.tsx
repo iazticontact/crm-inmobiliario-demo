@@ -23,6 +23,7 @@ import {
 import { InvoicePromptBuilder } from '@/components/invoicing/InvoicePromptBuilder'
 import { InvoiceEditor, type InvoiceEditorMode } from '@/components/invoicing/InvoiceEditor'
 import { InvoiceDashboard } from '@/components/invoicing/InvoiceDashboard'
+import { EmptyState } from '@/components/EmptyState'
 import type { InvoiceParseResult } from '@/lib/invoicing/invoice-parse'
 
 const STATUS_PILL: Record<InvoiceStatus, string> = {
@@ -520,16 +521,17 @@ export default function FacturacionPage() {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">{view === 'papelera' ? <Trash2 className="h-6 w-6" /> : view === 'todas' && !filtering ? <Sparkles className="h-6 w-6" /> : <FileText className="h-6 w-6" />}</div>
-          <h3 className="text-sm font-semibold text-gray-900">{filtering ? 'Sin resultados' : emptyCopy[view].title}</h3>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{filtering ? 'No hay facturas que coincidan con la búsqueda.' : emptyCopy[view].desc}</p>
-          {view === 'todas' && !filtering && (
-            <button onClick={openCreate} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800">
+        <EmptyState
+          className="rounded-2xl border border-dashed border-gray-200 bg-white px-6"
+          icon={view === 'papelera' ? <Trash2 className="h-6 w-6 text-indigo-600" /> : view === 'todas' && !filtering ? <Sparkles className="h-6 w-6 text-indigo-600" /> : <FileText className="h-6 w-6 text-indigo-600" />}
+          title={filtering ? 'Sin resultados' : emptyCopy[view].title}
+          description={filtering ? 'No hay facturas que coincidan con la búsqueda.' : emptyCopy[view].desc}
+          action={view === 'todas' && !filtering ? (
+            <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800">
               <Plus className="h-4 w-4" /> Nueva factura
             </button>
-          )}
-        </div>
+          ) : undefined}
+        />
       ) : (
         <ul className="space-y-2">
           {rows.map((r) => {

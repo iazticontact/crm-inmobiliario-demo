@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/Button'
 import { Badge } from '@/components/Badge'
 import { SectionCard } from '@/components/SectionCard'
+import { EmptyState } from '@/components/EmptyState'
 import { invoices as initialInvoices } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { DEMO_MODE_KEY } from '@/lib/current-user'
@@ -405,16 +406,18 @@ export default function BillingPage() {
 
                 {!loading && filteredInvoices.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-14 text-center">
-                      <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                        <DollarSign className="h-5 w-5" />
-                      </div>
-                      <p className="text-sm font-semibold text-gray-700">Todavía no hay facturas</p>
-                      <p className="mt-1 text-xs text-gray-400">Crea la primera factura para medir cobros reales del workspace.</p>
-                      <Button className="mt-4" size="sm" onClick={openCreateModal}>
-                        <Plus className="h-3.5 w-3.5" />
-                        Crear primera factura
-                      </Button>
+                    <td colSpan={7}>
+                      <EmptyState
+                        icon={<DollarSign className="h-5 w-5 text-indigo-600" />}
+                        title="Todavía no hay facturas"
+                        description="Crea la primera factura para medir cobros reales del workspace."
+                        action={(
+                          <Button size="sm" onClick={openCreateModal}>
+                            <Plus className="h-3.5 w-3.5" />
+                            Crear primera factura
+                          </Button>
+                        )}
+                      />
                     </td>
                   </tr>
                 )}
